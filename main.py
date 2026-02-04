@@ -3,7 +3,7 @@
 from datetime import datetime
 import sys
 import argparse
-import os
+import logging
 from typing import List
 
 from src.excel_manager import DynamicExcelManager
@@ -17,29 +17,55 @@ from src.utils import setup_logging, ExecutionReport
 
 def load_data_sources() -> List[ETFDataSource]:
     """加载并初始化数据源"""
-    sources = []
-    logger = setup_logging()
+    import yaml
 
-    # 1. AkShare数据源（默认）
+    logger = logging.getLogger('etf_updater')
+
+    # 读取配置文件
     try:
-        sources.append(AkShareSource())
-        logger.info("✓ AkShare数据源已加载")
+        with open('config.yaml', 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
     except Exception as e:
-        logger.warning(f"✗ AkShare数据源加载失败: {e}")
+        # 如果配置文件读取失败，使用默认配置
+        logger.warning(f"无法读取配置文件，使用默认AkShare数据源: {e}")
+        return [AkShareSource()]
 
-    # 2. Tushare数据源（需要token）
-    tushare_token = os.environ.get('TUSHARE_TOKEN')
-    if tushare_token:
+    sources = []
+    data_sources_config = config.get('data_sources', {})
+
+    # 按优先级排序并加载启用的数据源
+    enabled_sources = []
+    for name, cfg in data_sources_config.items():
+        if cfg.get('enabled', False):
+            enabled_sources.append((name, cfg.get('priority', 999)))
+
+    # 按优先级排序
+    enabled_sources.sort(key=lambda x: x[1])
+
+    logger.info(f"配置的数据源: {[name for name, _ in enabled_sources]}")
+
+    # 创建数据源实例
+    for name, _ in enabled_sources:
         try:
-            sources.append(TushareSource(token=tushare_token))
-            logger.info("✓ Tushare数据源已加载")
+            if name == 'akshare':
+                sources.append(AkShareSource())
+                logger.info(f"✓ 已加载数据源: AkShare (优先级: {data_sources_config[name].get('priority')})")
+            elif name == 'tushare':
+                token = data_sources_config['tushare'].get('token')
+                timeout = data_sources_config['tushare'].get('timeout', 10)
+                if not token:
+                    logger.warning(f"✗ Tushare数据源未配置token，跳过")
+                    continue
+                sources.append(TushareSource(token=token, timeout=timeout))
+                logger.info(f"✓ 已加载数据源: Tushare (优先级: {data_sources_config[name].get('priority')})")
+            # 可以在这里添加其他数据源
+            # elif name == 'eastmoney_scraper':
+            #     ...
         except Exception as e:
-            logger.warning(f"✗ Tushare数据源加载失败: {e}")
-    else:
-        logger.info("ℹ Tushare数据源未配置（需要设置TUSHARE_TOKEN环境变量）")
+            logger.warning(f"✗ 加载数据源 {name} 失败: {e}")
 
     if not sources:
-        raise RuntimeError("没有可用的数据源")
+        raise ValueError("没有启用的数据源！请在config.yaml中至少启用一个数据源。")
 
     return sources
 
