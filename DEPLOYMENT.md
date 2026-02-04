@@ -22,6 +22,29 @@ Streamlit Cloud (自动重新部署)
 
 ## 部署步骤
 
+### 0. 配置 Secrets（重要！）
+
+**在推送代码前，必须先配置 Tushare Token：**
+
+#### GitHub Secrets 配置
+
+1. 访问 `https://github.com/InfiniteLoop-luna/etf/settings/secrets/actions`
+2. 点击 "New repository secret"
+3. Name: `TUSHARE_TOKEN`
+4. Value: 你的 Tushare API token
+5. 点击 "Add secret"
+
+#### 本地配置
+
+1. 复制配置模板：
+
+   ```bash
+   cp config.yaml.template config.yaml
+   ```
+
+2. 编辑 config.yaml，填入你的 Tushare token
+3. config.yaml 已在 .gitignore 中，不会被提交到 GitHub
+
 ### 1. 推送代码到 GitHub
 
 ```bash
@@ -68,7 +91,22 @@ GitHub Actions 工作流已经创建在 `.github/workflows/update-data.yml`
    - Branch: `main`
    - Main file path: `app.py`
 
-4. **部署**
+4. **配置 Secrets（重要！）**
+
+   在部署前或部署后，必须配置 Tushare Token：
+
+   - 点击应用设置（Settings）
+   - 找到 "Secrets" 部分
+   - 点击 "Edit Secrets"
+   - 添加以下内容：
+
+   ```toml
+   TUSHARE_TOKEN = "your_tushare_token_here"
+   ```
+
+   - 点击 "Save"
+
+5. **部署**
    - 点击 "Deploy"
    - 等待部署完成（约 2-3 分钟）
    - 获得公开访问 URL: `https://your-app-name.streamlit.app`

@@ -18,6 +18,7 @@ from src.utils import setup_logging, ExecutionReport
 def load_data_sources() -> List[ETFDataSource]:
     """加载并初始化数据源"""
     import yaml
+    import os
 
     logger = logging.getLogger('etf_updater')
 
@@ -51,10 +52,11 @@ def load_data_sources() -> List[ETFDataSource]:
                 sources.append(AkShareSource())
                 logger.info(f"✓ 已加载数据源: AkShare (优先级: {data_sources_config[name].get('priority')})")
             elif name == 'tushare':
-                token = data_sources_config['tushare'].get('token')
+                # 优先从环境变量读取 token，其次从配置文件读取
+                token = os.environ.get('TUSHARE_TOKEN') or data_sources_config['tushare'].get('token')
                 timeout = data_sources_config['tushare'].get('timeout', 10)
                 if not token:
-                    logger.warning(f"✗ Tushare数据源未配置token，跳过")
+                    logger.warning(f"✗ Tushare数据源未配置token（需要环境变量 TUSHARE_TOKEN 或 config.yaml 中的 token），跳过")
                     continue
                 sources.append(TushareSource(token=token, timeout=timeout))
                 logger.info(f"✓ 已加载数据源: Tushare (优先级: {data_sources_config[name].get('priority')})")

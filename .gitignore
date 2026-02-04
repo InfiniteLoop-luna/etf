@@ -39,6 +39,9 @@ env/
 *.log
 logs/
 
+# Config with secrets
+config.yaml
+
 # OS
 .DS_Store
 Thumbs.db

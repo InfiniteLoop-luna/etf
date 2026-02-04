@@ -13,7 +13,7 @@ data_sources:
   tushare:
     enabled: true
     priority: 1
-    token: "4d026c77a385eb6a1caa3728ee0fa38efba646c44cd865ab7789c2be"  # 需要填写Tushare API token
+    token: ""  # 从环境变量 TUSHARE_TOKEN 读取，或在 Streamlit Cloud 的 Secrets 中配置
     timeout: 10
 
   eastmoney_scraper:
