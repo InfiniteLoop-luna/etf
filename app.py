@@ -178,11 +178,26 @@ def main():
     # 加载数据
     df = load_data(DATA_FILE)
 
+    # 验证数据
+    if df is None or len(df) == 0:
+        st.error("❌ 未能加载任何数据，请检查Excel文件")
+        st.stop()
+
+    # 显示数据加载信息
+    st.sidebar.success(f"✅ 已加载 {len(df)} 条数据记录")
+
     # 侧边栏 - 数据筛选
     st.sidebar.header("🔍 数据筛选")
 
     # 1. 指标选择器
     metric_types = sorted(df['metric_type'].unique())
+
+    # 检查是否有指标
+    if len(metric_types) == 0:
+        st.error("❌ 未检测到任何指标数据，请检查Excel文件格式")
+        st.info("Excel文件应包含section标题行，标题中应包含关键词：市值、份额、变动、申赎、比例、涨跌幅")
+        st.stop()
+
     selected_metric = st.sidebar.selectbox(
         "选择指标",
         options=metric_types,
@@ -195,7 +210,7 @@ def main():
     # 2. 智能ETF选择器
     # 检查是否有汇总数据且指标名称包含"总市值"
     has_aggregate = metric_df['is_aggregate'].any()
-    contains_total_market_value = '总市值' in selected_metric
+    contains_total_market_value = '总市值' in selected_metric if selected_metric else False
 
     selected_etfs = None
     if has_aggregate and contains_total_market_value:
