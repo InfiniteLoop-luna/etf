@@ -3,23 +3,45 @@
 from datetime import datetime
 import sys
 import argparse
+import os
 from typing import List
 
 from src.excel_manager import DynamicExcelManager
 from src.data_source_manager import DataSourceManager
 from src.data_sources.base import ETFDataSource
 from src.data_sources.akshare_source import AkShareSource
+from src.data_sources.tushare_source import TushareSource
 from src.exceptions import DataFetchError, ExcelUpdateError
 from src.utils import setup_logging, ExecutionReport
 
 
 def load_data_sources() -> List[ETFDataSource]:
     """加载并初始化数据源"""
-    # 目前只实现AkShare数据源
-    # 后续可以添加更多数据源
-    return [
-        AkShareSource()
-    ]
+    sources = []
+    logger = setup_logging()
+
+    # 1. AkShare数据源（默认）
+    try:
+        sources.append(AkShareSource())
+        logger.info("✓ AkShare数据源已加载")
+    except Exception as e:
+        logger.warning(f"✗ AkShare数据源加载失败: {e}")
+
+    # 2. Tushare数据源（需要token）
+    tushare_token = os.environ.get('TUSHARE_TOKEN')
+    if tushare_token:
+        try:
+            sources.append(TushareSource(token=tushare_token))
+            logger.info("✓ Tushare数据源已加载")
+        except Exception as e:
+            logger.warning(f"✗ Tushare数据源加载失败: {e}")
+    else:
+        logger.info("ℹ Tushare数据源未配置（需要设置TUSHARE_TOKEN环境变量）")
+
+    if not sources:
+        raise RuntimeError("没有可用的数据源")
+
+    return sources
 
 
 def main(target_date: str = None) -> int:
