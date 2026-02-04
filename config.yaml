@@ -6,14 +6,14 @@ excel_file: "主要ETF基金份额变动情况.xlsx"
 # 数据源配置（按优先级排序）
 data_sources:
   akshare:
-    enabled: true
-    priority: 1
+    enabled: false
+    priority: 2
     timeout: 10  # 秒
 
   tushare:
-    enabled: false
-    priority: 2
-    token: ""  # 需要填写Tushare API token
+    enabled: true
+    priority: 1
+    token: "4d026c77a385eb6a1caa3728ee0fa38efba646c44cd865ab7789c2be"  # 需要填写Tushare API token
     timeout: 10
 
   eastmoney_scraper:
