@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """ETF份额变动可视化 - Streamlit Web应用"""
 
+# Version: 2.0 - Fixed data_only issue for formula cells
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
