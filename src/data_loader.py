@@ -11,6 +11,7 @@ import logging
 CODE_COL = 1
 NAME_COL = 2
 DATA_START_COL = 3
+GLOBAL_DATE_ROW = 2  # 全局日期行，所有section共享同一个日期行
 
 
 def load_etf_data(file_path: str) -> pd.DataFrame:
@@ -88,8 +89,8 @@ def _detect_sections(ws) -> Dict[str, Dict]:
 
     Returns:
         Dict[section_name, section_info]
-        section_info包含: header_row, date_row, data_start, data_end
-        每个section都有自己的日期行
+        section_info包含: header_row, data_start, data_end
+        注意：所有section共享全局的GLOBAL_DATE_ROW
     """
     sections = {}
     keywords = ['市值', '份额', '变动', '申赎', '比例', '涨跌幅']
@@ -106,10 +107,8 @@ def _detect_sections(ws) -> Dict[str, Dict]:
 
             section_name = name_cell
             header_row = row_idx
-            # 日期行在header的下一行
-            date_row = row_idx + 1
-            # 数据从日期行的下一行开始
-            data_start = row_idx + 2
+            # 数据从header的下一行开始
+            data_start = row_idx + 1
 
             # 找到数据结束行（下一个section开始或文件结束）
             data_end = ws.max_row
@@ -127,7 +126,6 @@ def _detect_sections(ws) -> Dict[str, Dict]:
 
             sections[section_name] = {
                 'header_row': header_row,
-                'date_row': date_row,
                 'data_start': data_start,
                 'data_end': data_end
             }
@@ -142,22 +140,21 @@ def _parse_section(ws, section_name: str, section_info: Dict) -> List[Tuple]:
     Args:
         ws: openpyxl worksheet对象
         section_name: section名称（作为metric_type）
-        section_info: section信息（header_row, date_row, data_start, data_end）
+        section_info: section信息（header_row, data_start, data_end）
 
     Returns:
         List of tuples: (code, name, date, metric_type, value, is_aggregate)
     """
     logger = logging.getLogger(__name__)
     data = []
-    date_row = section_info['date_row']
     data_start = section_info['data_start']
     data_end = section_info['data_end']
 
-    # 从该section的日期行读取日期列表（从第3列开始）
+    # 从全局日期行读取日期列表（从第3列开始）
     dates = []
     col_idx = DATA_START_COL
     while col_idx <= ws.max_column:
-        date_val = ws.cell(date_row, col_idx).value
+        date_val = ws.cell(GLOBAL_DATE_ROW, col_idx).value
         if date_val is None:
             break
 
