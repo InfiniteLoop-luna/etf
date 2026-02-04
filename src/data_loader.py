@@ -28,9 +28,9 @@ def load_etf_data(file_path: str) -> pd.DataFrame:
     logger.info(f"开始加载Excel文件: {file_path}")
 
     # 加载工作簿
-    # 注意：使用data_only=False以便读取所有section的数据
-    # 计算型section包含公式，但基础数据section包含实际值
-    wb = openpyxl.load_workbook(file_path, data_only=False)
+    # 注意：使用data_only=True以便读取公式的计算结果
+    # 大部分section包含Excel公式，需要获取其计算后的数值
+    wb = openpyxl.load_workbook(file_path, data_only=True)
     ws = wb.active
 
     # 检测所有sections
@@ -107,7 +107,7 @@ def _detect_sections(ws) -> Dict[str, Dict]:
 
             section_name = name_cell
             header_row = row_idx
-            # 数据从header的下一行开始（跳过header本身）
+            # 数据从header的下一行开始
             data_start = row_idx + 1
 
             # 找到数据结束行（下一个section开始或文件结束）
