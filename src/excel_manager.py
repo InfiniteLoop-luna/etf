@@ -48,6 +48,17 @@ class DynamicExcelManager:
         sections = {}
         current_section = None
 
+        # 特殊处理第一个section（总市值）
+        # 第一行是标题行，第二行是日期行，第三行开始是数据
+        first_section_name = self.ws.cell(self.HEADER_ROW, self.DATA_START_COL).value
+        if first_section_name and isinstance(first_section_name, str):
+            current_section = Section(
+                name=first_section_name,
+                header_row=self.HEADER_ROW,
+                data_start=self.HEADER_ROW + 2,  # 跳过标题行和日期行
+                data_end=None
+            )
+
         for row_idx in range(1, self.ws.max_row + 1):
             if self._is_section_header(row_idx):
                 # 结束上一个section
@@ -105,15 +116,27 @@ class DynamicExcelManager:
 
     def find_or_create_date_column(self, target_date: str) -> int:
         """查找或创建日期列"""
+        from datetime import datetime
+
         # 在DATE_ROW查找日期
         for col in range(self.DATA_START_COL, self.ws.max_column + 1):
             date_val = self.ws.cell(self.DATE_ROW, col).value
-            if str(date_val) == target_date:
-                return col
+
+            # 处理datetime对象
+            if isinstance(date_val, datetime):
+                date_str = date_val.strftime('%Y-%m-%d')
+                if date_str == target_date:
+                    return col
+            # 处理字符串
+            elif isinstance(date_val, str):
+                if date_val == target_date:
+                    return col
 
         # 未找到，在最后添加新列
         new_col = self.ws.max_column + 1
-        self.ws.cell(self.DATE_ROW, new_col, target_date)
+        # 将日期作为datetime对象存储，保持与现有格式一致
+        date_obj = datetime.strptime(target_date, '%Y-%m-%d')
+        self.ws.cell(self.DATE_ROW, new_col, date_obj)
         self.logger.info(f"创建新日期列: {target_date} (列{new_col})")
         return new_col
 
