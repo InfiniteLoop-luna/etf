@@ -40,8 +40,9 @@ def load_etf_data(file_path: str) -> pd.DataFrame:
     # 解析所有sections
     all_data = []
     for section_name, section_info in sections.items():
-        logger.debug(f"解析section: {section_name}")
+        logger.info(f"解析section: {section_name}")
         section_data = _parse_section(ws, section_name, section_info)
+        logger.info(f"  -> 该section加载了 {len(section_data)} 条原始数据")
         all_data.extend(section_data)
 
     # 转换为DataFrame
@@ -52,10 +53,10 @@ def load_etf_data(file_path: str) -> pd.DataFrame:
 
     # 显示每个metric_type的原始数据量
     if len(df) > 0:
-        logger.debug("各指标原始数据量:")
+        logger.info("各指标原始数据量:")
         for metric in df['metric_type'].unique():
             count = len(df[df['metric_type'] == metric])
-            logger.debug(f"  {metric}: {count} 行")
+            logger.info(f"  {metric}: {count} 行")
 
     # 删除缺失值
     df = df.dropna()
@@ -95,6 +96,30 @@ def _detect_sections(ws) -> Dict[str, Dict]:
     sections = {}
     keywords = ['市值', '份额', '变动', '申赎', '比例', '涨跌幅']
 
+    # 特殊处理：第一个section（总市值）没有header，直接从第3行开始
+    # 检查第3行是否有ETF代码，如果有，说明存在这个特殊section
+    first_data_row = 3
+    if ws.cell(first_data_row, CODE_COL).value:
+        # 找到第一个section的结束行（遇到空行或下一个section header）
+        data_end = ws.max_row
+        for row_idx in range(first_data_row, ws.max_row + 1):
+            code_cell = ws.cell(row_idx, CODE_COL).value
+            name_cell = ws.cell(row_idx, NAME_COL).value
+
+            # 遇到空行或section header，说明第一个section结束
+            if (code_cell is None and name_cell is None) or \
+               (code_cell is None and name_cell and isinstance(name_cell, str) and
+                any(kw in name_cell for kw in keywords)):
+                data_end = row_idx - 1
+                break
+
+        sections['总市值'] = {
+            'header_row': None,  # 没有header行
+            'data_start': first_data_row,
+            'data_end': data_end
+        }
+
+    # 检测其他有header的sections
     for row_idx in range(1, ws.max_row + 1):
         code_cell = ws.cell(row_idx, CODE_COL).value
         name_cell = ws.cell(row_idx, NAME_COL).value

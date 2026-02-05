@@ -173,5 +173,17 @@ class DynamicExcelManager:
 
     def save(self):
         """保存Excel文件"""
+        # 设置标志，让Excel在打开时重新计算所有公式
+        # 这样可以确保公式的缓存值是最新的
+        self.wb.properties.calcMode = 'auto'
+
+        # 标记工作簿需要重新计算
+        if hasattr(self.ws, 'sheet_properties'):
+            self.ws.sheet_properties.enableFormatConditionsCalculation = True
+
         self.wb.save(self.file_path)
         self.logger.info(f"Excel文件已保存: {self.file_path}")
+        self.logger.warning(
+            "注意：公式的缓存值未更新。请在 Microsoft Excel 中打开文件，"
+            "按 F9 重新计算，然后保存，以更新所有公式的缓存值。"
+        )
