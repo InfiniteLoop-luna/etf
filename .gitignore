@@ -39,8 +39,8 @@ env/
 *.log
 logs/
 
-# Config with secrets
-config.yaml
+# Config with secrets (local overrides)
+config.yaml.local
 
 # OS
 .DS_Store
