@@ -209,6 +209,9 @@ def main():
     """主应用逻辑"""
     st.title("ETF份额变动可视化")
 
+    # 显示版本信息（用于验证部署）
+    st.caption("📌 Version 2.1 - Formula evaluation fix (2026-02-05)")
+
     # 加载数据
     df = load_data(DATA_FILE)
 
