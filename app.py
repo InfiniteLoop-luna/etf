@@ -266,13 +266,18 @@ def main():
     min_date = metric_df['date'].min().date()
     max_date = metric_df['date'].max().date()
 
-    date_range = st.sidebar.slider(
-        "选择日期范围",
-        min_value=min_date,
-        max_value=max_date,
-        value=(min_date, max_date),
-        format="YYYY-MM-DD"
-    )
+    # 检查是否只有一个日期
+    if min_date == max_date:
+        st.sidebar.info(f"📅 当前数据日期: {min_date}")
+        date_range = (min_date, max_date)
+    else:
+        date_range = st.sidebar.slider(
+            "选择日期范围",
+            min_value=min_date,
+            max_value=max_date,
+            value=(min_date, max_date),
+            format="YYYY-MM-DD"
+        )
 
     # 4. 图表类型选择
     st.sidebar.header("📊 图表设置")
