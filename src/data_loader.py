@@ -28,9 +28,9 @@ def load_etf_data(file_path: str) -> pd.DataFrame:
     logger.info(f"开始加载Excel文件: {file_path}")
 
     # 加载工作簿
-    # 注意：使用data_only=True以便读取公式的计算结果
-    # 大部分section包含Excel公式，需要获取其计算后的数值
-    wb = openpyxl.load_workbook(file_path, data_only=True)
+    # 使用data_only=False以便读取公式，然后手动评估
+    # 这样可以处理没有缓存值的公式单元格
+    wb = openpyxl.load_workbook(file_path, data_only=False)
     ws = wb.active
 
     # 检测所有sections
@@ -158,6 +158,87 @@ def _detect_sections(ws) -> Dict[str, Dict]:
     return sections
 
 
+def _evaluate_simple_formula(ws, formula: str, row: int, col: int):
+    """
+    评估简单的Excel公式（主要是SUM公式和单元格引用）
+
+    Args:
+        ws: worksheet对象
+        formula: 公式字符串（如 "=SUM(C3:C15)*22000/16000" 或 "=D34-C34"）
+        row: 当前单元格行号
+        col: 当前单元格列号
+
+    Returns:
+        计算结果，如果无法计算则返回None
+    """
+    import re
+
+    try:
+        # 移除开头的等号
+        formula = formula.lstrip('=')
+
+        # 处理单元格引用: A1, B2, etc.
+        cell_pattern = r'([A-Z]+)(\d+)'
+
+        def replace_cell_ref(match):
+            col_letter = match.group(1)
+            row_num = int(match.group(2))
+
+            # 获取单元格值
+            col_idx = openpyxl.utils.column_index_from_string(col_letter)
+            cell = ws.cell(row_num, col_idx)
+            cell_value = cell.value
+
+            # 如果单元格本身是公式，递归评估
+            if cell.data_type == 'f' and isinstance(cell_value, str):
+                cell_value = _evaluate_simple_formula(ws, cell_value, row_num, col_idx)
+
+            # 返回值
+            if cell_value is None:
+                return '0'
+            elif isinstance(cell_value, (int, float)):
+                return str(cell_value)
+            else:
+                return '0'
+
+        # 先处理SUM函数: SUM(C3:C15)
+        sum_pattern = r'SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)'
+
+        def replace_sum(match):
+            start_col = match.group(1)
+            start_row = int(match.group(2))
+            end_col = match.group(3)
+            end_row = int(match.group(4))
+
+            # 计算列号
+            start_col_idx = openpyxl.utils.column_index_from_string(start_col)
+            end_col_idx = openpyxl.utils.column_index_from_string(end_col)
+
+            # 求和
+            total = 0
+            for r in range(start_row, end_row + 1):
+                for c in range(start_col_idx, end_col_idx + 1):
+                    cell_value = ws.cell(r, c).value
+                    if cell_value is not None and isinstance(cell_value, (int, float)):
+                        total += cell_value
+
+            return str(total)
+
+        # 替换SUM函数
+        formula = re.sub(sum_pattern, replace_sum, formula, flags=re.IGNORECASE)
+
+        # 替换单元格引用
+        formula = re.sub(cell_pattern, replace_cell_ref, formula)
+
+        # 评估数学表达式
+        result = eval(formula)
+        return result
+
+    except Exception:
+        # 如果评估失败，返回None
+        return None
+
+
 def _parse_section(ws, section_name: str, section_info: Dict) -> List[Tuple]:
     """
     解析单个section的数据
@@ -221,7 +302,12 @@ def _parse_section(ws, section_name: str, section_info: Dict) -> List[Tuple]:
         # 读取该行的所有数据值
         for col_offset, date_str in enumerate(dates):
             col_idx = DATA_START_COL + col_offset
-            value = ws.cell(row_idx, col_idx).value
+            cell = ws.cell(row_idx, col_idx)
+            value = cell.value
+
+            # 如果是公式单元格，尝试评估公式
+            if cell.data_type == 'f' and value and isinstance(value, str):
+                value = _evaluate_simple_formula(ws, value, row_idx, col_idx)
 
             # 跳过空值
             if value is None:
