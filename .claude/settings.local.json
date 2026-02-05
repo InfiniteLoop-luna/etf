@@ -3,7 +3,22 @@
     "allow": [
       "Bash(pip install:*)",
       "Bash(python:*)",
-      "Bash(del:*)"
+      "Bash(del:*)",
+      "Bash(git rm:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(git rebase:*)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)",
+      "Bash(gh workflow:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(git check-ignore:*)",
+      "Bash(curl -X POST -H \"Accept: application/vnd.github.v3+json\" https://api.github.com/repos/InfiniteLoop-luna/etf/actions/workflows/update-data.yml/dispatches -d '{\"\"ref\"\":\"\"main\"\"}')",
+      "Bash(where:*)",
+      "Bash(git stash:*)"
     ]
   }
 }
