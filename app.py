@@ -52,7 +52,7 @@ def load_data(file_path: str) -> pd.DataFrame:
         st.stop()
 
 
-def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate: bool, selected_etfs: list = None) -> go.Figure:
+def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate: bool, selected_etfs: list = None, chart_type: str = 'line') -> go.Figure:
     """
     创建Plotly折线图
 
@@ -61,6 +61,7 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
         metric_name: 指标名称
         is_aggregate: 是否显示汇总数据
         selected_etfs: 选中的ETF列表（非汇总模式）
+        chart_type: 图表类型 ('line', 'area', 'scatter')
 
     Returns:
         Plotly Figure对象
@@ -71,27 +72,59 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
         # 单条线显示汇总数据
         agg_data = filtered_df[filtered_df['is_aggregate'] == True].sort_values('date')
         if len(agg_data) > 0:
-            fig.add_trace(go.Scatter(
-                x=agg_data['date'],
-                y=agg_data['value'],
-                mode='lines+markers',
-                name='所有ETF总和',
-                line=dict(width=3),
-                hovertemplate='<b>%{x|%Y-%m-%d}</b><br>%{y:.2f}<extra></extra>'
-            ))
+            if chart_type == 'area':
+                fig.add_trace(go.Scatter(
+                    x=agg_data['date'],
+                    y=agg_data['value'],
+                    mode='lines',
+                    name='所有ETF总和',
+                    fill='tozeroy',
+                    line=dict(width=2, shape='spline'),
+                    hovertemplate='<b>%{x|%Y-%m-%d}</b><br>%{y:.2f}<extra></extra>'
+                ))
+            else:
+                fig.add_trace(go.Scatter(
+                    x=agg_data['date'],
+                    y=agg_data['value'],
+                    mode='lines',
+                    name='所有ETF总和',
+                    line=dict(width=2, shape='spline'),
+                    hovertemplate='<b>%{x|%Y-%m-%d}</b><br>%{y:.2f}<extra></extra>'
+                ))
     else:
         # 多条线显示各个ETF
         if selected_etfs:
             for etf_name in selected_etfs:
                 etf_data = filtered_df[filtered_df['name'] == etf_name].sort_values('date')
                 if len(etf_data) > 0:
-                    fig.add_trace(go.Scatter(
-                        x=etf_data['date'],
-                        y=etf_data['value'],
-                        mode='lines+markers',
-                        name=etf_name,
-                        hovertemplate=f'<b>{etf_name}</b><br>%{{x|%Y-%m-%d}}<br>%{{y:.4f}}<extra></extra>'
-                    ))
+                    if chart_type == 'area':
+                        fig.add_trace(go.Scatter(
+                            x=etf_data['date'],
+                            y=etf_data['value'],
+                            mode='lines',
+                            name=etf_name,
+                            fill='tonexty',
+                            line=dict(width=1.5, shape='spline'),
+                            hovertemplate=f'<b>{etf_name}</b><br>%{{x|%Y-%m-%d}}<br>%{{y:.4f}}<extra></extra>'
+                        ))
+                    elif chart_type == 'scatter':
+                        fig.add_trace(go.Scatter(
+                            x=etf_data['date'],
+                            y=etf_data['value'],
+                            mode='markers',
+                            name=etf_name,
+                            marker=dict(size=6, opacity=0.7),
+                            hovertemplate=f'<b>{etf_name}</b><br>%{{x|%Y-%m-%d}}<br>%{{y:.4f}}<extra></extra>'
+                        ))
+                    else:  # line
+                        fig.add_trace(go.Scatter(
+                            x=etf_data['date'],
+                            y=etf_data['value'],
+                            mode='lines',
+                            name=etf_name,
+                            line=dict(width=1.5, shape='spline'),
+                            hovertemplate=f'<b>{etf_name}</b><br>%{{x|%Y-%m-%d}}<br>%{{y:.4f}}<extra></extra>'
+                        ))
 
     # 布局配置
     fig.update_layout(
@@ -241,6 +274,16 @@ def main():
         format="YYYY-MM-DD"
     )
 
+    # 4. 图表类型选择
+    st.sidebar.header("📊 图表设置")
+    chart_type = st.sidebar.radio(
+        "图表类型",
+        options=['line', 'area', 'scatter'],
+        format_func=lambda x: {'line': '📈 平滑曲线', 'area': '📊 面积图', 'scatter': '⚫ 散点图'}[x],
+        index=0,
+        help="平滑曲线：清晰的线条，适合查看趋势\n面积图：填充区域，适合对比数量\n散点图：仅显示数据点，适合查看离散数据"
+    )
+
     # 主区域 - 图表和统计信息
     # 筛选数据
     filtered_df = metric_df[
@@ -262,7 +305,7 @@ def main():
         st.stop()
 
     # 创建并显示图表
-    fig = create_line_chart(filtered_df, selected_metric, is_aggregate, selected_etfs)
+    fig = create_line_chart(filtered_df, selected_metric, is_aggregate, selected_etfs, chart_type)
     st.plotly_chart(fig, use_container_width=True)
 
     # 显示统计信息
