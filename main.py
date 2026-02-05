@@ -138,12 +138,17 @@ def main(target_date: str = None) -> int:
                 logger.exception(f"✗ {code} 更新时发生异常")
                 continue
 
-        # 6. 保存Excel
+        # 6. 重新计算所有公式
+        logger.info("正在重新计算公式...")
+        excel_manager.recalculate_formulas(date)
+        logger.info("✓ 公式计算完成")
+
+        # 7. 保存Excel
         logger.info("正在保存Excel文件...")
         excel_manager.save()
         logger.info("✓ Excel文件保存成功")
 
-        # 7. 打印报告
+        # 8. 打印报告
         report.print_summary()
 
         return 0 if not report.failed_etfs else 1

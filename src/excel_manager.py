@@ -164,6 +164,141 @@ class DynamicExcelManager:
                 f"更新 {code} {section.name}: {value}"
             )
 
+    def recalculate_formulas(self, date: str):
+        """
+        重新计算所有公式单元格的值
+
+        这个方法会读取"总市值"和"基金单位市值"的原始数据，
+        然后计算其他sections的公式值并更新缓存
+        """
+        col_idx = self.find_or_create_date_column(date)
+
+        # 获取所有ETF的总市值和单位市值数据
+        etf_data = {}  # {code: {'market_value': float, 'unit_price': float, 'name': str}}
+
+        # 从"总市值" section读取数据
+        market_value_section = None
+        for section in self.sections.values():
+            if '总市值' in section.name:
+                market_value_section = section
+                break
+
+        if market_value_section:
+            for row in range(market_value_section.data_start, market_value_section.data_end + 1):
+                code = self.ws.cell(row, self.CODE_COL).value
+                name = self.ws.cell(row, self.NAME_COL).value
+                market_value = self.ws.cell(row, col_idx).value
+
+                if code and market_value is not None:
+                    etf_data[code] = {
+                        'market_value': float(market_value),
+                        'name': name
+                    }
+
+        # 从"基金单位市值" section读取单位净值
+        for section in self.sections.values():
+            if '基金单位市值' in section.name:
+                for row in range(section.data_start, section.data_end + 1):
+                    code = self.ws.cell(row, self.CODE_COL).value
+                    unit_price = self.ws.cell(row, col_idx).value
+
+                    if code and code in etf_data and unit_price is not None:
+                        etf_data[code]['unit_price'] = float(unit_price)
+                break
+
+        # 计算并更新其他sections
+        for code, data in etf_data.items():
+            if 'unit_price' not in data:
+                continue
+
+            market_value = data['market_value']
+            unit_price = data['unit_price']
+
+            # 计算基金份额（亿份）= 总市值（亿元）/ 单位净值（元）
+            fund_share = market_value / unit_price if unit_price != 0 else 0
+
+            # 更新各个计算型section
+            for section in self.sections.values():
+                if section.is_data_section:
+                    continue  # 跳过原始数据section
+
+                row_idx = self._find_etf_row(code, section)
+                if row_idx is None:
+                    continue
+
+                # 根据section类型计算值
+                if '基金份额' in section.name and '变动' not in section.name:
+                    # 基金份额
+                    value = fund_share
+                elif '基金份额变动' in section.name and '比例' not in section.name:
+                    # 基金份额变动：需要前一天的数据
+                    prev_col = col_idx - 1
+                    if prev_col >= self.DATA_START_COL:
+                        prev_share_cell = self.ws.cell(row_idx, prev_col).value
+                        if prev_share_cell is not None:
+                            value = fund_share - float(prev_share_cell)
+                        else:
+                            value = None
+                    else:
+                        value = None
+                elif '申赎净额' in section.name:
+                    # 申赎净额：与份额变动相同
+                    prev_col = col_idx - 1
+                    if prev_col >= self.DATA_START_COL:
+                        prev_share_cell = self.ws.cell(row_idx, prev_col).value
+                        if prev_share_cell is not None:
+                            value = fund_share - float(prev_share_cell)
+                        else:
+                            value = None
+                    else:
+                        value = None
+                elif '份额变动比例' in section.name:
+                    # 份额变动比例
+                    prev_col = col_idx - 1
+                    if prev_col >= self.DATA_START_COL:
+                        prev_share_cell = self.ws.cell(row_idx, prev_col).value
+                        if prev_share_cell is not None and float(prev_share_cell) != 0:
+                            share_change = fund_share - float(prev_share_cell)
+                            value = (share_change / float(prev_share_cell)) * 100
+                        else:
+                            value = None
+                    else:
+                        value = None
+                elif '市值变动' in section.name:
+                    # 市值变动
+                    prev_col = col_idx - 1
+                    if prev_col >= self.DATA_START_COL:
+                        prev_mv_cell = self.ws.cell(row_idx, prev_col).value
+                        if prev_mv_cell is not None:
+                            value = market_value - float(prev_mv_cell)
+                        else:
+                            value = None
+                    else:
+                        value = None
+                elif '涨跌幅' in section.name:
+                    # 涨跌幅
+                    prev_col = col_idx - 1
+                    if prev_col >= self.DATA_START_COL:
+                        prev_price_cell = self.ws.cell(row_idx, prev_col).value
+                        if prev_price_cell is not None and float(prev_price_cell) != 0:
+                            price_change = unit_price - float(prev_price_cell)
+                            value = (price_change / float(prev_price_cell)) * 100
+                        else:
+                            value = None
+                    else:
+                        value = None
+                else:
+                    continue
+
+                # 更新单元格值
+                if value is not None:
+                    self.ws.cell(row_idx, col_idx, value)
+                    self.logger.debug(
+                        f"计算 {code} {section.name}: {value}"
+                    )
+
+        self.logger.info(f"已重新计算日期 {date} 的所有公式值")
+
     def _find_etf_row(self, code: str, section: Section) -> Optional[int]:
         """在指定section中查找ETF行"""
         for row in range(section.data_start, section.data_end + 1):
@@ -183,7 +318,3 @@ class DynamicExcelManager:
 
         self.wb.save(self.file_path)
         self.logger.info(f"Excel文件已保存: {self.file_path}")
-        self.logger.warning(
-            "注意：公式的缓存值未更新。请在 Microsoft Excel 中打开文件，"
-            "按 F9 重新计算，然后保存，以更新所有公式的缓存值。"
-        )
