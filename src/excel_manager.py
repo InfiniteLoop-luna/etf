@@ -43,6 +43,25 @@ class DynamicExcelManager:
         self.ws = self.wb.active
         self.sections = self._detect_sections()
 
+    def _safe_float(self, value) -> Optional[float]:
+        """安全地将单元格值转换为float，处理公式字符串的情况
+
+        Args:
+            value: 单元格值
+
+        Returns:
+            float值，如果是公式或无法转换则返回None
+        """
+        if value is None:
+            return None
+        # 如果是字符串且以'='开头，说明是公式，跳过
+        if isinstance(value, str) and value.startswith('='):
+            return None
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
     def _detect_sections(self) -> Dict[str, Section]:
         """动态扫描并识别所有section"""
         sections = {}
@@ -235,8 +254,9 @@ class DynamicExcelManager:
                     prev_col = col_idx - 1
                     if prev_col >= self.DATA_START_COL:
                         prev_share_cell = self.ws.cell(row_idx, prev_col).value
-                        if prev_share_cell is not None:
-                            value = fund_share - float(prev_share_cell)
+                        prev_share = self._safe_float(prev_share_cell)
+                        if prev_share is not None:
+                            value = fund_share - prev_share
                         else:
                             value = None
                     else:
@@ -246,8 +266,9 @@ class DynamicExcelManager:
                     prev_col = col_idx - 1
                     if prev_col >= self.DATA_START_COL:
                         prev_share_cell = self.ws.cell(row_idx, prev_col).value
-                        if prev_share_cell is not None:
-                            value = fund_share - float(prev_share_cell)
+                        prev_share = self._safe_float(prev_share_cell)
+                        if prev_share is not None:
+                            value = fund_share - prev_share
                         else:
                             value = None
                     else:
@@ -257,9 +278,10 @@ class DynamicExcelManager:
                     prev_col = col_idx - 1
                     if prev_col >= self.DATA_START_COL:
                         prev_share_cell = self.ws.cell(row_idx, prev_col).value
-                        if prev_share_cell is not None and float(prev_share_cell) != 0:
-                            share_change = fund_share - float(prev_share_cell)
-                            value = (share_change / float(prev_share_cell)) * 100
+                        prev_share = self._safe_float(prev_share_cell)
+                        if prev_share is not None and prev_share != 0:
+                            share_change = fund_share - prev_share
+                            value = (share_change / prev_share) * 100
                         else:
                             value = None
                     else:
@@ -269,8 +291,9 @@ class DynamicExcelManager:
                     prev_col = col_idx - 1
                     if prev_col >= self.DATA_START_COL:
                         prev_mv_cell = self.ws.cell(row_idx, prev_col).value
-                        if prev_mv_cell is not None:
-                            value = market_value - float(prev_mv_cell)
+                        prev_mv = self._safe_float(prev_mv_cell)
+                        if prev_mv is not None:
+                            value = market_value - prev_mv
                         else:
                             value = None
                     else:
@@ -280,9 +303,10 @@ class DynamicExcelManager:
                     prev_col = col_idx - 1
                     if prev_col >= self.DATA_START_COL:
                         prev_price_cell = self.ws.cell(row_idx, prev_col).value
-                        if prev_price_cell is not None and float(prev_price_cell) != 0:
-                            price_change = unit_price - float(prev_price_cell)
-                            value = (price_change / float(prev_price_cell)) * 100
+                        prev_price = self._safe_float(prev_price_cell)
+                        if prev_price is not None and prev_price != 0:
+                            price_change = unit_price - prev_price
+                            value = (price_change / prev_price) * 100
                         else:
                             value = None
                     else:
