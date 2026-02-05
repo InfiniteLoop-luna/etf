@@ -39,7 +39,8 @@ class DynamicExcelManager:
     def __init__(self, file_path: str):
         self.file_path = file_path
         self.logger = logging.getLogger(__name__)
-        self.wb = openpyxl.load_workbook(file_path)
+        # 使用 data_only=False 保留公式，keep_vba=True 保留宏
+        self.wb = openpyxl.load_workbook(file_path, keep_vba=True, data_only=False)
         self.ws = self.wb.active
         self.sections = self._detect_sections()
 

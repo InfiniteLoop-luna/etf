@@ -138,17 +138,17 @@ def main(target_date: str = None) -> int:
                 logger.exception(f"✗ {code} 更新时发生异常")
                 continue
 
-        # 6. 重新计算所有公式
-        logger.info("正在重新计算公式...")
-        excel_manager.recalculate_formulas(date)
-        logger.info("✓ 公式计算完成")
-
-        # 7. 保存Excel
+        # 6. 保存Excel
         logger.info("正在保存Excel文件...")
         excel_manager.save()
         logger.info("✓ Excel文件保存成功")
 
-        # 8. 打印报告
+        # 重要提示：公式需要手动重新计算
+        logger.warning("⚠️  重要：Excel 文件中的公式需要重新计算")
+        logger.warning("    请在 Microsoft Excel 中打开文件，按 F9 重新计算，然后保存")
+        logger.warning("    或者运行: python scripts/recalculate_excel.py")
+
+        # 7. 打印报告
         report.print_summary()
 
         return 0 if not report.failed_etfs else 1
