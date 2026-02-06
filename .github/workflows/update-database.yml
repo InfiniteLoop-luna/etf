@@ -1,0 +1,54 @@
+name: Update ETF Database Daily
+
+on:
+  schedule:
+    # 每天北京时间 18:00 运行 (UTC 10:00)
+    # 交易日收盘后更新数据
+    - cron: '0 10 * * *'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  update-database:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install psycopg2-binary
+
+    - name: Fetch latest ETF data
+      env:
+        TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+      run: |
+        echo "Fetching latest ETF data..."
+        python main.py
+
+    - name: Import data to database
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      run: |
+        echo "Importing data to PostgreSQL database..."
+        python scripts/update_database.py
+
+    - name: Verify database update
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      run: |
+        echo "Verifying database update..."
+        python scripts/verify_database.py
+
+    - name: Send notification on failure
+      if: failure()
+      run: |
+        echo "Database update failed! Please check the logs."
+        # 可以在这里添加邮件或其他通知方式
