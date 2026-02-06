@@ -26,12 +26,7 @@ jobs:
         pip install -r requirements.txt
         pip install psycopg2-binary
 
-    - name: Fetch latest ETF data
-      env:
-        TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-      run: |
-        echo "Fetching latest ETF data..."
-        python main.py
+
 
     - name: Import data to database
       env:
