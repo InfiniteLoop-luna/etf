@@ -269,6 +269,11 @@ def main():
     min_date = metric_df['date'].min().date()
     max_date = metric_df['date'].max().date()
 
+    # 默认结束日期为当前日期（但不超过数据的最大日期）
+    from datetime import date
+    today = date.today()
+    default_end_date = min(today, max_date)
+
     # 检查是否只有一个日期
     if min_date == max_date:
         st.sidebar.info(f"📅 当前数据日期: {min_date}")
@@ -278,7 +283,7 @@ def main():
             "选择日期范围",
             min_value=min_date,
             max_value=max_date,
-            value=(min_date, max_date),
+            value=(min_date, default_end_date),
             format="YYYY-MM-DD"
         )
 
