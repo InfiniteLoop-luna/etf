@@ -71,6 +71,6 @@ class ExecutionReport:
             for item in self.failed_etfs:
                 print(f"  - {item['code']}: {item['error']}")
         else:
-            print("✓ 所有ETF更新成功！")
+            print("OK: 所有ETF更新成功！")
 
         print(f"{'='*60}\n")

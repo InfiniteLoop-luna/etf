@@ -45,3 +45,20 @@ config.yaml.local
 # OS
 .DS_Store
 Thumbs.db
+
+# Excel data and backups
+*.xlsx
+!主要ETF基金份额变动情况.org.xlsx
+
+# Test and debug scripts
+check_*.py
+test_*.py
+verify_*.py
+compare_*.py
+fix_*.py
+find_*.py
+create_*.py
+restore_*.py
+safe_*.py
+quick_*.py
+full_*.py

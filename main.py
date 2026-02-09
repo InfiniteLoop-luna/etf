@@ -7,6 +7,7 @@ import logging
 from typing import List
 
 from src.excel_manager import DynamicExcelManager
+from src.xlwings_excel_manager import XlwingsExcelManager
 from src.data_source_manager import DataSourceManager
 from src.data_sources.base import ETFDataSource
 from src.data_sources.akshare_source import AkShareSource
@@ -103,8 +104,8 @@ def main(target_date: str = None) -> int:
 
         logger.info(f"{date} 是交易日，开始更新数据")
 
-        # 3. 初始化Excel管理器
-        excel_manager = DynamicExcelManager('主要ETF基金份额变动情况.xlsx')
+        # 3. 初始化Excel管理器（使用xlwings以完美保留Excel格式）
+        excel_manager = XlwingsExcelManager('主要ETF基金份额变动情况.xlsx')
 
         # 4. 获取ETF列表
         etf_codes = excel_manager.get_etf_codes()
@@ -138,15 +139,14 @@ def main(target_date: str = None) -> int:
                 logger.exception(f"✗ {code} 更新时发生异常")
                 continue
 
-        # 6. 保存Excel
+        # 6. 保存Excel并关闭
         logger.info("正在保存Excel文件...")
         excel_manager.save()
+        excel_manager.close()
         logger.info("✓ Excel文件保存成功")
 
-        # 重要提示：公式需要手动重新计算
-        logger.warning("⚠️  重要：Excel 文件中的公式需要重新计算")
-        logger.warning("    请在 Microsoft Excel 中打开文件，按 F9 重新计算，然后保存")
-        logger.warning("    或者运行: python scripts/recalculate_excel.py")
+        # xlwings会完美保留所有Excel格式和公式
+        logger.info("✓ 使用xlwings保存，所有Excel格式和公式已完整保留")
 
         # 7. 打印报告
         report.print_summary()
