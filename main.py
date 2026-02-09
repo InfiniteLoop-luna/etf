@@ -104,8 +104,17 @@ def main(target_date: str = None) -> int:
 
         logger.info(f"{date} 是交易日，开始更新数据")
 
-        # 3. 初始化Excel管理器（使用xlwings以完美保留Excel格式）
-        excel_manager = XlwingsExcelManager('主要ETF基金份额变动情况.xlsx')
+        # 3. 初始化Excel管理器
+        # 在CI环境使用openpyxl，本地使用xlwings以完美保留Excel格式
+        import os
+        is_ci = os.environ.get('CI') == 'true' or os.environ.get('GITHUB_ACTIONS') == 'true'
+
+        if is_ci:
+            logger.info("检测到CI环境，使用openpyxl管理器")
+            excel_manager = DynamicExcelManager('主要ETF基金份额变动情况.xlsx')
+        else:
+            logger.info("使用xlwings管理器以完美保留Excel格式")
+            excel_manager = XlwingsExcelManager('主要ETF基金份额变动情况.xlsx')
 
         # 4. 获取ETF列表
         etf_codes = excel_manager.get_etf_codes()
@@ -145,8 +154,9 @@ def main(target_date: str = None) -> int:
         excel_manager.close()
         logger.info("✓ Excel文件保存成功")
 
-        # xlwings会完美保留所有Excel格式和公式
-        logger.info("✓ 使用xlwings保存，所有Excel格式和公式已完整保留")
+        if not is_ci:
+            # xlwings会完美保留所有Excel格式和公式
+            logger.info("✓ 使用xlwings保存，所有Excel格式和公式已完整保留")
 
         # 7. 打印报告
         report.print_summary()
