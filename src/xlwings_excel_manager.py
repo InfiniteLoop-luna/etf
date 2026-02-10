@@ -3,7 +3,7 @@
 import xlwings as xw
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 
 class XlwingsExcelManager:
@@ -62,6 +62,107 @@ class XlwingsExcelManager:
 
         self.logger.info(f"找到 {len(codes)} 个ETF代码")
         return codes
+
+    def get_etf_name(self, code: str) -> Optional[str]:
+        """获取ETF名称"""
+        row = 3
+        while True:
+            cell_code = self.ws.range(f'A{row}').value
+            if cell_code is None:
+                break
+
+            if str(cell_code).strip() == code:
+                name = self.ws.range(f'B{row}').value
+                return name
+
+            row += 1
+
+            # 检查是否到达section分隔符
+            name_cell = self.ws.range(f'B{row}').value
+            if name_cell and '市值' in str(name_cell):
+                break
+
+        return None
+
+    def get_previous_day_data(self, code: str, date: str) -> Optional[Dict[str, float]]:
+        """获取前一天的数据"""
+        col_idx = None
+        # 查找当前日期列
+        col = self.DATA_START_COL
+        max_col = self.ws.used_range.last_cell.column
+
+        while col <= max_col:
+            date_val = self.ws.range((self.DATE_ROW, col)).value
+
+            # 处理datetime对象
+            if isinstance(date_val, datetime):
+                date_str = date_val.strftime('%Y-%m-%d')
+                if date_str == date:
+                    col_idx = col
+                    break
+            # 处理字符串
+            elif isinstance(date_val, str):
+                if date_val == date:
+                    col_idx = col
+                    break
+
+            col += 1
+
+        if col_idx is None or col_idx <= self.DATA_START_COL:
+            return None
+
+        # 前一列就是前一天
+        prev_col = col_idx - 1
+
+        # 获取总市值
+        market_value = None
+        row = 3
+        while True:
+            cell_code = self.ws.range(f'A{row}').value
+            if cell_code is None:
+                break
+
+            if str(cell_code).strip() == code:
+                market_value = self.ws.range((row, prev_col)).value
+                break
+
+            row += 1
+
+            # 检查是否到达section分隔符
+            name_cell = self.ws.range(f'B{row}').value
+            if name_cell and '市值' in str(name_cell):
+                break
+
+        # 获取单位净值
+        unit_price = None
+        row = 3
+        in_unit_section = False
+
+        while row < 1000:
+            name_cell = self.ws.range(f'B{row}').value
+            if name_cell and '基金单位市值' in str(name_cell):
+                in_unit_section = True
+                row += 1
+                continue
+
+            if in_unit_section:
+                cell_code = self.ws.range(f'A{row}').value
+                if cell_code is None or (isinstance(cell_code, str) and '市值' in cell_code):
+                    break
+
+                if str(cell_code).strip() == code:
+                    unit_price = self.ws.range((row, prev_col)).value
+                    break
+
+            row += 1
+
+        if market_value is not None and unit_price is not None:
+            return {
+                'market_value': float(market_value),
+                'unit_price': float(unit_price)
+            }
+
+        return None
 
     def find_or_create_date_column(self, target_date: str) -> int:
         """查找或创建日期列"""

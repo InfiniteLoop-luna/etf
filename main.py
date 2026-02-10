@@ -125,8 +125,14 @@ def main(target_date: str = None) -> int:
             try:
                 logger.info(f"[{idx}/{len(etf_codes)}] 正在获取 {code} 的数据...")
 
+                # 获取ETF名称
+                etf_name = excel_manager.get_etf_name(code)
+
                 # 获取数据
                 data = source_manager.fetch_data(code, date)
+
+                # 获取前一天的数据
+                prev_data = excel_manager.get_previous_day_data(code, date)
 
                 # 更新Excel
                 excel_manager.update_data(
@@ -136,7 +142,16 @@ def main(target_date: str = None) -> int:
                     unit_price=data['unit_price']
                 )
 
-                report.add_success(code)
+                # 记录成功，包含详细信息
+                report.add_success(
+                    code=code,
+                    name=etf_name,
+                    date=date,
+                    market_value=data['market_value'],
+                    unit_price=data['unit_price'],
+                    prev_market_value=prev_data['market_value'] if prev_data else None,
+                    prev_unit_price=prev_data['unit_price'] if prev_data else None
+                )
                 logger.info(f"✓ {code} 更新成功")
 
             except DataFetchError as e:

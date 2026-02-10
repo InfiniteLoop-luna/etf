@@ -134,6 +134,77 @@ class DynamicExcelManager:
 
         return codes
 
+    def get_etf_name(self, code: str) -> Optional[str]:
+        """获取ETF名称"""
+        # 找到第一个数据section
+        data_section = next(
+            (s for s in self.sections.values() if s.is_data_section),
+            None
+        )
+
+        if not data_section:
+            return None
+
+        for row in range(data_section.data_start, data_section.data_end + 1):
+            if self.ws.cell(row, self.CODE_COL).value == code:
+                return self.ws.cell(row, self.NAME_COL).value
+
+        return None
+
+    def get_previous_day_data(self, code: str, date: str) -> Optional[Dict[str, float]]:
+        """获取前一天的数据"""
+        from datetime import datetime
+
+        col_idx = None
+        # 查找当前日期列
+        for col in range(self.DATA_START_COL, self.ws.max_column + 1):
+            date_val = self.ws.cell(self.DATE_ROW, col).value
+
+            # 处理datetime对象
+            if isinstance(date_val, datetime):
+                date_str = date_val.strftime('%Y-%m-%d')
+                if date_str == date:
+                    col_idx = col
+                    break
+            # 处理字符串
+            elif isinstance(date_val, str):
+                if date_val == date:
+                    col_idx = col
+                    break
+
+        if col_idx is None or col_idx <= self.DATA_START_COL:
+            return None
+
+        # 前一列就是前一天
+        prev_col = col_idx - 1
+
+        # 获取总市值和单位净值
+        market_value = None
+        unit_price = None
+
+        for section in self.sections.values():
+            if not section.is_data_section:
+                continue
+
+            row_idx = self._find_etf_row(code, section)
+            if row_idx is None:
+                continue
+
+            value = self._safe_float(self.ws.cell(row_idx, prev_col).value)
+            if value is not None:
+                if '总市值' in section.name:
+                    market_value = value
+                elif '基金单位市值' in section.name:
+                    unit_price = value
+
+        if market_value is not None and unit_price is not None:
+            return {
+                'market_value': market_value,
+                'unit_price': unit_price
+            }
+
+        return None
+
     def find_or_create_date_column(self, target_date: str) -> int:
         """查找或创建日期列"""
         from datetime import datetime
