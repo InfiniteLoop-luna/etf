@@ -244,6 +244,19 @@ def main():
     # 显示版本信息（用于验证部署）
     st.caption("📌 Version 2.1 - Formula evaluation fix (2026-02-05)")
 
+    # 显示最后更新时间
+    try:
+        import json
+        import os
+        if os.path.exists('last_update.json'):
+            with open('last_update.json', 'r') as f:
+                update_info = json.load(f)
+                update_date = update_info.get('update_date', '未知')
+                last_update = update_info.get('last_update', '未知')
+                st.info(f"📅 数据最后更新: {update_date} (GitHub Action 执行时间: {last_update})")
+    except Exception as e:
+        pass  # 如果文件不存在或读取失败，不显示更新时间
+
     # 加载数据
     df = load_data(DATA_FILE)
 
