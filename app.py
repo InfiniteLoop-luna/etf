@@ -144,7 +144,7 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
 
 def calculate_statistics(filtered_df: pd.DataFrame, is_aggregate: bool, selected_etfs: list = None) -> pd.DataFrame:
     """
-    计算统计信息
+    计算统计信息 - 显示最新日期和前一天的数据对比
 
     Args:
         filtered_df: 筛选后的DataFrame
@@ -159,20 +159,35 @@ def calculate_statistics(filtered_df: pd.DataFrame, is_aggregate: bool, selected
     if is_aggregate:
         # 计算汇总数据的统计信息
         agg_data = filtered_df[filtered_df['is_aggregate'] == True].sort_values('date')
-        if len(agg_data) > 0:
-            start_value = agg_data.iloc[0]['value']
-            end_value = agg_data.iloc[-1]['value']
-            max_value = agg_data['value'].max()
-            min_value = agg_data['value'].min()
-            change_pct = ((end_value - start_value) / start_value * 100) if start_value != 0 else 0
+        if len(agg_data) >= 2:
+            # 获取最新日期和前一天的数据
+            latest_date = agg_data.iloc[-1]['date']
+            latest_value = agg_data.iloc[-1]['value']
+            prev_value = agg_data.iloc[-2]['value']
+
+            change = latest_value - prev_value
+            change_pct = (change / prev_value * 100) if prev_value != 0 else 0
 
             stats_list.append({
                 'ETF名称': '所有ETF总和',
-                '期初值': f'{start_value:.2f}',
-                '期末值': f'{end_value:.2f}',
-                '涨跌幅': f'{change_pct:+.2f}%',
-                '最大值': f'{max_value:.2f}',
-                '最小值': f'{min_value:.2f}'
+                '最新日期': latest_date.strftime('%Y-%m-%d'),
+                '当日数据': f'{latest_value:.2f}',
+                '前日数据': f'{prev_value:.2f}',
+                '变动': f'{change:+.2f}',
+                '变动幅度': f'{change_pct:+.2f}%'
+            })
+        elif len(agg_data) == 1:
+            # 只有一天的数据
+            latest_date = agg_data.iloc[-1]['date']
+            latest_value = agg_data.iloc[-1]['value']
+
+            stats_list.append({
+                'ETF名称': '所有ETF总和',
+                '最新日期': latest_date.strftime('%Y-%m-%d'),
+                '当日数据': f'{latest_value:.2f}',
+                '前日数据': '-',
+                '变动': '-',
+                '变动幅度': '-'
             })
     else:
         # 计算各个ETF的统计信息
@@ -183,23 +198,40 @@ def calculate_statistics(filtered_df: pd.DataFrame, is_aggregate: bool, selected
                 if len(etf_data) == 0:
                     continue
 
-                start_value = etf_data.iloc[0]['value']
-                end_value = etf_data.iloc[-1]['value']
-                max_value = etf_data['value'].max()
-                min_value = etf_data['value'].min()
-                change_pct = ((end_value - start_value) / start_value * 100) if start_value != 0 else 0
-
                 # 根据数值大小确定小数位数
-                decimals = 2 if start_value > 100 else 4
+                sample_value = etf_data.iloc[-1]['value']
+                decimals = 2 if sample_value > 100 else 4
 
-                stats_list.append({
-                    'ETF名称': etf_name,
-                    '期初值': f'{start_value:.{decimals}f}',
-                    '期末值': f'{end_value:.{decimals}f}',
-                    '涨跌幅': f'{change_pct:+.2f}%',
-                    '最大值': f'{max_value:.{decimals}f}',
-                    '最小值': f'{min_value:.{decimals}f}'
-                })
+                if len(etf_data) >= 2:
+                    # 获取最新日期和前一天的数据
+                    latest_date = etf_data.iloc[-1]['date']
+                    latest_value = etf_data.iloc[-1]['value']
+                    prev_value = etf_data.iloc[-2]['value']
+
+                    change = latest_value - prev_value
+                    change_pct = (change / prev_value * 100) if prev_value != 0 else 0
+
+                    stats_list.append({
+                        'ETF名称': etf_name,
+                        '最新日期': latest_date.strftime('%Y-%m-%d'),
+                        '当日数据': f'{latest_value:.{decimals}f}',
+                        '前日数据': f'{prev_value:.{decimals}f}',
+                        '变动': f'{change:+.{decimals}f}',
+                        '变动幅度': f'{change_pct:+.2f}%'
+                    })
+                else:
+                    # 只有一天的数据
+                    latest_date = etf_data.iloc[-1]['date']
+                    latest_value = etf_data.iloc[-1]['value']
+
+                    stats_list.append({
+                        'ETF名称': etf_name,
+                        '最新日期': latest_date.strftime('%Y-%m-%d'),
+                        '当日数据': f'{latest_value:.{decimals}f}',
+                        '前日数据': '-',
+                        '变动': '-',
+                        '变动幅度': '-'
+                    })
 
     return pd.DataFrame(stats_list)
 
@@ -322,7 +354,8 @@ def main():
     st.plotly_chart(fig, use_container_width=True)
 
     # 显示统计信息
-    st.subheader("📈 统计信息")
+    st.subheader("📊 最新数据对比")
+    st.caption("显示选定日期范围内最新一天与前一天的数据对比")
     stats_df = calculate_statistics(filtered_df, is_aggregate, selected_etfs)
 
     if len(stats_df) > 0:
