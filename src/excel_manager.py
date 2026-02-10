@@ -343,3 +343,9 @@ class DynamicExcelManager:
 
         self.wb.save(self.file_path)
         self.logger.info(f"Excel文件已保存: {self.file_path}")
+
+    def close(self):
+        """关闭工作簿（openpyxl不需要显式关闭，此方法用于API兼容性）"""
+        # openpyxl不需要显式关闭文件，因为它在加载时就已经读取到内存中
+        # 这个方法只是为了与XlwingsExcelManager保持API一致
+        pass
