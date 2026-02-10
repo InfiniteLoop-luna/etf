@@ -317,9 +317,9 @@ def main():
         st.sidebar.info("📊 当前显示所有ETF的总和")
         selected_etfs = None
     else:
-        # 显示多选框，默认选择前3个ETF
+        # 显示多选框，默认选择所有ETF
         etf_names = sorted(metric_df[metric_df['is_aggregate'] == False]['name'].unique())
-        default_etfs = etf_names[:3] if len(etf_names) >= 3 else etf_names
+        default_etfs = etf_names
 
         selected_etfs = st.sidebar.multiselect(
             "选择ETF",
