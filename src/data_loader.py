@@ -293,11 +293,16 @@ def _parse_section(ws, section_name: str, section_info: Dict) -> List[Tuple]:
 
         # 检查是否为汇总行
         is_aggregate = False
+        display_name = name
         if name and isinstance(name, str):
             aggregate_keywords = ['总计', '合计', '总和']
             if any(kw in name for kw in aggregate_keywords):
                 is_aggregate = True
                 code = 'ALL'  # 汇总行使用特殊代码
+            else:
+                # 对于非汇总行，在名称前添加代码以区分同名ETF
+                if code:
+                    display_name = f"{code} - {name}"
 
         # 读取该行的所有数据值
         for col_offset, date_str in enumerate(dates):
@@ -316,7 +321,7 @@ def _parse_section(ws, section_name: str, section_info: Dict) -> List[Tuple]:
             # 添加数据记录
             data.append((
                 code,
-                name,
+                display_name,
                 date_str,
                 section_name,
                 value,
