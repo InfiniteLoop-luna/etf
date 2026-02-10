@@ -198,7 +198,7 @@ def draw_metric_card(title: str, value: str, delta: str, delta_pct: str = None) 
     Returns:
         HTML字符串
     """
-    # 判断涨跌
+    # 判断涨跌（中国股市标准：红涨绿跌）
     is_positive = delta.startswith('+') if delta != '-' else None
 
     if is_positive is None:
@@ -206,10 +206,10 @@ def draw_metric_card(title: str, value: str, delta: str, delta_pct: str = None) 
         color = "#64748B"
     elif is_positive:
         arrow = "↑"
-        color = "#10B981"
+        color = "#EF4444"  # 红色表示上涨
     else:
         arrow = "↓"
-        color = "#EF4444"
+        color = "#10B981"  # 绿色表示下跌
 
     delta_display = f"{arrow} {delta}" if delta != '-' else '-'
     if delta_pct and delta_pct != '-':
