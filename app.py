@@ -23,6 +23,139 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# 自定义CSS样式 - 金融专业风格
+st.markdown("""
+<style>
+    /* 导入专业字体 */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    /* 全局字体设置 */
+    html, body, [class*="css"] {
+        font-family: 'Inter', 'PingFang SC', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    /* 隐藏Streamlit默认元素 */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+
+    /* 深色专业侧边栏 */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%);
+        padding: 2rem 1rem;
+    }
+
+    [data-testid="stSidebar"] * {
+        color: #E2E8F0 !important;
+    }
+
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3 {
+        color: #F8FAFC !important;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+    }
+
+    /* 侧边栏标签样式 */
+    [data-testid="stSidebar"] label {
+        color: #CBD5E1 !important;
+        font-weight: 500;
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    /* Multiselect标签美化 */
+    [data-testid="stSidebar"] [data-baseweb="tag"] {
+        background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%) !important;
+        border-radius: 6px !important;
+        padding: 4px 10px !important;
+        margin: 2px !important;
+        border: none !important;
+        box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+    }
+
+    [data-testid="stSidebar"] [data-baseweb="tag"] span {
+        color: #FFFFFF !important;
+        font-weight: 500;
+    }
+
+    /* 主内容区域 */
+    .main .block-container {
+        padding: 2rem 3rem;
+        max-width: 1400px;
+    }
+
+    /* 卡片式容器 */
+    .stPlotlyChart {
+        background: white;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+        margin: 1rem 0;
+        transition: box-shadow 0.3s ease;
+    }
+
+    .stPlotlyChart:hover {
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+    }
+
+    /* 数据表格样式 */
+    [data-testid="stDataFrame"] {
+        background: white;
+        border-radius: 12px;
+        padding: 1rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+
+    /* 标题样式 */
+    h1 {
+        font-weight: 700;
+        font-size: 2.5rem;
+        background: linear-gradient(135deg, #1E293B 0%, #3B82F6 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 0.5rem;
+    }
+
+    h2, h3 {
+        font-weight: 600;
+        color: #1E293B;
+        letter-spacing: -0.02em;
+    }
+
+    /* 按钮美化 */
+    .stButton > button {
+        background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.5rem 1.5rem;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+    }
+
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+    }
+
+    /* 信息框样式 */
+    .stAlert {
+        border-radius: 8px;
+        border-left: 4px solid #3B82F6;
+    }
+
+    /* 滑块样式 */
+    [data-testid="stSidebar"] .stSlider {
+        padding: 1rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # 数据文件路径
 DATA_FILE = "主要ETF基金份额变动情况.xlsx"
 
@@ -52,6 +185,71 @@ def load_data(file_path: str) -> pd.DataFrame:
         st.stop()
 
 
+def draw_metric_card(title: str, value: str, delta: str, delta_pct: str = None) -> str:
+    """
+    创建美观的指标卡片HTML
+
+    Args:
+        title: 卡片标题
+        value: 当前数值
+        delta: 变动值
+        delta_pct: 变动百分比（可选）
+
+    Returns:
+        HTML字符串
+    """
+    # 判断涨跌
+    is_positive = delta.startswith('+') if delta != '-' else None
+
+    if is_positive is None:
+        arrow = ""
+        color = "#64748B"
+    elif is_positive:
+        arrow = "↑"
+        color = "#10B981"
+    else:
+        arrow = "↓"
+        color = "#EF4444"
+
+    delta_display = f"{arrow} {delta}" if delta != '-' else '-'
+    if delta_pct and delta_pct != '-':
+        delta_display += f" ({delta_pct})"
+
+    card_html = f"""
+    <div style="
+        background: white;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+        transition: all 0.3s ease;
+        border-left: 4px solid {color};
+        height: 100%;
+    " onmouseover="this.style.transform='scale(1.02)'; this.style.boxShadow='0 4px 6px rgba(0, 0, 0, 0.1)'"
+       onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 1px 3px rgba(0, 0, 0, 0.08)'">
+        <div style="
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #64748B;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        ">{title}</div>
+        <div style="
+            font-size: 2rem;
+            font-weight: 700;
+            color: #1E293B;
+            margin-bottom: 0.5rem;
+        ">{value}</div>
+        <div style="
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: {color};
+        ">{delta_display}</div>
+    </div>
+    """
+    return card_html
+
+
 def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate: bool, selected_etfs: list = None, chart_type: str = 'line') -> go.Figure:
     """
     创建Plotly折线图
@@ -66,6 +264,12 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
     Returns:
         Plotly Figure对象
     """
+    # 专业金融调色盘
+    color_palette = [
+        '#2E5BFF', '#8E54E9', '#FF9966', '#00D4AA', '#FF6B9D',
+        '#FFC233', '#00C9FF', '#FF5757', '#A0D911', '#9254DE'
+    ]
+
     fig = go.Figure()
 
     if is_aggregate:
@@ -79,7 +283,8 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
                     mode='lines',
                     name='所有ETF总和',
                     fill='tozeroy',
-                    line=dict(width=2, shape='spline'),
+                    line=dict(width=3, shape='spline', color=color_palette[0]),
+                    fillcolor='rgba(46, 91, 255, 0.1)',
                     hovertemplate='<b>%{x|%Y-%m-%d}</b><br>%{y:.2f}<extra></extra>'
                 ))
             else:
@@ -88,15 +293,20 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
                     y=agg_data['value'],
                     mode='lines',
                     name='所有ETF总和',
-                    line=dict(width=2, shape='spline'),
+                    line=dict(width=3, shape='spline', color=color_palette[0]),
                     hovertemplate='<b>%{x|%Y-%m-%d}</b><br>%{y:.2f}<extra></extra>'
                 ))
     else:
         # 多条线显示各个ETF
         if selected_etfs:
-            for etf_name in selected_etfs:
+            # 前3个ETF高亮显示，其余半透明
+            for idx, etf_name in enumerate(selected_etfs):
                 etf_data = filtered_df[filtered_df['name'] == etf_name].sort_values('date')
                 if len(etf_data) > 0:
+                    color = color_palette[idx % len(color_palette)]
+                    opacity = 1.0 if idx < 3 else 0.3
+                    line_width = 2.5 if idx < 3 else 1.5
+
                     if chart_type == 'area':
                         fig.add_trace(go.Scatter(
                             x=etf_data['date'],
@@ -104,7 +314,8 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
                             mode='lines',
                             name=etf_name,
                             fill='tonexty',
-                            line=dict(width=1.5, shape='spline'),
+                            line=dict(width=line_width, shape='spline', color=color),
+                            opacity=opacity,
                             hovertemplate=f'<b>{etf_name}</b><br>%{{x|%Y-%m-%d}}<br>%{{y:.4f}}<extra></extra>'
                         ))
                     elif chart_type == 'scatter':
@@ -113,7 +324,7 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
                             y=etf_data['value'],
                             mode='markers',
                             name=etf_name,
-                            marker=dict(size=6, opacity=0.7),
+                            marker=dict(size=8, opacity=opacity, color=color),
                             hovertemplate=f'<b>{etf_name}</b><br>%{{x|%Y-%m-%d}}<br>%{{y:.4f}}<extra></extra>'
                         ))
                     else:  # line
@@ -122,22 +333,59 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
                             y=etf_data['value'],
                             mode='lines',
                             name=etf_name,
-                            line=dict(width=1.5, shape='spline'),
+                            line=dict(width=line_width, shape='spline', color=color),
+                            opacity=opacity,
                             hovertemplate=f'<b>{etf_name}</b><br>%{{x|%Y-%m-%d}}<br>%{{y:.4f}}<extra></extra>'
                         ))
 
-    # 布局配置
+    # 布局配置 - 响应式设计
     fig.update_layout(
-        title=f'{metric_name} 变动趋势',
+        title=dict(
+            text=f'{metric_name} 变动趋势',
+            font=dict(size=24, weight=700, color='#1E293B'),
+            x=0.02
+        ),
         xaxis_title='日期',
         yaxis_title=metric_name,
         hovermode='x unified',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        legend=dict(
+            orientation="v",
+            yanchor="top",
+            y=0.98,
+            xanchor="right",
+            x=0.98,
+            bgcolor="rgba(255, 255, 255, 0.9)",
+            bordercolor="#E2E8F0",
+            borderwidth=1,
+            font=dict(size=11)
+        ),
         height=600,
-        template='plotly_white'
+        template='plotly_white',
+        plot_bgcolor='rgba(248, 250, 252, 0.5)',
+        paper_bgcolor='white',
+        font=dict(family='Inter, PingFang SC, sans-serif'),
+        margin=dict(l=60, r=60, t=80, b=60)
     )
 
-    fig.update_xaxes(rangeslider_visible=False)
+    # 网格线样式
+    fig.update_xaxes(
+        rangeslider_visible=False,
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(226, 232, 240, 0.5)',
+        showline=True,
+        linewidth=1,
+        linecolor='#E2E8F0'
+    )
+
+    fig.update_yaxes(
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(226, 232, 240, 0.5)',
+        showline=True,
+        linewidth=1,
+        linecolor='#E2E8F0'
+    )
 
     return fig
 
@@ -288,7 +536,7 @@ def main():
     # 侧边栏 - 数据筛选
     st.sidebar.header("🔍 数据筛选")
 
-    # 1. 指标选择器
+    # 1. 指标选择器 - 使用更直观的单选按钮
     metric_types = sorted(df['metric_type'].unique())
 
     # 检查是否有指标
@@ -297,9 +545,34 @@ def main():
         st.info("Excel文件应包含section标题行，标题中应包含关键词：市值、份额、变动、申赎、比例、涨跌幅")
         st.stop()
 
+    # 创建指标分类映射
+    metric_categories = {
+        "市值类": [m for m in metric_types if "市值" in m],
+        "份额类": [m for m in metric_types if "份额" in m],
+        "变动类": [m for m in metric_types if "变动" in m or "申赎" in m],
+        "比例类": [m for m in metric_types if "比例" in m],
+        "涨跌类": [m for m in metric_types if "涨跌" in m],
+        "其他": [m for m in metric_types if not any(keyword in m for keyword in ["市值", "份额", "变动", "申赎", "比例", "涨跌"])]
+    }
+
+    # 移除空分类
+    metric_categories = {k: v for k, v in metric_categories.items() if v}
+
+    # 如果有多个分类，显示分类选择器
+    if len(metric_categories) > 1:
+        st.sidebar.markdown("**指标分类**")
+        selected_category = st.sidebar.radio(
+            "选择指标类别",
+            options=list(metric_categories.keys()),
+            label_visibility="collapsed"
+        )
+        available_metrics = metric_categories[selected_category]
+    else:
+        available_metrics = metric_types
+
     selected_metric = st.sidebar.selectbox(
-        "选择指标",
-        options=metric_types,
+        "选择具体指标",
+        options=available_metrics,
         index=0
     )
 
@@ -349,6 +622,23 @@ def main():
 
     # 4. 图表类型选择
     st.sidebar.header("📊 图表设置")
+
+    # 快速指标切换（在侧边栏顶部）
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**快速切换**")
+
+    quick_metrics = {
+        "总市值": [m for m in metric_types if "总市值" in m],
+        "份额": [m for m in metric_types if "份额" in m and "总市值" not in m],
+        "涨跌幅": [m for m in metric_types if "涨跌" in m]
+    }
+
+    quick_cols = st.sidebar.columns(3)
+    for idx, (label, metrics) in enumerate(quick_metrics.items()):
+        if metrics and quick_cols[idx].button(label, use_container_width=True):
+            selected_metric = metrics[0]
+            st.rerun()
+
     chart_type = st.sidebar.radio(
         "图表类型",
         options=['line', 'area', 'scatter'],
@@ -379,6 +669,34 @@ def main():
 
     # 创建并显示图表
     fig = create_line_chart(filtered_df, selected_metric, is_aggregate, selected_etfs, chart_type)
+
+    # 在图表之前显示关键指标卡片
+    st.subheader("📊 关键指标")
+
+    # 计算关键指标
+    stats_df = calculate_statistics(filtered_df, is_aggregate, selected_etfs)
+
+    if len(stats_df) > 0:
+        # 显示前4个最重要的指标卡片
+        num_cards = min(4, len(stats_df))
+        cols = st.columns(num_cards)
+
+        for idx in range(num_cards):
+            with cols[idx]:
+                row = stats_df.iloc[idx]
+                st.markdown(
+                    draw_metric_card(
+                        title=row['ETF名称'],
+                        value=row['当日数据'],
+                        delta=row['变动'],
+                        delta_pct=row['变动幅度']
+                    ),
+                    unsafe_allow_html=True
+                )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # 显示图表
     st.plotly_chart(fig, use_container_width=True)
 
     # 显示统计信息
