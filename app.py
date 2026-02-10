@@ -301,10 +301,8 @@ def main():
     min_date = metric_df['date'].min().date()
     max_date = metric_df['date'].max().date()
 
-    # 默认结束日期为当前日期（但不超过数据的最大日期）
-    from datetime import date
-    today = date.today()
-    default_end_date = min(today, max_date)
+    # 默认结束日期为数据中的最大日期（最后更新的日期）
+    default_end_date = max_date
 
     # 检查是否只有一个日期
     if min_date == max_date:
