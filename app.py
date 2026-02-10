@@ -314,8 +314,23 @@ def main():
     min_date = metric_df['date'].min().date()
     max_date = metric_df['date'].max().date()
 
-    # 默认结束日期为数据中的最大日期（最后更新的日期）
+    # 默认结束日期：优先使用GitHub Action执行日期，否则使用数据中的最大日期
     default_end_date = max_date
+    try:
+        import json
+        import os
+        from datetime import datetime
+        if os.path.exists('last_update.json'):
+            with open('last_update.json', 'r') as f:
+                update_info = json.load(f)
+                update_date_str = update_info.get('update_date')
+                if update_date_str:
+                    update_date = datetime.strptime(update_date_str, '%Y-%m-%d').date()
+                    # 确保update_date在有效范围内
+                    if min_date <= update_date <= max_date:
+                        default_end_date = update_date
+    except Exception as e:
+        pass  # 如果读取失败，使用max_date作为默认值
 
     # 检查是否只有一个日期
     if min_date == max_date:
