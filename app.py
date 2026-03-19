@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 import logging
 from src.data_loader import load_etf_data
+from src.volume_fetcher import load_volume_dataframe
 
 # 配置日志
 logging.basicConfig(
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # 页面配置
 st.set_page_config(
-    page_title="ETF份额变动可视化",
+    page_title="ETF数据可视化",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -484,13 +485,304 @@ def calculate_statistics(filtered_df: pd.DataFrame, is_aggregate: bool, selected
     return pd.DataFrame(stats_list)
 
 
+def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
+    """
+    创建板块成交额堆叠柱状图
+
+    Args:
+        df: 成交量DataFrame
+
+    Returns:
+        Plotly Figure
+    """
+    # 板块颜色映射
+    sector_colors = {
+        '上海A股': '#2E5BFF',
+        '深市主板': '#00D4AA',
+        '创业板': '#FF9966',
+        '科创板': '#8E54E9',
+    }
+
+    fig = go.Figure()
+
+    for sector_name in ['上海A股', '深市主板', '创业板', '科创板']:
+        sector_data = df[df['ts_name'] == sector_name].sort_values('trade_date')
+        if len(sector_data) > 0:
+            fig.add_trace(go.Bar(
+                x=sector_data['trade_date'],
+                y=sector_data['amount'],
+                name=sector_name,
+                marker_color=sector_colors.get(sector_name, '#999'),
+                hovertemplate=f'<b>{sector_name}</b><br>%{{x|%Y-%m-%d}}<br>成交额: %{{y:.2f}} 亿元<extra></extra>'
+            ))
+
+    fig.update_layout(
+        barmode='stack',
+        title=dict(
+            text='各板块每日成交额（亿元）',
+            font=dict(size=22, weight=700, color='#1E293B'),
+            x=0.02
+        ),
+        xaxis_title='日期',
+        yaxis_title='成交额（亿元）',
+        hovermode='x unified',
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.02,
+            xanchor='center',
+            x=0.5,
+            bgcolor='rgba(255, 255, 255, 0.9)',
+            bordercolor='#E2E8F0',
+            borderwidth=1,
+            font=dict(size=12)
+        ),
+        height=550,
+        template='plotly_white',
+        plot_bgcolor='rgba(248, 250, 252, 0.5)',
+        paper_bgcolor='white',
+        font=dict(family='Inter, PingFang SC, sans-serif'),
+        margin=dict(l=60, r=40, t=80, b=60)
+    )
+
+    fig.update_xaxes(
+        showgrid=True, gridwidth=1, gridcolor='rgba(226, 232, 240, 0.5)',
+        showline=True, linewidth=1, linecolor='#E2E8F0'
+    )
+    fig.update_yaxes(
+        showgrid=True, gridwidth=1, gridcolor='rgba(226, 232, 240, 0.5)',
+        showline=True, linewidth=1, linecolor='#E2E8F0'
+    )
+
+    return fig
+
+
+def create_volume_total_line(df: pd.DataFrame) -> go.Figure:
+    """
+    创建总成交额趋势折线图
+
+    Args:
+        df: 成交量DataFrame
+
+    Returns:
+        Plotly Figure
+    """
+    # 按日期汇总
+    daily_total = df.groupby('trade_date').agg({'amount': 'sum', 'vol': 'sum'}).reset_index()
+    daily_total = daily_total.sort_values('trade_date')
+
+    # 计算5日均线和20日均线
+    daily_total['ma5'] = daily_total['amount'].rolling(window=5).mean()
+    daily_total['ma20'] = daily_total['amount'].rolling(window=20).mean()
+
+    fig = go.Figure()
+
+    # 成交额柱状图（半透明背景）
+    fig.add_trace(go.Bar(
+        x=daily_total['trade_date'],
+        y=daily_total['amount'],
+        name='每日总成交额',
+        marker_color='rgba(46, 91, 255, 0.25)',
+        hovertemplate='<b>%{x|%Y-%m-%d}</b><br>成交额: %{y:.2f} 亿元<extra></extra>'
+    ))
+
+    # 5日均线
+    fig.add_trace(go.Scatter(
+        x=daily_total['trade_date'],
+        y=daily_total['ma5'],
+        mode='lines',
+        name='5日均线',
+        line=dict(width=2, color='#FF9966', shape='spline'),
+        hovertemplate='<b>%{x|%Y-%m-%d}</b><br>5日均线: %{y:.2f} 亿元<extra></extra>'
+    ))
+
+    # 20日均线
+    fig.add_trace(go.Scatter(
+        x=daily_total['trade_date'],
+        y=daily_total['ma20'],
+        mode='lines',
+        name='20日均线',
+        line=dict(width=2.5, color='#EF4444', shape='spline'),
+        hovertemplate='<b>%{x|%Y-%m-%d}</b><br>20日均线: %{y:.2f} 亿元<extra></extra>'
+    ))
+
+    fig.update_layout(
+        title=dict(
+            text='A股每日总成交额趋势',
+            font=dict(size=22, weight=700, color='#1E293B'),
+            x=0.02
+        ),
+        xaxis_title='日期',
+        yaxis_title='成交额（亿元）',
+        hovermode='x unified',
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.02,
+            xanchor='center',
+            x=0.5,
+            bgcolor='rgba(255, 255, 255, 0.9)',
+            bordercolor='#E2E8F0',
+            borderwidth=1,
+            font=dict(size=12)
+        ),
+        height=500,
+        template='plotly_white',
+        plot_bgcolor='rgba(248, 250, 252, 0.5)',
+        paper_bgcolor='white',
+        font=dict(family='Inter, PingFang SC, sans-serif'),
+        margin=dict(l=60, r=40, t=80, b=60)
+    )
+
+    fig.update_xaxes(
+        showgrid=True, gridwidth=1, gridcolor='rgba(226, 232, 240, 0.5)',
+        showline=True, linewidth=1, linecolor='#E2E8F0'
+    )
+    fig.update_yaxes(
+        showgrid=True, gridwidth=1, gridcolor='rgba(226, 232, 240, 0.5)',
+        showline=True, linewidth=1, linecolor='#E2E8F0'
+    )
+
+    return fig
+
+
+def render_volume_tab():
+    """渲染每日成交量Tab页内容"""
+    st.subheader("📊 A股每日成交量")
+    st.caption("数据来源: Tushare | 展示2024年以来各板块每日成交额")
+
+    # 加载成交量数据
+    vol_df = load_volume_dataframe()
+
+    if vol_df is None or len(vol_df) == 0:
+        st.warning("⚠️ 暂无成交量数据。请先运行 `python update_volume.py --full` 获取数据。")
+        return
+
+    # 侧边栏日期范围筛选
+    vol_min_date = vol_df['trade_date'].min().date()
+    vol_max_date = vol_df['trade_date'].max().date()
+
+    st.sidebar.header("📅 成交量日期筛选")
+
+    if vol_min_date == vol_max_date:
+        st.sidebar.info(f"📅 当前数据日期: {vol_min_date}")
+        vol_date_range = (vol_min_date, vol_max_date)
+    else:
+        vol_date_range = st.sidebar.slider(
+            "选择日期范围（成交量）",
+            min_value=vol_min_date,
+            max_value=vol_max_date,
+            value=(vol_min_date, vol_max_date),
+            format="YYYY-MM-DD",
+            key="vol_date_range"
+        )
+
+    # 板块筛选
+    all_sectors = sorted(vol_df['ts_name'].unique())
+    selected_sectors = st.sidebar.multiselect(
+        "选择板块",
+        options=all_sectors,
+        default=all_sectors,
+        key="vol_sectors"
+    )
+
+    # 筛选数据
+    filtered_vol = vol_df[
+        (vol_df['trade_date'].dt.date >= vol_date_range[0]) &
+        (vol_df['trade_date'].dt.date <= vol_date_range[1]) &
+        (vol_df['ts_name'].isin(selected_sectors))
+    ].copy()
+
+    if len(filtered_vol) == 0:
+        st.warning("⚠️ 所选条件下没有数据，请调整筛选条件")
+        return
+
+    # 关键指标卡片
+    daily_total = filtered_vol.groupby('trade_date')['amount'].sum().reset_index().sort_values('trade_date')
+
+    if len(daily_total) >= 1:
+        latest_date = daily_total.iloc[-1]['trade_date']
+        latest_total = daily_total.iloc[-1]['amount']
+
+        card_cols = st.columns(4)
+
+        # 最新总成交额
+        with card_cols[0]:
+            if len(daily_total) >= 2:
+                prev_total = daily_total.iloc[-2]['amount']
+                change = latest_total - prev_total
+                change_pct = f"{change / prev_total * 100:+.2f}%" if prev_total else '-'
+                delta_str = f"{change:+.2f}"
+            else:
+                delta_str = '-'
+                change_pct = '-'
+            st.markdown(
+                draw_metric_card('总成交额（亿元）', f'{latest_total:,.2f}', delta_str, change_pct),
+                unsafe_allow_html=True
+            )
+
+        # 各板块最新成交额
+        latest_by_sector = filtered_vol[filtered_vol['trade_date'] == latest_date]
+        sector_order = ['上海A股', '深市主板', '创业板', '科创板']
+        displayed = 0
+        for sector in sector_order:
+            if displayed >= 3:
+                break
+            sector_row = latest_by_sector[latest_by_sector['ts_name'] == sector]
+            if len(sector_row) > 0:
+                val = sector_row.iloc[0]['amount']
+                with card_cols[displayed + 1]:
+                    st.markdown(
+                        draw_metric_card(sector, f'{val:,.2f}', '-'),
+                        unsafe_allow_html=True
+                    )
+                displayed += 1
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # 堆叠柱状图 - 各板块成交额
+    fig_stacked = create_volume_stacked_bar(filtered_vol)
+    st.plotly_chart(fig_stacked, use_container_width=True)
+
+    # 总量趋势线
+    fig_total = create_volume_total_line(filtered_vol)
+    st.plotly_chart(fig_total, use_container_width=True)
+
+    # 数据明细表格
+    st.subheader("📋 成交量数据明细")
+
+    # 透视表格：日期x板块
+    pivot_df = filtered_vol.pivot_table(
+        index='trade_date',
+        columns='ts_name',
+        values='amount',
+        aggfunc='sum'
+    ).reset_index()
+    pivot_df['trade_date'] = pivot_df['trade_date'].dt.strftime('%Y-%m-%d')
+    pivot_df = pivot_df.rename(columns={'trade_date': '日期'})
+
+    # 添加总计列
+    numeric_cols = [c for c in pivot_df.columns if c != '日期']
+    pivot_df['总计'] = pivot_df[numeric_cols].sum(axis=1)
+
+    # 按日期降序排列（最新在前）
+    pivot_df = pivot_df.sort_values('日期', ascending=False)
+
+    st.dataframe(
+        pivot_df,
+        use_container_width=True,
+        hide_index=True,
+        height=400
+    )
+
+
 # 主应用
 def main():
     """主应用逻辑"""
-    st.title("ETF份额变动可视化")
+    st.title("ETF数据可视化")
 
     # 显示版本信息（用于验证部署）
-    st.caption("📌 Version 2.1 - Formula evaluation fix (2026-02-05)")
+    st.caption("📌 Version 3.0 - 新增每日成交量 (2026-03-19)")
 
     # 显示最后更新时间
     try:
@@ -505,6 +797,20 @@ def main():
     except Exception as e:
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
+    # 创建Tab页
+    tab_etf, tab_volume = st.tabs(["📈 ETF份额变动", "📊 每日成交量"])
+
+    # ========== ETF 份额变动 Tab ==========
+    with tab_etf:
+        render_etf_tab()
+
+    # ========== 每日成交量 Tab ==========
+    with tab_volume:
+        render_volume_tab()
+
+
+def render_etf_tab():
+    """渲染ETF份额变动Tab页内容"""
     # 加载数据
     df = load_data(DATA_FILE)
 
@@ -657,7 +963,7 @@ def main():
     # 检查是否有数据
     if len(filtered_df) == 0:
         st.warning("⚠️ 所选条件下没有数据，请调整筛选条件")
-        st.stop()
+        return
 
     # 确定是否为汇总模式
     is_aggregate = has_aggregate and contains_total_market_value
@@ -665,7 +971,7 @@ def main():
     # 验证ETF选择（非汇总模式）
     if not is_aggregate and (selected_etfs is None or len(selected_etfs) == 0):
         st.info("ℹ️ 请至少选择一个ETF")
-        st.stop()
+        return
 
     # 创建并显示图表
     fig = create_line_chart(filtered_df, selected_metric, is_aggregate, selected_etfs, chart_type)

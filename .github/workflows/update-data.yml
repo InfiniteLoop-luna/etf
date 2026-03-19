@@ -34,6 +34,12 @@ jobs:
       run: |
         python main.py
 
+    - name: Update volume data
+      env:
+        TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+      run: |
+        python update_volume.py
+
     - name: Write update timestamp
       if: success()
       run: |
@@ -56,6 +62,6 @@ jobs:
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        git add "主要ETF基金份额变动情况.xlsx" last_update.json
+        git add "主要ETF基金份额变动情况.xlsx" last_update.json data/
         git commit -m "chore: auto-update ETF data $(date +'%Y-%m-%d')"
         git push
