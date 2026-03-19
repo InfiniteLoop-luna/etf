@@ -11,13 +11,18 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# 板块映射
-SECTOR_NAMES = {
-    '上海A股': 'SH_A',
-    '深市主板': 'SZ_MAIN',
-    '创业板': 'SZ_GEM',
-    '科创板': 'SH_STAR',
+# 指数代码映射 (使用各大综合指数代表板块)
+# 上海A股 -> A股指数 (000002.SH)
+# 深市主板 -> 深证A指 (399107.SZ)
+# 创业板 -> 创业板综 (399102.SZ)
+# 科创板 -> 科创50 (000688.SH)
+INDEX_CODES = {
+    '上海A股': '000002.SH',
+    '深市主板': '399107.SZ',
+    '创业板': '399102.SZ',
+    '科创板': '000688.SH',
 }
+CODE_TO_NAME = {v: k for k, v in INDEX_CODES.items()}
 
 # 数据文件路径
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
@@ -67,48 +72,52 @@ def fetch_volume_data(start_date: str, end_date: str, pro: Optional[ts.pro_api] 
     ts_start = pd.to_datetime(start_date).strftime('%Y%m%d')
     ts_end = pd.to_datetime(end_date).strftime('%Y%m%d')
 
-    logger.info(f"从Tushare获取成交量数据: {start_date} ~ {end_date}")
+    logger.info(f"从Tushare(index_daily)获取成交量数据: {start_date} ~ {end_date}")
 
     all_data = []
+    ts_codes_str = ",".join(INDEX_CODES.values())
 
-    # 分别查询沪深两市
-    for exchange in ['SSE', 'SZSE']:
-        try:
-            df = pro.daily_info(
-                exchange=exchange,
-                start_date=ts_start,
-                end_date=ts_end,
-                fields='trade_date,ts_name,ts_code,amount,vol'
-            )
+    try:
+        # 使用 index_daily 获取各大指数的数据以代表各板块的成交量
+        df = pro.index_daily(
+            ts_code=ts_codes_str,
+            start_date=ts_start,
+            end_date=ts_end,
+            fields='ts_code,trade_date,amount,vol'
+        )
 
-            if df is not None and not df.empty:
-                # 只保留我们关心的板块
-                target_names = set(SECTOR_NAMES.keys())
-                df_filtered = df[df['ts_name'].isin(target_names)].copy()
+        if df is not None and not df.empty:
+            for _, row in df.iterrows():
+                trade_date_str = str(row['trade_date'])
+                # 转换日期格式 YYYYMMDD -> YYYY-MM-DD
+                if len(trade_date_str) == 8:
+                    formatted_date = f"{trade_date_str[:4]}-{trade_date_str[4:6]}-{trade_date_str[6:]}"
+                else:
+                    formatted_date = trade_date_str
 
-                for _, row in df_filtered.iterrows():
-                    trade_date_str = str(row['trade_date'])
-                    # 转换日期格式 YYYYMMDD -> YYYY-MM-DD
-                    if len(trade_date_str) == 8:
-                        formatted_date = f"{trade_date_str[:4]}-{trade_date_str[4:6]}-{trade_date_str[6:]}"
-                    else:
-                        formatted_date = trade_date_str
+                sector_name = CODE_TO_NAME.get(row['ts_code'], row['ts_code'])
+                
+                # index_daily 的 amount 单位是千元，转换为亿元需要除以 100,000 (10万)
+                amount_yi = float(row['amount']) / 100000 if pd.notna(row['amount']) else 0
+                
+                # index_daily 的 vol 单位是手(百股)，转换为亿股需要除以 1,000,000 (100万)
+                vol_yi = float(row['vol']) / 1000000 if pd.notna(row['vol']) else 0
 
-                    all_data.append({
-                        'trade_date': formatted_date,
-                        'ts_name': row['ts_name'],
-                        'amount': round(float(row['amount']), 2) if pd.notna(row['amount']) else 0,
-                        'vol': round(float(row['vol']), 2) if pd.notna(row['vol']) else 0,
-                    })
+                all_data.append({
+                    'trade_date': formatted_date,
+                    'ts_name': sector_name,
+                    'amount': round(amount_yi, 2),
+                    'vol': round(vol_yi, 2),
+                })
 
-                logger.info(f"  {exchange}: 获取 {len(df_filtered)} 条记录")
-            else:
-                logger.warning(f"  {exchange}: 无数据")
+            logger.info(f"获取到 {len(all_data)} 条记录")
+        else:
+            logger.warning("接口返回无数据(可能权限不足或非交易日)")
 
-        except Exception as e:
-            logger.error(f"  {exchange} 获取失败: {e}")
+    except Exception as e:
+        logger.error(f"获取失败: {e}")
 
-    logger.info(f"共获取 {len(all_data)} 条成交量数据")
+    logger.info(f"共返回 {len(all_data)} 条成交量数据")
     return all_data
 
 
