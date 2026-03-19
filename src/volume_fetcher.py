@@ -75,47 +75,46 @@ def fetch_volume_data(start_date: str, end_date: str, pro: Optional[ts.pro_api] 
     logger.info(f"从Tushare(index_daily)获取成交量数据: {start_date} ~ {end_date}")
 
     all_data = []
-    ts_codes_str = ",".join(INDEX_CODES.values())
 
-    try:
-        # 使用 index_daily 获取各大指数的数据以代表各板块的成交量
-        df = pro.index_daily(
-            ts_code=ts_codes_str,
-            start_date=ts_start,
-            end_date=ts_end,
-            fields='ts_code,trade_date,amount,vol'
-        )
+    # 遍历每个指数代码单独获取（Tushare部分接口不支持逗号分隔多代码查询）
+    for sector_name, ts_code in INDEX_CODES.items():
+        try:
+            logger.info(f"  正在获取 {sector_name} ({ts_code}) 的数据...")
+            # 使用 index_daily 获取各大指数的数据以代表各板块的成交量
+            df = pro.index_daily(
+                ts_code=ts_code,
+                start_date=ts_start,
+                end_date=ts_end,
+                fields='ts_code,trade_date,amount,vol'
+            )
 
-        if df is not None and not df.empty:
-            for _, row in df.iterrows():
-                trade_date_str = str(row['trade_date'])
-                # 转换日期格式 YYYYMMDD -> YYYY-MM-DD
-                if len(trade_date_str) == 8:
-                    formatted_date = f"{trade_date_str[:4]}-{trade_date_str[4:6]}-{trade_date_str[6:]}"
-                else:
-                    formatted_date = trade_date_str
+            if df is not None and not df.empty:
+                for _, row in df.iterrows():
+                    trade_date_str = str(row['trade_date'])
+                    # 转换日期格式 YYYYMMDD -> YYYY-MM-DD
+                    if len(trade_date_str) == 8:
+                        formatted_date = f"{trade_date_str[:4]}-{trade_date_str[4:6]}-{trade_date_str[6:]}"
+                    else:
+                        formatted_date = trade_date_str
+                    
+                    # index_daily 的 amount 单位是千元，转换为亿元需要除以 100,000 (10万)
+                    amount_yi = float(row['amount']) / 100000 if pd.notna(row['amount']) else 0
+                    
+                    # index_daily 的 vol 单位是手(百股)，转换为亿股需要除以 1,000,000 (100万)
+                    vol_yi = float(row['vol']) / 1000000 if pd.notna(row['vol']) else 0
 
-                sector_name = CODE_TO_NAME.get(row['ts_code'], row['ts_code'])
-                
-                # index_daily 的 amount 单位是千元，转换为亿元需要除以 100,000 (10万)
-                amount_yi = float(row['amount']) / 100000 if pd.notna(row['amount']) else 0
-                
-                # index_daily 的 vol 单位是手(百股)，转换为亿股需要除以 1,000,000 (100万)
-                vol_yi = float(row['vol']) / 1000000 if pd.notna(row['vol']) else 0
+                    all_data.append({
+                        'trade_date': formatted_date,
+                        'ts_name': sector_name,
+                        'amount': round(amount_yi, 2),
+                        'vol': round(vol_yi, 2),
+                    })
+                logger.info(f"  ✓ 成功获取 {sector_name} {len(df)} 条记录")
+            else:
+                logger.warning(f"  ✗ {sector_name} 返回无数据(可能权限不足)")
 
-                all_data.append({
-                    'trade_date': formatted_date,
-                    'ts_name': sector_name,
-                    'amount': round(amount_yi, 2),
-                    'vol': round(vol_yi, 2),
-                })
-
-            logger.info(f"获取到 {len(all_data)} 条记录")
-        else:
-            logger.warning("接口返回无数据(可能权限不足或非交易日)")
-
-    except Exception as e:
-        logger.error(f"获取失败: {e}")
+        except Exception as e:
+            logger.error(f"  ✗ {sector_name} 获取失败: {e}")
 
     logger.info(f"共返回 {len(all_data)} 条成交量数据")
     return all_data
