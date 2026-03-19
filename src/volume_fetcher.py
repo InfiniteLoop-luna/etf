@@ -183,6 +183,12 @@ def update_volume_data(full: bool = False, target_date: Optional[str] = None) ->
     existing = load_existing_data()
     today = datetime.now().strftime('%Y-%m-%d')
 
+    # 检查是否存在旧版数据（包含'上海A股'），如果存在则强制执行全量更新以清洗数据
+    has_legacy_data = any(item.get('ts_name') == '上海A股' for item in existing.get('data', []))
+    if has_legacy_data and not full:
+        logger.info("检测到旧版板块名称数据('上海A股')，强制执行全量更新以清洗历史数据")
+        full = True
+
     if target_date:
         # 获取指定日期的数据
         start_date = target_date
