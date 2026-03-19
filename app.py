@@ -497,7 +497,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
     """
     # 板块颜色映射
     sector_colors = {
-        '上海A股': '#2E5BFF',
+        '沪市主板': '#2E5BFF',
         '深市主板': '#00D4AA',
         '创业板': '#FF9966',
         '科创板': '#8E54E9',
@@ -505,7 +505,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
 
     fig = go.Figure()
 
-    for sector_name in ['上海A股', '深市主板', '创业板', '科创板']:
+    for sector_name in ['沪市主板', '深市主板', '创业板', '科创板']:
         sector_data = df[df['ts_name'] == sector_name].sort_values('trade_date')
         if len(sector_data) > 0:
             fig.add_trace(go.Bar(
@@ -723,7 +723,7 @@ def render_volume_tab():
 
         # 各板块最新成交额
         latest_by_sector = filtered_vol[filtered_vol['trade_date'] == latest_date]
-        sector_order = ['上海A股', '深市主板', '创业板', '科创板']
+        sector_order = ['沪市主板', '深市主板', '创业板', '科创板']
         displayed = 0
         for sector in sector_order:
             if displayed >= 3:

@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 # 创业板 -> 创业板综 (399102.SZ)
 # 科创板 -> 科创50 (000688.SH)
 INDEX_CODES = {
-    '上海A股': '000002.SH',
-    '深市主板': '399107.SZ',
+    '上证A股': '000002.SH',
+    '深证A指': '399107.SZ',
     '创业板': '399102.SZ',
-    '科创板': '000688.SH',
+    '科创板': '000698.SH',
 }
 CODE_TO_NAME = {v: k for k, v in INDEX_CODES.items()}
 
@@ -74,6 +74,7 @@ def fetch_volume_data(start_date: str, end_date: str, pro: Optional[ts.pro_api] 
 
     logger.info(f"从Tushare(index_daily)获取成交量数据: {start_date} ~ {end_date}")
 
+    raw_data = {}
     all_data = []
 
     # 遍历每个指数代码单独获取（Tushare部分接口不支持逗号分隔多代码查询）
@@ -103,12 +104,14 @@ def fetch_volume_data(start_date: str, end_date: str, pro: Optional[ts.pro_api] 
                     # index_daily 的 vol 单位是手(百股)，转换为亿股需要除以 1,000,000 (100万)
                     vol_yi = float(row['vol']) / 1000000 if pd.notna(row['vol']) else 0
 
-                    all_data.append({
-                        'trade_date': formatted_date,
-                        'ts_name': sector_name,
-                        'amount': round(amount_yi, 2),
-                        'vol': round(vol_yi, 2),
-                    })
+                    if formatted_date not in raw_data:
+                        raw_data[formatted_date] = {}
+                    
+                    raw_data[formatted_date][sector_name] = {
+                        'amount': amount_yi,
+                        'vol': vol_yi
+                    }
+
                 logger.info(f"  ✓ 成功获取 {sector_name} {len(df)} 条记录")
             else:
                 logger.warning(f"  ✗ {sector_name} 返回无数据(可能权限不足)")
@@ -116,7 +119,30 @@ def fetch_volume_data(start_date: str, end_date: str, pro: Optional[ts.pro_api] 
         except Exception as e:
             logger.error(f"  ✗ {sector_name} 获取失败: {e}")
 
-    logger.info(f"共返回 {len(all_data)} 条成交量数据")
+    # 计算扣减后的纯净板块数据避免重复统计
+    # 沪市主板 = 上证A股整体 - 科创板
+    # 深市主板 = 深证A指整体 - 创业板
+    for date_str, metrics in raw_data.items():
+        sh_a = metrics.get('上证A股', {'amount': 0, 'vol': 0})
+        sz_a = metrics.get('深证A指', {'amount': 0, 'vol': 0})
+        star = metrics.get('科创板', {'amount': 0, 'vol': 0})
+        gem = metrics.get('创业板', {'amount': 0, 'vol': 0})
+        
+        sh_main_amt = max(0, sh_a['amount'] - star['amount'])
+        sh_main_vol = max(0, sh_a['vol'] - star['vol'])
+        
+        sz_main_amt = max(0, sz_a['amount'] - gem['amount'])
+        sz_main_vol = max(0, sz_a['vol'] - gem['vol'])
+        
+        if sh_main_amt > 0 or star['amount'] > 0 or sz_main_amt > 0 or gem['amount'] > 0:
+            all_data.extend([
+                {'trade_date': date_str, 'ts_name': '沪市主板', 'amount': round(sh_main_amt, 2), 'vol': round(sh_main_vol, 2)},
+                {'trade_date': date_str, 'ts_name': '深市主板', 'amount': round(sz_main_amt, 2), 'vol': round(sz_main_vol, 2)},
+                {'trade_date': date_str, 'ts_name': '创业板', 'amount': round(gem['amount'], 2), 'vol': round(gem['vol'], 2)},
+                {'trade_date': date_str, 'ts_name': '科创板', 'amount': round(star['amount'], 2), 'vol': round(star['vol'], 2)},
+            ])
+
+    logger.info(f"共返回 {len(all_data)} 条整理后的成交量数据")
     return all_data
 
 
