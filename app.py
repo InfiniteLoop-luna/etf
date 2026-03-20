@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 st.set_page_config(
     page_title="ETF数据可视化",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"
 )
 
 # 自定义CSS样式 - 金融专业风格
@@ -153,6 +153,41 @@ st.markdown("""
     /* 滑块样式 */
     [data-testid="stSidebar"] .stSlider {
         padding: 1rem 0;
+    }
+
+    /* 响应式设计移动端适配 */
+    @media (max-width: 768px) {
+        .main .block-container {
+            padding: 1rem;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+        }
+
+        h3 {
+            font-size: 1.2rem;
+        }
+
+        .stPlotlyChart {
+            padding: 0.5rem;
+        }
+
+        [data-testid="stSidebar"] {
+            padding: 1rem 0.5rem;
+        }
+        
+        .stMetric, div[style*="background: white; border-radius: 12px;"] {
+            padding: 1rem !important;
+        }
+
+        div[style*="font-size: 2rem;"] {
+            font-size: 1.5rem !important; 
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -343,29 +378,27 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
     fig.update_layout(
         title=dict(
             text=f'{metric_name} 变动趋势',
-            font=dict(size=24, weight=700, color='#1E293B'),
+            font=dict(size=20, weight=700, color='#1E293B'),
             x=0.02
         ),
         xaxis_title='日期',
         yaxis_title=metric_name,
         hovermode='x unified',
         legend=dict(
-            orientation="v",
-            yanchor="top",
-            y=0.98,
-            xanchor="right",
-            x=0.98,
-            bgcolor="rgba(255, 255, 255, 0.9)",
-            bordercolor="#E2E8F0",
-            borderwidth=1,
+            orientation="h",
+            yanchor="bottom",
+            y=-0.25,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(255, 255, 255, 0)",
             font=dict(size=11)
         ),
-        height=600,
+        height=500,
         template='plotly_white',
         plot_bgcolor='rgba(248, 250, 252, 0.5)',
         paper_bgcolor='white',
         font=dict(family='Inter, PingFang SC, sans-serif'),
-        margin=dict(l=60, r=60, t=80, b=60)
+        margin=dict(l=20, r=20, t=60, b=20)
     )
 
     # 网格线样式
@@ -520,7 +553,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
         barmode='stack',
         title=dict(
             text='各板块每日成交额（亿元）',
-            font=dict(size=22, weight=700, color='#1E293B'),
+            font=dict(size=20, weight=700, color='#1E293B'),
             x=0.02
         ),
         xaxis_title='日期',
@@ -529,20 +562,18 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
         legend=dict(
             orientation='h',
             yanchor='bottom',
-            y=1.02,
+            y=-0.25,
             xanchor='center',
             x=0.5,
-            bgcolor='rgba(255, 255, 255, 0.9)',
-            bordercolor='#E2E8F0',
-            borderwidth=1,
-            font=dict(size=12)
+            bgcolor='rgba(255, 255, 255, 0)',
+            font=dict(size=11)
         ),
-        height=550,
+        height=500,
         template='plotly_white',
         plot_bgcolor='rgba(248, 250, 252, 0.5)',
         paper_bgcolor='white',
         font=dict(family='Inter, PingFang SC, sans-serif'),
-        margin=dict(l=60, r=40, t=80, b=60)
+        margin=dict(l=20, r=20, t=60, b=20)
     )
 
     fig.update_xaxes(
@@ -609,7 +640,7 @@ def create_volume_total_line(df: pd.DataFrame) -> go.Figure:
     fig.update_layout(
         title=dict(
             text='A股每日总成交额趋势',
-            font=dict(size=22, weight=700, color='#1E293B'),
+            font=dict(size=20, weight=700, color='#1E293B'),
             x=0.02
         ),
         xaxis_title='日期',
@@ -618,20 +649,18 @@ def create_volume_total_line(df: pd.DataFrame) -> go.Figure:
         legend=dict(
             orientation='h',
             yanchor='bottom',
-            y=1.02,
+            y=-0.25,
             xanchor='center',
             x=0.5,
-            bgcolor='rgba(255, 255, 255, 0.9)',
-            bordercolor='#E2E8F0',
-            borderwidth=1,
-            font=dict(size=12)
+            bgcolor='rgba(255, 255, 255, 0)',
+            font=dict(size=11)
         ),
         height=500,
         template='plotly_white',
         plot_bgcolor='rgba(248, 250, 252, 0.5)',
         paper_bgcolor='white',
         font=dict(family='Inter, PingFang SC, sans-serif'),
-        margin=dict(l=60, r=40, t=80, b=60)
+        margin=dict(l=20, r=20, t=60, b=20)
     )
 
     fig.update_xaxes(
