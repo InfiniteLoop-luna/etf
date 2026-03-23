@@ -418,7 +418,8 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
         gridcolor='rgba(226, 232, 240, 0.5)',
         showline=True,
         linewidth=1,
-        linecolor='#E2E8F0'
+        linecolor='#E2E8F0',
+        fixedrange=True
     )
 
     return fig
@@ -582,7 +583,8 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
     )
     fig.update_yaxes(
         showgrid=True, gridwidth=1, gridcolor='rgba(226, 232, 240, 0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0'
+        showline=True, linewidth=1, linecolor='#E2E8F0',
+        fixedrange=True
     )
 
     return fig
@@ -669,7 +671,8 @@ def create_volume_total_line(df: pd.DataFrame) -> go.Figure:
     )
     fig.update_yaxes(
         showgrid=True, gridwidth=1, gridcolor='rgba(226, 232, 240, 0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0'
+        showline=True, linewidth=1, linecolor='#E2E8F0',
+        fixedrange=True
     )
 
     return fig
