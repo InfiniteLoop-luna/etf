@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # 页面配置
 st.set_page_config(
-    page_title="ETF数据可视化",
+    page_title="交易数据可视化",
     layout="wide",
     initial_sidebar_state="auto"
 )
@@ -808,7 +808,7 @@ def render_volume_tab():
 # 主应用
 def main():
     """主应用逻辑"""
-    st.title("ETF数据可视化")
+    st.title("交易数据可视化")
 
     # 显示版本信息（用于验证部署）
     st.caption("📌 Version 3.0 - 新增每日成交量 (2026-03-19)")
