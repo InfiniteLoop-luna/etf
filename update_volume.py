@@ -10,7 +10,7 @@ from src.volume_fetcher import update_volume_data
 
 def main():
     parser = argparse.ArgumentParser(description='A股每日成交量数据更新')
-    parser.add_argument('--full', action='store_true', help='全量重新获取2024年至今的数据')
+    parser.add_argument('--full', action='store_true', help='全量重新获取2022年至今的数据')
     parser.add_argument('--date', type=str, help='指定获取某天数据（YYYY-MM-DD）')
     args = parser.parse_args()
 

@@ -29,7 +29,7 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 DATA_FILE = os.path.join(DATA_DIR, 'volume_data.json')
 
 # 默认起始日期
-DEFAULT_START_DATE = '2024-01-01'
+DEFAULT_START_DATE = '2022-01-01'
 
 
 def _init_tushare() -> ts.pro_api:
