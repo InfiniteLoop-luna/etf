@@ -736,7 +736,7 @@ def render_volume_tab():
         latest_date = daily_total.iloc[-1]['trade_date']
         latest_total = daily_total.iloc[-1]['amount']
 
-        card_cols = st.columns(4)
+        card_cols = st.columns(5)
 
         # 最新总成交额
         with card_cols[0]:
@@ -758,7 +758,7 @@ def render_volume_tab():
         sector_order = ['沪市主板', '深市主板', '创业板', '科创板']
         displayed = 0
         for sector in sector_order:
-            if displayed >= 3:
+            if displayed >= 4:
                 break
             sector_row = latest_by_sector[latest_by_sector['ts_name'] == sector]
             if len(sector_row) > 0:
