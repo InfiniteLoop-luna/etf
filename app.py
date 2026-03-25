@@ -755,6 +755,14 @@ def render_volume_tab():
 
         # 各板块最新成交额
         latest_by_sector = filtered_vol[filtered_vol['trade_date'] == latest_date]
+        
+        # 获取前一日数据备用
+        if len(daily_total) >= 2:
+            prev_date = daily_total.iloc[-2]['trade_date']
+            prev_by_sector = filtered_vol[filtered_vol['trade_date'] == prev_date]
+        else:
+            prev_by_sector = pd.DataFrame()
+
         sector_order = ['沪市主板', '深市主板', '创业板', '科创板']
         displayed = 0
         for sector in sector_order:
@@ -763,9 +771,21 @@ def render_volume_tab():
             sector_row = latest_by_sector[latest_by_sector['ts_name'] == sector]
             if len(sector_row) > 0:
                 val = sector_row.iloc[0]['amount']
+                
+                # 计算变动情况
+                sec_delta_str = '-'
+                sec_change_pct = '-'
+                if not prev_by_sector.empty:
+                    prev_sector_row = prev_by_sector[prev_by_sector['ts_name'] == sector]
+                    if len(prev_sector_row) > 0:
+                        prev_val = prev_sector_row.iloc[0]['amount']
+                        sec_change = val - prev_val
+                        sec_change_pct = f"{sec_change / prev_val * 100:+.2f}%" if prev_val else '-'
+                        sec_delta_str = f"{sec_change:+.2f}"
+
                 with card_cols[displayed + 1]:
                     st.markdown(
-                        draw_metric_card(sector, f'{val:,.2f}', '-'),
+                        draw_metric_card(sector, f'{val:,.2f}', sec_delta_str, sec_change_pct),
                         unsafe_allow_html=True
                     )
                 displayed += 1
