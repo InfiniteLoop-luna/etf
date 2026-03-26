@@ -9,6 +9,7 @@ from datetime import datetime
 import logging
 from src.data_loader import load_etf_data
 from src.volume_fetcher import load_volume_dataframe
+from src.etf_classifier import fetch_etf_data, process_etf_classification, export_etfs_to_excel
 
 # 配置日志
 logging.basicConfig(
@@ -850,7 +851,7 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
-    tab_etf, tab_volume = st.tabs(["📈 ETF份额变动", "📊 每日成交量"])
+    tab_etf, tab_volume, tab_etf_classification = st.tabs(["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计"])
 
     # ========== ETF 份额变动 Tab ==========
     with tab_etf:
@@ -859,6 +860,10 @@ def main():
     # ========== 每日成交量 Tab ==========
     with tab_volume:
         render_volume_tab()
+
+    # ========== ETF分类统计 Tab ==========
+    with tab_etf_classification:
+        render_etf_classification_tab()
 
 
 def render_etf_tab():
@@ -1070,6 +1075,49 @@ def render_etf_tab():
         )
     else:
         st.info("ℹ️ 没有可显示的统计信息")
+
+
+def render_etf_classification_tab():
+    """渲染ETF分类统计Tab页内容"""
+    st.subheader("📊 ETF数据自动分类提取")
+    st.caption("基于 Tushare 获取全市场ETF基本信息，进行清洗和预定义分类拆表。")
+
+    st.info("点击下方按钮将实时从 Tushare `etf_basic` 接口获取 ETF 基础信息（这可能需要几秒钟），处理完成后可下载多 Sheet Excel。")
+    
+    # 因为操作耗时，我们用按钮触发
+    if st.button("🚀 从 Tushare 获取并生成分类 Excel", type="primary"):
+        with st.spinner("正在从 Tushare 拉取全市场 ETF 基础数据..."):
+            try:
+                raw_df = fetch_etf_data()
+            except Exception as e:
+                st.error(f"获取 Tushare 数据失败: {str(e)}")
+                return
+            
+        with st.spinner("成功获取数据，正在进行洗表与自动分类处理..."):
+            try:
+                results_dict = process_etf_classification(raw_df)
+                excel_bytes = export_etfs_to_excel(results_dict)
+                st.success(f"✅ 处理完成！原始数据 {len(raw_df)} 条，清理退市后主表剩余 {len(results_dict.get('ETF汇总表', []))} 条。")
+                
+                # 在页面中提示各表行数预览
+                st.write("**数据行数概览:**")
+                col1, col2, col3, col4 = st.columns(4)
+                summary_keys = list(results_dict.keys())
+                for i, k in enumerate(summary_keys[:8]):
+                    with (col1 if i % 4 == 0 else col2 if i % 4 == 1 else col3 if i % 4 == 2 else col4):
+                        st.metric(k, f"{len(results_dict[k])} 行")
+                
+                # 提供下载按钮
+                st.download_button(
+                    label="📥 下载 ETF 分类汇总 Excel",
+                    data=excel_bytes,
+                    file_name=f"ETF分类汇总_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary"
+                )
+            except Exception as e:
+                st.error(f"处理分类数据时发生异常: {str(e)}")
+                logger.error("ETF classification error", exc_info=True)
 
 
 if __name__ == "__main__":
