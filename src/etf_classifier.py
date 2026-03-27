@@ -124,16 +124,16 @@ def process_etf_classification(df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         # 这里进行一个强制规范化识别：如果列内容本身包含 QDII，或者基金名字包含 QDII 等，就属于 QDII
         
         qdii_mask = (df_summary[channel_col].str.contains('QDII', case=False, na=False))
-        # 增加一些名称容错，防止 Tushare 中并没有在通道类型标注得很清晰
+        # 增加一些名称容错
         for ncol in name_cols:
             if ncol in df_summary.columns:
                 df_summary[ncol] = df_summary[ncol].fillna('')
-                qdii_mask = qdii_mask | df_summary[ncol].str.contains('QDII|纳斯达克|标普|日经|恒生', case=False, na=False)
+                qdii_mask = qdii_mask | df_summary[ncol].str.contains('QDII|纳斯达克|标普|日经|恒生|道琼斯', case=False, na=False)
                 
-        # 强制更新对应通道名称为 "QDII" 和 "境内" 提高明晰度
+        # 强制更新对应通道名称为 "QDII"
         df_summary.loc[qdii_mask, channel_col] = 'QDII'
-        # 没被划为 QDII 并且名字不空的，默认给“境内”
-        df_summary.loc[~qdii_mask & (df_summary['ETF扩位简称'] != ''), channel_col] = '境内'
+        # 未被归类为 QDII 的所有基金，预设为境内
+        df_summary.loc[~qdii_mask, channel_col] = '境内'
         
     df_qdii = df_summary[df_summary[channel_col] == 'QDII'].copy()
     df_domestic = df_summary[df_summary[channel_col] == '境内'].copy()
@@ -149,36 +149,33 @@ def process_etf_classification(df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     # ------------------- STEP 3 -------------------
     # 将境内ETF表中所有ETF基准指数代码数据汇总成单独的数据表，命名为境内ETF基准指数表；
     # 就是根据基准指数代码去重
-    df_domestic_idx = df_domestic[df_domestic[idx_code_col] != ''].drop_duplicates(subset=[idx_code_col]).copy()
+    df_domestic_idx = df_domestic.drop_duplicates(subset=[idx_code_col]).copy()
+    if '' in df_domestic_idx[idx_code_col].values:
+        df_domestic_idx = df_domestic_idx[df_domestic_idx[idx_code_col] != '']
+
+    results['境内ETF基准指数表'] = df_domestic_idx
     
     # 在境内ETF基准指数代码表中，筛选ETF基准指数中文全称中的商品/债的关键字；
     # 根据取值，将ETF汇总表对应境内ETF基准指数代码数据行的一级分类列赋值为商品/债券；
-    # 将ETF汇总表其他一级分类列为空值的数据行的一级分类列赋值为指数；
+    # 相比于仅用代码映射，我们直接利用名字本身在汇总表里强搜，防止因为 Tushare 接口偶尔漏掉指数代码导致分类失败
     
-    if 'ETF基准指数中文全称' in df_domestic_idx.columns:
-        idx_names = df_domestic_idx['ETF基准指数中文全称'].fillna('')
-        
-        commodity_mask_idx = df_domestic_idx[idx_names.str.contains('商品', na=False)][idx_code_col].tolist()
-        bond_mask_idx = df_domestic_idx[idx_names.str.contains('债', na=False)][idx_code_col].tolist()
-        
-        # 为了更准确，也可以辅助用 ETF 名称来找商品和债，以防指数名称为空
-        if 'ETF扩位简称' in df_summary.columns:
-            etf_names = df_summary['ETF扩位简称'].fillna('')
-            commodity_extra = df_summary[etf_names.str.contains('黄金|商品|有色金属', na=False)][idx_code_col].tolist()
-            bond_extra = df_summary[etf_names.str.contains('债', na=False)][idx_code_col].tolist()
-            commodity_mask_idx.extend(commodity_extra)
-            bond_mask_idx.extend(bond_extra)
+    is_commodity = pd.Series([False]*len(df_summary), index=df_summary.index)
+    is_bond = pd.Series([False]*len(df_summary), index=df_summary.index)
+    
+    for ncol in ['ETF扩位简称', '基金中文全称', 'ETF基准指数中文全称']:
+        if ncol in df_summary.columns:
+            col_data = df_summary[ncol].fillna('')
+            is_commodity = is_commodity | col_data.str.contains('商品|黄金|有色金属|商品指数', na=False)
+            is_bond = is_bond | col_data.str.contains('债', na=False)
             
-        commodity_mask_idx = list(set([x for x in commodity_mask_idx if x]))
-        bond_mask_idx = list(set([x for x in bond_mask_idx if x]))
-        
-        df_summary.loc[(df_summary[idx_code_col].isin(commodity_mask_idx)) & (df_summary['一级分类'] == ''), '一级分类'] = '商品'
-        df_summary.loc[(df_summary[idx_code_col].isin(bond_mask_idx)) & (df_summary['一级分类'] == ''), '一级分类'] = '债券'
-        
-        # 剩下的一级分类为空的均赋为指数
-        df_summary.loc[df_summary['一级分类'] == '', '一级分类'] = '指数'
-        
-    results['境内ETF基准指数表'] = df_domestic_idx
+    is_domestic = df_summary[channel_col] == '境内'
+    
+    df_summary.loc[is_domestic & is_commodity & (df_summary['一级分类'] == ''), '一级分类'] = '商品'
+    df_summary.loc[is_domestic & is_bond & (df_summary['一级分类'] == ''), '一级分类'] = '债券'
+    
+    # 剩下的一级分类为空的境内基金均赋值为指数
+    df_summary.loc[is_domestic & (df_summary['一级分类'] == ''), '一级分类'] = '指数'
+
     
     # ------------------- STEP 4 -------------------
     # 在ETF汇总表单独增加列，列名称为二级分类；
