@@ -30,8 +30,10 @@ def fetch_etf_data() -> pd.DataFrame:
         rename_map = {
             'ts_code': '基金交易代码',
             'name': 'ETF扩位简称',  # Tushare 的 name 通常是扩位简称
+            'extname': 'ETF扩位简称', # 扩位简称候补
             'fullname': '基金中文全称', # 如果有 fullname
-            'cnname': '基金中文全称',   # 另一个可能的中文名称段
+            'cnname': '基金中文全称',   # 中文名称候补1
+            'csname': '基金中文全称',   # 中文名称候补2
             'idx_code': 'ETF基准指数代码', # 尝试几个可能的指数代码字段名
             'index_code': 'ETF基准指数代码',
             'benchmark_code': 'ETF基准指数代码',
@@ -116,7 +118,7 @@ def process_etf_classification(df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     
     # 将ETF分类表按照境内/QDII通道ETF拆分为两个表，分别命名为境内ETF表和QDII ETF表；
     channel_col = '基金投资通道类型（境内、QDII）'
-    name_cols = ['ETF扩位简称', '基金中文全称', 'ETF基准指数中文全称', 'cnname']
+    name_cols = ['ETF扩位简称', '基金中文全称', 'ETF基准指数中文全称', 'cnname', 'csname', 'extname', 'name']
     
     # 基于用户提示："有'基金投资通道类型'，用这个啊"，我们尝试优先提取 Tushare API mapped 后的列数据。
     # 由于该列在 Tushare 里面可能有各种值 (比如 "ETF"、"QDII")，我们统一标准化一下
@@ -164,7 +166,7 @@ def process_etf_classification(df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     is_commodity = pd.Series([False]*len(df_summary), index=df_summary.index)
     is_bond = pd.Series([False]*len(df_summary), index=df_summary.index)
     
-    for ncol in ['ETF扩位简称', '基金中文全称', 'ETF基准指数中文全称', 'cnname']:
+    for ncol in ['ETF扩位简称', '基金中文全称', 'ETF基准指数中文全称', 'cnname', 'csname', 'extname', 'name']:
         if ncol in df_summary.columns:
             col_data = df_summary[ncol].fillna('')
             is_commodity = is_commodity | col_data.str.contains('商品|黄金|有色金属|商品指数', na=False)
@@ -189,7 +191,7 @@ def process_etf_classification(df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     
     # 查找“增强”
     name_search_mask = pd.Series([False] * len(df_summary), index=df_summary.index)
-    for ncol in ['ETF扩位简称', '基金中文全称', 'ETF基准指数中文全称']:
+    for ncol in ['ETF扩位简称', '基金中文全称', 'ETF基准指数中文全称', 'cnname', 'csname', 'extname', 'name']:
         if ncol in df_summary.columns:
             name_search_mask = name_search_mask | df_summary[ncol].fillna('').str.contains('增强', na=False)
             
