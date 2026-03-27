@@ -40,6 +40,7 @@ env/
 logs/
 
 # Config with secrets (local overrides)
+config.yaml
 config.yaml.local
 
 # OS
