@@ -61,6 +61,10 @@ def fetch_etf_data() -> pd.DataFrame:
                 
         # 由于 Tushare 拿回来的 m_fee 是纯数字(比如0.5)，可以转成百分比字符串或者保留数字。此处保持原样。
 
+        # 过滤掉基金交易代码以 .OF 或 .of 结尾的数据（通常为场外基金或联接基金等）
+        if '基金交易代码' in df.columns:
+            df = df[~df['基金交易代码'].astype(str).str.upper().str.endswith('.OF')].copy()
+
         return df
 
     except Exception as e:
