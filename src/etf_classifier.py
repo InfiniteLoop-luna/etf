@@ -38,7 +38,8 @@ def fetch_etf_data() -> pd.DataFrame:
             'status': '存续状态（L上市 D退市 P待上市）',
             'management': '基金管理人简称',
             'm_fee': '基金管理人收取的费用',
-            # 如果有QDII专门的标记字段
+            # 如果有QDII或通道专门的标记字段，Tushare接口返回为 etf_type
+            'etf_type': '基金投资通道类型（境内、QDII）',
             'fund_type': '基金投资通道类型（境内、QDII）', 
             'invest_type': '基金投资通道类型（境内、QDII）',
         }
