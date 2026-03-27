@@ -10,6 +10,7 @@ import logging
 from src.data_loader import load_etf_data
 from src.volume_fetcher import load_volume_dataframe
 from src.etf_classifier import fetch_etf_data, process_etf_classification, export_etfs_to_excel
+from src.etf_stats import get_available_dates, get_category_daily_summary
 
 # 配置日志
 logging.basicConfig(
@@ -835,7 +836,7 @@ def main():
     st.title("交易数据可视化")
 
     # 显示版本信息（用于验证部署）
-    st.caption("📌 Version 3.0 - 新增每日成交量 (2026-03-19)")
+    st.caption("📌 Version 3.1 - 新增ETF分类占比饼图 (2026-03-27)")
 
     # 显示最后更新时间
     try:
@@ -851,7 +852,9 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
-    tab_etf, tab_volume, tab_etf_classification = st.tabs(["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计"])
+    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio = st.tabs(
+        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比"]
+    )
 
     # ========== ETF 份额变动 Tab ==========
     with tab_etf:
@@ -864,6 +867,9 @@ def main():
     # ========== ETF分类统计 Tab ==========
     with tab_etf_classification:
         render_etf_classification_tab()
+
+    with tab_etf_ratio:
+        render_etf_category_ratio_tab()
 
 
 def render_etf_tab():
@@ -1118,6 +1124,145 @@ def render_etf_classification_tab():
             except Exception as e:
                 st.error(f"处理分类数据时发生异常: {str(e)}")
                 logger.error("ETF classification error", exc_info=True)
+
+
+def render_etf_category_ratio_tab():
+    st.subheader("🥧 ETF分类占比")
+    st.caption("按交易日统计指数ETF、QDII-ETF、商品ETF、货币ETF、债券ETF的总份额/总规模占比")
+
+    try:
+        available_dates = get_available_dates(limit=250)
+    except Exception as e:
+        st.error(f"读取可用交易日失败: {str(e)}")
+        return
+
+    if not available_dates:
+        st.warning("暂无可用交易日数据")
+        return
+
+    selected_date = st.selectbox("选择交易日期", options=available_dates, index=0)
+
+    try:
+        summary_df = get_category_daily_summary(selected_date)
+    except Exception as e:
+        st.error(f"读取分类汇总失败: {str(e)}")
+        return
+
+    if summary_df is None or len(summary_df) == 0:
+        st.warning("该日期没有ETF分类汇总数据")
+        return
+
+    target_categories = ["指数ETF", "QDII-ETF", "商品ETF", "货币ETF", "债券ETF"]
+
+    def normalize_category(value: str) -> str:
+        text = str(value).strip()
+        upper_text = text.upper()
+        if "QDII" in upper_text:
+            return "QDII-ETF"
+        if "指数" in text:
+            return "指数ETF"
+        if "商品" in text:
+            return "商品ETF"
+        if "货币" in text:
+            return "货币ETF"
+        if "债券" in text:
+            return "债券ETF"
+        return ""
+
+    category_df = summary_df[summary_df["category"] != "全部"].copy()
+    category_df["category_name"] = category_df["category"].map(normalize_category)
+    category_df = category_df[category_df["category_name"] != ""].copy()
+
+    if len(category_df) == 0:
+        st.warning("该日期未匹配到目标分类（指数/QDII/商品/货币/债券）")
+        return
+
+    category_df = category_df.groupby("category_name", as_index=False).agg({
+        "etf_count": "sum",
+        "total_share_yi": "sum",
+        "total_size_yi": "sum"
+    })
+
+    category_df = (
+        category_df
+        .set_index("category_name")
+        .reindex(target_categories, fill_value=0)
+        .reset_index()
+    )
+
+    category_df["total_share_yi"] = pd.to_numeric(category_df["total_share_yi"], errors="coerce").fillna(0.0)
+    category_df["total_size_yi"] = pd.to_numeric(category_df["total_size_yi"], errors="coerce").fillna(0.0)
+
+    total_share = float(category_df["total_share_yi"].sum())
+    total_size = float(category_df["total_size_yi"].sum())
+
+    if total_share <= 0 and total_size <= 0:
+        st.warning("该日期份额与规模数据均不可用，无法计算占比")
+        return
+
+    category_df["share_ratio"] = category_df["total_share_yi"] / total_share if total_share > 0 else 0.0
+    category_df["size_ratio"] = category_df["total_size_yi"] / total_size if total_size > 0 else 0.0
+    category_df["share_ratio_pct"] = (category_df["share_ratio"] * 100).round(2)
+    category_df["size_ratio_pct"] = (category_df["size_ratio"] * 100).round(2)
+
+    kpi_col1, kpi_col2 = st.columns(2)
+    with kpi_col1:
+        st.metric("ETF总份额（亿份）", f"{total_share:,.2f}" if total_share > 0 else "-")
+    with kpi_col2:
+        st.metric("ETF总规模（亿元）", f"{total_size:,.2f}" if total_size > 0 else "-")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if total_share > 0:
+            share_fig = go.Figure(
+                data=[go.Pie(
+                    labels=category_df["category_name"],
+                    values=category_df["total_share_yi"],
+                    hole=0.45,
+                    textinfo="label+percent",
+                    hovertemplate="%{label}<br>总份额: %{value:.2f} 亿份<br>占比: %{percent}<extra></extra>"
+                )]
+            )
+            share_fig.update_layout(
+                title=f"{selected_date} ETF总份额分类占比",
+                template="plotly_white",
+                height=500
+            )
+            st.plotly_chart(share_fig, use_container_width=True)
+        else:
+            st.info("该日期缺少份额数据，无法绘制份额占比饼图")
+
+    with col2:
+        if total_size > 0:
+            size_fig = go.Figure(
+                data=[go.Pie(
+                    labels=category_df["category_name"],
+                    values=category_df["total_size_yi"],
+                    hole=0.45,
+                    textinfo="label+percent",
+                    hovertemplate="%{label}<br>总规模: %{value:.2f} 亿元<br>占比: %{percent}<extra></extra>"
+                )]
+            )
+            size_fig.update_layout(
+                title=f"{selected_date} ETF总规模分类占比",
+                template="plotly_white",
+                height=500
+            )
+            st.plotly_chart(size_fig, use_container_width=True)
+        else:
+            st.info("该日期缺少规模数据，无法绘制规模占比饼图")
+
+    display_df = category_df.rename(columns={
+        "category_name": "ETF分类",
+        "etf_count": "ETF只数",
+        "total_share_yi": "总份额（亿份）",
+        "share_ratio_pct": "份额占比（%）",
+        "total_size_yi": "总规模（亿元）",
+        "size_ratio_pct": "规模占比（%）"
+    })[["ETF分类", "ETF只数", "总份额（亿份）", "份额占比（%）", "总规模（亿元）", "规模占比（%）"]]
+
+    st.subheader("📋 分类汇总明细")
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 if __name__ == "__main__":
