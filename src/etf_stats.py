@@ -283,6 +283,7 @@ def get_available_dates(
 # ── 预聚合表查询（供 Streamlit 新 Tab 使用）───────────────────────────────────
 
 AGG_TABLE = 'etf_category_daily_agg'
+WIDE_INDEX_TABLE = 'etf_wide_index_daily_agg'
 
 
 def get_category_tree(engine=None) -> dict:
@@ -420,6 +421,66 @@ def get_agg_summary(trade_date: str, engine=None) -> pd.DataFrame:
         engine = _get_engine()
 
     return pd.read_sql(text(sql), engine, params={"trade_date": trade_date})
+
+
+def get_wide_index_available_dates(limit: int = 1000, engine=None) -> list[str]:
+    sql = f"""
+        SELECT DISTINCT trade_date
+        FROM {WIDE_INDEX_TABLE}
+        ORDER BY trade_date DESC
+        LIMIT :limit
+    """
+    if engine is None:
+        engine = _get_engine()
+
+    df = pd.read_sql(text(sql), engine, params={"limit": limit})
+    return [str(d) for d in df['trade_date'].tolist()]
+
+
+def get_wide_index_timeseries(
+    start_date: str = None,
+    end_date: str = None,
+    benchmark_codes: list[str] | None = None,
+    engine=None
+) -> pd.DataFrame:
+    conditions = ["1=1"]
+    params = {}
+
+    if start_date:
+        conditions.append("trade_date >= :start_date")
+        params["start_date"] = start_date
+    if end_date:
+        conditions.append("trade_date <= :end_date")
+        params["end_date"] = end_date
+    if benchmark_codes:
+        code_params = []
+        for idx, code in enumerate(benchmark_codes):
+            key = f"code_{idx}"
+            code_params.append(f":{key}")
+            params[key] = code
+        conditions.append(f"benchmark_index_code IN ({', '.join(code_params)})")
+
+    sql = f"""
+        SELECT
+            trade_date,
+            benchmark_index_code,
+            benchmark_index_name,
+            etf_count,
+            ROUND(total_share / 10000, 2) AS total_share_yi,
+            ROUND(total_size / 10000, 2) AS total_size_yi,
+            ROUND(share_change / 10000, 2) AS share_change_yi,
+            ROUND(share_change_pct * 100, 2) AS share_change_pct,
+            ROUND(size_change / 10000, 2) AS size_change_yi,
+            ROUND(size_change_pct * 100, 2) AS size_change_pct
+        FROM {WIDE_INDEX_TABLE}
+        WHERE {' AND '.join(conditions)}
+        ORDER BY trade_date, benchmark_index_code
+    """
+
+    if engine is None:
+        engine = _get_engine()
+
+    return pd.read_sql(text(sql), engine, params=params)
 
 
 # ── 命令行快速验证 ────────────────────────────────────────────────────────────

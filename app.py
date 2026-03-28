@@ -5,14 +5,15 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from src.data_loader import load_etf_data
 from src.volume_fetcher import load_volume_dataframe
 from src.etf_classifier import fetch_etf_data, process_etf_classification, export_etfs_to_excel
 from src.etf_stats import (
     get_available_dates, get_category_daily_summary,
-    get_category_tree, get_category_timeseries, get_agg_summary
+    get_category_tree, get_category_timeseries, get_agg_summary,
+    get_wide_index_available_dates, get_wide_index_timeseries
 )
 
 # 配置日志
@@ -855,8 +856,8 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
-    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend = st.tabs(
-        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势"]
+    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index = st.tabs(
+        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF"]
     )
 
     # ========== ETF 份额变动 Tab ==========
@@ -877,6 +878,9 @@ def main():
     # ========== ETF分类趋势 Tab ==========
     with tab_etf_trend:
         render_etf_trend_tab()
+
+    with tab_wide_index:
+        render_wide_index_tab()
 
 
 def render_etf_tab():
@@ -1496,6 +1500,200 @@ def render_etf_trend_tab():
             st.info(f"{summary_date} 暂无汇总数据")
     except Exception as e:
         st.warning(f"加载汇总数据失败: {e}")
+
+
+def render_wide_index_tab():
+    st.subheader("📊 宽基指数ETF总览")
+    st.caption("展示 ETF 基准指数代码相同且二级分类为宽基的基金日度总份额、总规模及较前一日变动")
+
+    try:
+        available = get_wide_index_available_dates(limit=2000)
+    except Exception as e:
+        st.error(f"获取宽基指数聚合日期失败: {e}")
+        return
+
+    if not available:
+        st.warning("暂无宽基指数聚合数据，请先运行聚合脚本")
+        return
+
+    all_dates = sorted(list(pd.to_datetime(available).date))
+    min_d, max_d = all_dates[0], all_dates[-1]
+    default_start = max(min_d, max_d - timedelta(days=180))
+
+    control_cols = st.columns([1.4, 1.6, 1.2])
+    with control_cols[0]:
+        date_range = st.slider(
+            "时间范围",
+            min_value=min_d,
+            max_value=max_d,
+            value=(default_start, max_d),
+            format="YYYY-MM-DD",
+            key="wide_index_date_range"
+        )
+    try:
+        base_df = get_wide_index_timeseries(
+            start_date=str(date_range[0]),
+            end_date=str(date_range[1])
+        )
+    except Exception as e:
+        st.error(f"查询宽基指数聚合数据失败: {e}")
+        return
+
+    if base_df is None or len(base_df) == 0:
+        st.warning("所选时间范围内暂无宽基指数数据")
+        return
+
+    code_name_df = (
+        base_df[['benchmark_index_code', 'benchmark_index_name']]
+        .drop_duplicates()
+        .sort_values(['benchmark_index_code'])
+    )
+    code_to_name = dict(zip(code_name_df['benchmark_index_code'], code_name_df['benchmark_index_name']))
+    name_options = [code_to_name[code] for code in code_name_df['benchmark_index_code'].tolist()]
+    default_names = name_options[:4] if len(name_options) > 4 else name_options
+
+    with control_cols[1]:
+        selected_names = st.multiselect(
+            "宽基指数",
+            options=name_options,
+            default=default_names,
+            key="wide_index_names"
+        )
+    with control_cols[2]:
+        metric = st.radio(
+            "查看指标",
+            options=["总份额(亿份)", "总规模(亿元)"],
+            index=0,
+            key="wide_index_metric"
+        )
+
+    if not selected_names:
+        st.info("请至少选择一个宽基指数")
+        return
+
+    selected_codes = [code for code, name in code_to_name.items() if name in selected_names]
+    ts_df = base_df[base_df['benchmark_index_code'].isin(selected_codes)].copy()
+    ts_df['trade_date'] = pd.to_datetime(ts_df['trade_date'])
+
+    if ts_df.empty:
+        st.warning("当前筛选条件下暂无数据")
+        return
+
+    latest_date = ts_df['trade_date'].max()
+    latest_df = ts_df[ts_df['trade_date'] == latest_date].copy()
+
+    share_total = latest_df['total_share_yi'].fillna(0).sum()
+    share_delta = latest_df['share_change_yi'].fillna(0).sum()
+    share_delta_pct = (share_delta / (share_total - share_delta) * 100) if (share_total - share_delta) not in (0, None) else None
+    size_total = latest_df['total_size_yi'].fillna(0).sum()
+    size_delta = latest_df['size_change_yi'].fillna(0).sum()
+    size_delta_pct = (size_delta / (size_total - size_delta) * 100) if (size_total - size_delta) not in (0, None) else None
+
+    kpi_cols = st.columns(4)
+    with kpi_cols[0]:
+        st.metric("最新交易日", latest_date.strftime('%Y-%m-%d'))
+    with kpi_cols[1]:
+        st.metric(
+            "选中指数数",
+            f"{latest_df['benchmark_index_code'].nunique()}"
+        )
+    with kpi_cols[2]:
+        st.metric(
+            "总份额(亿份)",
+            f"{share_total:,.2f}",
+            f"{share_delta:+,.2f}" + (f" ({share_delta_pct:+.2f}%)" if share_delta_pct is not None else "")
+        )
+    with kpi_cols[3]:
+        st.metric(
+            "总规模(亿元)",
+            f"{size_total:,.2f}",
+            f"{size_delta:+,.2f}" + (f" ({size_delta_pct:+.2f}%)" if size_delta_pct is not None else "")
+        )
+
+    metric_col = 'total_share_yi' if '份额' in metric else 'total_size_yi'
+    metric_title = "总份额(亿份)" if '份额' in metric else "总规模(亿元)"
+    chart_df = ts_df.sort_values(['benchmark_index_name', 'trade_date']).copy()
+
+    fig = go.Figure()
+    color_palette = [
+        '#2E5BFF', '#8E54E9', '#FF9966', '#00D4AA', '#FF6B9D',
+        '#FFC233', '#00C9FF', '#FF5757', '#A0D911', '#9254DE',
+        '#1D4ED8', '#059669', '#F97316'
+    ]
+    for idx, name in enumerate(selected_names):
+        line_df = chart_df[chart_df['benchmark_index_name'] == name]
+        if line_df.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=line_df['trade_date'],
+            y=line_df[metric_col],
+            mode='lines',
+            name=name,
+            line=dict(width=2.4 if idx < 4 else 1.8, color=color_palette[idx % len(color_palette)], shape='spline'),
+            hovertemplate=f"<b>{name}</b><br>%{{x|%Y-%m-%d}}<br>{metric_title}: %{{y:,.2f}}<extra></extra>"
+        ))
+
+    fig.update_layout(
+        title=dict(
+            text=f'宽基指数ETF {metric_title} 趋势',
+            font=dict(size=20, weight=700, color='#1E293B'),
+            x=0.02
+        ),
+        xaxis_title='日期',
+        yaxis_title=metric_title,
+        hovermode='x unified',
+        height=520,
+        template='plotly_white',
+        plot_bgcolor='rgba(248, 250, 252, 0.5)',
+        paper_bgcolor='white',
+        font=dict(family='Inter, PingFang SC, sans-serif'),
+        legend=dict(
+            orientation='h', yanchor='bottom', y=-0.28,
+            xanchor='center', x=0.5,
+            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+        ),
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+    fig.update_xaxes(
+        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
+        showline=True, linewidth=1, linecolor='#E2E8F0'
+    )
+    fig.update_yaxes(
+        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
+        showline=True, linewidth=1, linecolor='#E2E8F0',
+        fixedrange=True
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("📋 每日聚合明细")
+    display_df = ts_df.sort_values(['trade_date', 'benchmark_index_code'], ascending=[False, True]).copy()
+    display_df['日期'] = display_df['trade_date'].dt.strftime('%Y-%m-%d')
+    display_df['宽基指数'] = display_df['benchmark_index_name']
+    display_df['ETF只数'] = display_df['etf_count'].fillna(0).astype(int)
+    display_df['总份额(亿份)'] = pd.to_numeric(display_df['total_share_yi'], errors='coerce')
+    display_df['份额变动(亿份)'] = pd.to_numeric(display_df['share_change_yi'], errors='coerce')
+    display_df['份额变动比例(%)'] = pd.to_numeric(display_df['share_change_pct'], errors='coerce')
+    display_df['总规模(亿元)'] = pd.to_numeric(display_df['total_size_yi'], errors='coerce')
+    display_df['规模变动(亿元)'] = pd.to_numeric(display_df['size_change_yi'], errors='coerce')
+    display_df['规模变动比例(%)'] = pd.to_numeric(display_df['size_change_pct'], errors='coerce')
+
+    st.dataframe(
+        display_df[
+            ['日期', '宽基指数', 'benchmark_index_code', 'ETF只数',
+             '总份额(亿份)', '份额变动(亿份)', '份额变动比例(%)',
+             '总规模(亿元)', '规模变动(亿元)', '规模变动比例(%)']
+        ].rename(columns={'benchmark_index_code': '基准指数代码'}).style.format({
+            '总份额(亿份)': '{:,.2f}',
+            '份额变动(亿份)': '{:,.2f}',
+            '份额变动比例(%)': '{:,.2f}',
+            '总规模(亿元)': '{:,.2f}',
+            '规模变动(亿元)': '{:,.2f}',
+            '规模变动比例(%)': '{:,.2f}'
+        }, na_rep='-'),
+        use_container_width=True,
+        hide_index=True,
+        height=560
+    )
 
 
 if __name__ == "__main__":
