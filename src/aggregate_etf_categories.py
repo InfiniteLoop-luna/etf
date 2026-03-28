@@ -17,14 +17,13 @@ ETF 分类聚合脚本
 import os
 import sys
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
-import pandas as pd
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-DB_URL       = 'postgresql://postgres:Zmx1018$@67.216.207.73:5432/postgres'
 TARGET_TABLE = 'etf_category_daily_agg'
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -32,7 +31,24 @@ logger = logging.getLogger(__name__)
 
 
 def get_engine():
-    return create_engine(DB_URL, pool_pre_ping=True)
+    direct_url = os.getenv('ETF_PG_URL') or os.getenv('DATABASE_URL')
+    if direct_url:
+        return create_engine(direct_url, pool_pre_ping=True)
+
+    password = os.getenv('ETF_PG_PASSWORD') or os.getenv('PGPASSWORD')
+    if not password:
+        raise RuntimeError('未配置数据库密码，请设置 ETF_PG_PASSWORD 或 PGPASSWORD')
+
+    db_url = URL.create(
+        'postgresql+psycopg2',
+        username=os.getenv('ETF_PG_USER', 'postgres'),
+        password=password,
+        host=os.getenv('ETF_PG_HOST', '67.216.207.73'),
+        port=int(os.getenv('ETF_PG_PORT', '5432')),
+        database=os.getenv('ETF_PG_DATABASE', 'postgres'),
+        query={'sslmode': os.getenv('ETF_PG_SSLMODE', 'require')}
+    )
+    return create_engine(db_url, pool_pre_ping=True)
 
 
 def ensure_table(engine):
@@ -161,15 +177,32 @@ def get_latest_share_date(engine) -> str | None:
     return None
 
 
-def run(full: bool = False):
+def normalize_date(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.replace('-', '').strip()
+    parsed = datetime.strptime(cleaned, '%Y%m%d')
+    return parsed.strftime('%Y-%m-%d')
+
+
+def run(full: bool = False, start_date: str | None = None, end_date: str | None = None):
     """
     主流程
     :param full: True=全量回填, False=增量（仅聚合新日期）
     """
     engine = get_engine()
     ensure_table(engine)
+    start_date = normalize_date(start_date)
+    end_date = normalize_date(end_date)
 
-    if full:
+    if start_date or end_date:
+        start_date = start_date or end_date
+        end_date = end_date or start_date
+        if start_date > end_date:
+            raise ValueError(f'开始日期不能晚于结束日期: {start_date} > {end_date}')
+        logger.info(f"指定区间模式：聚合 {start_date} ~ {end_date}")
+        aggregate_dates(engine, start_date=start_date, end_date=end_date)
+    elif full:
         logger.info("全量回填模式")
         aggregate_dates(engine)
     else:
@@ -198,5 +231,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='ETF 分类聚合')
     parser.add_argument('--full', action='store_true', help='全量回填')
+    parser.add_argument('--start-date', help='指定开始日期，格式 YYYYMMDD 或 YYYY-MM-DD')
+    parser.add_argument('--end-date', help='指定结束日期，格式 YYYYMMDD 或 YYYY-MM-DD')
     args = parser.parse_args()
-    run(full=args.full)
+    run(full=args.full, start_date=args.start_date, end_date=args.end_date)
