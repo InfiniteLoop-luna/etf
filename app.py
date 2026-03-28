@@ -1608,6 +1608,9 @@ def render_wide_index_tab():
         st.warning("当前筛选条件下暂无数据")
         return
 
+    metric_col = 'total_share_yi' if '??' in metric else 'total_size_yi'
+    metric_title = "???(??)" if '??' in metric else "???(??)"
+
     latest_date, latest_df = get_latest_metric_date(ts_df, metric_col)
     if latest_date is None:
         st.warning(f"当前筛选条件下暂无{metric}数据")
