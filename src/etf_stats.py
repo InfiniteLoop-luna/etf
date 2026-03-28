@@ -5,16 +5,40 @@ ETF分类统计查询模块
 数据来源: 视图 v_etf_category_daily (etf_share_size JOIN etf_summary)
 """
 
+import os
 import pandas as pd
 from sqlalchemy import create_engine, text
-from datetime import date, datetime
-from typing import Optional
+from sqlalchemy.engine import URL
 
-DB_URL = 'postgresql://postgres:Zmx1018$@67.216.207.73:5432/postgres'
+DEFAULT_DB_HOST = '67.216.207.73'
+DEFAULT_DB_PORT = 5432
+DEFAULT_DB_NAME = 'postgres'
+DEFAULT_DB_USER = 'postgres'
+DEFAULT_DB_SSLMODE = 'require'
+
+
+def _build_db_url():
+    direct_url = os.getenv('ETF_PG_URL') or os.getenv('DATABASE_URL')
+    if direct_url:
+        return direct_url
+
+    password = os.getenv('ETF_PG_PASSWORD') or os.getenv('PGPASSWORD')
+    if not password:
+        raise RuntimeError('未配置数据库密码，请设置 ETF_PG_PASSWORD 或 PGPASSWORD')
+
+    return URL.create(
+        'postgresql+psycopg2',
+        username=os.getenv('ETF_PG_USER', DEFAULT_DB_USER),
+        password=password,
+        host=os.getenv('ETF_PG_HOST', DEFAULT_DB_HOST),
+        port=int(os.getenv('ETF_PG_PORT', str(DEFAULT_DB_PORT))),
+        database=os.getenv('ETF_PG_DATABASE', DEFAULT_DB_NAME),
+        query={'sslmode': os.getenv('ETF_PG_SSLMODE', DEFAULT_DB_SSLMODE)}
+    )
 
 
 def _get_engine():
-    return create_engine(DB_URL, pool_pre_ping=True)
+    return create_engine(_build_db_url(), pool_pre_ping=True)
 
 
 def get_category_daily_summary(

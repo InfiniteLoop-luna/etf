@@ -28,13 +28,13 @@ from datetime import datetime, timedelta, date
 
 import pandas as pd
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
 
 # ── 路径设置（兼容直接运行和作为模块导入）──────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.volume_fetcher import _init_tushare
 
 # ── 配置 ────────────────────────────────────────────────────────────────────
-DB_URL          = 'postgresql://postgres:Zmx1018$@67.216.207.73:5432/postgres'
 SUMMARY_TABLE   = 'etf_summary'
 TARGET_TABLE    = 'etf_share_size'
 DEFAULT_START   = '20230101'       # 历史全量起始日
@@ -52,7 +52,24 @@ logger = logging.getLogger(__name__)
 # ── 工具函数 ─────────────────────────────────────────────────────────────────
 
 def get_engine():
-    return create_engine(DB_URL, pool_pre_ping=True)
+    direct_url = os.getenv('ETF_PG_URL') or os.getenv('DATABASE_URL')
+    if direct_url:
+        return create_engine(direct_url, pool_pre_ping=True)
+
+    password = os.getenv('ETF_PG_PASSWORD') or os.getenv('PGPASSWORD')
+    if not password:
+        raise RuntimeError('未配置数据库密码，请设置 ETF_PG_PASSWORD 或 PGPASSWORD')
+
+    db_url = URL.create(
+        'postgresql+psycopg2',
+        username=os.getenv('ETF_PG_USER', 'postgres'),
+        password=password,
+        host=os.getenv('ETF_PG_HOST', '67.216.207.73'),
+        port=int(os.getenv('ETF_PG_PORT', '5432')),
+        database=os.getenv('ETF_PG_DATABASE', 'postgres'),
+        query={'sslmode': os.getenv('ETF_PG_SSLMODE', 'require')}
+    )
+    return create_engine(db_url, pool_pre_ping=True)
 
 
 def ensure_table(engine):
