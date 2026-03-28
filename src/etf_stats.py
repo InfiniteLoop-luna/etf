@@ -88,6 +88,125 @@ def get_category_daily_summary(
     return df
 
 
+def get_full_daily_summary(
+    trade_date: str,
+    engine=None
+) -> pd.DataFrame:
+    """
+    查询指定日期的完整分类汇总，包括：
+      - 各一级分类小计（货币/债券/商品/QDII）
+      - 指数类按二级分类展开（宽基/行业&其他/港股/增强 + 指数小计）
+      - 全部合计行
+
+    Args:
+        trade_date: 交易日期 'YYYY-MM-DD' 或 'YYYYMMDD'
+        engine:     SQLAlchemy engine（可选）
+
+    Returns:
+        DataFrame 列：
+          category        - 分类名称
+          etf_count       - ETF只数
+          total_share_yi  - 总份额（亿份）
+          total_size_yi   - 总规模（亿元）
+
+    输出示例：
+        category     etf_count  total_share_yi  total_size_yi
+        QDII               136         7020.09         ...
+        债券                53          149.95         ...
+        商品                17          376.98         ...
+        指数-宽基           323         8000.00         ...
+        指数-港股           101         1200.00         ...
+        指数-增强            54          500.00         ...
+        指数-行业&其他       898        14000.00         ...
+        指数(小计)         1227        24315.49         ...
+        货币                27           17.42         ...
+        全部              1460        31879.94         ...
+    """
+    if len(trade_date) == 8 and '-' not in trade_date:
+        trade_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
+
+    sql = """
+        WITH base AS (
+            SELECT
+                primary_category,
+                secondary_category,
+                ts_code,
+                total_share,
+                total_size
+            FROM v_etf_category_daily
+            WHERE trade_date = :trade_date
+        ),
+
+        -- 非指数的一级分类汇总
+        non_index AS (
+            SELECT
+                primary_category   AS category,
+                1                  AS sort_order,
+                primary_category   AS sort_key,
+                COUNT(DISTINCT ts_code)              AS etf_count,
+                ROUND(SUM(total_share) / 10000, 2)   AS total_share_yi,
+                ROUND(SUM(total_size)  / 10000, 2)   AS total_size_yi
+            FROM base
+            WHERE primary_category != '指数'
+            GROUP BY primary_category
+        ),
+
+        -- 指数按二级分类展开
+        index_sub AS (
+            SELECT
+                '指数-' || COALESCE(secondary_category, '未分类')  AS category,
+                2                   AS sort_order,
+                COALESCE(secondary_category, 'zzz')  AS sort_key,
+                COUNT(DISTINCT ts_code)              AS etf_count,
+                ROUND(SUM(total_share) / 10000, 2)   AS total_share_yi,
+                ROUND(SUM(total_size)  / 10000, 2)   AS total_size_yi
+            FROM base
+            WHERE primary_category = '指数'
+            GROUP BY secondary_category
+        ),
+
+        -- 指数小计
+        index_total AS (
+            SELECT
+                '指数(小计)'          AS category,
+                3                   AS sort_order,
+                ''                  AS sort_key,
+                COUNT(DISTINCT ts_code)              AS etf_count,
+                ROUND(SUM(total_share) / 10000, 2)   AS total_share_yi,
+                ROUND(SUM(total_size)  / 10000, 2)   AS total_size_yi
+            FROM base
+            WHERE primary_category = '指数'
+        ),
+
+        -- 全部合计
+        grand_total AS (
+            SELECT
+                '全部'               AS category,
+                9                   AS sort_order,
+                ''                  AS sort_key,
+                COUNT(DISTINCT ts_code)              AS etf_count,
+                ROUND(SUM(total_share) / 10000, 2)   AS total_share_yi,
+                ROUND(SUM(total_size)  / 10000, 2)   AS total_size_yi
+            FROM base
+        )
+
+        SELECT category, etf_count, total_share_yi, total_size_yi
+        FROM (
+            SELECT * FROM non_index
+            UNION ALL SELECT * FROM index_sub
+            UNION ALL SELECT * FROM index_total
+            UNION ALL SELECT * FROM grand_total
+        ) t
+        ORDER BY sort_order, sort_key
+    """
+
+    if engine is None:
+        engine = _get_engine()
+
+    df = pd.read_sql(text(sql), engine, params={"trade_date": trade_date})
+    return df
+
+
 def get_category_detail(
     trade_date: str,
     primary_category: str,
@@ -167,6 +286,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ETF分类统计查询')
     parser.add_argument('--date', default=None, help='交易日期 YYYY-MM-DD（默认取最新）')
     parser.add_argument('--category', default=None, help='查看某一级分类明细（如 货币）')
+    parser.add_argument('--full', action='store_true', help='完整汇总（含指数二级分类展开）')
     args = parser.parse_args()
 
     engine = _get_engine()
@@ -180,6 +300,10 @@ if __name__ == '__main__':
     if args.category:
         print(f"=== {args.date}  [{args.category}] 明细 ===")
         df = get_category_detail(args.date, args.category, engine)
+        print(df.to_string(index=False))
+    elif args.full:
+        print(f"=== {args.date}  完整分类汇总 ===")
+        df = get_full_daily_summary(args.date, engine)
         print(df.to_string(index=False))
     else:
         print(f"=== {args.date}  各一级分类汇总 ===")
