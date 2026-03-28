@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 ETF份额规模数据抓取脚本
 数据来源: Tushare etf_share_size 接口 (doc_id=408)

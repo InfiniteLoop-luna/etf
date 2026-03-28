@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 ETF分类统计查询模块
 提供按一级分类汇总指定日期 ETF 份额/规模的工具函数

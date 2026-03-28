@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 ETF 分类聚合脚本
 将 etf_share_size（每日明细） JOIN etf_summary（分类信息）
