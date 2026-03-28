@@ -1276,6 +1276,23 @@ def render_etf_category_ratio_tab():
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
+def get_latest_metric_date(df: pd.DataFrame, metric_col: str):
+    valid_df = df.dropna(subset=[metric_col]).copy()
+    if valid_df.empty:
+        return None, valid_df
+    latest_date = valid_df['trade_date'].max()
+    return latest_date, valid_df[valid_df['trade_date'] == latest_date].copy()
+
+
+def format_metric_delta(value, pct):
+    if value is None or pd.isna(value):
+        return "-"
+    text = f"{float(value):+,.2f}"
+    if pct is None or pd.isna(pct):
+        return text
+    return f"{text} ({float(pct):+,.2f}%)"
+
+
 def render_etf_trend_tab():
     """渲染 ETF 分类趋势 Tab 页"""
     st.subheader("📈 ETF分类份额/规模趋势")
@@ -1373,6 +1390,7 @@ def render_etf_trend_tab():
     ts_df[metric_col] = pd.to_numeric(ts_df[metric_col], errors='coerce')
 
     # 顶部指标卡片
+    latest_metric_date, latest_metric_rows = get_latest_metric_date(ts_df, metric_col)
     valid_ts = ts_df.dropna(subset=[metric_col])
     if len(valid_ts) > 0:
         latest = valid_ts.iloc[-1]
@@ -1469,7 +1487,10 @@ def render_etf_trend_tab():
     # 汇总表格
     st.subheader("📋 各分类汇总")
     try:
-        summary_date = str(date_range[1])
+        if latest_metric_date is None:
+            st.info("当前指标暂无可用于汇总展示的数据")
+            return
+        summary_date = latest_metric_date.strftime('%Y-%m-%d')
         sum_df = get_agg_summary(summary_date)
 
         if sum_df is not None and len(sum_df) > 0:
@@ -1489,13 +1510,21 @@ def render_etf_trend_tab():
                 display_rows.append({
                     '分类': name,
                     'ETF只数': int(row['etf_count']) if pd.notna(row['etf_count']) else 0,
-                    '总份额(亿份)': float(row['total_share_yi']) if pd.notna(row['total_share_yi']) else 0,
-                    '总规模(亿元)': float(row['total_size_yi']) if pd.notna(row['total_size_yi']) else 0,
+                    '总份额(亿份)': float(row['total_share_yi']) if pd.notna(row['total_share_yi']) else None,
+                    '总规模(亿元)': float(row['total_size_yi']) if pd.notna(row['total_size_yi']) else None,
                 })
 
             disp_df = pd.DataFrame(display_rows)
             st.caption(f"数据日期: {summary_date}")
-            st.dataframe(disp_df, use_container_width=True, hide_index=True, height=600)
+            st.dataframe(
+                disp_df.style.format({
+                    '总份额(亿份)': '{:,.2f}',
+                    '总规模(亿元)': '{:,.2f}'
+                }, na_rep='-'),
+                use_container_width=True,
+                hide_index=True,
+                height=600
+            )
         else:
             st.info(f"{summary_date} 暂无汇总数据")
     except Exception as e:
@@ -1579,15 +1608,35 @@ def render_wide_index_tab():
         st.warning("当前筛选条件下暂无数据")
         return
 
-    latest_date = ts_df['trade_date'].max()
-    latest_df = ts_df[ts_df['trade_date'] == latest_date].copy()
+    latest_date, latest_df = get_latest_metric_date(ts_df, metric_col)
+    if latest_date is None:
+        st.warning(f"当前筛选条件下暂无{metric}数据")
+        return
 
-    share_total = latest_df['total_share_yi'].fillna(0).sum()
-    share_delta = latest_df['share_change_yi'].fillna(0).sum()
-    share_delta_pct = (share_delta / (share_total - share_delta) * 100) if (share_total - share_delta) not in (0, None) else None
-    size_total = latest_df['total_size_yi'].fillna(0).sum()
-    size_delta = latest_df['size_change_yi'].fillna(0).sum()
-    size_delta_pct = (size_delta / (size_total - size_delta) * 100) if (size_total - size_delta) not in (0, None) else None
+    share_total = latest_df['total_share_yi'].sum(min_count=1)
+    share_delta = latest_df['share_change_yi'].sum(min_count=1)
+    share_base = (
+        float(share_total) - float(share_delta)
+        if pd.notna(share_total) and pd.notna(share_delta)
+        else None
+    )
+    share_delta_pct = (
+        float(share_delta) / share_base * 100
+        if share_base not in (None, 0)
+        else None
+    )
+    size_total = latest_df['total_size_yi'].sum(min_count=1)
+    size_delta = latest_df['size_change_yi'].sum(min_count=1)
+    size_base = (
+        float(size_total) - float(size_delta)
+        if pd.notna(size_total) and pd.notna(size_delta)
+        else None
+    )
+    size_delta_pct = (
+        float(size_delta) / size_base * 100
+        if size_base not in (None, 0)
+        else None
+    )
 
     kpi_cols = st.columns(4)
     with kpi_cols[0]:
@@ -1600,14 +1649,14 @@ def render_wide_index_tab():
     with kpi_cols[2]:
         st.metric(
             "总份额(亿份)",
-            f"{share_total:,.2f}",
-            f"{share_delta:+,.2f}" + (f" ({share_delta_pct:+.2f}%)" if share_delta_pct is not None else "")
+            f"{float(share_total):,.2f}" if pd.notna(share_total) else "-",
+            format_metric_delta(share_delta, share_delta_pct)
         )
     with kpi_cols[3]:
         st.metric(
             "总规模(亿元)",
-            f"{size_total:,.2f}",
-            f"{size_delta:+,.2f}" + (f" ({size_delta_pct:+.2f}%)" if size_delta_pct is not None else "")
+            f"{float(size_total):,.2f}" if pd.notna(size_total) else "-",
+            format_metric_delta(size_delta, size_delta_pct)
         )
 
     metric_col = 'total_share_yi' if '份额' in metric else 'total_size_yi'
