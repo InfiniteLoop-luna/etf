@@ -10,7 +10,10 @@ import logging
 from src.data_loader import load_etf_data
 from src.volume_fetcher import load_volume_dataframe
 from src.etf_classifier import fetch_etf_data, process_etf_classification, export_etfs_to_excel
-from src.etf_stats import get_available_dates, get_category_daily_summary
+from src.etf_stats import (
+    get_available_dates, get_category_daily_summary,
+    get_category_tree, get_category_timeseries, get_agg_summary
+)
 
 # 配置日志
 logging.basicConfig(
@@ -852,8 +855,8 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
-    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio = st.tabs(
-        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比"]
+    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend = st.tabs(
+        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势"]
     )
 
     # ========== ETF 份额变动 Tab ==========
@@ -870,6 +873,10 @@ def main():
 
     with tab_etf_ratio:
         render_etf_category_ratio_tab()
+
+    # ========== ETF分类趋势 Tab ==========
+    with tab_etf_trend:
+        render_etf_trend_tab()
 
 
 def render_etf_tab():
@@ -1265,5 +1272,232 @@ def render_etf_category_ratio_tab():
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
+def render_etf_trend_tab():
+    """渲染 ETF 分类趋势 Tab 页"""
+    st.subheader("📈 ETF分类份额/规模趋势")
+    st.caption("按分类查看 ETF 总份额、总规模的时间序列曲线")
+
+    # 加载分类树
+    try:
+        category_tree = get_category_tree()
+    except Exception as e:
+        st.error(f"加载分类信息失败: {e}")
+        return
+
+    if not category_tree:
+        st.warning("暂无分类数据，请先运行聚合脚本")
+        return
+
+    # 侧边栏筛选器
+    st.sidebar.header("📂 分类趋势筛选")
+
+    primary_options = ['全部'] + sorted(category_tree.keys())
+    selected_primary = st.sidebar.selectbox(
+        "一级分类",
+        options=primary_options,
+        index=0,
+        key="trend_primary"
+    )
+
+    # 二级分类联动
+    category_key = selected_primary
+    if selected_primary != '全部' and category_tree.get(selected_primary):
+        secondary_list = category_tree[selected_primary]
+        secondary_options = ['全部(小计)'] + secondary_list
+        selected_secondary = st.sidebar.selectbox(
+            "二级分类",
+            options=secondary_options,
+            index=0,
+            key="trend_secondary"
+        )
+        if selected_secondary == '全部(小计)':
+            category_key = selected_primary
+        else:
+            category_key = f"{selected_primary}-{selected_secondary}"
+    elif selected_primary == '全部':
+        category_key = '全部'
+
+    # 指标选择
+    metric = st.sidebar.radio(
+        "查看指标",
+        options=['总份额(亿份)', '总规模(亿元)'],
+        index=0,
+        key="trend_metric"
+    )
+    metric_col = 'total_share_yi' if '份额' in metric else 'total_size_yi'
+
+    # 日期范围
+    try:
+        available = get_available_dates(limit=1000)
+    except Exception as e:
+        st.error(f"获取可用日期失败: {e}")
+        return
+
+    if not available:
+        st.warning("暂无可用交易日数据")
+        return
+
+    from datetime import datetime as dt
+    all_dates = sorted([dt.strptime(d, '%Y-%m-%d').date() for d in available])
+    min_d, max_d = all_dates[0], all_dates[-1]
+
+    date_range = st.sidebar.slider(
+        "时间范围",
+        min_value=min_d,
+        max_value=max_d,
+        value=(min_d, max_d),
+        format="YYYY-MM-DD",
+        key="trend_date_range"
+    )
+
+    # 查询时序数据
+    try:
+        ts_df = get_category_timeseries(
+            category_key=category_key,
+            start_date=str(date_range[0]),
+            end_date=str(date_range[1])
+        )
+    except Exception as e:
+        st.error(f"查询时序数据失败: {e}")
+        return
+
+    if ts_df is None or len(ts_df) == 0:
+        st.warning(f"分类 [{category_key}] 在所选时间范围内无数据")
+        return
+
+    ts_df['trade_date'] = pd.to_datetime(ts_df['trade_date'])
+    ts_df[metric_col] = pd.to_numeric(ts_df[metric_col], errors='coerce')
+
+    # 顶部指标卡片
+    valid_ts = ts_df.dropna(subset=[metric_col])
+    if len(valid_ts) > 0:
+        latest = valid_ts.iloc[-1]
+        latest_val = float(latest[metric_col])
+        latest_count = int(latest['etf_count'])
+        latest_date_str = latest['trade_date'].strftime('%Y-%m-%d')
+
+        if len(valid_ts) >= 2:
+            prev_val = float(valid_ts.iloc[-2][metric_col])
+            change = latest_val - prev_val
+            change_pct = (change / prev_val * 100) if prev_val != 0 else 0
+        else:
+            change = 0
+            change_pct = 0
+
+        kpi_cols = st.columns(3)
+        with kpi_cols[0]:
+            st.metric(f"{category_key} - ETF只数", f"{latest_count}")
+        with kpi_cols[1]:
+            st.metric(
+                f"{metric} ({latest_date_str})",
+                f"{latest_val:,.2f}",
+                f"{change:+,.2f} ({change_pct:+.2f}%)"
+            )
+        with kpi_cols[2]:
+            first_val = float(valid_ts.iloc[0][metric_col])
+            period_change = latest_val - first_val
+            period_pct = (period_change / first_val * 100) if first_val != 0 else 0
+            st.metric(
+                "区间变动",
+                f"{period_change:+,.2f}",
+                f"{period_pct:+.2f}%"
+            )
+
+    # 时序曲线图
+    fig = go.Figure()
+    chart_data = ts_df.dropna(subset=[metric_col]).copy()
+
+    fig.add_trace(go.Scatter(
+        x=chart_data['trade_date'],
+        y=chart_data[metric_col],
+        mode='lines',
+        name=category_key,
+        line=dict(width=2.5, shape='spline', color='#2E5BFF'),
+        fill='tozeroy',
+        fillcolor='rgba(46, 91, 255, 0.08)',
+        hovertemplate='<b>%{x|%Y-%m-%d}</b><br>%{y:,.2f}<extra></extra>'
+    ))
+
+    if len(chart_data) >= 20:
+        chart_data['ma20'] = chart_data[metric_col].rolling(window=20).mean()
+        fig.add_trace(go.Scatter(
+            x=chart_data['trade_date'],
+            y=chart_data['ma20'],
+            mode='lines',
+            name='20日均线',
+            line=dict(width=1.5, color='#EF4444', dash='dot'),
+            hovertemplate='<b>%{x|%Y-%m-%d}</b><br>20MA: %{y:,.2f}<extra></extra>'
+        ))
+
+    fig.update_layout(
+        title=dict(
+            text=f'{category_key} \u2014 {metric} 趋势',
+            font=dict(size=20, weight=700, color='#1E293B'),
+            x=0.02
+        ),
+        xaxis_title='日期',
+        yaxis_title=metric,
+        hovermode='x unified',
+        legend=dict(
+            orientation='h', yanchor='bottom', y=-0.2,
+            xanchor='center', x=0.5,
+            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+        ),
+        height=500,
+        template='plotly_white',
+        plot_bgcolor='rgba(248, 250, 252, 0.5)',
+        paper_bgcolor='white',
+        font=dict(family='Inter, PingFang SC, sans-serif'),
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+    fig.update_xaxes(
+        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
+        showline=True, linewidth=1, linecolor='#E2E8F0'
+    )
+    fig.update_yaxes(
+        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
+        showline=True, linewidth=1, linecolor='#E2E8F0',
+        fixedrange=True
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # 汇总表格
+    st.subheader("📋 各分类汇总")
+    try:
+        summary_date = str(date_range[1])
+        sum_df = get_agg_summary(summary_date)
+
+        if sum_df is not None and len(sum_df) > 0:
+            display_rows = []
+            for _, row in sum_df.iterrows():
+                level = int(row['level'])
+                if level == 1:
+                    name = f"  {row['primary_category']}-{row['secondary_category']}"
+                elif level == 2:
+                    if row['primary_category'] != '全部':
+                        name = f"{row['primary_category']}(小计)"
+                    else:
+                        name = row['primary_category']
+                else:
+                    name = '全部'
+
+                display_rows.append({
+                    '分类': name,
+                    'ETF只数': int(row['etf_count']) if pd.notna(row['etf_count']) else 0,
+                    '总份额(亿份)': float(row['total_share_yi']) if pd.notna(row['total_share_yi']) else 0,
+                    '总规模(亿元)': float(row['total_size_yi']) if pd.notna(row['total_size_yi']) else 0,
+                })
+
+            disp_df = pd.DataFrame(display_rows)
+            st.caption(f"数据日期: {summary_date}")
+            st.dataframe(disp_df, use_container_width=True, hide_index=True, height=600)
+        else:
+            st.info(f"{summary_date} 暂无汇总数据")
+    except Exception as e:
+        st.warning(f"加载汇总数据失败: {e}")
+
+
 if __name__ == "__main__":
     main()
+

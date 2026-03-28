@@ -280,6 +280,148 @@ def get_available_dates(
     return [str(d) for d in df['trade_date'].tolist()]
 
 
+# ── 预聚合表查询（供 Streamlit 新 Tab 使用）───────────────────────────────────
+
+AGG_TABLE = 'etf_category_daily_agg'
+
+
+def get_category_tree(engine=None) -> dict:
+    """
+    从聚合表获取分类树结构，返回格式：
+    {
+        '指数': ['宽基', '港股', '增强', '行业&其他'],
+        'QDII': ['宽基', '行业&其他'],
+        '债券': ['国债', '信用债', ...],
+        '商品': [],
+        '货币': [],
+    }
+    """
+    sql = f"""
+        SELECT DISTINCT primary_category, secondary_category
+        FROM {AGG_TABLE}
+        WHERE level = 1
+        ORDER BY primary_category, secondary_category
+    """
+    if engine is None:
+        engine = _get_engine()
+
+    df = pd.read_sql(text(sql), engine)
+    tree = {}
+    for _, row in df.iterrows():
+        p = row['primary_category']
+        s = row['secondary_category']
+        if p not in tree:
+            tree[p] = []
+        if s and s not in tree[p]:
+            tree[p].append(s)
+
+    # 补上没有二级分类的（商品、货币）
+    sql2 = f"""
+        SELECT DISTINCT primary_category
+        FROM {AGG_TABLE}
+        WHERE level = 2 AND primary_category NOT IN ('全部')
+    """
+    df2 = pd.read_sql(text(sql2), engine)
+    for _, row in df2.iterrows():
+        p = row['primary_category']
+        if p not in tree:
+            tree[p] = []
+
+    return tree
+
+
+def get_category_timeseries(
+    category_key: str,
+    start_date: str = None,
+    end_date: str = None,
+    engine=None
+) -> pd.DataFrame:
+    """
+    从预聚合表查询某分类的时序数据（供绘图用）。
+
+    Args:
+        category_key: 分类标识，如 '指数-宽基'、'指数'、'货币'、'全部'
+        start_date:   起始日期 'YYYY-MM-DD'（可选）
+        end_date:     结束日期 'YYYY-MM-DD'（可选）
+        engine:       SQLAlchemy engine（可选）
+
+    Returns:
+        DataFrame 列:
+          trade_date      DATE
+          etf_count       INT
+          total_share_yi  NUMERIC   总份额（亿份）
+          total_size_yi   NUMERIC   总规模（亿元）
+    """
+    conditions = ["category_key = :category_key"]
+    params = {"category_key": category_key}
+
+    if start_date:
+        conditions.append("trade_date >= :start_date")
+        params["start_date"] = start_date
+    if end_date:
+        conditions.append("trade_date <= :end_date")
+        params["end_date"] = end_date
+
+    where = " AND ".join(conditions)
+
+    sql = f"""
+        SELECT
+            trade_date,
+            etf_count,
+            ROUND(total_share / 10000, 2) AS total_share_yi,
+            ROUND(total_size  / 10000, 2) AS total_size_yi
+        FROM {AGG_TABLE}
+        WHERE {where}
+        ORDER BY trade_date
+    """
+
+    if engine is None:
+        engine = _get_engine()
+
+    return pd.read_sql(text(sql), engine, params=params)
+
+
+def get_agg_summary(trade_date: str, engine=None) -> pd.DataFrame:
+    """
+    从预聚合表获取某日的完整分类汇总（用于下方表格）。
+
+    Args:
+        trade_date: 'YYYY-MM-DD'
+
+    Returns:
+        DataFrame 列: category_key, primary_category, secondary_category,
+                       level, etf_count, total_share_yi, total_size_yi
+        按 level（二级明细→一级小计→合计）和名称排序
+    """
+    sql = f"""
+        SELECT
+            category_key,
+            primary_category,
+            secondary_category,
+            level,
+            etf_count,
+            ROUND(total_share / 10000, 2) AS total_share_yi,
+            ROUND(total_size  / 10000, 2) AS total_size_yi
+        FROM {AGG_TABLE}
+        WHERE trade_date = :trade_date
+        ORDER BY
+            CASE primary_category
+                WHEN 'QDII' THEN 1
+                WHEN '债券' THEN 2
+                WHEN '商品' THEN 3
+                WHEN '指数' THEN 4
+                WHEN '货币' THEN 5
+                WHEN '全部' THEN 9
+            END,
+            level,
+            secondary_category NULLS LAST
+    """
+    if engine is None:
+        engine = _get_engine()
+
+    return pd.read_sql(text(sql), engine, params={"trade_date": trade_date})
+
+
 # ── 命令行快速验证 ────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     import argparse

@@ -223,6 +223,15 @@ def run(full: bool = False):
 
     logger.info(f"完成！本次共写入 {total_inserted} 条数据")
 
+    # 自动触发分类聚合
+    if total_inserted > 0:
+        logger.info("触发分类聚合...")
+        try:
+            from src.aggregate_etf_categories import run as run_aggregate
+            run_aggregate(full=full)
+        except Exception as exc:
+            logger.warning(f"分类聚合失败（不影响主流程）: {exc}")
+
 
 if __name__ == '__main__':
     import argparse
