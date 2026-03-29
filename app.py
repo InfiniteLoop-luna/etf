@@ -1369,6 +1369,88 @@ def create_change_curve_chart(
     return fig
 
 
+def create_change_bar_chart(
+    df: pd.DataFrame,
+    value_col: str,
+    title: str,
+    yaxis_title: str,
+    series_col: str | None = None,
+    series_names: list[str] | None = None
+) -> go.Figure:
+    fig = go.Figure()
+    chart_df = df.dropna(subset=[value_col]).copy()
+    positive_color = '#EF4444'
+    negative_color = '#10B981'
+
+    if series_col is None:
+        colors = [
+            positive_color if value >= 0 else negative_color
+            for value in chart_df[value_col]
+        ]
+        fig.add_trace(go.Bar(
+            x=chart_df['trade_date'],
+            y=chart_df[value_col],
+            name=yaxis_title,
+            marker=dict(color=colors, line=dict(width=0)),
+            opacity=0.88,
+            hovertemplate=f"<b>%{{x|%Y-%m-%d}}</b><br>{yaxis_title}: %{{y:+,.2f}}<extra></extra>"
+        ))
+    else:
+        ordered_names = series_names or chart_df[series_col].dropna().unique().tolist()
+        for name in ordered_names:
+            bar_df = chart_df[chart_df[series_col] == name]
+            if bar_df.empty:
+                continue
+            colors = [
+                positive_color if value >= 0 else negative_color
+                for value in bar_df[value_col]
+            ]
+            fig.add_trace(go.Bar(
+                x=bar_df['trade_date'],
+                y=bar_df[value_col],
+                name=name,
+                marker=dict(color=colors, line=dict(width=0)),
+                opacity=0.82,
+                hovertemplate=f"<b>{name}</b><br>%{{x|%Y-%m-%d}}<br>{yaxis_title}: %{{y:+,.2f}}<extra></extra>"
+            ))
+
+    fig.add_hline(y=0, line_width=1, line_dash='dash', line_color='#94A3B8')
+    fig.update_layout(
+        title=dict(
+            text=title,
+            font=dict(size=20, weight=700, color='#1E293B'),
+            x=0.02
+        ),
+        xaxis_title='日期',
+        yaxis_title=yaxis_title,
+        hovermode='x unified',
+        height=420,
+        template='plotly_white',
+        plot_bgcolor='rgba(248, 250, 252, 0.5)',
+        paper_bgcolor='white',
+        font=dict(family='Inter, PingFang SC, sans-serif'),
+        legend=dict(
+            orientation='h', yanchor='bottom', y=-0.25,
+            xanchor='center', x=0.5,
+            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+        ),
+        margin=dict(l=20, r=20, t=60, b=20),
+        bargap=0.18,
+        barmode='group'
+    )
+    fig.update_xaxes(
+        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
+        showline=True, linewidth=1, linecolor='#E2E8F0'
+    )
+    fig.update_yaxes(
+        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
+        showline=True, linewidth=1, linecolor='#E2E8F0',
+        zeroline=False,
+        fixedrange=True
+    )
+    return fig
+
+
 def render_etf_trend_tab():
     """渲染 ETF 分类趋势 Tab 页"""
     st.subheader("📈 ETF分类份额/规模趋势")
@@ -1592,7 +1674,17 @@ def render_etf_trend_tab():
             title=f'{category_key} — 规模变动(亿元)趋势',
             yaxis_title='规模变动(亿元)'
         )
-        st.plotly_chart(size_change_fig, use_container_width=True)
+        size_change_bar_fig = create_change_bar_chart(
+            df=size_change_chart_data,
+            value_col='size_change_yi',
+            title=f'{category_key} — 规模变动(亿元)红绿柱状图',
+            yaxis_title='规模变动(亿元)'
+        )
+        change_tabs = st.tabs(["曲线", "红绿柱状"])
+        with change_tabs[0]:
+            st.plotly_chart(size_change_fig, use_container_width=True)
+        with change_tabs[1]:
+            st.plotly_chart(size_change_bar_fig, use_container_width=True)
 
     # 汇总表格
     try:
@@ -1846,7 +1938,19 @@ def render_wide_index_tab():
             series_names=selected_names,
             color_palette=color_palette
         )
-        st.plotly_chart(size_change_fig, use_container_width=True)
+        size_change_bar_fig = create_change_bar_chart(
+            df=size_change_chart_df,
+            value_col='size_change_yi',
+            title='宽基指数ETF 规模变动(亿元)红绿柱状图',
+            yaxis_title='规模变动(亿元)',
+            series_col='benchmark_index_name',
+            series_names=selected_names
+        )
+        change_tabs = st.tabs(["曲线", "红绿柱状"])
+        with change_tabs[0]:
+            st.plotly_chart(size_change_fig, use_container_width=True)
+        with change_tabs[1]:
+            st.plotly_chart(size_change_bar_fig, use_container_width=True)
 
     st.subheader("📋 每日聚合明细")
     display_df = ts_df.sort_values(['trade_date', 'benchmark_index_code'], ascending=[False, True]).copy()
