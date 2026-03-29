@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import logging
+from typing import Optional, List
 from src.data_loader import load_etf_data
 from src.volume_fetcher import load_volume_dataframe
 from src.etf_classifier import fetch_etf_data, process_etf_classification, export_etfs_to_excel
@@ -1298,10 +1299,10 @@ def create_change_curve_chart(
     value_col: str,
     title: str,
     yaxis_title: str,
-    pct_col: str | None = None,
-    series_col: str | None = None,
-    series_names: list[str] | None = None,
-    color_palette: list[str] | None = None
+    pct_col: "Optional[str]" = None,
+    series_col: "Optional[str]" = None,
+    series_names: "Optional[List[str]]" = None,
+    color_palette: "Optional[List[str]]" = None
 ) -> go.Figure:
     fig = go.Figure()
     chart_df = df.dropna(subset=[value_col]).copy()
@@ -1393,9 +1394,9 @@ def create_change_bar_chart(
     value_col: str,
     title: str,
     yaxis_title: str,
-    pct_col: str | None = None,
-    series_col: str | None = None,
-    series_names: list[str] | None = None
+    pct_col: "Optional[str]" = None,
+    series_col: "Optional[str]" = None,
+    series_names: "Optional[List[str]]" = None
 ) -> go.Figure:
     fig = go.Figure()
     chart_df = df.dropna(subset=[value_col]).copy()
