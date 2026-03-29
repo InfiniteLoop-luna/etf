@@ -353,6 +353,10 @@ def get_category_timeseries(
           etf_count       INT
           total_share_yi  NUMERIC   总份额（亿份）
           total_size_yi   NUMERIC   总规模（亿元）
+          share_change_yi NUMERIC   份额变动（亿份）
+          share_change_pct NUMERIC  份额变动比例（%）
+          size_change_yi  NUMERIC   规模变动（亿元）
+          size_change_pct NUMERIC   规模变动比例（%）
     """
     conditions = ["category_key = :category_key"]
     params = {"category_key": category_key}
@@ -371,7 +375,11 @@ def get_category_timeseries(
             trade_date,
             etf_count,
             ROUND(total_share / 10000, 2) AS total_share_yi,
-            ROUND(total_size  / 10000, 2) AS total_size_yi
+            ROUND(total_size  / 10000, 2) AS total_size_yi,
+            ROUND(share_change / 10000, 2) AS share_change_yi,
+            ROUND(share_change_pct * 100, 2) AS share_change_pct,
+            ROUND(size_change / 10000, 2) AS size_change_yi,
+            ROUND(size_change_pct * 100, 2) AS size_change_pct
         FROM {AGG_TABLE}
         WHERE {where}
         ORDER BY trade_date
@@ -392,7 +400,9 @@ def get_agg_summary(trade_date: str, engine=None) -> pd.DataFrame:
 
     Returns:
         DataFrame 列: category_key, primary_category, secondary_category,
-                       level, etf_count, total_share_yi, total_size_yi
+                       level, etf_count, total_share_yi, total_size_yi,
+                       share_change_yi, share_change_pct,
+                       size_change_yi, size_change_pct
         按 level（二级明细→一级小计→合计）和名称排序
     """
     sql = f"""
@@ -403,7 +413,11 @@ def get_agg_summary(trade_date: str, engine=None) -> pd.DataFrame:
             level,
             etf_count,
             ROUND(total_share / 10000, 2) AS total_share_yi,
-            ROUND(total_size  / 10000, 2) AS total_size_yi
+            ROUND(total_size  / 10000, 2) AS total_size_yi,
+            ROUND(share_change / 10000, 2) AS share_change_yi,
+            ROUND(share_change_pct * 100, 2) AS share_change_pct,
+            ROUND(size_change / 10000, 2) AS size_change_yi,
+            ROUND(size_change_pct * 100, 2) AS size_change_pct
         FROM {AGG_TABLE}
         WHERE trade_date = :trade_date
         ORDER BY

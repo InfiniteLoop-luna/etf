@@ -80,8 +80,17 @@ def ensure_table(engine):
         etf_count           INT,
         total_share         NUMERIC(20,4),
         total_size          NUMERIC(20,4),
+        share_change        NUMERIC(20,4),
+        share_change_pct    NUMERIC(20,6),
+        size_change         NUMERIC(20,4),
+        size_change_pct     NUMERIC(20,6),
         PRIMARY KEY (trade_date, category_key)
     );
+    ALTER TABLE {TARGET_TABLE}
+        ADD COLUMN IF NOT EXISTS share_change NUMERIC(20,4),
+        ADD COLUMN IF NOT EXISTS share_change_pct NUMERIC(20,6),
+        ADD COLUMN IF NOT EXISTS size_change NUMERIC(20,4),
+        ADD COLUMN IF NOT EXISTS size_change_pct NUMERIC(20,6);
     CREATE INDEX IF NOT EXISTS idx_agg_category ON {TARGET_TABLE} (category_key, trade_date);
     """
     with engine.begin() as conn:
@@ -117,84 +126,181 @@ def aggregate_dates(engine, start_date: str = None, end_date: str = None):
     对指定日期范围执行聚合，写入 etf_category_daily_agg。
     使用 INSERT ... ON CONFLICT DO UPDATE 保证幂等。
     """
-    date_filter = ""
+    history_filter = ""
+    output_filter = ""
+    delete_filter = ""
     params = {}
     if start_date:
-        date_filter += " AND s.trade_date >= :start_date"
+        output_filter += " AND trade_date >= :start_date"
+        delete_filter += " AND trade_date >= :start_date"
         params['start_date'] = start_date
     if end_date:
-        date_filter += " AND s.trade_date <= :end_date"
+        history_filter += " AND s.trade_date <= :end_date"
+        output_filter += " AND trade_date <= :end_date"
+        delete_filter += " AND trade_date <= :end_date"
         params['end_date'] = end_date
 
-    sql = f"""
+    delete_sql = text(f"DELETE FROM {TARGET_TABLE} WHERE 1=1 {delete_filter}")
+    insert_sql = text(f"""
     INSERT INTO {TARGET_TABLE}
         (trade_date, category_key, primary_category, secondary_category, level,
-         etf_count, total_share, total_size)
+         etf_count, total_share, total_size,
+         share_change, share_change_pct, size_change, size_change_pct)
+    WITH etf_base AS (
+        SELECT
+            s.trade_date,
+            s.ts_code,
+            e.primary_category,
+            e.secondary_category,
+            s.total_share,
+            s.total_size,
+            s.close,
+            LAG(s.total_share) OVER (
+                PARTITION BY s.ts_code
+                ORDER BY s.trade_date
+            ) AS prev_etf_total_share
+        FROM etf_share_size s
+        JOIN etf_summary e
+          ON s.ts_code = e.fund_trade_code
+        WHERE 1=1
+          {history_filter}
+    ),
+    category_daily AS (
+        SELECT
+            trade_date,
+            primary_category || '-' || secondary_category AS category_key,
+            primary_category,
+            secondary_category,
+            1 AS level,
+            COUNT(DISTINCT ts_code) AS etf_count,
+            SUM(total_share) AS total_share,
+            SUM(total_size) AS total_size,
+            SUM(
+                close * (
+                    total_share - COALESCE(prev_etf_total_share, 0)
+                )
+            ) AS size_change_by_share
+        FROM etf_base
+        WHERE secondary_category IS NOT NULL
+        GROUP BY trade_date, primary_category, secondary_category
 
-    -- Level 1: 二级分类明细（仅 secondary_category 非空的）
+        UNION ALL
+
+        SELECT
+            trade_date,
+            primary_category AS category_key,
+            primary_category,
+            NULL AS secondary_category,
+            2 AS level,
+            COUNT(DISTINCT ts_code) AS etf_count,
+            SUM(total_share) AS total_share,
+            SUM(total_size) AS total_size,
+            SUM(
+                close * (
+                    total_share - COALESCE(prev_etf_total_share, 0)
+                )
+            ) AS size_change_by_share
+        FROM etf_base
+        GROUP BY trade_date, primary_category
+
+        UNION ALL
+
+        SELECT
+            trade_date,
+            '全部' AS category_key,
+            '全部' AS primary_category,
+            NULL AS secondary_category,
+            9 AS level,
+            COUNT(DISTINCT ts_code) AS etf_count,
+            SUM(total_share) AS total_share,
+            SUM(total_size) AS total_size,
+            SUM(
+                close * (
+                    total_share - COALESCE(prev_etf_total_share, 0)
+                )
+            ) AS size_change_by_share
+        FROM etf_base
+        GROUP BY trade_date
+    ),
+    lag_base AS (
+        SELECT
+            trade_date,
+            category_key,
+            primary_category,
+            secondary_category,
+            level,
+            etf_count,
+            total_share,
+            total_size,
+            size_change_by_share,
+            LAG(total_share) OVER (
+                PARTITION BY category_key
+                ORDER BY trade_date
+            ) AS prev_total_share,
+            LAG(total_size) OVER (
+                PARTITION BY category_key
+                ORDER BY trade_date
+            ) AS prev_total_size
+        FROM category_daily
+    ),
+    calc AS (
+        SELECT
+            trade_date,
+            category_key,
+            primary_category,
+            secondary_category,
+            level,
+            etf_count,
+            total_share,
+            total_size,
+            total_share - prev_total_share AS share_change,
+            CASE
+                WHEN prev_total_share IS NULL OR prev_total_share = 0 THEN NULL
+                ELSE (total_share - prev_total_share) / prev_total_share
+            END AS share_change_pct,
+            CASE
+                WHEN prev_total_size IS NULL THEN NULL
+                ELSE size_change_by_share
+            END AS size_change,
+            CASE
+                WHEN prev_total_size IS NULL OR prev_total_size = 0 THEN NULL
+                ELSE size_change_by_share / prev_total_size
+            END AS size_change_pct
+        FROM lag_base
+    )
     SELECT
-        s.trade_date,
-        e.primary_category || '-' || e.secondary_category  AS category_key,
-        e.primary_category,
-        e.secondary_category,
-        1                               AS level,
-        COUNT(DISTINCT s.ts_code)       AS etf_count,
-        SUM(s.total_share)              AS total_share,
-        SUM(s.total_size)               AS total_size
-    FROM etf_share_size s
-    JOIN etf_summary e ON s.ts_code = e.fund_trade_code
-    WHERE e.secondary_category IS NOT NULL
-      {date_filter}
-    GROUP BY s.trade_date, e.primary_category, e.secondary_category
-
-    UNION ALL
-
-    -- Level 2: 一级分类小计
-    SELECT
-        s.trade_date,
-        e.primary_category              AS category_key,
-        e.primary_category,
-        NULL                            AS secondary_category,
-        2                               AS level,
-        COUNT(DISTINCT s.ts_code)       AS etf_count,
-        SUM(s.total_share)              AS total_share,
-        SUM(s.total_size)               AS total_size
-    FROM etf_share_size s
-    JOIN etf_summary e ON s.ts_code = e.fund_trade_code
+        trade_date,
+        category_key,
+        primary_category,
+        secondary_category,
+        level,
+        etf_count,
+        total_share,
+        total_size,
+        share_change,
+        share_change_pct,
+        size_change,
+        size_change_pct
+    FROM calc
     WHERE 1=1
-      {date_filter}
-    GROUP BY s.trade_date, e.primary_category
-
-    UNION ALL
-
-    -- Level 9: 全部合计
-    SELECT
-        s.trade_date,
-        '全部'                           AS category_key,
-        '全部'                           AS primary_category,
-        NULL                            AS secondary_category,
-        9                               AS level,
-        COUNT(DISTINCT s.ts_code)       AS etf_count,
-        SUM(s.total_share)              AS total_share,
-        SUM(s.total_size)               AS total_size
-    FROM etf_share_size s
-    JOIN etf_summary e ON s.ts_code = e.fund_trade_code
-    WHERE 1=1
-      {date_filter}
-    GROUP BY s.trade_date
-
+      {output_filter}
     ON CONFLICT (trade_date, category_key) DO UPDATE SET
         primary_category    = EXCLUDED.primary_category,
         secondary_category  = EXCLUDED.secondary_category,
         level               = EXCLUDED.level,
         etf_count           = EXCLUDED.etf_count,
         total_share         = EXCLUDED.total_share,
-        total_size          = EXCLUDED.total_size
+        total_size          = EXCLUDED.total_size,
+        share_change        = EXCLUDED.share_change,
+        share_change_pct    = EXCLUDED.share_change_pct,
+        size_change         = EXCLUDED.size_change,
+        size_change_pct     = EXCLUDED.size_change_pct
     ;
-    """
+    """)
 
     with engine.begin() as conn:
-        result = conn.execute(text(sql), params)
+        conn.execute(delete_sql, params)
+        result = conn.execute(insert_sql, params)
         logger.info(f"聚合完成，影响 {result.rowcount} 行")
     return result.rowcount
 
@@ -238,14 +344,19 @@ def aggregate_wide_index_dates(engine, start_date: str = None, end_date: str = N
             VALUES
             {benchmark_rows}
         ),
-        daily_base AS (
+        etf_base AS (
             SELECT
                 s.trade_date,
+                s.ts_code,
                 e.benchmark_index_code,
                 bm.benchmark_index_name,
-                COUNT(DISTINCT s.ts_code) AS etf_count,
-                SUM(s.total_share) AS total_share,
-                SUM(s.total_size) AS total_size
+                s.total_share,
+                s.total_size,
+                s.close,
+                LAG(s.total_share) OVER (
+                    PARTITION BY s.ts_code
+                    ORDER BY s.trade_date
+                ) AS prev_etf_total_share
             FROM etf_share_size s
             JOIN etf_summary e
               ON s.ts_code = e.fund_trade_code
@@ -253,10 +364,25 @@ def aggregate_wide_index_dates(engine, start_date: str = None, end_date: str = N
               ON e.benchmark_index_code = bm.benchmark_index_code
             WHERE e.secondary_category = '宽基'
               {history_filter}
+        ),
+        daily_base AS (
+            SELECT
+                trade_date,
+                benchmark_index_code,
+                benchmark_index_name,
+                COUNT(DISTINCT ts_code) AS etf_count,
+                SUM(total_share) AS total_share,
+                SUM(total_size) AS total_size,
+                SUM(
+                    close * (
+                        total_share - COALESCE(prev_etf_total_share, 0)
+                    )
+                ) AS size_change_by_share
+            FROM etf_base
             GROUP BY
-                s.trade_date,
-                e.benchmark_index_code,
-                bm.benchmark_index_name
+                trade_date,
+                benchmark_index_code,
+                benchmark_index_name
         ),
         lag_base AS (
             SELECT
@@ -266,6 +392,7 @@ def aggregate_wide_index_dates(engine, start_date: str = None, end_date: str = N
                 etf_count,
                 total_share,
                 total_size,
+                size_change_by_share,
                 LAG(total_share) OVER (
                     PARTITION BY benchmark_index_code
                     ORDER BY trade_date
@@ -289,10 +416,13 @@ def aggregate_wide_index_dates(engine, start_date: str = None, end_date: str = N
                     WHEN prev_total_share IS NULL OR prev_total_share = 0 THEN NULL
                     ELSE (total_share - prev_total_share) / prev_total_share
                 END AS share_change_pct,
-                total_size - prev_total_size AS size_change,
+                CASE
+                    WHEN prev_total_size IS NULL THEN NULL
+                    ELSE size_change_by_share
+                END AS size_change,
                 CASE
                     WHEN prev_total_size IS NULL OR prev_total_size = 0 THEN NULL
-                    ELSE (total_size - prev_total_size) / prev_total_size
+                    ELSE size_change_by_share / prev_total_size
                 END AS size_change_pct
             FROM lag_base
         )

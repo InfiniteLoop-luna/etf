@@ -1293,6 +1293,82 @@ def format_metric_delta(value, pct):
     return f"{text} ({float(pct):+,.2f}%)"
 
 
+def create_change_curve_chart(
+    df: pd.DataFrame,
+    value_col: str,
+    title: str,
+    yaxis_title: str,
+    series_col: str | None = None,
+    series_names: list[str] | None = None,
+    color_palette: list[str] | None = None
+) -> go.Figure:
+    fig = go.Figure()
+    chart_df = df.dropna(subset=[value_col]).copy()
+
+    if series_col is None:
+        fig.add_trace(go.Scatter(
+            x=chart_df['trade_date'],
+            y=chart_df[value_col],
+            mode='lines+markers',
+            name=yaxis_title,
+            line=dict(width=2.4, color='#F59E0B', shape='spline'),
+            marker=dict(size=5, color='#F59E0B'),
+            fill='tozeroy',
+            fillcolor='rgba(245, 158, 11, 0.10)',
+            hovertemplate=f"<b>%{{x|%Y-%m-%d}}</b><br>{yaxis_title}: %{{y:+,.2f}}<extra></extra>"
+        ))
+    else:
+        palette = color_palette or ['#2E5BFF', '#8E54E9', '#FF9966', '#00D4AA', '#FF6B9D']
+        ordered_names = series_names or chart_df[series_col].dropna().unique().tolist()
+        for idx, name in enumerate(ordered_names):
+            line_df = chart_df[chart_df[series_col] == name]
+            if line_df.empty:
+                continue
+            fig.add_trace(go.Scatter(
+                x=line_df['trade_date'],
+                y=line_df[value_col],
+                mode='lines+markers',
+                name=name,
+                line=dict(width=2.2 if idx < 4 else 1.8, color=palette[idx % len(palette)], shape='spline'),
+                marker=dict(size=4, color=palette[idx % len(palette)]),
+                hovertemplate=f"<b>{name}</b><br>%{{x|%Y-%m-%d}}<br>{yaxis_title}: %{{y:+,.2f}}<extra></extra>"
+            ))
+
+    fig.add_hline(y=0, line_width=1, line_dash='dash', line_color='#94A3B8')
+    fig.update_layout(
+        title=dict(
+            text=title,
+            font=dict(size=20, weight=700, color='#1E293B'),
+            x=0.02
+        ),
+        xaxis_title='日期',
+        yaxis_title=yaxis_title,
+        hovermode='x unified',
+        height=420,
+        template='plotly_white',
+        plot_bgcolor='rgba(248, 250, 252, 0.5)',
+        paper_bgcolor='white',
+        font=dict(family='Inter, PingFang SC, sans-serif'),
+        legend=dict(
+            orientation='h', yanchor='bottom', y=-0.25,
+            xanchor='center', x=0.5,
+            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+        ),
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+    fig.update_xaxes(
+        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
+        showline=True, linewidth=1, linecolor='#E2E8F0'
+    )
+    fig.update_yaxes(
+        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
+        showline=True, linewidth=1, linecolor='#E2E8F0',
+        zeroline=False,
+        fixedrange=True
+    )
+    return fig
+
+
 def render_etf_trend_tab():
     """渲染 ETF 分类趋势 Tab 页"""
     st.subheader("📈 ETF分类份额/规模趋势")
@@ -1388,6 +1464,9 @@ def render_etf_trend_tab():
 
     ts_df['trade_date'] = pd.to_datetime(ts_df['trade_date'])
     ts_df[metric_col] = pd.to_numeric(ts_df[metric_col], errors='coerce')
+    for col in ['share_change_yi', 'share_change_pct', 'size_change_yi', 'size_change_pct']:
+        if col in ts_df.columns:
+            ts_df[col] = pd.to_numeric(ts_df[col], errors='coerce')
 
     # 顶部指标卡片
     latest_metric_date, latest_metric_rows = get_latest_metric_date(ts_df, metric_col)
@@ -1398,13 +1477,31 @@ def render_etf_trend_tab():
         latest_count = int(latest['etf_count'])
         latest_date_str = latest['trade_date'].strftime('%Y-%m-%d')
 
+        if metric_col == 'total_share_yi':
+            change_col = 'share_change_yi'
+            change_pct_col = 'share_change_pct'
+        else:
+            change_col = 'size_change_yi'
+            change_pct_col = 'size_change_pct'
+
         if len(valid_ts) >= 2:
             prev_val = float(valid_ts.iloc[-2][metric_col])
-            change = latest_val - prev_val
-            change_pct = (change / prev_val * 100) if prev_val != 0 else 0
+            fallback_change = latest_val - prev_val
+            fallback_change_pct = (fallback_change / prev_val * 100) if prev_val != 0 else 0
         else:
-            change = 0
-            change_pct = 0
+            fallback_change = 0
+            fallback_change_pct = 0
+
+        change = (
+            float(latest[change_col])
+            if change_col in latest and pd.notna(latest[change_col])
+            else fallback_change
+        )
+        change_pct = (
+            float(latest[change_pct_col])
+            if change_pct_col in latest and pd.notna(latest[change_pct_col])
+            else fallback_change_pct
+        )
 
         kpi_cols = st.columns(3)
         with kpi_cols[0]:
@@ -1482,10 +1579,21 @@ def render_etf_trend_tab():
         fixedrange=True
     )
 
+
+    size_change_chart_data = ts_df.dropna(subset=['size_change_yi']).copy()
+    if not size_change_chart_data.empty:
+        st.subheader("📉 规模变动曲线")
+        st.caption("按当日收盘价 × 份额变化数计算，排除价格波动对规模变动的影响")
+        size_change_fig = create_change_curve_chart(
+            df=size_change_chart_data,
+            value_col='size_change_yi',
+            title=f'{category_key} — 规模变动(亿元)趋势',
+            yaxis_title='规模变动(亿元)'
+        )
+        st.plotly_chart(size_change_fig, use_container_width=True)
     st.plotly_chart(fig, use_container_width=True)
 
     # 汇总表格
-    st.subheader("📋 各分类汇总")
     try:
         if latest_metric_date is None:
             st.info("当前指标暂无可用于汇总展示的数据")
@@ -1511,7 +1619,11 @@ def render_etf_trend_tab():
                     '分类': name,
                     'ETF只数': int(row['etf_count']) if pd.notna(row['etf_count']) else 0,
                     '总份额(亿份)': float(row['total_share_yi']) if pd.notna(row['total_share_yi']) else None,
+                    '份额变动(亿份)': float(row['share_change_yi']) if pd.notna(row['share_change_yi']) else None,
+                    '份额变动比例(%)': float(row['share_change_pct']) if pd.notna(row['share_change_pct']) else None,
                     '总规模(亿元)': float(row['total_size_yi']) if pd.notna(row['total_size_yi']) else None,
+                    '规模变动(亿元)': float(row['size_change_yi']) if pd.notna(row['size_change_yi']) else None,
+                    '规模变动比例(%)': float(row['size_change_pct']) if pd.notna(row['size_change_pct']) else None,
                 })
 
             disp_df = pd.DataFrame(display_rows)
@@ -1519,7 +1631,11 @@ def render_etf_trend_tab():
             st.dataframe(
                 disp_df.style.format({
                     '总份额(亿份)': '{:,.2f}',
-                    '总规模(亿元)': '{:,.2f}'
+                    '份额变动(亿份)': '{:,.2f}',
+                    '份额变动比例(%)': '{:,.2f}',
+                    '总规模(亿元)': '{:,.2f}',
+                    '规模变动(亿元)': '{:,.2f}',
+                    '规模变动比例(%)': '{:,.2f}'
                 }, na_rep='-'),
                 use_container_width=True,
                 hide_index=True,
@@ -1716,6 +1832,19 @@ def render_wide_index_tab():
         fixedrange=True
     )
     st.plotly_chart(fig, use_container_width=True)
+
+    size_change_chart_df = chart_df.dropna(subset=['size_change_yi']).copy()
+    if not size_change_chart_df.empty:
+        size_change_fig = create_change_curve_chart(
+            df=size_change_chart_df,
+            value_col='size_change_yi',
+            title='宽基指数ETF 规模变动(亿元)趋势',
+            yaxis_title='规模变动(亿元)',
+            series_col='benchmark_index_name',
+            series_names=selected_names,
+            color_palette=color_palette
+        )
+        st.plotly_chart(size_change_fig, use_container_width=True)
 
     st.subheader("📋 每日聚合明细")
     display_df = ts_df.sort_values(['trade_date', 'benchmark_index_code'], ascending=[False, True]).copy()
