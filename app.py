@@ -53,6 +53,43 @@ st.markdown("""
         padding: 2rem 1rem;
     }
 
+    [data-testid="collapsedControl"],
+    button[aria-label="Open sidebar"],
+    button[aria-label="Close sidebar"] {
+        position: fixed !important;
+        top: 0.75rem !important;
+        left: 0.75rem !important;
+        width: 2.75rem !important;
+        height: 2.75rem !important;
+        border-radius: 9999px !important;
+        border: 1px solid rgba(59, 130, 246, 0.35) !important;
+        background: linear-gradient(135deg, rgba(30, 41, 59, 0.96) 0%, rgba(37, 99, 235, 0.96) 100%) !important;
+        color: #F8FAFC !important;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.28) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        opacity: 1 !important;
+        z-index: 1000 !important;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease !important;
+    }
+
+    [data-testid="collapsedControl"]:hover,
+    button[aria-label="Open sidebar"]:hover,
+    button[aria-label="Close sidebar"]:hover {
+        transform: translateY(-1px) scale(1.02) !important;
+        box-shadow: 0 14px 36px rgba(37, 99, 235, 0.28) !important;
+        background: linear-gradient(135deg, rgba(30, 41, 59, 1) 0%, rgba(59, 130, 246, 1) 100%) !important;
+    }
+
+    [data-testid="collapsedControl"] svg,
+    button[aria-label="Open sidebar"] svg,
+    button[aria-label="Close sidebar"] svg {
+        width: 1.2rem !important;
+        height: 1.2rem !important;
+        fill: currentColor !important;
+    }
+
     [data-testid="stSidebar"] * {
         color: #E2E8F0 !important;
     }
