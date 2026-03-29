@@ -1298,14 +1298,26 @@ def create_change_curve_chart(
     value_col: str,
     title: str,
     yaxis_title: str,
+    pct_col: str | None = None,
     series_col: str | None = None,
     series_names: list[str] | None = None,
     color_palette: list[str] | None = None
 ) -> go.Figure:
     fig = go.Figure()
     chart_df = df.dropna(subset=[value_col]).copy()
+    positive_max = chart_df.loc[chart_df[value_col] > 0, value_col].max() if not chart_df.empty else None
+    negative_min = chart_df.loc[chart_df[value_col] < 0, value_col].min() if not chart_df.empty else None
+    if pd.notna(positive_max):
+        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor='rgba(239, 68, 68, 0.05)', line_width=0)
+    if pd.notna(negative_min):
+        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor='rgba(16, 185, 129, 0.05)', line_width=0)
 
     if series_col is None:
+        custom_data = chart_df[[pct_col]].to_numpy() if pct_col and pct_col in chart_df.columns else None
+        hover_template = f"<b>%{{x|%Y-%m-%d}}</b><br>{yaxis_title}: %{{y:+,.2f}}"
+        if custom_data is not None:
+            hover_template += "<br>变动比例: %{customdata[0]:+,.2f}%"
+        hover_template += "<extra></extra>"
         fig.add_trace(go.Scatter(
             x=chart_df['trade_date'],
             y=chart_df[value_col],
@@ -1315,7 +1327,8 @@ def create_change_curve_chart(
             marker=dict(size=5, color='#F59E0B'),
             fill='tozeroy',
             fillcolor='rgba(245, 158, 11, 0.10)',
-            hovertemplate=f"<b>%{{x|%Y-%m-%d}}</b><br>{yaxis_title}: %{{y:+,.2f}}<extra></extra>"
+            customdata=custom_data,
+            hovertemplate=hover_template
         ))
     else:
         palette = color_palette or ['#2E5BFF', '#8E54E9', '#FF9966', '#00D4AA', '#FF6B9D']
@@ -1324,6 +1337,11 @@ def create_change_curve_chart(
             line_df = chart_df[chart_df[series_col] == name]
             if line_df.empty:
                 continue
+            custom_data = line_df[[pct_col]].to_numpy() if pct_col and pct_col in line_df.columns else None
+            hover_template = f"<b>{name}</b><br>%{{x|%Y-%m-%d}}<br>{yaxis_title}: %{{y:+,.2f}}"
+            if custom_data is not None:
+                hover_template += "<br>变动比例: %{customdata[0]:+,.2f}%"
+            hover_template += "<extra></extra>"
             fig.add_trace(go.Scatter(
                 x=line_df['trade_date'],
                 y=line_df[value_col],
@@ -1331,7 +1349,8 @@ def create_change_curve_chart(
                 name=name,
                 line=dict(width=2.2 if idx < 4 else 1.8, color=palette[idx % len(palette)], shape='spline'),
                 marker=dict(size=4, color=palette[idx % len(palette)]),
-                hovertemplate=f"<b>{name}</b><br>%{{x|%Y-%m-%d}}<br>{yaxis_title}: %{{y:+,.2f}}<extra></extra>"
+                customdata=custom_data,
+                hovertemplate=hover_template
             ))
 
     fig.add_hline(y=0, line_width=1, line_dash='dash', line_color='#94A3B8')
@@ -1374,6 +1393,7 @@ def create_change_bar_chart(
     value_col: str,
     title: str,
     yaxis_title: str,
+    pct_col: str | None = None,
     series_col: str | None = None,
     series_names: list[str] | None = None
 ) -> go.Figure:
@@ -1381,19 +1401,31 @@ def create_change_bar_chart(
     chart_df = df.dropna(subset=[value_col]).copy()
     positive_color = '#EF4444'
     negative_color = '#10B981'
+    positive_max = chart_df.loc[chart_df[value_col] > 0, value_col].max() if not chart_df.empty else None
+    negative_min = chart_df.loc[chart_df[value_col] < 0, value_col].min() if not chart_df.empty else None
+    if pd.notna(positive_max):
+        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor='rgba(239, 68, 68, 0.05)', line_width=0)
+    if pd.notna(negative_min):
+        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor='rgba(16, 185, 129, 0.05)', line_width=0)
 
     if series_col is None:
         colors = [
             positive_color if value >= 0 else negative_color
             for value in chart_df[value_col]
         ]
+        custom_data = chart_df[[pct_col]].to_numpy() if pct_col and pct_col in chart_df.columns else None
+        hover_template = f"<b>%{{x|%Y-%m-%d}}</b><br>{yaxis_title}: %{{y:+,.2f}}"
+        if custom_data is not None:
+            hover_template += "<br>变动比例: %{customdata[0]:+,.2f}%"
+        hover_template += "<extra></extra>"
         fig.add_trace(go.Bar(
             x=chart_df['trade_date'],
             y=chart_df[value_col],
             name=yaxis_title,
             marker=dict(color=colors, line=dict(width=0)),
             opacity=0.88,
-            hovertemplate=f"<b>%{{x|%Y-%m-%d}}</b><br>{yaxis_title}: %{{y:+,.2f}}<extra></extra>"
+            customdata=custom_data,
+            hovertemplate=hover_template
         ))
     else:
         ordered_names = series_names or chart_df[series_col].dropna().unique().tolist()
@@ -1405,13 +1437,19 @@ def create_change_bar_chart(
                 positive_color if value >= 0 else negative_color
                 for value in bar_df[value_col]
             ]
+            custom_data = bar_df[[pct_col]].to_numpy() if pct_col and pct_col in bar_df.columns else None
+            hover_template = f"<b>{name}</b><br>%{{x|%Y-%m-%d}}<br>{yaxis_title}: %{{y:+,.2f}}"
+            if custom_data is not None:
+                hover_template += "<br>变动比例: %{customdata[0]:+,.2f}%"
+            hover_template += "<extra></extra>"
             fig.add_trace(go.Bar(
                 x=bar_df['trade_date'],
                 y=bar_df[value_col],
                 name=name,
                 marker=dict(color=colors, line=dict(width=0)),
                 opacity=0.82,
-                hovertemplate=f"<b>{name}</b><br>%{{x|%Y-%m-%d}}<br>{yaxis_title}: %{{y:+,.2f}}<extra></extra>"
+                customdata=custom_data,
+                hovertemplate=hover_template
             ))
 
     fig.add_hline(y=0, line_width=1, line_dash='dash', line_color='#94A3B8')
@@ -1668,22 +1706,29 @@ def render_etf_trend_tab():
     if not size_change_chart_data.empty:
         st.subheader("📉 规模变动曲线")
         st.caption("按当日收盘价 × 份额变化数计算，排除价格波动对规模变动的影响")
+        trend_change_view = st.radio(
+            "展示方式",
+            options=["曲线", "红绿柱状"],
+            key="trend_size_change_view",
+            horizontal=True
+        )
         size_change_fig = create_change_curve_chart(
             df=size_change_chart_data,
             value_col='size_change_yi',
             title=f'{category_key} — 规模变动(亿元)趋势',
-            yaxis_title='规模变动(亿元)'
+            yaxis_title='规模变动(亿元)',
+            pct_col='size_change_pct'
         )
         size_change_bar_fig = create_change_bar_chart(
             df=size_change_chart_data,
             value_col='size_change_yi',
             title=f'{category_key} — 规模变动(亿元)红绿柱状图',
-            yaxis_title='规模变动(亿元)'
+            yaxis_title='规模变动(亿元)',
+            pct_col='size_change_pct'
         )
-        change_tabs = st.tabs(["曲线", "红绿柱状"])
-        with change_tabs[0]:
+        if trend_change_view == "曲线":
             st.plotly_chart(size_change_fig, use_container_width=True)
-        with change_tabs[1]:
+        else:
             st.plotly_chart(size_change_bar_fig, use_container_width=True)
 
     # 汇总表格
@@ -1929,11 +1974,18 @@ def render_wide_index_tab():
     size_change_chart_df = chart_df.dropna(subset=['size_change_yi']).copy()
     if not size_change_chart_df.empty:
         st.caption("下图按当日收盘价 × 份额变化数口径展示规模变动")
+        wide_index_change_view = st.radio(
+            "规模变动展示方式",
+            options=["曲线", "红绿柱状"],
+            key="wide_index_size_change_view",
+            horizontal=True
+        )
         size_change_fig = create_change_curve_chart(
             df=size_change_chart_df,
             value_col='size_change_yi',
             title='宽基指数ETF 规模变动(亿元)趋势',
             yaxis_title='规模变动(亿元)',
+            pct_col='size_change_pct',
             series_col='benchmark_index_name',
             series_names=selected_names,
             color_palette=color_palette
@@ -1943,13 +1995,13 @@ def render_wide_index_tab():
             value_col='size_change_yi',
             title='宽基指数ETF 规模变动(亿元)红绿柱状图',
             yaxis_title='规模变动(亿元)',
+            pct_col='size_change_pct',
             series_col='benchmark_index_name',
             series_names=selected_names
         )
-        change_tabs = st.tabs(["曲线", "红绿柱状"])
-        with change_tabs[0]:
+        if wide_index_change_view == "曲线":
             st.plotly_chart(size_change_fig, use_container_width=True)
-        with change_tabs[1]:
+        else:
             st.plotly_chart(size_change_bar_fig, use_container_width=True)
 
     st.subheader("📋 每日聚合明细")
