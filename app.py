@@ -1771,7 +1771,7 @@ def render_etf_trend_tab():
     size_change_chart_data = ts_df.dropna(subset=['size_change_yi']).copy()
     if not size_change_chart_data.empty:
         st.subheader("📉 规模变动曲线")
-        st.caption("纵轴展示规模变动比例，hover 可查看按当日收盘价 × 份额变化数计算的规模变动金额")
+        st.caption("纵轴展示按当日收盘价 × 份额变化数计算的规模变动金额，hover 可查看变动比例")
         trend_change_view = st.radio(
             "展示方式",
             options=["曲线", "红绿柱状"],
@@ -1780,21 +1780,17 @@ def render_etf_trend_tab():
         )
         size_change_fig = create_change_curve_chart(
             df=size_change_chart_data,
-            value_col='size_change_pct',
-            title=f'{category_key} — 规模变动比例(%)趋势',
-            yaxis_title='规模变动比例(%)',
-            value_suffix='%',
-            extra_col='size_change_yi',
-            extra_label='规模变动(亿元)'
+            value_col='size_change_yi',
+            title=f'{category_key} — 规模变动(亿元)趋势',
+            yaxis_title='规模变动(亿元)',
+            pct_col='size_change_pct'
         )
         size_change_bar_fig = create_change_bar_chart(
             df=size_change_chart_data,
-            value_col='size_change_pct',
-            title=f'{category_key} — 规模变动比例(%)红绿柱状图',
-            yaxis_title='规模变动比例(%)',
-            value_suffix='%',
-            extra_col='size_change_yi',
-            extra_label='规模变动(亿元)'
+            value_col='size_change_yi',
+            title=f'{category_key} — 规模变动(亿元)红绿柱状图',
+            yaxis_title='规模变动(亿元)',
+            pct_col='size_change_pct'
         )
         if trend_change_view == "曲线":
             st.plotly_chart(size_change_fig, use_container_width=True)
@@ -2043,7 +2039,7 @@ def render_wide_index_tab():
 
     size_change_chart_df = chart_df.dropna(subset=['size_change_yi']).copy()
     if not size_change_chart_df.empty:
-        st.caption("纵轴展示规模变动比例，hover 可查看按当日收盘价 × 份额变化数计算的规模变动金额")
+        st.caption("纵轴展示按当日收盘价 × 份额变化数计算的规模变动金额，hover 可查看变动比例")
         wide_index_change_view = st.radio(
             "规模变动展示方式",
             options=["曲线", "红绿柱状"],
@@ -2052,24 +2048,20 @@ def render_wide_index_tab():
         )
         size_change_fig = create_change_curve_chart(
             df=size_change_chart_df,
-            value_col='size_change_pct',
-            title='宽基指数ETF 规模变动比例(%)趋势',
-            yaxis_title='规模变动比例(%)',
-            value_suffix='%',
-            extra_col='size_change_yi',
-            extra_label='规模变动(亿元)',
+            value_col='size_change_yi',
+            title='宽基指数ETF 规模变动(亿元)趋势',
+            yaxis_title='规模变动(亿元)',
+            pct_col='size_change_pct',
             series_col='benchmark_index_name',
             series_names=selected_names,
             color_palette=color_palette
         )
         size_change_bar_fig = create_change_bar_chart(
             df=size_change_chart_df,
-            value_col='size_change_pct',
-            title='宽基指数ETF 规模变动比例(%)红绿柱状图',
-            yaxis_title='规模变动比例(%)',
-            value_suffix='%',
-            extra_col='size_change_yi',
-            extra_label='规模变动(亿元)',
+            value_col='size_change_yi',
+            title='宽基指数ETF 规模变动(亿元)红绿柱状图',
+            yaxis_title='规模变动(亿元)',
+            pct_col='size_change_pct',
             series_col='benchmark_index_name',
             series_names=selected_names
         )
