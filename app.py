@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 st.set_page_config(
     page_title="交易数据可视化",
     layout="wide",
-    initial_sidebar_state="auto"
+    initial_sidebar_state="expanded"
 )
 
 # 自定义CSS样式 - 金融专业风格
