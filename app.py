@@ -1580,6 +1580,8 @@ def render_etf_trend_tab():
     )
 
 
+    st.plotly_chart(fig, use_container_width=True)
+
     size_change_chart_data = ts_df.dropna(subset=['size_change_yi']).copy()
     if not size_change_chart_data.empty:
         st.subheader("📉 规模变动曲线")
@@ -1591,7 +1593,6 @@ def render_etf_trend_tab():
             yaxis_title='规模变动(亿元)'
         )
         st.plotly_chart(size_change_fig, use_container_width=True)
-    st.plotly_chart(fig, use_container_width=True)
 
     # 汇总表格
     try:
@@ -1835,6 +1836,7 @@ def render_wide_index_tab():
 
     size_change_chart_df = chart_df.dropna(subset=['size_change_yi']).copy()
     if not size_change_chart_df.empty:
+        st.caption("下图按当日收盘价 × 份额变化数口径展示规模变动")
         size_change_fig = create_change_curve_chart(
             df=size_change_chart_df,
             value_col='size_change_yi',
