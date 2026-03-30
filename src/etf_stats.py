@@ -542,14 +542,6 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
 
     if security_type in {'all', 'index'}:
         queries.append(f"""
-            WITH latest_index AS (
-                SELECT DISTINCT ON (ts_code)
-                    ts_code,
-                    trade_date,
-                    COALESCE(NULLIF(payload->>'name', ''), NULLIF(payload->>'ts_name', ''), ts_code) AS name
-                FROM {INDEX_DAILY_VIEW}
-                ORDER BY ts_code, trade_date DESC NULLS LAST
-            )
             SELECT
                 'index' AS security_type,
                 ts_code,
@@ -558,7 +550,14 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
                 NULL::text AS industry,
                 NULL::text AS market,
                 trade_date AS latest_date
-            FROM latest_index
+            FROM (
+                SELECT DISTINCT ON (ts_code)
+                    ts_code,
+                    trade_date,
+                    COALESCE(NULLIF(payload->>'name', ''), NULLIF(payload->>'ts_name', ''), ts_code) AS name
+                FROM {INDEX_DAILY_VIEW}
+                ORDER BY ts_code, trade_date DESC NULLS LAST
+            ) latest_index
             WHERE
                 ts_code ILIKE :like_kw
                 OR COALESCE(name, '') ILIKE :like_kw
