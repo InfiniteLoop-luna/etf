@@ -15,7 +15,8 @@ from src.etf_stats import (
     get_available_dates, get_category_daily_summary,
     get_category_tree, get_category_timeseries, get_agg_summary,
     get_wide_index_available_dates, get_wide_index_timeseries,
-    search_security, get_security_profile, get_security_timeseries
+    search_security, get_security_profile, get_security_timeseries,
+    get_security_financial_timeseries
 )
 
 # 配置日志
@@ -281,6 +282,11 @@ def load_security_timeseries(ts_code: str, security_type: str) -> pd.DataFrame:
     return get_security_timeseries(ts_code=ts_code, security_type=security_type)
 
 
+@st.cache_data(ttl=300)
+def load_security_financial_timeseries(ts_code: str, security_type: str) -> pd.DataFrame:
+    return get_security_financial_timeseries(ts_code=ts_code, security_type=security_type)
+
+
 def format_security_option(row: pd.Series) -> str:
     security_type_label = "股票" if row.get('security_type') == 'stock' else "指数"
     name = row.get('name') or row.get('ts_code') or '-'
@@ -333,6 +339,97 @@ def get_security_metric_config(security_type: str) -> dict[str, dict[str, Union[
         '流通股本(亿股)': {'column': 'float_share', 'scale': 10000.0, 'digits': 2},
         '自由流通股本(亿股)': {'column': 'free_share', 'scale': 10000.0, 'digits': 2},
     }
+
+
+def create_metric_line_chart(
+    df: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    title: str,
+    yaxis_title: str,
+    scale: float = 1.0,
+    digits: int = 2,
+    color: str = '#2563EB'
+):
+    if df is None or df.empty or y_col not in df.columns:
+        return None
+
+    chart_df = df[[x_col, y_col]].copy()
+    chart_df[y_col] = pd.to_numeric(chart_df[y_col], errors='coerce') / scale
+    chart_df = chart_df.dropna(subset=[y_col]).sort_values(x_col)
+    if chart_df.empty:
+        return None
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=chart_df[x_col],
+        y=chart_df[y_col],
+        mode='lines',
+        name=title,
+        line=dict(width=2.5, shape='spline', color=color),
+        hovertemplate=f"%{{x|%Y-%m-%d}}<br>{yaxis_title}: %{{y:,.{digits}f}}<extra></extra>"
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.02, font=dict(size=18, color='#1E293B')),
+        xaxis_title='日期',
+        yaxis_title=yaxis_title,
+        hovermode='x unified',
+        height=360,
+        template='plotly_white',
+        plot_bgcolor='rgba(248, 250, 252, 0.5)',
+        paper_bgcolor='white',
+        font=dict(family='Inter, PingFang SC, sans-serif'),
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)')
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)')
+    return fig
+
+
+def create_financial_bar_chart(
+    df: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    title: str,
+    yaxis_title: str,
+    scale: float = 1.0,
+    digits: int = 2,
+    positive_color: str = '#2563EB',
+    negative_color: str = '#10B981'
+):
+    if df is None or df.empty or y_col not in df.columns:
+        return None
+
+    chart_df = df[[x_col, y_col]].copy()
+    chart_df[y_col] = pd.to_numeric(chart_df[y_col], errors='coerce') / scale
+    chart_df = chart_df.dropna(subset=[y_col]).sort_values(x_col)
+    if chart_df.empty:
+        return None
+
+    chart_df['label'] = pd.to_datetime(chart_df[x_col]).dt.strftime('%Y-%m-%d')
+    chart_df['color'] = chart_df[y_col].apply(lambda value: positive_color if value >= 0 else negative_color)
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=chart_df['label'],
+        y=chart_df[y_col],
+        marker_color=chart_df['color'],
+        hovertemplate=f"%{{x}}<br>{yaxis_title}: %{{y:,.{digits}f}}<extra></extra>"
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.02, font=dict(size=18, color='#1E293B')),
+        xaxis_title='报告期',
+        yaxis_title=yaxis_title,
+        height=360,
+        template='plotly_white',
+        plot_bgcolor='rgba(248, 250, 252, 0.5)',
+        paper_bgcolor='white',
+        font=dict(family='Inter, PingFang SC, sans-serif'),
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)')
+    return fig
 
 
 def draw_metric_card(title: str, value: str, delta: str, delta_pct: str = None) -> str:
@@ -1972,10 +2069,13 @@ def render_security_search_tab():
     selected_row = candidate_df.iloc[selected_idx]
     selected_type = selected_row['security_type']
     selected_code = selected_row['ts_code']
+    financial_df = None
 
     try:
         profile_df = load_security_profile(selected_code, selected_type)
         ts_df = load_security_timeseries(selected_code, selected_type)
+        if selected_type == 'stock':
+            financial_df = load_security_financial_timeseries(selected_code, selected_type)
     except Exception as e:
         st.error(f"加载证券详情失败: {e}")
         return
@@ -1994,7 +2094,7 @@ def render_security_search_tab():
 
     min_date = ts_df['trade_date'].min().date()
     max_date = ts_df['trade_date'].max().date()
-    default_start = max(min_date, max_date - timedelta(days=365))
+    default_start = min_date if selected_type == 'stock' else max(min_date, max_date - timedelta(days=365))
     metric_config = get_security_metric_config(selected_type)
 
     filter_cols = st.columns([1.5, 1.3, 1.2])
@@ -2024,6 +2124,17 @@ def render_security_search_tab():
     if filtered_df.empty:
         st.warning("当前时间范围内没有数据")
         return
+
+    filtered_financial_df = None
+    if financial_df is not None and len(financial_df) > 0:
+        financial_df = financial_df.copy()
+        financial_df['end_date'] = pd.to_datetime(financial_df['end_date'])
+        if 'ann_date' in financial_df.columns:
+            financial_df['ann_date'] = pd.to_datetime(financial_df['ann_date'], errors='coerce')
+        filtered_financial_df = financial_df[
+            (financial_df['end_date'].dt.date >= date_range[0]) &
+            (financial_df['end_date'].dt.date <= date_range[1])
+        ].copy()
 
     title_name = profile.get('name') or selected_row.get('name') or selected_code
     subtitle_parts = [selected_code]
@@ -2129,6 +2240,86 @@ def render_security_search_tab():
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)')
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)', fixedrange=True)
     st.plotly_chart(fig, use_container_width=True)
+
+    if selected_type == 'stock':
+        tab_valuation, tab_financial, tab_capital = st.tabs(["📈 估值", "🧾 财务", "🏦 市值股本"])
+
+        with tab_valuation:
+            st.caption("展示静态市盈率、动态市盈率与股息率曲线")
+            valuation_metrics = [
+                ('静态市盈率曲线', 'pe', '静态市盈率PE', 1.0, 2, '#2563EB'),
+                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, '#7C3AED'),
+                ('股息率曲线', 'dv_ratio', '股息率(%)', 1.0, 2, '#F59E0B'),
+            ]
+            valuation_cols = st.columns(2)
+            for index, (title, column, yaxis_title, scale, digits, color) in enumerate(valuation_metrics):
+                chart = create_metric_line_chart(
+                    filtered_df,
+                    x_col='trade_date',
+                    y_col=column,
+                    title=title,
+                    yaxis_title=yaxis_title,
+                    scale=scale,
+                    digits=digits,
+                    color=color
+                )
+                with valuation_cols[index % 2]:
+                    if chart is not None:
+                        st.plotly_chart(chart, use_container_width=True)
+                    else:
+                        st.info(f"{title} 暂无可展示数据")
+
+        with tab_financial:
+            st.caption("财务柱状图按报告期展示，默认与上方时间范围联动")
+            financial_metrics = [
+                ('营业总收入柱状图', 'total_revenue', '营业总收入(亿元)', 10000.0, 2, '#2563EB', '#1D4ED8'),
+                ('净利润柱状图', 'net_profit', '净利润(亿元)', 10000.0, 2, '#7C3AED', '#059669'),
+                ('扣非净利润柱状图', 'profit_dedt', '扣非净利润(亿元)', 10000.0, 2, '#F59E0B', '#059669'),
+            ]
+            financial_cols = st.columns(3)
+            for index, (title, column, yaxis_title, scale, digits, positive_color, negative_color) in enumerate(financial_metrics):
+                chart = create_financial_bar_chart(
+                    filtered_financial_df,
+                    x_col='end_date',
+                    y_col=column,
+                    title=title,
+                    yaxis_title=yaxis_title,
+                    scale=scale,
+                    digits=digits,
+                    positive_color=positive_color,
+                    negative_color=negative_color
+                )
+                with financial_cols[index]:
+                    if chart is not None:
+                        st.plotly_chart(chart, use_container_width=True)
+                    else:
+                        st.info(f"{title} 暂无可展示数据")
+
+        with tab_capital:
+            st.caption("展示总市值、流通市值、总股本与流通股本曲线")
+            cap_metrics = [
+                ('总市值曲线', 'total_mv', '总市值(亿元)', 10000.0, 2, '#DC2626'),
+                ('流通市值曲线', 'circ_mv', '流通市值(亿元)', 10000.0, 2, '#EA580C'),
+                ('总股本曲线', 'total_share', '总股本(亿股)', 10000.0, 2, '#0891B2'),
+                ('流通股本曲线', 'float_share', '流通股本(亿股)', 10000.0, 2, '#059669'),
+            ]
+            cap_cols = st.columns(2)
+            for index, (title, column, yaxis_title, scale, digits, color) in enumerate(cap_metrics):
+                chart = create_metric_line_chart(
+                    filtered_df,
+                    x_col='trade_date',
+                    y_col=column,
+                    title=title,
+                    yaxis_title=yaxis_title,
+                    scale=scale,
+                    digits=digits,
+                    color=color
+                )
+                with cap_cols[index % 2]:
+                    if chart is not None:
+                        st.plotly_chart(chart, use_container_width=True)
+                    else:
+                        st.info(f"{title} 暂无可展示数据")
 
     display_df = filtered_df.sort_values('trade_date', ascending=False).copy()
     display_df['日期'] = display_df['trade_date'].dt.strftime('%Y-%m-%d')

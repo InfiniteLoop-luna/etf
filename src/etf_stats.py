@@ -710,6 +710,49 @@ def get_stock_timeseries(ts_code: str, start_date: str = None, end_date: str = N
     return pd.read_sql(text(sql), engine, params=params)
 
 
+def get_stock_financial_timeseries(ts_code: str, engine=None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine()
+
+    sql = f"""
+        WITH income AS (
+            SELECT DISTINCT ON (end_date)
+                ts_code,
+                end_date,
+                ann_date,
+                total_revenue,
+                COALESCE(n_income_attr_p, n_income) AS net_profit
+            FROM {STOCK_INCOME_VIEW}
+            WHERE ts_code = :ts_code
+            ORDER BY end_date DESC NULLS LAST, ann_date DESC NULLS LAST
+        ),
+        fina AS (
+            SELECT DISTINCT ON (end_date)
+                ts_code,
+                end_date,
+                ann_date,
+                profit_dedt
+            FROM {STOCK_FINA_VIEW}
+            WHERE ts_code = :ts_code
+            ORDER BY end_date DESC NULLS LAST, ann_date DESC NULLS LAST
+        )
+        SELECT
+            COALESCE(income.ts_code, fina.ts_code, :ts_code) AS ts_code,
+            COALESCE(income.end_date, fina.end_date) AS end_date,
+            COALESCE(income.ann_date, fina.ann_date) AS ann_date,
+            income.total_revenue,
+            income.net_profit,
+            fina.profit_dedt
+        FROM income
+        FULL OUTER JOIN fina
+          ON income.ts_code = fina.ts_code
+         AND income.end_date = fina.end_date
+        WHERE COALESCE(income.end_date, fina.end_date) IS NOT NULL
+        ORDER BY end_date
+    """
+    return pd.read_sql(text(sql), engine, params={'ts_code': ts_code})
+
+
 def get_index_profile(ts_code: str, engine=None) -> pd.DataFrame:
     if engine is None:
         engine = _get_engine()
@@ -790,6 +833,12 @@ def get_security_timeseries(ts_code: str, security_type: str, start_date: str = 
     if security_type == 'index':
         return get_index_timeseries(ts_code, start_date=start_date, end_date=end_date, engine=engine)
     raise ValueError(f'不支持的 security_type: {security_type}')
+
+
+def get_security_financial_timeseries(ts_code: str, security_type: str, engine=None) -> pd.DataFrame:
+    if security_type == 'stock':
+        return get_stock_financial_timeseries(ts_code, engine=engine)
+    return pd.DataFrame(columns=['ts_code', 'end_date', 'ann_date', 'total_revenue', 'net_profit', 'profit_dedt'])
 
 
 # ── 命令行快速验证 ────────────────────────────────────────────────────────────
