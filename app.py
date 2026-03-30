@@ -2320,6 +2320,75 @@ def render_security_search_tab():
                         st.plotly_chart(chart, use_container_width=True)
                     else:
                         st.info(f"{title} 暂无可展示数据")
+    else:
+        tab_index_valuation, tab_index_capital, tab_index_turnover = st.tabs(["📈 估值", "🏦 市值股本", "🔁 换手率"])
+
+        with tab_index_valuation:
+            st.caption("展示指数静态市盈率与动态市盈率曲线")
+            valuation_metrics = [
+                ('静态市盈率曲线', 'pe', '静态市盈率PE', 1.0, 2, '#2563EB'),
+                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, '#7C3AED'),
+            ]
+            valuation_cols = st.columns(2)
+            for index, (title, column, yaxis_title, scale, digits, color) in enumerate(valuation_metrics):
+                chart = create_metric_line_chart(
+                    filtered_df,
+                    x_col='trade_date',
+                    y_col=column,
+                    title=title,
+                    yaxis_title=yaxis_title,
+                    scale=scale,
+                    digits=digits,
+                    color=color
+                )
+                with valuation_cols[index % 2]:
+                    if chart is not None:
+                        st.plotly_chart(chart, use_container_width=True)
+                    else:
+                        st.info(f"{title} 暂无可展示数据")
+
+        with tab_index_capital:
+            st.caption("展示指数总市值、流通市值、总股本与流通股本曲线")
+            cap_metrics = [
+                ('当日总市值曲线', 'total_mv', '总市值(亿元)', 10000.0, 2, '#DC2626'),
+                ('当日流通市值曲线', 'float_mv', '流通市值(亿元)', 10000.0, 2, '#EA580C'),
+                ('当日总股本曲线', 'total_share', '总股本(亿股)', 10000.0, 2, '#0891B2'),
+                ('当日流通股本曲线', 'float_share', '流通股本(亿股)', 10000.0, 2, '#059669'),
+            ]
+            cap_cols = st.columns(2)
+            for index, (title, column, yaxis_title, scale, digits, color) in enumerate(cap_metrics):
+                chart = create_metric_line_chart(
+                    filtered_df,
+                    x_col='trade_date',
+                    y_col=column,
+                    title=title,
+                    yaxis_title=yaxis_title,
+                    scale=scale,
+                    digits=digits,
+                    color=color
+                )
+                with cap_cols[index % 2]:
+                    if chart is not None:
+                        st.plotly_chart(chart, use_container_width=True)
+                    else:
+                        st.info(f"{title} 暂无可展示数据")
+
+        with tab_index_turnover:
+            st.caption("展示指数换手率曲线")
+            turnover_chart = create_metric_line_chart(
+                filtered_df,
+                x_col='trade_date',
+                y_col='turnover_rate',
+                title='换手率曲线',
+                yaxis_title='换手率(%)',
+                scale=1.0,
+                digits=2,
+                color='#0F766E'
+            )
+            if turnover_chart is not None:
+                st.plotly_chart(turnover_chart, use_container_width=True)
+            else:
+                st.info("换手率曲线 暂无可展示数据")
 
     display_df = filtered_df.sort_values('trade_date', ascending=False).copy()
     display_df['日期'] = display_df['trade_date'].dt.strftime('%Y-%m-%d')
