@@ -1,0 +1,10 @@
+[Unit]
+Description=ETF DB aggregation update job
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/etf-app
+ExecStart=/opt/etf-app/scripts/etf-data-update.sh

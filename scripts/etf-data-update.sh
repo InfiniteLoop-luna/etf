@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$APP_DIR"
+
+echo "[$(date -Is)] etf-data-update: started"
+
+if [[ -f "$APP_DIR/.env" ]]; then
+  set -a
+  source "$APP_DIR/.env"
+  set +a
+fi
+
+if [[ ! -x "$APP_DIR/.venv/bin/python" ]]; then
+  echo "[$(date -Is)] etf-data-update: missing virtualenv python at $APP_DIR/.venv/bin/python"
+  exit 1
+fi
+
+source "$APP_DIR/.venv/bin/activate"
+
+if [[ -z "${TUSHARE_TOKEN:-}" ]]; then
+  echo "[$(date -Is)] etf-data-update: TUSHARE_TOKEN is missing in $APP_DIR/.env, skip DB aggregation update"
+  exit 0
+fi
+
+echo "[$(date -Is)] etf-data-update: run fetch_etf_share_size.py"
+python src/fetch_etf_share_size.py
+
+echo "[$(date -Is)] etf-data-update: restart streamlit"
+systemctl restart etf-streamlit
+
+echo "[$(date -Is)] etf-data-update: completed"

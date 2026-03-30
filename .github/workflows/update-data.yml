@@ -1,4 +1,4 @@
-name: Update ETF Data Daily
+name: Update ETF Excel + Volume Data Daily
 
 on:
   schedule:
@@ -40,6 +40,8 @@ jobs:
       run: |
         python update_volume.py
 
+    # DB ??????? VPS ?? etf-data-update.timer ????? GitHub Actions ?? runner ?????????
+
     - name: Write update timestamp
       if: success()
       run: |
@@ -64,5 +66,5 @@ jobs:
         git config --local user.name "github-actions[bot]"
         git add "主要ETF基金份额变动情况.xlsx" last_update.json
         if [ -d "data" ]; then git add data/; fi
-        git commit -m "chore: auto-update ETF data $(date +'%Y-%m-%d')"
+        git commit -m "chore: auto-update ETF excel and volume data $(date +'%Y-%m-%d')"
         git push
