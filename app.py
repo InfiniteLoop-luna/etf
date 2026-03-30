@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import logging
-from typing import Optional, List
+from typing import Optional, List, Union
 from src.data_loader import load_etf_data
 from src.volume_fetcher import load_volume_dataframe
 from src.etf_classifier import fetch_etf_data, process_etf_classification, export_etfs_to_excel
@@ -305,7 +305,7 @@ def format_optional_date(value) -> str:
     return pd.to_datetime(value).strftime('%Y-%m-%d')
 
 
-def get_security_metric_config(security_type: str) -> dict[str, dict[str, str | float | int]]:
+def get_security_metric_config(security_type: str) -> dict[str, dict[str, Union[str, float, int]]]:
     if security_type == 'stock':
         return {
             '收盘价(元)': {'column': 'close', 'scale': 1.0, 'digits': 2},
