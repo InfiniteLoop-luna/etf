@@ -648,7 +648,7 @@ def get_stock_profile(ts_code: str, engine=None) -> pd.DataFrame:
             fina.end_date AS fina_end_date,
             fina.roe,
             fina.roa,
-            fina.gross_margin,
+            fina.grossprofit_margin AS gross_margin,
             fina.debt_to_assets,
             income.end_date AS income_end_date,
             income.total_revenue,
