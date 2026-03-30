@@ -14,7 +14,8 @@ from src.etf_classifier import fetch_etf_data, process_etf_classification, expor
 from src.etf_stats import (
     get_available_dates, get_category_daily_summary,
     get_category_tree, get_category_timeseries, get_agg_summary,
-    get_wide_index_available_dates, get_wide_index_timeseries
+    get_wide_index_available_dates, get_wide_index_timeseries,
+    search_security, get_security_profile, get_security_timeseries
 )
 
 # 配置日志
@@ -263,6 +264,75 @@ def load_data(file_path: str) -> pd.DataFrame:
         st.error(f"❌ 加载数据时出错: {str(e)}")
         logger.error(f"Error loading data: {e}", exc_info=True)
         st.stop()
+
+
+@st.cache_data(ttl=300)
+def load_security_search(keyword: str, security_type: str, limit: int = 20) -> pd.DataFrame:
+    return search_security(keyword=keyword, security_type=security_type, limit=limit)
+
+
+@st.cache_data(ttl=300)
+def load_security_profile(ts_code: str, security_type: str) -> pd.DataFrame:
+    return get_security_profile(ts_code=ts_code, security_type=security_type)
+
+
+@st.cache_data(ttl=300)
+def load_security_timeseries(ts_code: str, security_type: str) -> pd.DataFrame:
+    return get_security_timeseries(ts_code=ts_code, security_type=security_type)
+
+
+def format_security_option(row: pd.Series) -> str:
+    security_type_label = "股票" if row.get('security_type') == 'stock' else "指数"
+    name = row.get('name') or row.get('ts_code') or '-'
+    ts_code = row.get('ts_code') or '-'
+    symbol = row.get('symbol')
+    industry = row.get('industry')
+    market = row.get('market')
+    extras = [item for item in [symbol, industry, market] if item and str(item).strip() and str(item) != ts_code]
+    extra_text = f" | {' / '.join(extras)}" if extras else ""
+    return f"{security_type_label} | {name} | {ts_code}{extra_text}"
+
+
+def format_optional_number(value, digits: int = 2, scale: float = 1.0, suffix: str = "") -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    return f"{float(value) / scale:,.{digits}f}{suffix}"
+
+
+def format_optional_date(value) -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    return pd.to_datetime(value).strftime('%Y-%m-%d')
+
+
+def get_security_metric_config(security_type: str) -> dict[str, dict[str, str | float | int]]:
+    if security_type == 'stock':
+        return {
+            '收盘价(元)': {'column': 'close', 'scale': 1.0, 'digits': 2},
+            '滚动市盈率PE_TTM': {'column': 'pe_ttm', 'scale': 1.0, 'digits': 2},
+            '市净率PB': {'column': 'pb', 'scale': 1.0, 'digits': 2},
+            '滚动市销率PS_TTM': {'column': 'ps_ttm', 'scale': 1.0, 'digits': 2},
+            '换手率(%)': {'column': 'turnover_rate', 'scale': 1.0, 'digits': 2},
+            '量比': {'column': 'volume_ratio', 'scale': 1.0, 'digits': 2},
+            '总市值(亿元)': {'column': 'total_mv', 'scale': 10000.0, 'digits': 2},
+            '流通市值(亿元)': {'column': 'circ_mv', 'scale': 10000.0, 'digits': 2},
+            '总股本(亿股)': {'column': 'total_share', 'scale': 10000.0, 'digits': 2},
+            '流通股本(亿股)': {'column': 'float_share', 'scale': 10000.0, 'digits': 2},
+            '自由流通股本(亿股)': {'column': 'free_share', 'scale': 10000.0, 'digits': 2},
+        }
+
+    return {
+        '收盘点位': {'column': 'close', 'scale': 1.0, 'digits': 2},
+        '市盈率PE': {'column': 'pe', 'scale': 1.0, 'digits': 2},
+        '滚动市盈率PE_TTM': {'column': 'pe_ttm', 'scale': 1.0, 'digits': 2},
+        '市净率PB': {'column': 'pb', 'scale': 1.0, 'digits': 2},
+        '换手率(%)': {'column': 'turnover_rate', 'scale': 1.0, 'digits': 2},
+        '总市值(亿元)': {'column': 'total_mv', 'scale': 10000.0, 'digits': 2},
+        '流通市值(亿元)': {'column': 'float_mv', 'scale': 10000.0, 'digits': 2},
+        '总股本(亿股)': {'column': 'total_share', 'scale': 10000.0, 'digits': 2},
+        '流通股本(亿股)': {'column': 'float_share', 'scale': 10000.0, 'digits': 2},
+        '自由流通股本(亿股)': {'column': 'free_share', 'scale': 10000.0, 'digits': 2},
+    }
 
 
 def draw_metric_card(title: str, value: str, delta: str, delta_pct: str = None) -> str:
@@ -894,8 +964,8 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
-    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index = st.tabs(
-        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF"]
+    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_security = st.tabs(
+        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🔎 个股/指数查询"]
     )
 
     # ========== ETF 份额变动 Tab ==========
@@ -919,6 +989,9 @@ def main():
 
     with tab_wide_index:
         render_wide_index_tab()
+
+    with tab_security:
+        render_security_search_tab()
 
 
 def render_etf_tab():
@@ -1849,6 +1922,245 @@ def render_etf_trend_tab():
             st.info(f"{summary_date} 暂无汇总数据")
     except Exception as e:
         st.warning(f"加载汇总数据失败: {e}")
+
+
+def render_security_search_tab():
+    st.subheader("🔎 个股 / 指数查询")
+    st.caption("支持按代码、简称、拼音检索个股或指数，查看最新快照与历史趋势")
+
+    control_cols = st.columns([1, 1.4, 2.6])
+    with control_cols[0]:
+        security_type_label = st.radio(
+            "检索类型",
+            options=["全部", "股票", "指数"],
+            horizontal=True,
+            key="security_search_type"
+        )
+    with control_cols[1]:
+        keyword = st.text_input(
+            "关键字",
+            value=st.session_state.get("security_search_keyword", ""),
+            placeholder="输入代码、简称或拼音",
+            key="security_search_keyword"
+        ).strip()
+    type_mapping = {"全部": "all", "股票": "stock", "指数": "index"}
+
+    if not keyword:
+        st.info("请输入代码、简称或拼音开始检索，例如 600519、贵州茅台、000001.SH")
+        return
+
+    try:
+        candidate_df = load_security_search(keyword, type_mapping[security_type_label], limit=30)
+    except Exception as e:
+        st.error(f"检索证券失败: {e}")
+        return
+
+    if candidate_df is None or len(candidate_df) == 0:
+        st.warning("未检索到匹配的个股或指数，请尝试更换关键字")
+        return
+
+    option_labels = [format_security_option(row) for _, row in candidate_df.iterrows()]
+    with control_cols[2]:
+        selected_label = st.selectbox(
+            "匹配结果",
+            options=option_labels,
+            index=0,
+            key="security_search_option"
+        )
+
+    selected_idx = option_labels.index(selected_label)
+    selected_row = candidate_df.iloc[selected_idx]
+    selected_type = selected_row['security_type']
+    selected_code = selected_row['ts_code']
+
+    try:
+        profile_df = load_security_profile(selected_code, selected_type)
+        ts_df = load_security_timeseries(selected_code, selected_type)
+    except Exception as e:
+        st.error(f"加载证券详情失败: {e}")
+        return
+
+    if profile_df is None or len(profile_df) == 0:
+        st.warning("未查询到该证券的详情数据")
+        return
+    if ts_df is None or len(ts_df) == 0:
+        st.warning("未查询到该证券的历史时序数据")
+        return
+
+    profile = profile_df.iloc[0]
+    ts_df = ts_df.copy()
+    ts_df['trade_date'] = pd.to_datetime(ts_df['trade_date'])
+    ts_df = ts_df.sort_values('trade_date')
+
+    min_date = ts_df['trade_date'].min().date()
+    max_date = ts_df['trade_date'].max().date()
+    default_start = max(min_date, max_date - timedelta(days=365))
+    metric_config = get_security_metric_config(selected_type)
+
+    filter_cols = st.columns([1.5, 1.3, 1.2])
+    with filter_cols[0]:
+        date_range = st.slider(
+            "时间范围",
+            min_value=min_date,
+            max_value=max_date,
+            value=(default_start, max_date),
+            format="YYYY-MM-DD",
+            key=f"security_date_range_{selected_type}_{selected_code}"
+        )
+    with filter_cols[1]:
+        metric_label = st.selectbox(
+            "趋势指标",
+            options=list(metric_config.keys()),
+            index=0,
+            key=f"security_metric_{selected_type}_{selected_code}"
+        )
+    with filter_cols[2]:
+        st.metric("数据区间", f"{len(ts_df):,} 条")
+
+    filtered_df = ts_df[
+        (ts_df['trade_date'].dt.date >= date_range[0]) &
+        (ts_df['trade_date'].dt.date <= date_range[1])
+    ].copy()
+    if filtered_df.empty:
+        st.warning("当前时间范围内没有数据")
+        return
+
+    title_name = profile.get('name') or selected_row.get('name') or selected_code
+    subtitle_parts = [selected_code]
+    if selected_type == 'stock':
+        subtitle_parts.extend([value for value in [profile.get('industry'), profile.get('market')] if value and not pd.isna(value)])
+    st.markdown(f"### {title_name}")
+    st.caption(" | ".join(subtitle_parts))
+
+    latest_trade_date = format_optional_date(profile.get('latest_trade_date'))
+    if selected_type == 'stock':
+        metric_cols_top = st.columns(5)
+        metric_cols_top[0].metric("最新交易日", latest_trade_date)
+        metric_cols_top[1].metric("收盘价(元)", format_optional_number(profile.get('close')))
+        metric_cols_top[2].metric("PE_TTM", format_optional_number(profile.get('pe_ttm')))
+        metric_cols_top[3].metric("PB", format_optional_number(profile.get('pb')))
+        metric_cols_top[4].metric("总市值(亿元)", format_optional_number(profile.get('total_mv'), scale=10000.0))
+
+        metric_cols_bottom = st.columns(5)
+        metric_cols_bottom[0].metric("ROE(%)", format_optional_number(profile.get('roe')))
+        metric_cols_bottom[1].metric("ROA(%)", format_optional_number(profile.get('roa')))
+        metric_cols_bottom[2].metric("毛利率(%)", format_optional_number(profile.get('gross_margin')))
+        metric_cols_bottom[3].metric("净利润(亿元)", format_optional_number(profile.get('n_income'), scale=10000.0))
+        metric_cols_bottom[4].metric("经营现金流(亿元)", format_optional_number(profile.get('n_cashflow_act'), scale=10000.0))
+
+        info_cols = st.columns(2)
+        with info_cols[0]:
+            st.dataframe(
+                pd.DataFrame([
+                    {"字段": "上市日期", "值": format_optional_date(profile.get('list_date'))},
+                    {"字段": "所属行业", "值": profile.get('industry') or "-"},
+                    {"字段": "市场板块", "值": profile.get('market') or "-"},
+                    {"字段": "上市状态", "值": profile.get('list_status') or "-"},
+                    {"字段": "法人代表", "值": profile.get('act_name') or "-"},
+                ]),
+                use_container_width=True,
+                hide_index=True
+            )
+        with info_cols[1]:
+            st.dataframe(
+                pd.DataFrame([
+                    {"字段": "最近财报期", "值": format_optional_date(profile.get('fina_end_date'))},
+                    {"字段": "最近利润期", "值": format_optional_date(profile.get('income_end_date'))},
+                    {"字段": "最近资产负债表期", "值": format_optional_date(profile.get('balance_end_date'))},
+                    {"字段": "总资产(亿元)", "值": format_optional_number(profile.get('total_assets'), scale=10000.0)},
+                    {"字段": "总负债(亿元)", "值": format_optional_number(profile.get('total_liab'), scale=10000.0)},
+                ]),
+                use_container_width=True,
+                hide_index=True
+            )
+    else:
+        metric_cols_top = st.columns(5)
+        metric_cols_top[0].metric("最新交易日", latest_trade_date)
+        metric_cols_top[1].metric("收盘点位", format_optional_number(profile.get('close')))
+        metric_cols_top[2].metric("PE", format_optional_number(profile.get('pe')))
+        metric_cols_top[3].metric("PB", format_optional_number(profile.get('pb')))
+        metric_cols_top[4].metric("总市值(亿元)", format_optional_number(profile.get('total_mv'), scale=10000.0))
+
+        metric_cols_bottom = st.columns(4)
+        metric_cols_bottom[0].metric("流通市值(亿元)", format_optional_number(profile.get('float_mv'), scale=10000.0))
+        metric_cols_bottom[1].metric("换手率(%)", format_optional_number(profile.get('turnover_rate')))
+        metric_cols_bottom[2].metric("总股本(亿股)", format_optional_number(profile.get('total_share'), scale=10000.0))
+        metric_cols_bottom[3].metric("流通股本(亿股)", format_optional_number(profile.get('float_share'), scale=10000.0))
+
+    metric_meta = metric_config[metric_label]
+    metric_col = metric_meta['column']
+    metric_scale = float(metric_meta['scale'])
+    metric_digits = int(metric_meta['digits'])
+    chart_df = filtered_df.dropna(subset=[metric_col]).copy()
+
+    if chart_df.empty:
+        st.warning("所选指标在当前时间范围内没有可展示的数据")
+        return
+
+    chart_df['metric_value'] = pd.to_numeric(chart_df[metric_col], errors='coerce') / metric_scale
+    chart_df = chart_df.dropna(subset=['metric_value'])
+    if chart_df.empty:
+        st.warning("所选指标无法转换为可绘制的数值")
+        return
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=chart_df['trade_date'],
+        y=chart_df['metric_value'],
+        mode='lines',
+        name=metric_label,
+        line=dict(width=2.6, shape='spline', color='#2563EB'),
+        fill='tozeroy',
+        fillcolor='rgba(37, 99, 235, 0.08)',
+        hovertemplate=f"<b>{title_name}</b><br>%{{x|%Y-%m-%d}}<br>{metric_label}: %{{y:,.{metric_digits}f}}<extra></extra>"
+    ))
+    fig.update_layout(
+        title=dict(text=f'{title_name} — {metric_label}趋势', x=0.02, font=dict(size=20, color='#1E293B')),
+        xaxis_title='日期',
+        yaxis_title=metric_label,
+        hovermode='x unified',
+        height=500,
+        template='plotly_white',
+        plot_bgcolor='rgba(248, 250, 252, 0.5)',
+        paper_bgcolor='white',
+        font=dict(family='Inter, PingFang SC, sans-serif'),
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)')
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)', fixedrange=True)
+    st.plotly_chart(fig, use_container_width=True)
+
+    display_df = filtered_df.sort_values('trade_date', ascending=False).copy()
+    display_df['日期'] = display_df['trade_date'].dt.strftime('%Y-%m-%d')
+    ordered_cols = ['日期'] + [config['column'] for config in metric_config.values()]
+    ordered_cols = [column for column in ordered_cols if column in display_df.columns]
+
+    rename_map = {
+        'close': '收盘价/点位',
+        'turnover_rate': '换手率(%)',
+        'turnover_rate_f': '自由流通换手率(%)',
+        'volume_ratio': '量比',
+        'pe': 'PE',
+        'pe_ttm': 'PE_TTM',
+        'pb': 'PB',
+        'ps': 'PS',
+        'ps_ttm': 'PS_TTM',
+        'dv_ratio': '股息率(%)',
+        'dv_ttm': '股息率TTM(%)',
+        'total_share': '总股本',
+        'float_share': '流通股本',
+        'free_share': '自由流通股本',
+        'total_mv': '总市值',
+        'circ_mv': '流通市值',
+        'float_mv': '流通市值',
+    }
+    st.subheader("📋 历史数据")
+    st.dataframe(
+        display_df[ordered_cols].rename(columns=rename_map),
+        use_container_width=True,
+        hide_index=True,
+        height=460
+    )
 
 
 def render_wide_index_tab():

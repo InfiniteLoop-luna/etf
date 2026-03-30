@@ -48,7 +48,13 @@ def _init_tushare() -> ts.pro_api:
             logger.warning(f"读取config.yaml失败: {e}")
 
     if not token:
-        raise ValueError("未找到Tushare token，请设置环境变量 TUSHARE_TOKEN 或在 config.yaml 中配置")
+        try:
+            token = ts.get_token()
+        except Exception:
+            token = None
+
+    if not token:
+        raise ValueError("未找到Tushare token，请设置环境变量 TUSHARE_TOKEN、在 config.yaml 中配置，或先通过 tushare 保存本地 token")
 
     ts.set_token(token)
     return ts.pro_api()

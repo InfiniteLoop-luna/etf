@@ -285,6 +285,14 @@ def get_available_dates(
 
 AGG_TABLE = 'etf_category_daily_agg'
 WIDE_INDEX_TABLE = 'etf_wide_index_daily_agg'
+STOCK_BASIC_VIEW = 'vw_ts_stock_basic'
+STOCK_COMPANY_VIEW = 'vw_ts_stock_company'
+STOCK_INCOME_VIEW = 'vw_ts_stock_income'
+STOCK_BALANCE_VIEW = 'vw_ts_stock_balancesheet'
+STOCK_CASHFLOW_VIEW = 'vw_ts_stock_cashflow'
+STOCK_FINA_VIEW = 'vw_ts_stock_fina_indicator'
+STOCK_DAILY_VIEW = 'vw_ts_stock_daily_basic'
+INDEX_DAILY_VIEW = 'vw_ts_index_dailybasic'
 
 
 def get_category_tree(engine=None) -> dict:
@@ -496,6 +504,293 @@ def get_wide_index_timeseries(
         engine = _get_engine()
 
     return pd.read_sql(text(sql), engine, params=params)
+
+
+def search_security(keyword: str, security_type: str = 'all', limit: int = 20, engine=None) -> pd.DataFrame:
+    keyword = (keyword or '').strip()
+    if not keyword:
+        return pd.DataFrame(columns=['security_type', 'ts_code', 'symbol', 'name', 'industry', 'market', 'latest_date'])
+
+    if security_type not in {'all', 'stock', 'index'}:
+        raise ValueError(f'不支持的 security_type: {security_type}')
+
+    if engine is None:
+        engine = _get_engine()
+
+    like_kw = f'%{keyword}%'
+    queries = []
+    params = {'like_kw': like_kw, 'limit': max(1, int(limit))}
+
+    if security_type in {'all', 'stock'}:
+        queries.append(f"""
+            SELECT
+                'stock' AS security_type,
+                ts_code,
+                symbol,
+                name,
+                industry,
+                market,
+                NULL::date AS latest_date
+            FROM {STOCK_BASIC_VIEW}
+            WHERE
+                ts_code ILIKE :like_kw
+                OR COALESCE(symbol, '') ILIKE :like_kw
+                OR COALESCE(name, '') ILIKE :like_kw
+                OR COALESCE(fullname, '') ILIKE :like_kw
+                OR COALESCE(cnspell, '') ILIKE :like_kw
+        """)
+
+    if security_type in {'all', 'index'}:
+        queries.append(f"""
+            WITH latest_index AS (
+                SELECT DISTINCT ON (ts_code)
+                    ts_code,
+                    trade_date,
+                    COALESCE(NULLIF(payload->>'name', ''), NULLIF(payload->>'ts_name', ''), ts_code) AS name
+                FROM {INDEX_DAILY_VIEW}
+                ORDER BY ts_code, trade_date DESC NULLS LAST
+            )
+            SELECT
+                'index' AS security_type,
+                ts_code,
+                ts_code AS symbol,
+                name,
+                NULL::text AS industry,
+                NULL::text AS market,
+                trade_date AS latest_date
+            FROM latest_index
+            WHERE
+                ts_code ILIKE :like_kw
+                OR COALESCE(name, '') ILIKE :like_kw
+        """)
+
+    union_sql = "\nUNION ALL\n".join(queries)
+    sql = f"""
+        SELECT *
+        FROM (
+            {union_sql}
+        ) s
+        ORDER BY
+            CASE security_type WHEN 'stock' THEN 1 ELSE 2 END,
+            name NULLS LAST,
+            ts_code
+        LIMIT :limit
+    """
+    return pd.read_sql(text(sql), engine, params=params)
+
+
+def get_stock_profile(ts_code: str, engine=None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine()
+
+    sql = f"""
+        WITH basic AS (
+            SELECT * FROM {STOCK_BASIC_VIEW}
+            WHERE ts_code = :ts_code
+            LIMIT 1
+        ),
+        company AS (
+            SELECT * FROM {STOCK_COMPANY_VIEW}
+            WHERE ts_code = :ts_code
+            LIMIT 1
+        ),
+        daily AS (
+            SELECT * FROM {STOCK_DAILY_VIEW}
+            WHERE ts_code = :ts_code
+            ORDER BY trade_date DESC NULLS LAST
+            LIMIT 1
+        ),
+        fina AS (
+            SELECT * FROM {STOCK_FINA_VIEW}
+            WHERE ts_code = :ts_code
+            ORDER BY end_date DESC NULLS LAST, ann_date DESC NULLS LAST
+            LIMIT 1
+        ),
+        income AS (
+            SELECT * FROM {STOCK_INCOME_VIEW}
+            WHERE ts_code = :ts_code
+            ORDER BY end_date DESC NULLS LAST, ann_date DESC NULLS LAST
+            LIMIT 1
+        ),
+        balance AS (
+            SELECT * FROM {STOCK_BALANCE_VIEW}
+            WHERE ts_code = :ts_code
+            ORDER BY end_date DESC NULLS LAST, ann_date DESC NULLS LAST
+            LIMIT 1
+        ),
+        cashflow AS (
+            SELECT * FROM {STOCK_CASHFLOW_VIEW}
+            WHERE ts_code = :ts_code
+            ORDER BY end_date DESC NULLS LAST, ann_date DESC NULLS LAST
+            LIMIT 1
+        )
+        SELECT
+            COALESCE(basic.ts_code, daily.ts_code, fina.ts_code, income.ts_code, balance.ts_code, cashflow.ts_code, :ts_code) AS ts_code,
+            basic.symbol,
+            basic.name,
+            basic.industry,
+            basic.market,
+            basic.exchange,
+            basic.list_status,
+            basic.list_date,
+            basic.act_name,
+            company.province,
+            company.city,
+            company.website,
+            daily.trade_date AS latest_trade_date,
+            daily.close,
+            daily.turnover_rate,
+            daily.volume_ratio,
+            daily.pe_ttm,
+            daily.pb,
+            daily.ps_ttm,
+            daily.total_mv,
+            daily.circ_mv,
+            fina.end_date AS fina_end_date,
+            fina.roe,
+            fina.roa,
+            fina.gross_margin,
+            fina.debt_to_assets,
+            income.end_date AS income_end_date,
+            income.total_revenue,
+            income.n_income,
+            balance.end_date AS balance_end_date,
+            balance.total_assets,
+            balance.total_liab,
+            balance.total_hldr_eqy_exc_min_int,
+            cashflow.end_date AS cashflow_end_date,
+            cashflow.n_cashflow_act
+        FROM (SELECT 1 AS anchor) AS seed
+        LEFT JOIN basic ON TRUE
+        LEFT JOIN company ON TRUE
+        LEFT JOIN daily ON TRUE
+        LEFT JOIN fina ON TRUE
+        LEFT JOIN income ON TRUE
+        LEFT JOIN balance ON TRUE
+        LEFT JOIN cashflow ON TRUE
+    """
+    return pd.read_sql(text(sql), engine, params={'ts_code': ts_code})
+
+
+def get_stock_timeseries(ts_code: str, start_date: str = None, end_date: str = None, engine=None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine()
+
+    conditions = ["ts_code = :ts_code"]
+    params = {'ts_code': ts_code}
+    if start_date:
+        conditions.append("trade_date >= :start_date")
+        params['start_date'] = start_date
+    if end_date:
+        conditions.append("trade_date <= :end_date")
+        params['end_date'] = end_date
+
+    sql = f"""
+        SELECT
+            trade_date,
+            close,
+            turnover_rate,
+            turnover_rate_f,
+            volume_ratio,
+            pe,
+            pe_ttm,
+            pb,
+            ps,
+            ps_ttm,
+            dv_ratio,
+            dv_ttm,
+            total_share,
+            float_share,
+            free_share,
+            total_mv,
+            circ_mv
+        FROM {STOCK_DAILY_VIEW}
+        WHERE {' AND '.join(conditions)}
+        ORDER BY trade_date
+    """
+    return pd.read_sql(text(sql), engine, params=params)
+
+
+def get_index_profile(ts_code: str, engine=None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine()
+
+    sql = f"""
+        WITH latest_index AS (
+            SELECT *
+            FROM {INDEX_DAILY_VIEW}
+            WHERE ts_code = :ts_code
+            ORDER BY trade_date DESC NULLS LAST
+            LIMIT 1
+        )
+        SELECT
+            ts_code,
+            COALESCE(NULLIF(payload->>'name', ''), NULLIF(payload->>'ts_name', ''), ts_code) AS name,
+            trade_date AS latest_trade_date,
+            close,
+            turnover_rate,
+            turnover_rate_f,
+            pe,
+            pe_ttm,
+            pb,
+            total_share,
+            float_share,
+            free_share,
+            total_mv,
+            float_mv
+        FROM latest_index
+    """
+    return pd.read_sql(text(sql), engine, params={'ts_code': ts_code})
+
+
+def get_index_timeseries(ts_code: str, start_date: str = None, end_date: str = None, engine=None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine()
+
+    conditions = ["ts_code = :ts_code"]
+    params = {'ts_code': ts_code}
+    if start_date:
+        conditions.append("trade_date >= :start_date")
+        params['start_date'] = start_date
+    if end_date:
+        conditions.append("trade_date <= :end_date")
+        params['end_date'] = end_date
+
+    sql = f"""
+        SELECT
+            trade_date,
+            close,
+            turnover_rate,
+            turnover_rate_f,
+            pe,
+            pe_ttm,
+            pb,
+            total_share,
+            float_share,
+            free_share,
+            total_mv,
+            float_mv
+        FROM {INDEX_DAILY_VIEW}
+        WHERE {' AND '.join(conditions)}
+        ORDER BY trade_date
+    """
+    return pd.read_sql(text(sql), engine, params=params)
+
+
+def get_security_profile(ts_code: str, security_type: str, engine=None) -> pd.DataFrame:
+    if security_type == 'stock':
+        return get_stock_profile(ts_code, engine=engine)
+    if security_type == 'index':
+        return get_index_profile(ts_code, engine=engine)
+    raise ValueError(f'不支持的 security_type: {security_type}')
+
+
+def get_security_timeseries(ts_code: str, security_type: str, start_date: str = None, end_date: str = None, engine=None) -> pd.DataFrame:
+    if security_type == 'stock':
+        return get_stock_timeseries(ts_code, start_date=start_date, end_date=end_date, engine=engine)
+    if security_type == 'index':
+        return get_index_timeseries(ts_code, start_date=start_date, end_date=end_date, engine=engine)
+    raise ValueError(f'不支持的 security_type: {security_type}')
 
 
 # ── 命令行快速验证 ────────────────────────────────────────────────────────────
