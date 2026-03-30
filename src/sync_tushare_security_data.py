@@ -40,6 +40,7 @@ DEFAULT_INDEX_CODES = [
     "399006.SZ",
 ]
 STOCK_CODES_CACHE: list[str] | None = None
+STOCK_BASIC_CACHE: pd.DataFrame | None = None
 
 DATASET_TABLES = {
     "stock_basic": "ts_stock_basic",
@@ -504,6 +505,26 @@ def get_max_date(engine: Engine, table_name: str, column_name: str) -> str | Non
     return None
 
 
+def get_min_dates_by_ts_code(engine: Engine, table_name: str, column_name: str) -> dict[str, str]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                f"""
+                SELECT ts_code, MIN({column_name}) AS min_value
+                FROM {table_name}
+                WHERE ts_code IS NOT NULL
+                  AND {column_name} IS NOT NULL
+                GROUP BY ts_code
+                """
+            )
+        ).fetchall()
+    result = {}
+    for ts_code, min_value in rows:
+        if ts_code and min_value:
+            result[str(ts_code).strip()] = min_value.strftime("%Y%m%d")
+    return result
+
+
 def resolve_incremental_start_date(
     base_start: str,
     existing_max: str | None,
@@ -518,6 +539,30 @@ def resolve_incremental_start_date(
     else:
         candidate = shift_date_string(existing_max, -lookback_days)
     return max(base_start, candidate)
+
+
+def build_stock_backfill_targets(
+    pro,
+    engine: Engine,
+    table_name: str,
+    column_name: str,
+    run_end_date: str,
+) -> list[tuple[str, str, str]]:
+    listing_dates = get_stock_listing_dates(pro)
+    existing_min_dates = get_min_dates_by_ts_code(engine, table_name, column_name)
+    targets = []
+
+    for ts_code, listing_date in listing_dates.items():
+        if listing_date > run_end_date:
+            continue
+        existing_min_date = existing_min_dates.get(ts_code)
+        backfill_end_date = shift_date_string(existing_min_date, -1) if existing_min_date else run_end_date
+        if listing_date > backfill_end_date:
+            continue
+        targets.append((ts_code, listing_date, backfill_end_date))
+
+    targets.sort(key=lambda item: (item[1], item[0]))
+    return targets
 
 
 def resolve_business_key(dataset_name: str, payload: dict) -> str:
@@ -646,6 +691,11 @@ def generate_quarter_periods(start_date: str, end_date: str) -> list[str]:
 
 
 def fetch_stock_basic(pro) -> pd.DataFrame:
+    global STOCK_BASIC_CACHE
+
+    if STOCK_BASIC_CACHE is not None:
+        return STOCK_BASIC_CACHE.copy()
+
     frames = []
     for status in ["L", "D", "P"]:
         df = pro.stock_basic(list_status=status)
@@ -655,6 +705,7 @@ def fetch_stock_basic(pro) -> pd.DataFrame:
     result = combine_frames(frames)
     if not result.empty and "ts_code" in result.columns:
         result = result.drop_duplicates(subset=["ts_code"], keep="last")
+    STOCK_BASIC_CACHE = result.copy()
     return result
 
 
@@ -689,6 +740,20 @@ def get_stock_codes(pro) -> list[str]:
         }
     )
     return STOCK_CODES_CACHE
+
+
+def get_stock_listing_dates(pro) -> dict[str, str]:
+    stock_basic_df = fetch_stock_basic(pro)
+    if stock_basic_df.empty or "ts_code" not in stock_basic_df.columns or "list_date" not in stock_basic_df.columns:
+        raise RuntimeError("无法获取股票上市日期，不能继续回补历史数据")
+
+    listing_dates = {}
+    for record in stock_basic_df[["ts_code", "list_date"]].to_dict(orient="records"):
+        ts_code = str(record.get("ts_code")).strip()
+        list_date = normalize_date_string(record.get("list_date"))
+        if ts_code and ts_code.lower() != "nan" and list_date:
+            listing_dates[ts_code] = list_date
+    return listing_dates
 
 
 def filter_by_report_period(df: pd.DataFrame, start_date: str, end_date: str) -> pd.DataFrame:
@@ -733,6 +798,47 @@ def fetch_financial_dataset_by_stock(pro, endpoint_name: str, start_date: str, e
 
     if failures:
         logger.warning("%s 有 %s 只股票抓取失败，示例: %s", endpoint_name, len(failures), ", ".join(failures[:10]))
+
+    return combine_frames(frames)
+
+
+def fetch_financial_dataset_missing_history(pro, engine: Engine, endpoint_name: str, table_name: str, run_end_date: str) -> pd.DataFrame:
+    endpoint = getattr(pro, endpoint_name)
+    targets = build_stock_backfill_targets(pro, engine, table_name, "end_date", run_end_date)
+    frames = []
+    failures = []
+
+    logger.info("%s 进入安全历史回补模式，目标股票数=%s", endpoint_name, len(targets))
+    for index, (ts_code, start_date, end_date) in enumerate(targets, start=1):
+        success = False
+        for attempt in range(1, 4):
+            try:
+                logger.info(
+                    "回补 %s ts_code=%s range=%s~%s (%s/%s) attempt=%s",
+                    endpoint_name,
+                    ts_code,
+                    start_date,
+                    end_date,
+                    index,
+                    len(targets),
+                    attempt,
+                )
+                df = endpoint(ts_code=ts_code, start_date=start_date, end_date=end_date)
+                df = filter_by_report_period(df, start_date, end_date)
+                if df is not None and not df.empty:
+                    frames.append(df)
+                    logger.info("%s ts_code=%s 回补 %s 行", endpoint_name, ts_code, len(df))
+                success = True
+                break
+            except Exception as exc:
+                logger.warning("%s ts_code=%s attempt=%s 历史回补失败: %s", endpoint_name, ts_code, attempt, exc)
+                time.sleep(DEFAULT_API_SLEEP)
+        if not success:
+            failures.append(ts_code)
+        time.sleep(DEFAULT_API_SLEEP)
+
+    if failures:
+        logger.warning("%s 历史回补有 %s 只股票失败，示例: %s", endpoint_name, len(failures), ", ".join(failures[:10]))
 
     return combine_frames(frames)
 
@@ -795,6 +901,45 @@ def fetch_daily_basic(pro, start_date: str, end_date: str) -> pd.DataFrame:
     return combine_frames(frames)
 
 
+def fetch_daily_basic_missing_history(pro, engine: Engine, table_name: str, run_end_date: str) -> pd.DataFrame:
+    targets = build_stock_backfill_targets(pro, engine, table_name, "trade_date", run_end_date)
+    frames = []
+    failures = []
+
+    logger.info("daily_basic 进入安全历史回补模式，目标股票数=%s", len(targets))
+    for index, (ts_code, start_date, end_date) in enumerate(targets, start=1):
+        success = False
+        for attempt in range(1, 4):
+            try:
+                logger.info(
+                    "回补 daily_basic ts_code=%s range=%s~%s (%s/%s) attempt=%s",
+                    ts_code,
+                    start_date,
+                    end_date,
+                    index,
+                    len(targets),
+                    attempt,
+                )
+                df = pro.daily_basic(ts_code=ts_code, start_date=start_date, end_date=end_date)
+                df = filter_by_report_period(df, start_date, end_date)
+                if df is not None and not df.empty:
+                    frames.append(df)
+                    logger.info("daily_basic ts_code=%s 回补 %s 行", ts_code, len(df))
+                success = True
+                break
+            except Exception as exc:
+                logger.warning("daily_basic ts_code=%s attempt=%s 历史回补失败: %s", ts_code, attempt, exc)
+                time.sleep(DEFAULT_API_SLEEP)
+        if not success:
+            failures.append(ts_code)
+        time.sleep(DEFAULT_API_SLEEP)
+
+    if failures:
+        logger.warning("daily_basic 历史回补有 %s 只股票失败，示例: %s", len(failures), ", ".join(failures[:10]))
+
+    return combine_frames(frames)
+
+
 def fetch_index_dailybasic(pro, start_date: str, end_date: str, index_codes: list[str]) -> pd.DataFrame:
     frames = []
     for ts_code in index_codes:
@@ -841,12 +986,16 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
         elif dataset_name == "stock_company":
             raw_df = fetch_stock_company(pro)
         elif dataset_name in FINANCIAL_DATASETS:
-            if start_date is None or start_date > end_date:
+            if args.backfill_missing_history:
+                raw_df = fetch_financial_dataset_missing_history(pro, engine, dataset_name, table_name, run_end_date)
+            elif start_date is None or start_date > end_date:
                 raw_df = pd.DataFrame()
             else:
                 raw_df = fetch_financial_dataset(pro, dataset_name, start_date, end_date)
         elif dataset_name == "daily_basic":
-            if start_date is None or start_date > end_date:
+            if args.backfill_missing_history:
+                raw_df = fetch_daily_basic_missing_history(pro, engine, table_name, run_end_date)
+            elif start_date is None or start_date > end_date:
                 raw_df = pd.DataFrame()
             else:
                 raw_df = fetch_daily_basic(pro, start_date, end_date)
@@ -900,6 +1049,11 @@ def parse_args():
         default=DEFAULT_FINANCIAL_LOOKBACK_DAYS,
         help="财务数据增量回看天数",
     )
+    parser.add_argument(
+        "--backfill-missing-history",
+        action="store_true",
+        help="按股票从上市日向前安全回补缺失历史，仅补各表当前最早记录之前的数据",
+    )
     return parser.parse_args()
 
 
@@ -915,6 +1069,8 @@ def validate_args(args):
         raise ValueError("--daily-lookback-days 不能小于 0")
     if args.financial_lookback_days < 0:
         raise ValueError("--financial-lookback-days 不能小于 0")
+    if args.schedule and args.backfill_missing_history:
+        raise ValueError("--backfill-missing-history 不能与 --schedule 同时使用")
     if not args.index_codes and "index_dailybasic" in args.datasets:
         raise ValueError("同步 index_dailybasic 时必须提供至少一个 --index-codes")
     if args.end_date:
@@ -927,7 +1083,12 @@ def validate_args(args):
 
 def run_sync_once(engine: Engine, pro, args) -> int:
     run_end_date = args.end_date or get_today_string()
-    logger.info("开始执行同步，结束日期=%s，数据集=%s", run_end_date, ",".join(args.datasets))
+    logger.info(
+        "开始执行同步，结束日期=%s，数据集=%s，模式=%s",
+        run_end_date,
+        ",".join(args.datasets),
+        "安全历史回补" if args.backfill_missing_history else "增量同步",
+    )
 
     total_rows = 0
     for dataset_name in args.datasets:
