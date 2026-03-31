@@ -653,38 +653,160 @@ def _split_list_items(value) -> list[str]:
     return cleaned
 
 
+def _deduplicate_text_items(items: list[str]) -> list[str]:
+    cleaned = []
+    seen = set()
+    for item in items:
+        text_value = _clean_export_text(item).strip(' :：;；，,、')
+        if not text_value:
+            continue
+        if text_value in seen:
+            continue
+        cleaned.append(text_value)
+        seen.add(text_value)
+    return cleaned
+
+
+def _strip_business_leading_text(value: str) -> str:
+    text_value = _clean_export_text(value)
+    if not text_value:
+        return ''
+
+    patterns = [
+        r'^(公司|本公司)',
+        r'^是一家',
+        r'^主要',
+        r'^主营',
+        r'^(主营|主要)?业务(?:范围)?(?:集中)?(?:主要)?(?:在|为|是|包括|涵盖|涉及)?[:：]?',
+        r'^(公司|本公司)?(?:主要|主营)?从事',
+        r'^(公司|本公司)?专注于',
+        r'^(公司|本公司)?致力于',
+        r'^(公司|本公司)?深耕于',
+        r'^(公司|本公司)?聚焦于',
+        r'^(公司|本公司)?以.+?为主',
+    ]
+    for pattern in patterns:
+        text_value = re.sub(pattern, '', text_value).strip()
+    return text_value.strip(' :：;；，,、')
+
+
+def _normalize_business_summary(value: str) -> str:
+    text_value = _strip_business_leading_text(value)
+    if not text_value:
+        return ''
+
+    text_value = re.sub(
+        r'(产品(?:包括|有|为|涵盖|涉及|包含|系列|类别|结构)|业务(?:包括|有|为|涵盖|涉及|包含)|服务(?:包括|有|为|涵盖|涉及|包含))[:：]?.*$',
+        '',
+        text_value,
+    ).strip()
+    text_value = re.sub(r'(?:主要)?产品(?:线|类别|系列)?(?:包括|有|为|涵盖|涉及|包含)?$', '', text_value).strip()
+    text_value = re.sub(r'(?:产品线|产品类别|产品系列|核心产品)$', '', text_value).strip()
+    text_value = re.sub(r'^(以及|并|并且|同时|形成了|拥有|具备)', '', text_value).strip()
+    text_value = re.sub(r'[，,]?(?:主要)?$', '', text_value).strip()
+    text_value = re.sub(r'(等(相关)?(业务|服务|产品))$', '', text_value).strip()
+    text_value = re.split(r'[，,](?=提供|形成|拥有|具备|覆盖)', text_value, maxsplit=1)[0]
+    text_value = re.sub(r'\s+', ' ', text_value)
+    text_value = text_value.strip(' :：;；，,、')
+
+    clauses = [
+        part.strip(' ，,、:：')
+        for part in re.split(r'[；;]+', text_value)
+        if part and part.strip(' ，,、:：')
+    ]
+    if not clauses:
+        return ''
+    return '；'.join(_deduplicate_text_items(clauses))
+
+
+def _extract_explicit_product_text(segment: str) -> str:
+    explicit_patterns = [
+        r'(?:主要)?产品(?:包括|有|为|涵盖|涉及|包含|主要包括|主要有|主要为)?[:：]?\s*(.+)$',
+        r'(?:产品线|产品类别|产品系列|核心产品)(?:包括|有|为|涵盖|涉及|包含)?[:：]?\s*(.+)$',
+        r'(?:提供|形成)(?:了)?(?:.+?)?(?:产品|服务)(?:包括|有|为|涵盖|涉及|包含)?[:：]?\s*(.+)$',
+    ]
+    for pattern in explicit_patterns:
+        match = re.search(pattern, segment)
+        if match:
+            return _clean_export_text(match.group(1))
+    return ''
+
+
+def _extract_product_candidates(value) -> list[str]:
+    text_value = _clean_export_text(value)
+    if not text_value:
+        return []
+
+    text_value = re.sub(r'^(产品线|产品类别|产品系列|核心产品)', '', text_value).strip()
+    text_value = re.sub(r'^(包括|有|为|涵盖|涉及|包含|主要包括|主要有|主要为)', '', text_value).strip(' :：')
+
+    parts = re.split(r'(?:、|,|，|/|以及|及|和|与)', text_value)
+    results = []
+    for part in parts:
+        item = _clean_export_text(part)
+        item = re.sub(r'^(主要|核心)', '', item).strip()
+        item = re.sub(r'^(包括|有|为|涵盖|涉及|包含|线涵盖)', '', item).strip()
+        item = re.sub(r'(等|等产品|等服务|等业务)$', '', item).strip(' :：;；，,、')
+        if not item:
+            continue
+        if item in {'和', '与', '及', '以及'}:
+            continue
+        if any(keyword in item for keyword in ['研发', '生产', '销售', '制造', '运营', '服务', '开发', '设计', '施工', '建设', '管理', '加工', '集成', '推广', '代理', '维护', '租赁']):
+            continue
+        results.append(item)
+    return _deduplicate_text_items(results)
+
+
+def _infer_products_from_business_text(value: str) -> list[str]:
+    text_value = _normalize_business_summary(value)
+    if not text_value:
+        return []
+
+    inferred = []
+    clauses = [
+        clause.strip(' :：;；，,、')
+        for clause in re.split(r'[；;，,]+', text_value)
+        if clause and clause.strip(' :：;；，,、')
+    ]
+    for clause in clauses:
+        match = re.match(
+            r'^(.+?)(?:的)?(?:研发|生产|销售|制造|运营|服务|开发|设计|施工|建设|管理|加工|集成|推广|代理|维护|租赁)(?:$|[、,，及和与])',
+            clause,
+        )
+        if not match:
+            continue
+        candidate = _clean_export_text(match.group(1))
+        candidate = re.sub(r'^(相关|各类|系列|综合|专业|高端|中高端)', '', candidate).strip()
+        candidate = candidate.strip(' :：;；，,、')
+        if candidate and len(candidate) <= 30:
+            inferred.extend(_extract_product_candidates(candidate) or [candidate])
+    return _deduplicate_text_items(inferred)
+
+
 def _extract_main_business_parts(value) -> tuple[list[str], list[str]]:
     business_items = []
     product_items = []
-    seen_business = set()
-    seen_product = set()
-
-    product_patterns = [
-        r'(?:主要)?产品(?:包括|有|为|涵盖|涉及|包含|主要包括|主要有|主要为)?[:：]?\s*(.+)$',
-        r'(?:产品线|产品类别)[:：]?\s*(.+)$',
-    ]
 
     for segment in _split_text_segments(value):
-        product_candidates = []
-        for pattern in product_patterns:
-            match = re.search(pattern, segment)
-            if match:
-                product_candidates.extend(_split_list_items(match.group(1)))
+        explicit_product_text = _extract_explicit_product_text(segment)
+        business_segment = segment
+        if explicit_product_text:
+            explicit_index = segment.find(explicit_product_text)
+            if explicit_index > 0:
+                business_segment = segment[:explicit_index]
 
-        business_text = re.sub(r'^(公司|本公司)?(主营|主要)?业务[:：]?', '', segment).strip()
-        business_text = re.sub(r'^(公司|本公司)?主要从事', '', business_text).strip()
-        business_text = re.sub(r'^(公司|本公司)?从事', '', business_text).strip()
-        business_text = re.sub(r'^(主营|主要)产品[:：]?.*$', '', business_text).strip(' ，,、:：')
+        business_summary = _normalize_business_summary(business_segment)
+        if business_summary:
+            business_items.append(business_summary)
 
-        if business_text and business_text not in seen_business:
-            business_items.append(business_text)
-            seen_business.add(business_text)
+        if explicit_product_text:
+            product_items.extend(_extract_product_candidates(explicit_product_text))
 
-        for product_item in product_candidates:
-            if product_item and product_item not in seen_product:
-                product_items.append(product_item)
-                seen_product.add(product_item)
+        if not explicit_product_text:
+            product_items.extend(_infer_products_from_business_text(business_summary))
 
+    business_items = _deduplicate_text_items(business_items)
+    product_items = _deduplicate_text_items(product_items)
     return business_items, product_items
 
 
@@ -707,8 +829,13 @@ def build_stock_basic_summary_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     export_df = export_df.drop(columns=['_business_items', '_product_items'])
     export_df = export_df.rename(columns=STOCK_BASIC_EXPORT_RENAME_MAP)
 
-    ordered_columns = list(STOCK_BASIC_EXPORT_RENAME_MAP.values())
-    ordered_columns.extend(['主要业务', '产品'])
+    ordered_columns = [
+        column
+        for column in list(STOCK_BASIC_EXPORT_RENAME_MAP.values())
+        if column != '主营业务原文'
+    ]
+    insert_position = ordered_columns.index('经营范围') if '经营范围' in ordered_columns else len(ordered_columns)
+    ordered_columns[insert_position:insert_position] = ['主营业务原文', '主要业务', '产品']
     export_df = export_df.loc[:, [column for column in ordered_columns if column in export_df.columns]]
 
     export_df = export_df.sort_values(by=['所属行业', '股票代码'], na_position='last').reset_index(drop=True)
