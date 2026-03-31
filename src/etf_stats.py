@@ -6,7 +6,9 @@ ETF分类统计查询模块
 数据来源: 视图 v_etf_category_daily (etf_share_size JOIN etf_summary)
 """
 
+import io
 import os
+import re
 import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
@@ -294,6 +296,40 @@ STOCK_FINA_VIEW = 'vw_ts_stock_fina_indicator'
 STOCK_DAILY_VIEW = 'vw_ts_stock_daily_basic'
 INDEX_DAILY_VIEW = 'vw_ts_index_dailybasic'
 
+STOCK_BASIC_EXPORT_RENAME_MAP = {
+    'ts_code': '股票代码',
+    'symbol': '股票代码简写',
+    'name': '股票简称',
+    'fullname': '股票全称',
+    'enname': '英文全称',
+    'cnspell': '拼音缩写',
+    'area': '地域',
+    'industry': '所属行业',
+    'market': '市场类型',
+    'exchange': '交易所',
+    'curr_type': '交易币种',
+    'list_status': '上市状态',
+    'list_date': '上市日期',
+    'delist_date': '退市日期',
+    'is_hs': '沪深港通标识',
+    'act_name': '实控人名称',
+    'act_ent_type': '实控人企业性质',
+    'chairman': '董事长',
+    'manager': '总经理',
+    'secretary': '董事会秘书',
+    'reg_capital': '注册资本',
+    'setup_date': '成立日期',
+    'province': '省份',
+    'city': '城市',
+    'website': '公司网站',
+    'email': '电子邮箱',
+    'office': '办公地址',
+    'employees': '员工人数',
+    'main_business': '主营业务原文',
+    'business_scope': '经营范围',
+    'introduction': '公司介绍',
+}
+
 
 def get_category_tree(engine=None) -> dict:
     """
@@ -576,6 +612,172 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
         LIMIT :limit
     """
     return pd.read_sql(text(sql), engine, params=params)
+
+
+def _clean_export_text(value) -> str:
+    if value is None or pd.isna(value):
+        return ''
+    text_value = str(value).strip()
+    if not text_value or text_value.lower() == 'nan':
+        return ''
+    return re.sub(r'\s+', ' ', text_value)
+
+
+def _split_text_segments(value) -> list[str]:
+    text_value = _clean_export_text(value)
+    if not text_value:
+        return []
+    normalized = (
+        text_value
+        .replace('\r', '；')
+        .replace('\n', '；')
+        .replace('|', '；')
+        .replace('。', '；')
+    )
+    parts = re.split(r'[；;]+', normalized)
+    return [part.strip(' ，,、:：') for part in parts if part and part.strip(' ，,、:：')]
+
+
+def _split_list_items(value) -> list[str]:
+    text_value = _clean_export_text(value)
+    if not text_value:
+        return []
+    parts = re.split(r'[、,，/]+', text_value)
+    cleaned = []
+    seen = set()
+    for part in parts:
+        item = re.sub(r'(等|等产品|等业务)$', '', part).strip(' :：;；，,、')
+        if item and item not in seen:
+            cleaned.append(item)
+            seen.add(item)
+    return cleaned
+
+
+def _extract_main_business_parts(value) -> tuple[list[str], list[str]]:
+    business_items = []
+    product_items = []
+    seen_business = set()
+    seen_product = set()
+
+    product_patterns = [
+        r'(?:主要)?产品(?:包括|有|为|涵盖|涉及|包含|主要包括|主要有|主要为)?[:：]?\s*(.+)$',
+        r'(?:产品线|产品类别)[:：]?\s*(.+)$',
+    ]
+
+    for segment in _split_text_segments(value):
+        product_candidates = []
+        for pattern in product_patterns:
+            match = re.search(pattern, segment)
+            if match:
+                product_candidates.extend(_split_list_items(match.group(1)))
+
+        business_text = re.sub(r'^(公司|本公司)?(主营|主要)?业务[:：]?', '', segment).strip()
+        business_text = re.sub(r'^(公司|本公司)?主要从事', '', business_text).strip()
+        business_text = re.sub(r'^(公司|本公司)?从事', '', business_text).strip()
+        business_text = re.sub(r'^(主营|主要)产品[:：]?.*$', '', business_text).strip(' ，,、:：')
+
+        if business_text and business_text not in seen_business:
+            business_items.append(business_text)
+            seen_business.add(business_text)
+
+        for product_item in product_candidates:
+            if product_item and product_item not in seen_product:
+                product_items.append(product_item)
+                seen_product.add(product_item)
+
+    return business_items, product_items
+
+
+def build_stock_basic_summary_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    export_df = df.copy()
+    if export_df.empty:
+        base_columns = list(STOCK_BASIC_EXPORT_RENAME_MAP.values())
+        return pd.DataFrame(columns=base_columns)
+
+    export_df['main_business'] = export_df['main_business'].apply(_clean_export_text)
+    business_product_parts = export_df['main_business'].apply(_extract_main_business_parts)
+    export_df['_business_items'] = business_product_parts.apply(lambda value: value[0])
+    export_df['_product_items'] = business_product_parts.apply(lambda value: value[1])
+
+    max_business_count = int(export_df['_business_items'].apply(len).max() or 0)
+    max_product_count = int(export_df['_product_items'].apply(len).max() or 0)
+
+    for index in range(max_business_count):
+        export_df[f'主要业务{index + 1}'] = export_df['_business_items'].apply(
+            lambda items, current_index=index: items[current_index] if current_index < len(items) else ''
+        )
+
+    for index in range(max_product_count):
+        export_df[f'产品{index + 1}'] = export_df['_product_items'].apply(
+            lambda items, current_index=index: items[current_index] if current_index < len(items) else ''
+        )
+
+    export_df = export_df.drop(columns=['_business_items', '_product_items'])
+    export_df = export_df.rename(columns=STOCK_BASIC_EXPORT_RENAME_MAP)
+
+    ordered_columns = list(STOCK_BASIC_EXPORT_RENAME_MAP.values())
+    ordered_columns.extend([f'主要业务{index + 1}' for index in range(max_business_count)])
+    ordered_columns.extend([f'产品{index + 1}' for index in range(max_product_count)])
+    export_df = export_df.loc[:, [column for column in ordered_columns if column in export_df.columns]]
+
+    export_df = export_df.sort_values(by=['所属行业', '股票代码'], na_position='last').reset_index(drop=True)
+    return export_df
+
+
+def get_stock_basic_summary(engine=None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine()
+
+    sql = f"""
+        SELECT
+            basic.ts_code,
+            basic.symbol,
+            basic.name,
+            basic.fullname,
+            basic.enname,
+            basic.cnspell,
+            basic.area,
+            basic.industry,
+            basic.market,
+            COALESCE(company.exchange, basic.exchange) AS exchange,
+            basic.curr_type,
+            basic.list_status,
+            basic.list_date,
+            basic.delist_date,
+            basic.is_hs,
+            basic.act_name,
+            basic.act_ent_type,
+            company.chairman,
+            company.manager,
+            company.secretary,
+            company.reg_capital,
+            company.setup_date,
+            company.province,
+            company.city,
+            company.website,
+            company.email,
+            company.office,
+            company.employees,
+            company.main_business,
+            company.business_scope,
+            company.introduction
+        FROM {STOCK_BASIC_VIEW} AS basic
+        LEFT JOIN {STOCK_COMPANY_VIEW} AS company
+          ON basic.ts_code = company.ts_code
+        ORDER BY basic.industry NULLS LAST, basic.ts_code
+    """
+    merged_df = pd.read_sql(text(sql), engine)
+    return build_stock_basic_summary_dataframe(merged_df)
+
+
+def export_stock_basic_summary_excel(df: pd.DataFrame) -> bytes:
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='股票基本信息汇总表', index=False)
+        worksheet = writer.sheets['股票基本信息汇总表']
+        worksheet.freeze_panes = 'A2'
+        worksheet.auto_filter.ref = worksheet.dimensions
+    return output.getvalue()
 
 
 def get_stock_profile(ts_code: str, engine=None) -> pd.DataFrame:

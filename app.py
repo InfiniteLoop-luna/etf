@@ -16,7 +16,8 @@ from src.etf_stats import (
     get_category_tree, get_category_timeseries, get_agg_summary,
     get_wide_index_available_dates, get_wide_index_timeseries,
     search_security, get_security_profile, get_security_timeseries,
-    get_security_financial_timeseries
+    get_security_financial_timeseries, get_stock_basic_summary,
+    export_stock_basic_summary_excel
 )
 
 # 配置日志
@@ -285,6 +286,11 @@ def load_security_timeseries(ts_code: str, security_type: str) -> pd.DataFrame:
 @st.cache_data(ttl=300)
 def load_security_financial_timeseries(ts_code: str, security_type: str) -> pd.DataFrame:
     return get_security_financial_timeseries(ts_code=ts_code, security_type=security_type)
+
+
+@st.cache_data(ttl=300)
+def load_stock_basic_summary_export() -> pd.DataFrame:
+    return get_stock_basic_summary()
 
 
 def format_security_option(row: pd.Series) -> str:
@@ -1343,6 +1349,51 @@ def render_etf_classification_tab():
             except Exception as e:
                 st.error(f"处理分类数据时发生异常: {str(e)}")
                 logger.error("ETF classification error", exc_info=True)
+
+    st.divider()
+    st.subheader("📄 股票信息表导出")
+    st.caption("从数据库读取股票列表与上市公司基本信息，生成“股票基本信息汇总表”Excel。")
+    st.info("导出规则：合并股票列表与上市公司基本信息，按所属行业排序，并将 main_business 拆分为“主要业务* / 产品*”多列。")
+
+    if st.button("📥 导出股票信息表 Excel"):
+        with st.spinner("正在生成股票基本信息汇总表..."):
+            try:
+                stock_export_df = load_stock_basic_summary_export()
+                stock_excel_bytes = export_stock_basic_summary_excel(stock_export_df)
+            except Exception as e:
+                st.error(f"生成股票信息表失败: {str(e)}")
+                logger.error("Stock summary export error", exc_info=True)
+                return
+
+        industry_count = int(stock_export_df['所属行业'].replace('', pd.NA).dropna().nunique()) if '所属行业' in stock_export_df.columns else 0
+        business_cols = len([column for column in stock_export_df.columns if column.startswith('主要业务')])
+        product_cols = len([column for column in stock_export_df.columns if column.startswith('产品')])
+
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("股票数量", f"{len(stock_export_df):,}")
+        metric_cols[1].metric("行业数量", f"{industry_count:,}")
+        metric_cols[2].metric("主要业务列", str(business_cols))
+        metric_cols[3].metric("产品列", str(product_cols))
+
+        preview_columns = [
+            column for column in ['股票代码', '股票简称', '所属行业', '主营业务原文', '主要业务1', '产品1']
+            if column in stock_export_df.columns
+        ]
+        if preview_columns:
+            st.write("**导出预览：**")
+            st.dataframe(
+                stock_export_df[preview_columns].head(20),
+                use_container_width=True,
+                hide_index=True
+            )
+
+        st.download_button(
+            label="📥 下载 股票基本信息汇总表 Excel",
+            data=stock_excel_bytes,
+            file_name=f"股票基本信息汇总表_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary"
+        )
 
 
 def render_etf_category_ratio_tab():
