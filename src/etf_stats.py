@@ -720,6 +720,16 @@ def get_stock_basic_summary(engine=None) -> pd.DataFrame:
         engine = _get_engine()
 
     sql = f"""
+        WITH latest_trade AS (
+            SELECT MAX(trade_date) AS trade_date
+            FROM {STOCK_DAILY_VIEW}
+        ),
+        active_codes AS (
+            SELECT DISTINCT daily.ts_code
+            FROM {STOCK_DAILY_VIEW} AS daily
+            JOIN latest_trade
+              ON daily.trade_date = latest_trade.trade_date
+        )
         SELECT
             basic.ts_code,
             basic.symbol,
@@ -755,7 +765,15 @@ def get_stock_basic_summary(engine=None) -> pd.DataFrame:
         FROM {STOCK_BASIC_VIEW} AS basic
         LEFT JOIN {STOCK_COMPANY_VIEW} AS company
           ON basic.ts_code = company.ts_code
-        WHERE COALESCE(basic.list_status, '') = 'L'
+        LEFT JOIN active_codes
+          ON basic.ts_code = active_codes.ts_code
+        WHERE (
+            COALESCE(basic.list_status, '') = 'L'
+            OR (
+                COALESCE(basic.list_status, '') = ''
+                AND active_codes.ts_code IS NOT NULL
+            )
+        )
         ORDER BY basic.industry NULLS LAST, basic.ts_code
     """
     merged_df = pd.read_sql(text(sql), engine)
