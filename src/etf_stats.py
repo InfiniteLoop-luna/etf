@@ -698,26 +698,17 @@ def build_stock_basic_summary_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     business_product_parts = export_df['main_business'].apply(_extract_main_business_parts)
     export_df['_business_items'] = business_product_parts.apply(lambda value: value[0])
     export_df['_product_items'] = business_product_parts.apply(lambda value: value[1])
-
-    max_business_count = int(export_df['_business_items'].apply(len).max() or 0)
-    max_product_count = int(export_df['_product_items'].apply(len).max() or 0)
-
-    for index in range(max_business_count):
-        export_df[f'主要业务{index + 1}'] = export_df['_business_items'].apply(
-            lambda items, current_index=index: items[current_index] if current_index < len(items) else ''
-        )
-
-    for index in range(max_product_count):
-        export_df[f'产品{index + 1}'] = export_df['_product_items'].apply(
-            lambda items, current_index=index: items[current_index] if current_index < len(items) else ''
-        )
+    export_df['主要业务'] = export_df.apply(
+        lambda row: '、'.join(row['_business_items']) if row['_business_items'] else row['main_business'],
+        axis=1
+    )
+    export_df['产品'] = export_df['_product_items'].apply(lambda items: '、'.join(items))
 
     export_df = export_df.drop(columns=['_business_items', '_product_items'])
     export_df = export_df.rename(columns=STOCK_BASIC_EXPORT_RENAME_MAP)
 
     ordered_columns = list(STOCK_BASIC_EXPORT_RENAME_MAP.values())
-    ordered_columns.extend([f'主要业务{index + 1}' for index in range(max_business_count)])
-    ordered_columns.extend([f'产品{index + 1}' for index in range(max_product_count)])
+    ordered_columns.extend(['主要业务', '产品'])
     export_df = export_df.loc[:, [column for column in ordered_columns if column in export_df.columns]]
 
     export_df = export_df.sort_values(by=['所属行业', '股票代码'], na_position='last').reset_index(drop=True)
@@ -764,6 +755,7 @@ def get_stock_basic_summary(engine=None) -> pd.DataFrame:
         FROM {STOCK_BASIC_VIEW} AS basic
         LEFT JOIN {STOCK_COMPANY_VIEW} AS company
           ON basic.ts_code = company.ts_code
+        WHERE COALESCE(basic.list_status, '') = 'L'
         ORDER BY basic.industry NULLS LAST, basic.ts_code
     """
     merged_df = pd.read_sql(text(sql), engine)
