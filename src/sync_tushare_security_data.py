@@ -52,6 +52,27 @@ DATASET_TABLES = {
     "daily_basic": "ts_stock_daily_basic",
     "index_dailybasic": "ts_index_dailybasic",
 }
+STOCK_BASIC_FIELDS = ",".join(
+    [
+        "ts_code",
+        "symbol",
+        "name",
+        "area",
+        "industry",
+        "fullname",
+        "enname",
+        "cnspell",
+        "market",
+        "exchange",
+        "curr_type",
+        "list_status",
+        "list_date",
+        "delist_date",
+        "is_hs",
+        "act_name",
+        "act_ent_type",
+    ]
+)
 NORMALIZED_VIEW_SPECS = {
     "stock_basic": {
         "view_name": "vw_ts_stock_basic",
@@ -269,6 +290,38 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 FINANCIAL_DATASETS = {"income", "balancesheet", "cashflow", "fina_indicator"}
 DAILY_DATASETS = {"daily_basic", "index_dailybasic"}
+BACKFILL_SKIP_TS_CODES = {
+    "ts_stock_income": {
+        "302132.SZ",
+        "601268.SH",
+        "920167.BJ",
+        "920445.BJ",
+        "920489.BJ",
+        "920682.BJ",
+        "920799.BJ",
+        "920819.BJ",
+    },
+    "ts_stock_balancesheet": {
+        "302132.SZ",
+        "601268.SH",
+        "920167.BJ",
+        "920445.BJ",
+        "920489.BJ",
+        "920682.BJ",
+        "920799.BJ",
+        "920819.BJ",
+    },
+    "ts_stock_cashflow": {
+        "302132.SZ",
+        "601268.SH",
+        "920167.BJ",
+        "920445.BJ",
+        "920489.BJ",
+        "920682.BJ",
+        "920799.BJ",
+        "920819.BJ",
+    },
+}
 
 
 def normalize_date_string(value: str | None) -> str | None:
@@ -550,9 +603,12 @@ def build_stock_backfill_targets(
 ) -> list[tuple[str, str, str]]:
     listing_dates = get_stock_listing_dates(pro)
     existing_min_dates = get_min_dates_by_ts_code(engine, table_name, column_name)
+    skip_ts_codes = BACKFILL_SKIP_TS_CODES.get(table_name, set())
     targets = []
 
     for ts_code, listing_date in listing_dates.items():
+        if ts_code in skip_ts_codes:
+            continue
         if listing_date > run_end_date:
             continue
         existing_min_date = existing_min_dates.get(ts_code)
@@ -661,6 +717,11 @@ def upsert_records(engine: Engine, table_name: str, records: pd.DataFrame) -> in
     return len(records)
 
 
+def write_dataset_records(engine: Engine, dataset_name: str, table_name: str, df: pd.DataFrame) -> int:
+    prepared = prepare_records(dataset_name, df)
+    return upsert_records(engine, table_name, prepared)
+
+
 def combine_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
     valid_frames = [frame for frame in frames if frame is not None and not frame.empty]
     if not valid_frames:
@@ -698,7 +759,7 @@ def fetch_stock_basic(pro) -> pd.DataFrame:
 
     frames = []
     for status in ["L", "D", "P"]:
-        df = pro.stock_basic(list_status=status)
+        df = pro.stock_basic(list_status=status, fields=STOCK_BASIC_FIELDS)
         if df is not None and not df.empty:
             frames.append(df)
         time.sleep(DEFAULT_API_SLEEP)
@@ -722,13 +783,35 @@ def fetch_stock_company(pro) -> pd.DataFrame:
     return result
 
 
+def filter_active_stock_basic(stock_basic_df: pd.DataFrame) -> pd.DataFrame:
+    if stock_basic_df is None or stock_basic_df.empty:
+        return pd.DataFrame()
+
+    filtered = stock_basic_df.copy()
+    if "list_status" in filtered.columns:
+        status_series = filtered["list_status"].fillna("").astype(str).str.strip().str.upper()
+        if "delist_date" in filtered.columns:
+            delist_series = filtered["delist_date"].fillna("").astype(str).str.strip()
+            filtered = filtered.loc[
+                (status_series == "L")
+                | ((status_series == "") & (delist_series == ""))
+            ].copy()
+        else:
+            filtered = filtered.loc[(status_series == "L") | (status_series == "")].copy()
+    elif "delist_date" in filtered.columns:
+        delist_series = filtered["delist_date"].fillna("").astype(str).str.strip()
+        filtered = filtered.loc[delist_series == ""].copy()
+
+    return filtered
+
+
 def get_stock_codes(pro) -> list[str]:
     global STOCK_CODES_CACHE
 
     if STOCK_CODES_CACHE is not None:
         return STOCK_CODES_CACHE
 
-    stock_basic_df = fetch_stock_basic(pro)
+    stock_basic_df = filter_active_stock_basic(fetch_stock_basic(pro))
     if stock_basic_df.empty or "ts_code" not in stock_basic_df.columns:
         raise RuntimeError("无法获取股票列表，不能继续抓取财务数据")
 
@@ -743,7 +826,7 @@ def get_stock_codes(pro) -> list[str]:
 
 
 def get_stock_listing_dates(pro) -> dict[str, str]:
-    stock_basic_df = fetch_stock_basic(pro)
+    stock_basic_df = filter_active_stock_basic(fetch_stock_basic(pro))
     if stock_basic_df.empty or "ts_code" not in stock_basic_df.columns or "list_date" not in stock_basic_df.columns:
         raise RuntimeError("无法获取股票上市日期，不能继续回补历史数据")
 
@@ -805,8 +888,8 @@ def fetch_financial_dataset_by_stock(pro, endpoint_name: str, start_date: str, e
 def fetch_financial_dataset_missing_history(pro, engine: Engine, endpoint_name: str, table_name: str, run_end_date: str) -> pd.DataFrame:
     endpoint = getattr(pro, endpoint_name)
     targets = build_stock_backfill_targets(pro, engine, table_name, "end_date", run_end_date)
-    frames = []
     failures = []
+    total_written = 0
 
     logger.info("%s 进入安全历史回补模式，目标股票数=%s", endpoint_name, len(targets))
     for index, (ts_code, start_date, end_date) in enumerate(targets, start=1):
@@ -826,8 +909,9 @@ def fetch_financial_dataset_missing_history(pro, engine: Engine, endpoint_name: 
                 df = endpoint(ts_code=ts_code, start_date=start_date, end_date=end_date)
                 df = filter_by_report_period(df, start_date, end_date)
                 if df is not None and not df.empty:
-                    frames.append(df)
-                    logger.info("%s ts_code=%s 回补 %s 行", endpoint_name, ts_code, len(df))
+                    written = write_dataset_records(engine, endpoint_name, table_name, df)
+                    total_written += written
+                    logger.info("%s ts_code=%s 回补 %s 行，累计写入 %s 行", endpoint_name, ts_code, len(df), total_written)
                 success = True
                 break
             except Exception as exc:
@@ -840,7 +924,7 @@ def fetch_financial_dataset_missing_history(pro, engine: Engine, endpoint_name: 
     if failures:
         logger.warning("%s 历史回补有 %s 只股票失败，示例: %s", endpoint_name, len(failures), ", ".join(failures[:10]))
 
-    return combine_frames(frames)
+    return total_written
 
 
 def fetch_financial_dataset(pro, endpoint_name: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -903,8 +987,8 @@ def fetch_daily_basic(pro, start_date: str, end_date: str) -> pd.DataFrame:
 
 def fetch_daily_basic_missing_history(pro, engine: Engine, table_name: str, run_end_date: str) -> pd.DataFrame:
     targets = build_stock_backfill_targets(pro, engine, table_name, "trade_date", run_end_date)
-    frames = []
     failures = []
+    total_written = 0
 
     logger.info("daily_basic 进入安全历史回补模式，目标股票数=%s", len(targets))
     for index, (ts_code, start_date, end_date) in enumerate(targets, start=1):
@@ -923,8 +1007,9 @@ def fetch_daily_basic_missing_history(pro, engine: Engine, table_name: str, run_
                 df = pro.daily_basic(ts_code=ts_code, start_date=start_date, end_date=end_date)
                 df = filter_by_report_period(df, start_date, end_date)
                 if df is not None and not df.empty:
-                    frames.append(df)
-                    logger.info("daily_basic ts_code=%s 回补 %s 行", ts_code, len(df))
+                    written = write_dataset_records(engine, "daily_basic", table_name, df)
+                    total_written += written
+                    logger.info("daily_basic ts_code=%s 回补 %s 行，累计写入 %s 行", ts_code, len(df), total_written)
                 success = True
                 break
             except Exception as exc:
@@ -937,7 +1022,7 @@ def fetch_daily_basic_missing_history(pro, engine: Engine, table_name: str, run_
     if failures:
         logger.warning("daily_basic 历史回补有 %s 只股票失败，示例: %s", len(failures), ", ".join(failures[:10]))
 
-    return combine_frames(frames)
+    return total_written
 
 
 def fetch_index_dailybasic(pro, start_date: str, end_date: str, index_codes: list[str]) -> pd.DataFrame:
@@ -987,14 +1072,20 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
             raw_df = fetch_stock_company(pro)
         elif dataset_name in FINANCIAL_DATASETS:
             if args.backfill_missing_history:
-                raw_df = fetch_financial_dataset_missing_history(pro, engine, dataset_name, table_name, run_end_date)
+                written = fetch_financial_dataset_missing_history(pro, engine, dataset_name, table_name, run_end_date)
+                update_job_status(engine, dataset_name, table_name, written, started_at, "success", None)
+                logger.info("%s -> %s 完成，写入 %s 行", dataset_name, table_name, written)
+                return written
             elif start_date is None or start_date > end_date:
                 raw_df = pd.DataFrame()
             else:
                 raw_df = fetch_financial_dataset(pro, dataset_name, start_date, end_date)
         elif dataset_name == "daily_basic":
             if args.backfill_missing_history:
-                raw_df = fetch_daily_basic_missing_history(pro, engine, table_name, run_end_date)
+                written = fetch_daily_basic_missing_history(pro, engine, table_name, run_end_date)
+                update_job_status(engine, dataset_name, table_name, written, started_at, "success", None)
+                logger.info("%s -> %s 完成，写入 %s 行", dataset_name, table_name, written)
+                return written
             elif start_date is None or start_date > end_date:
                 raw_df = pd.DataFrame()
             else:
@@ -1007,8 +1098,7 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
         else:
             raise ValueError(f"不支持的数据集: {dataset_name}")
 
-        prepared = prepare_records(dataset_name, raw_df)
-        written = upsert_records(engine, table_name, prepared)
+        written = write_dataset_records(engine, dataset_name, table_name, raw_df)
         update_job_status(engine, dataset_name, table_name, written, started_at, "success", None)
         logger.info("%s -> %s 完成，写入 %s 行", dataset_name, table_name, written)
         return written
