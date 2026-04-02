@@ -1,8 +1,8 @@
 [Unit]
-Description=Run ETF DB aggregation update at 18:00 China time (10:00 UTC)
+Description=Run ETF DB aggregation update at 20:00 China time (12:00 UTC)
 
 [Timer]
-OnCalendar=*-*-* 10:00:00 UTC
+OnCalendar=*-*-* 12:00:00 UTC
 Persistent=true
 Unit=etf-data-update.service
 

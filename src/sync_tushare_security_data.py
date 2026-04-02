@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -31,6 +32,9 @@ DEFAULT_API_SLEEP = float(os.getenv("TUSHARE_SYNC_API_SLEEP", "0.2"))
 DEFAULT_SCHEDULE_INTERVAL_MINUTES = int(os.getenv("TUSHARE_SYNC_INTERVAL_MINUTES", "60"))
 DEFAULT_DAILY_LOOKBACK_DAYS = int(os.getenv("TUSHARE_SYNC_DAILY_LOOKBACK_DAYS", "1"))
 DEFAULT_FINANCIAL_LOOKBACK_DAYS = int(os.getenv("TUSHARE_SYNC_FINANCIAL_LOOKBACK_DAYS", "30"))
+DEFAULT_DAILY_MIN_COVERAGE_RATIO = float(os.getenv("TUSHARE_SYNC_DAILY_MIN_COVERAGE_RATIO", "0.9"))
+DEFAULT_DAILY_PUBLISH_CUTOFF_HOUR = int(os.getenv("TUSHARE_SYNC_DAILY_PUBLISH_CUTOFF_HOUR", "20"))
+DEFAULT_INDEX_PUBLISH_CUTOFF_HOUR = int(os.getenv("TUSHARE_SYNC_INDEX_PUBLISH_CUTOFF_HOUR", "20"))
 DEFAULT_INDEX_CODES = [
     "000001.SH",
     "399001.SZ",
@@ -739,6 +743,23 @@ def get_open_trade_dates(pro, start_date: str, end_date: str) -> list[str]:
     return sorted(filtered["cal_date"].astype(str).tolist())
 
 
+def get_required_trade_dates(pro, start_date: str, end_date: str, publish_cutoff_hour: int) -> list[str]:
+    trade_dates = get_open_trade_dates(pro, start_date, end_date)
+    if not trade_dates:
+        return []
+
+    now = datetime.now()
+    today_str = now.strftime("%Y%m%d")
+    required_dates = []
+    for trade_date in trade_dates:
+        if trade_date > today_str:
+            continue
+        if trade_date == today_str and now.hour < publish_cutoff_hour:
+            continue
+        required_dates.append(trade_date)
+    return required_dates
+
+
 def generate_quarter_periods(start_date: str, end_date: str) -> list[str]:
     start = datetime.strptime(start_date, "%Y%m%d").date()
     end = datetime.strptime(end_date, "%Y%m%d").date()
@@ -837,6 +858,63 @@ def get_stock_listing_dates(pro) -> dict[str, str]:
         if ts_code and ts_code.lower() != "nan" and list_date:
             listing_dates[ts_code] = list_date
     return listing_dates
+
+
+def validate_daily_basic_result(pro, df: pd.DataFrame, required_trade_dates: list[str], min_coverage_ratio: float):
+    if not required_trade_dates:
+        return
+
+    returned_counts: dict[str, int] = {}
+    if df is not None and not df.empty and {"trade_date", "ts_code"}.issubset(df.columns):
+        count_df = df[["trade_date", "ts_code"]].copy()
+        count_df["trade_date"] = count_df["trade_date"].astype(str).str.replace("-", "", regex=False)
+        count_df["ts_code"] = count_df["ts_code"].astype(str).str.strip()
+        count_df = count_df.loc[count_df["ts_code"] != ""]
+        returned_counts = count_df.groupby("trade_date")["ts_code"].nunique().to_dict()
+
+    active_stock_count = len(get_stock_codes(pro))
+    minimum_required = max(1, math.ceil(active_stock_count * min_coverage_ratio))
+    insufficient_dates = []
+    for trade_date in required_trade_dates:
+        row_count = int(returned_counts.get(trade_date, 0))
+        if row_count < minimum_required:
+            insufficient_dates.append(f"{trade_date}={row_count}")
+
+    if insufficient_dates:
+        raise RuntimeError(
+            "daily_basic 数据覆盖不足，"
+            f"预期每个交易日至少返回 {minimum_required} 只股票"
+            f"（当前活跃股票 {active_stock_count}，阈值 {min_coverage_ratio:.0%}），"
+            f"异常日期: {', '.join(insufficient_dates[:10])}"
+        )
+
+
+def validate_index_dailybasic_result(df: pd.DataFrame, required_trade_dates: list[str], index_codes: list[str]):
+    if not required_trade_dates or not index_codes:
+        return
+
+    existing_pairs: set[tuple[str, str]] = set()
+    if df is not None and not df.empty and {"trade_date", "ts_code"}.issubset(df.columns):
+        pair_df = df[["trade_date", "ts_code"]].copy()
+        pair_df["trade_date"] = pair_df["trade_date"].astype(str).str.replace("-", "", regex=False)
+        pair_df["ts_code"] = pair_df["ts_code"].astype(str).str.strip()
+        existing_pairs = {
+            (str(record["ts_code"]).strip(), str(record["trade_date"]).strip())
+            for record in pair_df.to_dict(orient="records")
+            if str(record["ts_code"]).strip() and str(record["trade_date"]).strip()
+        }
+
+    missing_pairs = []
+    for trade_date in required_trade_dates:
+        for ts_code in index_codes:
+            if (ts_code, trade_date) not in existing_pairs:
+                missing_pairs.append(f"{ts_code}@{trade_date}")
+
+    if missing_pairs:
+        raise RuntimeError(
+            "index_dailybasic 数据缺失，"
+            f"缺少 {len(missing_pairs)} 条预期记录，示例: {', '.join(missing_pairs[:10])}"
+        )
 
 
 def filter_by_report_period(df: pd.DataFrame, start_date: str, end_date: str) -> pd.DataFrame:
@@ -1090,11 +1168,22 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
                 raw_df = pd.DataFrame()
             else:
                 raw_df = fetch_daily_basic(pro, start_date, end_date)
+                validate_daily_basic_result(
+                    pro,
+                    raw_df,
+                    get_required_trade_dates(pro, start_date, end_date, args.daily_publish_cutoff_hour),
+                    args.daily_min_coverage_ratio,
+                )
         elif dataset_name == "index_dailybasic":
             if start_date is None or start_date > end_date:
                 raw_df = pd.DataFrame()
             else:
                 raw_df = fetch_index_dailybasic(pro, start_date, end_date, args.index_codes)
+                validate_index_dailybasic_result(
+                    raw_df,
+                    get_required_trade_dates(pro, start_date, end_date, args.index_publish_cutoff_hour),
+                    args.index_codes,
+                )
         else:
             raise ValueError(f"不支持的数据集: {dataset_name}")
 
@@ -1140,6 +1229,24 @@ def parse_args():
         help="财务数据增量回看天数",
     )
     parser.add_argument(
+        "--daily-min-coverage-ratio",
+        type=float,
+        default=DEFAULT_DAILY_MIN_COVERAGE_RATIO,
+        help="daily_basic 每个交易日最小覆盖率阈值，按当前活跃股票数的比例校验",
+    )
+    parser.add_argument(
+        "--daily-publish-cutoff-hour",
+        type=int,
+        default=DEFAULT_DAILY_PUBLISH_CUTOFF_HOUR,
+        help="daily_basic 当日数据的最晚发布时间小时，早于该时间不强制校验当日",
+    )
+    parser.add_argument(
+        "--index-publish-cutoff-hour",
+        type=int,
+        default=DEFAULT_INDEX_PUBLISH_CUTOFF_HOUR,
+        help="index_dailybasic 当日数据的最晚发布时间小时，早于该时间不强制校验当日",
+    )
+    parser.add_argument(
         "--backfill-missing-history",
         action="store_true",
         help="按股票从上市日向前安全回补缺失历史，仅补各表当前最早记录之前的数据",
@@ -1159,6 +1266,12 @@ def validate_args(args):
         raise ValueError("--daily-lookback-days 不能小于 0")
     if args.financial_lookback_days < 0:
         raise ValueError("--financial-lookback-days 不能小于 0")
+    if not (0 < args.daily_min_coverage_ratio <= 1):
+        raise ValueError("--daily-min-coverage-ratio 必须大于 0 且不超过 1")
+    if not (0 <= args.daily_publish_cutoff_hour <= 23):
+        raise ValueError("--daily-publish-cutoff-hour 必须在 0 到 23 之间")
+    if not (0 <= args.index_publish_cutoff_hour <= 23):
+        raise ValueError("--index-publish-cutoff-hour 必须在 0 到 23 之间")
     if args.schedule and args.backfill_missing_history:
         raise ValueError("--backfill-missing-history 不能与 --schedule 同时使用")
     if not args.index_codes and "index_dailybasic" in args.datasets:
