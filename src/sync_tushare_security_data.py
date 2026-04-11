@@ -114,8 +114,12 @@ NORMALIZED_VIEW_SPECS = {
             ("text", "email"),
             ("text", "office"),
             ("integer", "employees"),
-            ("text", "main_business"),
-            ("text", "business_scope"),
+            ("coalesce_text", "excel_main_business|main_business|main_business"),
+            ("coalesce_text", "excel_product|business_scope|business_scope"),
+            ("text", "main_business|ts_main_business"),
+            ("text", "business_scope|ts_business_scope"),
+            ("text", "excel_main_business|excel_main_business"),
+            ("text", "excel_product|excel_product"),
             ("text", "introduction"),
         ],
     },
@@ -406,28 +410,40 @@ def get_engine() -> Engine:
 
 
 def build_json_text_expr(field_name: str) -> str:
-    return f"NULLIF(payload->>'{field_name}', '') AS {field_name}"
+    key, alias = field_name.split("|") if "|" in field_name else (field_name, field_name)
+    return f"NULLIF(payload->>'{key}', '') AS {alias}"
 
 
 def build_json_numeric_expr(field_name: str) -> str:
+    key, alias = field_name.split("|") if "|" in field_name else (field_name, field_name)
     return (
-        f"CASE WHEN NULLIF(payload->>'{field_name}', '') ~ '^[-+]?(\\d+(\\.\\d+)?|\\.\\d+)$' "
-        f"THEN (payload->>'{field_name}')::numeric END AS {field_name}"
+        f"CASE WHEN NULLIF(payload->>'{key}', '') ~ '^[-+]?(\\d+(\\.\\d+)?|\\.\\d+)$' "
+        f"THEN (payload->>'{key}')::numeric END AS {alias}"
     )
 
 
 def build_json_integer_expr(field_name: str) -> str:
+    key, alias = field_name.split("|") if "|" in field_name else (field_name, field_name)
     return (
-        f"CASE WHEN NULLIF(payload->>'{field_name}', '') ~ '^[-+]?\\d+$' "
-        f"THEN (payload->>'{field_name}')::integer END AS {field_name}"
+        f"CASE WHEN NULLIF(payload->>'{key}', '') ~ '^[-+]?\\d+$' "
+        f"THEN (payload->>'{key}')::integer END AS {alias}"
     )
 
 
 def build_json_date_expr(field_name: str) -> str:
+    key, alias = field_name.split("|") if "|" in field_name else (field_name, field_name)
     return (
-        f"CASE WHEN NULLIF(payload->>'{field_name}', '') ~ '^\\d{{8}}$' "
-        f"THEN TO_DATE(payload->>'{field_name}', 'YYYYMMDD') END AS {field_name}"
+        f"CASE WHEN NULLIF(payload->>'{key}', '') ~ '^\\d{{8}}$' "
+        f"THEN TO_DATE(payload->>'{key}', 'YYYYMMDD') END AS {alias}"
     )
+
+
+def build_json_coalesce_text_expr(field_name: str) -> str:
+    parts = field_name.split("|")
+    alias = parts[-1]
+    keys = parts[:-1]
+    coalesce_args = ", ".join(f"NULLIF(payload->>'{k}', '')" for k in keys)
+    return f"COALESCE({coalesce_args}) AS {alias}"
 
 
 def build_view_column_expr(column_type: str, field_name: str) -> str:
@@ -436,6 +452,7 @@ def build_view_column_expr(column_type: str, field_name: str) -> str:
         "numeric": build_json_numeric_expr,
         "integer": build_json_integer_expr,
         "date": build_json_date_expr,
+        "coalesce_text": build_json_coalesce_text_expr,
     }
     if column_type not in builders:
         raise ValueError(f"不支持的视图字段类型: {column_type}")
@@ -801,6 +818,26 @@ def fetch_stock_company(pro) -> pd.DataFrame:
     result = combine_frames(frames)
     if not result.empty and "ts_code" in result.columns:
         result = result.drop_duplicates(subset=["ts_code"], keep="last")
+
+    try:
+        excel_path = os.path.join(PROJECT_ROOT, "resources", "股票基本信息汇总表_20260331 .xlsx")
+        if os.path.exists(excel_path):
+            excel_df = pd.read_excel(excel_path, usecols=["股票代码", "主要业务", "产品"])
+            excel_df = excel_df.rename(columns={
+                "股票代码": "ts_code",
+                "主要业务": "excel_main_business",
+                "产品": "excel_product"
+            })
+            excel_df["ts_code"] = excel_df["ts_code"].astype(str).str.strip()
+            excel_df = excel_df.drop_duplicates(subset=["ts_code"], keep="last")
+
+            if not result.empty:
+                result = pd.merge(result, excel_df, on="ts_code", how="left")
+            else:
+                result = excel_df
+    except Exception as e:
+        logger.warning(f"合并股票基本信息汇总表_20260331数据失败: {e}")
+
     return result
 
 

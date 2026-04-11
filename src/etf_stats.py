@@ -325,8 +325,12 @@ STOCK_BASIC_EXPORT_RENAME_MAP = {
     'email': '电子邮箱',
     'office': '办公地址',
     'employees': '员工人数',
-    'main_business': '主营业务原文',
-    'business_scope': '经营范围',
+    'main_business': '主要业务(优先)',
+    'business_scope': '产品及经营范围(优先)',
+    'excel_main_business': '主要业务(新增)',
+    'excel_product': '产品(新增)',
+    'ts_main_business': '主营业务原文(原始)',
+    'ts_business_scope': '经营范围(原始)',
     'introduction': '公司介绍',
 }
 
@@ -974,6 +978,8 @@ def get_stock_profile(ts_code: str, engine=None) -> pd.DataFrame:
             basic.act_name,
             company.province,
             company.city,
+            company.main_business,
+            company.business_scope,
             company.website,
             daily.trade_date AS latest_trade_date,
             daily.close,

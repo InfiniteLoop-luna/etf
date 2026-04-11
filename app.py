@@ -2232,6 +2232,10 @@ def render_security_search_tab():
                 use_container_width=True,
                 hide_index=True
             )
+        
+        st.markdown("##### 📜 主营与产品")
+        st.info(f"**主要业务**：{profile.get('main_business') or '-'}")
+        st.info(f"**产品及业务范围**：{profile.get('business_scope') or '-'}")
     else:
         metric_cols_top = st.columns(5)
         metric_cols_top[0].metric("最新交易日", latest_trade_date)
