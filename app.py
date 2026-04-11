@@ -2,6 +2,8 @@
 """ETF份额变动可视化 - Streamlit Web应用"""
 
 # Version: 2.0 - Fixed data_only issue for formula cells
+import os
+from hmac import compare_digest
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -291,6 +293,40 @@ def load_security_financial_timeseries(ts_code: str, security_type: str) -> pd.D
 @st.cache_data(ttl=300)
 def load_stock_basic_summary_export() -> pd.DataFrame:
     return get_stock_basic_summary()
+
+
+def get_stock_info_edit_password() -> str:
+    secret_password = ""
+    try:
+        secret_password = st.secrets.get("stock_info_edit_password", "")
+        if not secret_password:
+            secret_password = st.secrets.get("app", {}).get("stock_info_edit_password", "")
+    except Exception:
+        secret_password = ""
+
+    return str(
+        secret_password
+        or os.getenv("ETF_STOCK_INFO_EDIT_PASSWORD")
+        or os.getenv("ETF_EDIT_PASSWORD")
+        or ""
+    ).strip()
+
+
+def has_stock_info_edit_permission() -> bool:
+    return bool(get_stock_info_edit_password()) and bool(
+        st.session_state.get("stock_info_edit_authorized", False)
+    )
+
+
+def grant_stock_info_edit_permission(password: str) -> bool:
+    expected_password = get_stock_info_edit_password()
+    if not expected_password:
+        st.session_state["stock_info_edit_authorized"] = False
+        return False
+
+    is_authorized = compare_digest(password or "", expected_password)
+    st.session_state["stock_info_edit_authorized"] = is_authorized
+    return is_authorized
 
 
 def format_security_option(row: pd.Series) -> str:
@@ -2270,12 +2306,50 @@ def render_security_search_tab():
         st.info(f"**产品及业务范围**：{profile.get('business_scope') or '-'}")
         
         with st.expander("📝 订正主营与产品信息"):
-            with st.form(key=f"edit_custom_info_{selected_code}"):
-                custom_mb = st.text_area("新的主要业务", value=profile.get('main_business') or '')
-                custom_pd = st.text_area("新的产品及业务范围", value=profile.get('business_scope') or '')
-                if st.form_submit_button("保存修订，优先应用新数据"):
-                    update_stock_custom_info(selected_code, custom_mb, custom_pd)
-                    st.success("更新成功！请重新点击关键字刷新搜索结果。")
+            configured_password = get_stock_info_edit_password()
+            if not configured_password:
+                st.warning("当前未配置编辑权限密码，修改功能已禁用。请设置 ETF_STOCK_INFO_EDIT_PASSWORD 或 ETF_EDIT_PASSWORD 后重启应用。")
+            else:
+                status_cols = st.columns([4, 1.2])
+                if has_stock_info_edit_permission():
+                    status_cols[0].success("当前会话已获得个股信息修改权限。")
+                    if status_cols[1].button("退出权限", key=f"revoke_stock_edit_permission_{selected_code}"):
+                        st.session_state["stock_info_edit_authorized"] = False
+                        st.rerun()
+                else:
+                    access_password = status_cols[0].text_input(
+                        "编辑权限密码",
+                        type="password",
+                        key=f"stock_edit_password_{selected_code}"
+                    )
+                    if status_cols[1].button("权限验证", key=f"grant_stock_edit_permission_{selected_code}"):
+                        if grant_stock_info_edit_permission(access_password):
+                            st.success("权限验证成功，请继续提交修订内容。")
+                            st.rerun()
+                        st.error("权限验证失败，请检查密码。")
+                    st.info("仅通过权限验证的会话可以修改个股主营与产品信息。")
+
+                if has_stock_info_edit_permission():
+                    with st.form(key=f"edit_custom_info_{selected_code}"):
+                        custom_mb = st.text_area("新的主要业务", value=profile.get('main_business') or '')
+                        custom_pd = st.text_area("新的产品及业务范围", value=profile.get('business_scope') or '')
+                        if st.form_submit_button("保存修订，优先应用新数据"):
+                            mb_stripped = custom_mb.strip()
+                            pd_stripped = custom_pd.strip()
+
+                            if not has_stock_info_edit_permission():
+                                st.error("当前会话没有修改权限，请重新完成权限验证。")
+                            elif not mb_stripped and not pd_stripped:
+                                update_stock_custom_info(selected_code, '', '')
+                                st.success("修订已保存 (已清空自定义信息)！请重新检索刷新结果。")
+                            elif len(mb_stripped) < 2 and len(pd_stripped) < 2:
+                                st.error("保存失败：修订内容过短。若要清空请完全留白，否则请填写有效的业务信息。")
+                            elif mb_stripped == (profile.get('main_business') or '').strip() and \
+                                 pd_stripped == (profile.get('business_scope') or '').strip():
+                                st.warning("您未做任何实质性修改。")
+                            else:
+                                update_stock_custom_info(selected_code, mb_stripped, pd_stripped)
+                                st.success("更新成功！请重新点击关键字刷新搜索结果。")
     else:
         metric_cols_top = st.columns(5)
         metric_cols_top[0].metric("最新交易日", latest_trade_date)
