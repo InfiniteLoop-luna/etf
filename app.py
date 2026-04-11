@@ -17,7 +17,7 @@ from src.etf_stats import (
     get_wide_index_available_dates, get_wide_index_timeseries,
     search_security, get_security_profile, get_security_timeseries,
     get_security_financial_timeseries, get_stock_basic_summary,
-    export_stock_basic_summary_excel
+    export_stock_basic_summary_excel, search_companies, update_stock_custom_info
 )
 
 # 配置日志
@@ -1067,8 +1067,8 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
-    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_security = st.tabs(
-        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🔎 个股/指数查询"]
+    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_security, tab_screener = st.tabs(
+        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🔎 个股/指数查询", "🏢 公司筛选"]
     )
 
     # ========== ETF 份额变动 Tab ==========
@@ -1095,7 +1095,39 @@ def main():
 
     with tab_security:
         render_security_search_tab()
+        
+    with tab_screener:
+        render_company_screener_tab()
 
+
+def render_company_screener_tab():
+    st.subheader("🏢 公司主营与产品筛选")
+    st.caption("按照行业、产品和主营业务服务筛选公司")
+    
+    col1, col2, col3 = st.columns([1.5, 1.5, 1.5])
+    with col1:
+        raw_industries = get_stock_basic_summary()['所属行业'].dropna().unique().tolist()
+        industries = [i for i in raw_industries if str(i).strip()]
+        selected_industries = st.multiselect("所属行业", options=['全部'] + sorted(industries), default=['全部'])
+    with col2:
+        product_kw = st.text_input("核心产品关键字", placeholder="例如: 芯片, 新能源...")
+    with col3:
+        business_kw = st.text_input("服务/主营业务关键字", placeholder="例如: 研发, 制造...")
+        
+    if st.button("开始筛选", type="primary"):
+        with st.spinner("正在检索符合条件的公司..."):
+            df = search_companies(industries=selected_industries, product_kw=product_kw, business_kw=business_kw)
+            if df.empty:
+                st.warning("没有检索到符合条件的公司，请尝试更改关键词")
+            else:
+                st.success(f"共为您检索到 {len(df)} 家企业")
+                st.dataframe(
+                    df.rename(columns={
+                        'ts_code': '代码', 'name': '简称', 'industry': '行业',
+                        'main_business': '主要业务', 'product': '产品及服务'
+                    }),
+                    use_container_width=True, hide_index=True
+                )
 
 def render_etf_tab():
     """渲染ETF份额变动Tab页内容"""
@@ -2236,6 +2268,14 @@ def render_security_search_tab():
         st.markdown("##### 📜 主营与产品")
         st.info(f"**主要业务**：{profile.get('main_business') or '-'}")
         st.info(f"**产品及业务范围**：{profile.get('business_scope') or '-'}")
+        
+        with st.expander("📝 订正主营与产品信息"):
+            with st.form(key=f"edit_custom_info_{selected_code}"):
+                custom_mb = st.text_area("新的主要业务", value=profile.get('main_business') or '')
+                custom_pd = st.text_area("新的产品及业务范围", value=profile.get('business_scope') or '')
+                if st.form_submit_button("保存修订，优先应用新数据"):
+                    update_stock_custom_info(selected_code, custom_mb, custom_pd)
+                    st.success("更新成功！请重新点击关键字刷新搜索结果。")
     else:
         metric_cols_top = st.columns(5)
         metric_cols_top[0].metric("最新交易日", latest_trade_date)

@@ -55,6 +55,7 @@ DATASET_TABLES = {
     "fina_indicator": "ts_stock_fina_indicator",
     "daily_basic": "ts_stock_daily_basic",
     "index_dailybasic": "ts_index_dailybasic",
+    "namechange": "ts_stock_namechange",
 }
 STOCK_BASIC_FIELDS = ",".join(
     [
@@ -100,7 +101,7 @@ NORMALIZED_VIEW_SPECS = {
         ],
     },
     "stock_company": {
-        "view_name": "vw_ts_stock_company",
+        "view_name": "vw_ts_stock_company_base",
         "columns": [
             ("text", "exchange"),
             ("text", "chairman"),
@@ -286,6 +287,16 @@ NORMALIZED_VIEW_SPECS = {
             ("numeric", "free_share"),
             ("numeric", "total_mv"),
             ("numeric", "float_mv"),
+        ],
+    },
+    "namechange": {
+        "view_name": "vw_ts_stock_namechange",
+        "columns": [
+            ("text", "name"),
+            ("date", "start_date"),
+            ("date", "end_date|nc_end_date"),
+            ("date", "ann_date|nc_ann_date"),
+            ("text", "change_reason"),
         ],
     },
 }
@@ -493,6 +504,7 @@ def ensure_storage_objects(engine: Engine):
     for table_name in DATASET_TABLES.values():
         ensure_landing_table(engine, table_name)
     ensure_normalized_views(engine)
+    ensure_custom_table_and_view(engine)
 
 
 def ensure_landing_table(engine: Engine, table_name: str):
@@ -743,6 +755,54 @@ def write_dataset_records(engine: Engine, dataset_name: str, table_name: str, df
     return upsert_records(engine, table_name, prepared)
 
 
+def ensure_custom_table_and_view(engine: Engine):
+    sql = """
+    CREATE TABLE IF NOT EXISTS ts_stock_custom_info (
+        ts_code VARCHAR(20) PRIMARY KEY,
+        custom_main_business TEXT,
+        custom_product TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE OR REPLACE VIEW vw_ts_stock_company AS
+    SELECT
+        t.business_key,
+        t.dataset_name,
+        t.ts_code,
+        t.trade_date,
+        t.ann_date,
+        t.end_date,
+        t.period,
+        t.record_hash,
+        t.ingested_at,
+        t.payload,
+        t.exchange,
+        t.chairman,
+        t.manager,
+        t.secretary,
+        t.reg_capital,
+        t.setup_date,
+        t.province,
+        t.city,
+        t.website,
+        t.email,
+        t.office,
+        t.employees,
+        COALESCE(c.custom_main_business, t.main_business) AS main_business,
+        COALESCE(c.custom_product, t.business_scope) AS business_scope,
+        t.ts_main_business,
+        t.ts_business_scope,
+        t.excel_main_business,
+        t.excel_product,
+        t.introduction
+    FROM vw_ts_stock_company_base t
+    LEFT JOIN ts_stock_custom_info c ON t.ts_code = c.ts_code;
+    """
+    with engine.begin() as conn:
+        for statement in [s.strip() for s in sql.split(";") if s.strip()]:
+            conn.execute(text(statement))
+
+
 def combine_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
     valid_frames = [frame for frame in frames if frame is not None and not frame.empty]
     if not valid_frames:
@@ -839,6 +899,25 @@ def fetch_stock_company(pro) -> pd.DataFrame:
         logger.warning(f"合并股票基本信息汇总表_20260331数据失败: {e}")
 
     return result
+
+def fetch_namechange(pro) -> pd.DataFrame:
+    frames = []
+    limit = 5000
+    offset = 0
+    while True:
+        try:
+            df = pro.namechange(limit=limit, offset=offset)
+            if df is None or df.empty:
+                break
+            frames.append(df)
+            if len(df) < limit:
+                break
+            offset += limit
+            time.sleep(DEFAULT_API_SLEEP)
+        except Exception as e:
+            logger.warning(f"fetch_namechange failed at offset {offset}: {e}")
+            break
+    return combine_frames(frames)
 
 
 def filter_active_stock_basic(stock_basic_df: pd.DataFrame) -> pd.DataFrame:
@@ -1185,6 +1264,8 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
             raw_df = fetch_stock_basic(pro)
         elif dataset_name == "stock_company":
             raw_df = fetch_stock_company(pro)
+        elif dataset_name == "namechange":
+            raw_df = fetch_namechange(pro)
         elif dataset_name in FINANCIAL_DATASETS:
             if args.backfill_missing_history:
                 written = fetch_financial_dataset_missing_history(pro, engine, dataset_name, table_name, run_end_date)

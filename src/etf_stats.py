@@ -573,11 +573,14 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
                 NULL::date AS latest_date
             FROM {STOCK_BASIC_VIEW}
             WHERE
-                ts_code ILIKE :like_kw
+                (ts_code ILIKE :like_kw
                 OR COALESCE(symbol, '') ILIKE :like_kw
                 OR COALESCE(name, '') ILIKE :like_kw
                 OR COALESCE(fullname, '') ILIKE :like_kw
-                OR COALESCE(cnspell, '') ILIKE :like_kw
+                OR COALESCE(cnspell, '') ILIKE :like_kw)
+                AND ts_code NOT IN (
+                    SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%'
+                )
         """)
 
     if security_type in {'all', 'index'}:
@@ -617,6 +620,63 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
     """
     return pd.read_sql(text(sql), engine, params=params)
 
+def search_companies(industries: list = None, product_kw: str = None, business_kw: str = None, engine=None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine()
+
+    conditions = ["b.ts_code NOT IN (SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%')"]
+    params = {}
+
+    if industries and isinstance(industries, list) and len(industries) > 0 and '全部' not in industries:
+        placeholders = ", ".join([f":ind_{i}" for i in range(len(industries))])
+        conditions.append(f"b.industry IN ({placeholders})")
+        for i, ind in enumerate(industries):
+            params[f'ind_{i}'] = ind
+
+    if product_kw:
+        conditions.append("c.business_scope ILIKE :product_kw")
+        params['product_kw'] = f"%{product_kw}%"
+
+    if business_kw:
+        conditions.append("c.main_business ILIKE :business_kw")
+        params['business_kw'] = f"%{business_kw}%"
+
+    where_clause = " AND ".join(conditions)
+
+    sql = f"""
+        SELECT 
+            b.ts_code,
+            b.name,
+            b.industry,
+            c.main_business,
+            c.business_scope AS product
+        FROM {STOCK_BASIC_VIEW} b
+        LEFT JOIN vw_ts_stock_company c ON b.ts_code = c.ts_code
+        WHERE {where_clause}
+        ORDER BY b.ts_code
+    """
+    return pd.read_sql(text(sql), engine, params=params)
+
+
+def update_stock_custom_info(ts_code: str, custom_main_business: str, custom_product: str, engine=None):
+    if engine is None:
+        engine = _get_engine()
+    
+    sql = """
+        INSERT INTO ts_stock_custom_info (ts_code, custom_main_business, custom_product, updated_at)
+        VALUES (:ts_code, :custom_main_business, :custom_product, NOW())
+        ON CONFLICT (ts_code) DO UPDATE STET
+        custom_main_business = EXCLUDED.custom_main_business,
+        custom_product = EXCLUDED.custom_product,
+        updated_at = NOW();
+    """
+    sql = sql.replace("STET", "SET") # prevent python multi_replace weirdness
+    with engine.begin() as conn:
+        conn.execute(text(sql), {
+            'ts_code': ts_code,
+            'custom_main_business': custom_main_business or None,
+            'custom_product': custom_product or None
+        })
 
 def _clean_export_text(value) -> str:
     if value is None or pd.isna(value):
@@ -904,6 +964,9 @@ def get_stock_basic_summary(engine=None) -> pd.DataFrame:
                 COALESCE(basic.list_status, '') = ''
                 AND active_codes.ts_code IS NOT NULL
             )
+        )
+        AND basic.ts_code NOT IN (
+            SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%'
         )
         ORDER BY basic.industry NULLS LAST, basic.ts_code
     """
