@@ -1103,8 +1103,8 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
-    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_security, tab_screener = st.tabs(
-        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🔎 个股/指数查询", "🏢 公司筛选"]
+    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_security, tab_screener, tab_tech_picker = st.tabs(
+        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股"]
     )
 
     # ========== ETF 份额变动 Tab ==========
@@ -1134,9 +1134,48 @@ def main():
         
     with tab_screener:
         render_company_screener_tab()
+        
+    with tab_tech_picker:
+        render_tech_picker_tab()
 
 
-def render_company_screener_tab():
+def render_tech_picker_tab():
+    st.subheader("🎯 技术指标选股")
+    st.caption("基于最近交易日的 Tushare 复权行情预计算，筛选组合符合周线或月线 EMA5 < EMA30 的标的。")
+    
+    st.info("💡 提示：为保证极速检索体验，底层采用预计算结果，因此每日盘后方会刷新最新一日技术形态。")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        use_weekly = st.checkbox("☑️ 满足条件：周线 EMA5 < EMA30", value=True)
+    with col2:
+        use_monthly = st.checkbox("☑️ 满足条件：月线 EMA5 < EMA30", value=False)
+        
+    if not use_weekly and not use_monthly:
+        st.warning("请至少勾选一个筛选条件！")
+        return
+        
+    if st.button("开始精准筛选", type="primary", key="btn_tech_picker"):
+        with st.spinner("正在检索分布..."):
+            try:
+                from src.etf_stats import search_stocks_by_technical_signals
+                df = search_stocks_by_technical_signals(use_weekly, use_monthly)
+                if df is None or df.empty:
+                    st.warning("最新交易日，没有找到符合上述技术面条件的股票。")
+                else:
+                    st.success(f"共筛选出 {len(df)} 家企业")
+                    st.dataframe(
+                        df.rename(columns={
+                            'ts_code': '代码', 'name': '简称', 'industry': '行业',
+                            'trade_date': '满足日期',
+                            'w_ema5': '周线EMA5', 'w_ema30': '周线EMA30',
+                            'm_ema5': '月线EMA5', 'm_ema30': '月线EMA30',
+                            'main_business': '主要业务'
+                        }),
+                        use_container_width=True, hide_index=True
+                    )
+            except Exception as e:
+                st.error(f"技术面检索失败，确保增量脚本及因子脚本已运行: {e}")
     st.subheader("🏢 公司主营与产品筛选")
     st.caption("按照行业、产品和主营业务服务筛选公司")
     

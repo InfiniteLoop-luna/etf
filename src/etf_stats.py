@@ -658,6 +658,45 @@ def search_companies(industries: list = None, product_kw: str = None, business_k
     return pd.read_sql(text(sql), engine, params=params)
 
 
+def search_stocks_by_technical_signals(use_weekly: bool, use_monthly: bool, engine=None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine()
+        
+    conditions = ["b.ts_code NOT IN (SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%')"]
+    params = {}
+    
+    if use_weekly:
+        conditions.append("s.is_weekly_ema_bearish = true")
+    if use_monthly:
+        conditions.append("s.is_monthly_ema_bearish = true")
+        
+    where_clause = " AND ".join(conditions)
+    
+    sql = f"""
+        WITH latest_signals AS (
+            SELECT DISTINCT ON (ts_code) *
+            FROM ts_stock_technical_signals
+            ORDER BY ts_code, trade_date DESC
+        )
+        SELECT 
+            b.ts_code,
+            b.name,
+            b.industry,
+            s.trade_date,
+            s.w_ema5,
+            s.w_ema30,
+            s.m_ema5,
+            s.m_ema30,
+            c.main_business
+        FROM {STOCK_BASIC_VIEW} b
+        JOIN latest_signals s ON b.ts_code = s.ts_code
+        LEFT JOIN vw_ts_stock_company c ON b.ts_code = c.ts_code
+        WHERE {where_clause}
+        ORDER BY b.industry, b.ts_code
+    """
+    return pd.read_sql(text(sql), engine, params=params)
+
+
 def update_stock_custom_info(ts_code: str, custom_main_business: str, custom_product: str, engine=None):
     if engine is None:
         engine = _get_engine()

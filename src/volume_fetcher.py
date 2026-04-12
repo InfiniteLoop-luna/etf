@@ -56,8 +56,7 @@ def _init_tushare() -> ts.pro_api:
     if not token:
         raise ValueError("未找到Tushare token，请设置环境变量 TUSHARE_TOKEN、在 config.yaml 中配置，或先通过 tushare 保存本地 token")
 
-    ts.set_token(token)
-    return ts.pro_api()
+    return ts.pro_api(token)
 
 
 def fetch_volume_data(start_date: str, end_date: str, pro: Optional[ts.pro_api] = None) -> list:
