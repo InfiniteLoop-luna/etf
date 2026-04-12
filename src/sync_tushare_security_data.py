@@ -56,6 +56,7 @@ DATASET_TABLES = {
     "daily_basic": "ts_stock_daily_basic",
     "index_dailybasic": "ts_index_dailybasic",
     "namechange": "ts_stock_namechange",
+    "stk_week_month_adj": "ts_stk_week_month_adj",
 }
 STOCK_BASIC_FIELDS = ",".join(
     [
@@ -299,6 +300,23 @@ NORMALIZED_VIEW_SPECS = {
             ("text", "change_reason"),
         ],
     },
+    "stk_week_month_adj": {
+        "view_name": "vw_ts_stk_week_month_adj",
+        "columns": [
+            ("numeric", "w_open"),
+            ("numeric", "w_high"),
+            ("numeric", "w_low"),
+            ("numeric", "w_close"),
+            ("numeric", "w_vol"),
+            ("numeric", "w_amount"),
+            ("numeric", "m_open"),
+            ("numeric", "m_high"),
+            ("numeric", "m_low"),
+            ("numeric", "m_close"),
+            ("numeric", "m_vol"),
+            ("numeric", "m_amount"),
+        ],
+    },
 }
 
 logging.basicConfig(
@@ -308,7 +326,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 FINANCIAL_DATASETS = {"income", "balancesheet", "cashflow", "fina_indicator"}
-DAILY_DATASETS = {"daily_basic", "index_dailybasic"}
+DAILY_DATASETS = {"daily_basic", "index_dailybasic", "stk_week_month_adj"}
 BACKFILL_SKIP_TS_CODES = {
     "ts_stock_income": {
         "302132.SZ",
@@ -660,6 +678,7 @@ def resolve_business_key(dataset_name: str, payload: dict) -> str:
         "stock_company": ["ts_code"],
         "daily_basic": ["ts_code", "trade_date"],
         "index_dailybasic": ["ts_code", "trade_date"],
+        "stk_week_month_adj": ["ts_code", "trade_date"],
         "income": ["ts_code", "ann_date", "end_date", "report_type", "comp_type"],
         "balancesheet": ["ts_code", "ann_date", "end_date", "report_type", "comp_type"],
         "cashflow": ["ts_code", "ann_date", "end_date", "report_type", "comp_type"],
@@ -1179,18 +1198,76 @@ def fetch_daily_basic(pro, start_date: str, end_date: str) -> pd.DataFrame:
     return combine_frames(frames)
 
 
-def fetch_daily_basic_missing_history(pro, engine: Engine, table_name: str, run_end_date: str) -> pd.DataFrame:
+def normalize_stk_week_month_adj_frame(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["ts_code", "trade_date"])
+
+    selected = df.copy()
+    rename_map = {
+        "open": f"{prefix}_open",
+        "high": f"{prefix}_high",
+        "low": f"{prefix}_low",
+        "close": f"{prefix}_close",
+        "vol": f"{prefix}_vol",
+        "amount": f"{prefix}_amount",
+        "end_date": f"{prefix}_end_date",
+    }
+    keep_columns = ["ts_code", "trade_date", *rename_map.keys()]
+    existing_columns = [column for column in keep_columns if column in selected.columns]
+    selected = selected[existing_columns].rename(columns=rename_map)
+    return selected.drop_duplicates(subset=["ts_code", "trade_date"], keep="last")
+
+
+def merge_stk_week_month_adj_frames(weekly_df: pd.DataFrame, monthly_df: pd.DataFrame) -> pd.DataFrame:
+    weekly_normalized = normalize_stk_week_month_adj_frame(weekly_df, "w")
+    monthly_normalized = normalize_stk_week_month_adj_frame(monthly_df, "m")
+
+    if weekly_normalized.empty and monthly_normalized.empty:
+        return pd.DataFrame()
+    if weekly_normalized.empty:
+        merged = monthly_normalized.copy()
+    elif monthly_normalized.empty:
+        merged = weekly_normalized.copy()
+    else:
+        merged = weekly_normalized.merge(monthly_normalized, on=["ts_code", "trade_date"], how="outer")
+
+    for column in ["w_end_date", "m_end_date"]:
+        if column not in merged.columns:
+            merged[column] = None
+
+    merged["end_date"] = merged["m_end_date"].fillna(merged["w_end_date"])
+    return merged
+
+
+def fetch_stk_week_month_adj(pro, start_date: str, end_date: str) -> pd.DataFrame:
+    trade_dates = get_open_trade_dates(pro, start_date, end_date)
+    frames = []
+    for trade_date in trade_dates:
+        logger.info("抓取 stk_week_month_adj trade_date=%s", trade_date)
+        weekly_df = pro.stk_week_month_adj(trade_date=trade_date, freq="week")
+        monthly_df = pro.stk_week_month_adj(trade_date=trade_date, freq="month")
+        df = merge_stk_week_month_adj_frames(weekly_df, monthly_df)
+        if df is not None and not df.empty:
+            frames.append(df)
+            logger.info("stk_week_month_adj trade_date=%s 返回 %s 行", trade_date, len(df))
+        else:
+            logger.info("stk_week_month_adj trade_date=%s 无数据", trade_date)
+        time.sleep(DEFAULT_API_SLEEP)
+    return combine_frames(frames)
+
+
+def fetch_stk_week_month_adj_missing_history(pro, engine: Engine, table_name: str, run_end_date: str) -> int:
     targets = build_stock_backfill_targets(pro, engine, table_name, "trade_date", run_end_date)
     failures = []
     total_written = 0
 
-    logger.info("daily_basic 进入安全历史回补模式，目标股票数=%s", len(targets))
+    logger.info("stk_week_month_adj 进入安全历史回补模式，目标股票数=%s", len(targets))
     for index, (ts_code, start_date, end_date) in enumerate(targets, start=1):
         success = False
         for attempt in range(1, 4):
             try:
                 logger.info(
-                    "回补 daily_basic ts_code=%s range=%s~%s (%s/%s) attempt=%s",
+                    "回补 stk_week_month_adj ts_code=%s range=%s~%s (%s/%s) attempt=%s",
                     ts_code,
                     start_date,
                     end_date,
@@ -1198,25 +1275,72 @@ def fetch_daily_basic_missing_history(pro, engine: Engine, table_name: str, run_
                     len(targets),
                     attempt,
                 )
-                df = pro.daily_basic(ts_code=ts_code, start_date=start_date, end_date=end_date)
-                df = filter_by_report_period(df, start_date, end_date)
+                weekly_df = pro.stk_week_month_adj(ts_code=ts_code, start_date=start_date, end_date=end_date, freq="week")
+                monthly_df = pro.stk_week_month_adj(ts_code=ts_code, start_date=start_date, end_date=end_date, freq="month")
+                df = merge_stk_week_month_adj_frames(weekly_df, monthly_df)
                 if df is not None and not df.empty:
-                    written = write_dataset_records(engine, "daily_basic", table_name, df)
+                    written = write_dataset_records(engine, "stk_week_month_adj", table_name, df)
                     total_written += written
-                    logger.info("daily_basic ts_code=%s 回补 %s 行，累计写入 %s 行", ts_code, len(df), total_written)
+                    logger.info("stk_week_month_adj ts_code=%s 回补 %s 行，累计写入 %s 行", ts_code, len(df), total_written)
                 success = True
                 break
             except Exception as exc:
-                logger.warning("daily_basic ts_code=%s attempt=%s 历史回补失败: %s", ts_code, attempt, exc)
+                logger.warning("stk_week_month_adj ts_code=%s attempt=%s 历史回补失败: %s", ts_code, attempt, exc)
                 time.sleep(DEFAULT_API_SLEEP)
         if not success:
             failures.append(ts_code)
         time.sleep(DEFAULT_API_SLEEP)
 
     if failures:
-        logger.warning("daily_basic 历史回补有 %s 只股票失败，示例: %s", len(failures), ", ".join(failures[:10]))
+        logger.warning("stk_week_month_adj 历史回补有 %s 只股票失败，示例: %s", len(failures), ", ".join(failures[:10]))
 
     return total_written
+
+
+def fetch_daily_dataset_missing_history(pro, engine: Engine, endpoint_name: str, table_name: str, run_end_date: str) -> pd.DataFrame:
+    targets = build_stock_backfill_targets(pro, engine, table_name, "trade_date", run_end_date)
+    failures = []
+    total_written = 0
+
+    logger.info("%s 进入安全历史回补模式，目标股票数=%s", endpoint_name, len(targets))
+    endpoint = getattr(pro, endpoint_name)
+    for index, (ts_code, start_date, end_date) in enumerate(targets, start=1):
+        success = False
+        for attempt in range(1, 4):
+            try:
+                logger.info(
+                    "回补 %s ts_code=%s range=%s~%s (%s/%s) attempt=%s",
+                    endpoint_name,
+                    ts_code,
+                    start_date,
+                    end_date,
+                    index,
+                    len(targets),
+                    attempt,
+                )
+                df = endpoint(ts_code=ts_code, start_date=start_date, end_date=end_date)
+                df = filter_by_report_period(df, start_date, end_date)
+                if df is not None and not df.empty:
+                    written = write_dataset_records(engine, endpoint_name, table_name, df)
+                    total_written += written
+                    logger.info("%s ts_code=%s 回补 %s 行，累计写入 %s 行", endpoint_name, ts_code, len(df), total_written)
+                success = True
+                break
+            except Exception as exc:
+                logger.warning("%s ts_code=%s attempt=%s 历史回补失败: %s", endpoint_name, ts_code, attempt, exc)
+                time.sleep(DEFAULT_API_SLEEP)
+        if not success:
+            failures.append(ts_code)
+        time.sleep(DEFAULT_API_SLEEP)
+
+    if failures:
+        logger.warning("%s 历史回补有 %s 只股票失败，示例: %s", endpoint_name, len(failures), ", ".join(failures[:10]))
+
+    return total_written
+
+
+def fetch_daily_basic_missing_history(pro, engine: Engine, table_name: str, run_end_date: str) -> pd.DataFrame:
+    return fetch_daily_dataset_missing_history(pro, engine, "daily_basic", table_name, run_end_date)
 
 
 def fetch_index_dailybasic(pro, start_date: str, end_date: str, index_codes: list[str]) -> pd.DataFrame:
@@ -1292,6 +1416,16 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
                     get_required_trade_dates(pro, start_date, end_date, args.daily_publish_cutoff_hour),
                     args.daily_min_coverage_ratio,
                 )
+        elif dataset_name == "stk_week_month_adj":
+            if args.backfill_missing_history:
+                written = fetch_stk_week_month_adj_missing_history(pro, engine, table_name, run_end_date)
+                update_job_status(engine, dataset_name, table_name, written, started_at, "success", None)
+                logger.info("%s -> %s 完成，写入 %s 行", dataset_name, table_name, written)
+                return written
+            elif start_date is None or start_date > end_date:
+                raw_df = pd.DataFrame()
+            else:
+                raw_df = fetch_stk_week_month_adj(pro, start_date, end_date)
         elif dataset_name == "index_dailybasic":
             if start_date is None or start_date > end_date:
                 raw_df = pd.DataFrame()
@@ -1416,6 +1550,16 @@ def run_sync_once(engine: Engine, pro, args) -> int:
         total_rows += sync_dataset(engine, pro, dataset_name, args, run_end_date)
 
     logger.info("本轮同步完成，累计写入 %s 行", total_rows)
+    
+    if "stk_week_month_adj" in args.datasets:
+        try:
+            logger.info("开始自动计算 EMA 因子...")
+            from src.calculate_ema_factors import process_all_stocks
+            process_all_stocks()
+            logger.info("EMA 因子计算并落库完成。")
+        except Exception as e:
+            logger.error(f"EMA 因子计算失败: {e}", exc_info=True)
+            
     return total_rows
 
 
