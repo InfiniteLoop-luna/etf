@@ -1176,6 +1176,7 @@ def render_tech_picker_tab():
                     )
             except Exception as e:
                 st.error(f"技术面检索失败，确保增量脚本及因子脚本已运行: {e}")
+def render_company_screener_tab():
     st.subheader("🏢 公司主营与产品筛选")
     st.caption("按照行业、产品和主营业务服务筛选公司")
     
