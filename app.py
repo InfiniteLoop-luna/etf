@@ -378,8 +378,6 @@ def trigger_security_tab_jump_if_needed() -> None:
         st.session_state["jump_to_security_tab"] = False
 
 def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
-    import html
-
     if df is None or df.empty:
         return
 
@@ -412,7 +410,7 @@ def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
 
     action_df = pd.DataFrame(rows_for_action)
 
-    st.info("💡 双击整行在部分环境可能被浏览器拦截；请点击左侧“🔎 查询”按钮进行应用内跳转。")
+    st.info("💡 点击左侧“🔎 查询”所在行，会在当前应用内切到“个股/指数查询”，并自动代入股票代码。")
 
     event = st.dataframe(
         action_df,
@@ -441,8 +439,13 @@ def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
         st.warning("未找到可查询的股票代码")
         return
 
-    st.session_state['security_search_keyword'] = query
-    st.session_state['security_search_type'] = '股票'
+    jump_marker = f"{idx}:{query}"
+    if st.session_state.get('tech_picker_last_jump_marker') == jump_marker:
+        return
+
+    st.session_state['tech_picker_last_jump_marker'] = jump_marker
+    st.session_state['pending_security_search_keyword'] = query
+    st.session_state['pending_security_search_type'] = '股票'
     st.session_state['main_active_tab'] = '🔎 个股/指数查询'
     st.rerun()
 
@@ -1291,6 +1294,7 @@ def render_tech_picker_tab():
                     "use_weekly": use_weekly,
                     "use_monthly": use_monthly,
                 }
+                st.session_state.pop("tech_picker_last_jump_marker", None)
             except Exception as e:
                 st.session_state["tech_picker_results"] = pd.DataFrame()
                 st.error(f"技术面检索失败，确保增量脚本及因子脚本已运行: {e}")
@@ -2310,6 +2314,19 @@ def render_security_search_tab():
     st.subheader("🔎 个股 / 指数查询")
     st.caption("支持按代码、简称、拼音检索个股或指数，查看最新快照与历史趋势")
 
+    pending_keyword = st.session_state.pop("pending_security_search_keyword", None)
+    pending_type = st.session_state.pop("pending_security_search_type", None)
+    if pending_type in {"全部", "股票", "指数"}:
+        st.session_state["security_search_type"] = pending_type
+    if pending_keyword is not None:
+        st.session_state["security_search_keyword"] = pending_keyword
+        st.session_state.pop("security_search_option", None)
+
+    if "security_search_type" not in st.session_state:
+        st.session_state["security_search_type"] = "全部"
+    if "security_search_keyword" not in st.session_state:
+        st.session_state["security_search_keyword"] = ""
+
     control_cols = st.columns([1, 1.4, 2.6])
     with control_cols[0]:
         security_type_label = st.radio(
@@ -2321,7 +2338,6 @@ def render_security_search_tab():
     with control_cols[1]:
         keyword = st.text_input(
             "关键字",
-            value=st.session_state.get("security_search_keyword", ""),
             placeholder="输入代码、简称或拼音",
             key="security_search_keyword"
         ).strip()
