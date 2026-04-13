@@ -439,7 +439,7 @@ def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
         display_df['满足日期'] = pd.to_datetime(display_df['满足日期'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('-')
 
     display_df = display_df.fillna('-')
-    columns = list(display_df.columns)
+    columns = ['操作'] + list(display_df.columns)
 
     head_html = ''.join(f'<th>{html.escape(str(col))}</th>' for col in columns)
     row_html_parts = []
@@ -447,9 +447,10 @@ def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
         query = str(row.get('代码') or row.get('简称') or '').strip()
         if not query:
             continue
-        cells_html = ''.join(f'<td>{html.escape(str(row[col]))}</td>' for col in columns)
+        action_cell = '<td><a href="#" class="jump-link" title="双击行或点这里跳转">🔎 查询</a></td>'
+        cells_html = ''.join(f'<td>{html.escape(str(row[col]))}</td>' for col in display_df.columns)
         row_html_parts.append(
-            f'<tr data-query="{html.escape(query, quote=True)}" title="双击跳转到个股/指数查询">{cells_html}</tr>'
+            f'<tr data-query="{html.escape(query, quote=True)}" title="双击跳转到个股/指数查询">{action_cell}{cells_html}</tr>'
         )
     rows_html = ''.join(row_html_parts)
     height = min(max(320, 120 + len(display_df) * 38), 680)
@@ -457,7 +458,7 @@ def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
     components.html(
         f"""
         <style>
-          body {{ margin: 0; font-family: Inter, \"PingFang SC\", -apple-system, BlinkMacSystemFont, sans-serif; background: transparent; }}
+          body {{ margin: 0; font-family: Inter, "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif; background: transparent; }}
           .tip {{
             margin: 0 0 10px 0; padding: 10px 12px; border-radius: 10px;
             background: linear-gradient(135deg, rgba(37,99,235,0.10), rgba(59,130,246,0.05));
@@ -480,26 +481,57 @@ def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
           tbody tr {{ cursor: pointer; transition: background 0.15s ease; }}
           tbody tr:hover {{ background: rgba(59,130,246,0.06); }}
           tbody tr:last-child td {{ border-bottom: none; }}
+          .jump-link {{
+            color: #1D4ED8; text-decoration: none; font-weight: 600;
+          }}
+          .jump-link:hover {{ text-decoration: underline; }}
         </style>
-        <div class=\"tip\">💡 双击任意股票行，可直接跳转到“个股/指数查询”并自动打开该股票详情。</div>
-        <div class=\"table-wrap\">
+        <div class="tip">💡 双击任意股票行（或点击“🔎 查询”）可跳转到“个股/指数查询”并自动打开该股票详情。</div>
+        <div class="table-wrap">
           <table>
             <thead><tr>{head_html}</tr></thead>
             <tbody>{rows_html}</tbody>
           </table>
         </div>
         <script>
+          const buildTargetUrl = (query) => {{
+            let base;
+            try {{
+              base = new URL(window.top.location.href);
+            }} catch (e) {{
+              base = new URL(window.location.href);
+            }}
+            base.searchParams.set('security_query', query);
+            base.searchParams.set('security_type', 'stock');
+            base.searchParams.set('open_tab', 'security');
+            base.searchParams.set('jump_nonce', String(Date.now()));
+            return base.toString();
+          }};
+
+          const navigateToSecurity = (query) => {{
+            if (!query) return;
+            const targetUrl = buildTargetUrl(query);
+            try {{ window.top.location.assign(targetUrl); return; }} catch (e) {{}}
+            try {{ window.parent.location.assign(targetUrl); return; }} catch (e) {{}}
+            window.location.assign(targetUrl);
+          }};
+
           const rows = document.querySelectorAll('tr[data-query]');
           rows.forEach((row) => {{
-            row.addEventListener('dblclick', () => {{
-              const query = row.dataset.query;
-              if (!query) return;
-              const url = new URL(window.parent.location.href);
-              url.searchParams.set('security_query', query);
-              url.searchParams.set('security_type', 'stock');
-              url.searchParams.set('open_tab', 'security');
-              url.searchParams.set('jump_nonce', String(Date.now()));
-              window.parent.location.href = url.toString();
+            row.addEventListener('dblclick', (event) => {{
+              event.preventDefault();
+              event.stopPropagation();
+              navigateToSecurity(row.dataset.query || '');
+            }});
+          }});
+
+          const links = document.querySelectorAll('a.jump-link');
+          links.forEach((link) => {{
+            link.addEventListener('click', (event) => {{
+              event.preventDefault();
+              event.stopPropagation();
+              const tr = event.target.closest('tr[data-query]');
+              navigateToSecurity((tr && tr.dataset && tr.dataset.query) || '');
             }});
           }});
         </script>
@@ -507,7 +539,6 @@ def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
         height=height,
         scrolling=True,
     )
-
 
 def format_security_option(row: pd.Series) -> str:
     security_type_label = "股票" if row.get('security_type') == 'stock' else "指数"
