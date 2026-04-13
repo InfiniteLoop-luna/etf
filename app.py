@@ -1325,7 +1325,7 @@ def render_tech_picker_tab():
                     "use_monthly": use_monthly,
                 }
                 st.session_state.pop("tech_picker_last_jump_marker", None)
-                st.session_state.pop("tech_picker_industry_filter", None)
+                st.session_state["tech_picker_industry_filter"] = "全部行业"
             except Exception as e:
                 st.session_state["tech_picker_results"] = pd.DataFrame()
                 st.error(f"技术面检索失败，确保增量脚本及因子脚本已运行: {e}")
@@ -1342,25 +1342,26 @@ def render_tech_picker_tab():
         raw_industries = result_df['industry'].dropna().astype(str).str.strip()
         industries = sorted([item for item in raw_industries.unique().tolist() if item])
         if industries:
-            selected_industries = st.multiselect(
-                "行业筛选",
-                options=['全部'] + industries,
-                default=st.session_state.get("tech_picker_industry_filter", ['全部']),
+            industry_options = ['全部行业'] + industries
+            current_industry = st.session_state.get("tech_picker_industry_filter", '全部行业')
+            selected_industry = st.selectbox(
+                "行业",
+                options=industry_options,
+                index=industry_options.index(current_industry) if current_industry in industry_options else 0,
                 key="tech_picker_industry_filter",
-                help="选择后，仅显示对应行业的符合条件股票"
+                help="选择后，仅显示该行业对应的符合条件股票"
             )
-            selected_industries = [item for item in selected_industries if item in industries or item == '全部']
-            if not selected_industries or '全部' in selected_industries:
+            if selected_industry == '全部行业':
                 filtered_df = result_df.copy()
             else:
                 filtered_df = result_df[
-                    result_df['industry'].fillna('').astype(str).str.strip().isin(selected_industries)
+                    result_df['industry'].fillna('').astype(str).str.strip().eq(selected_industry)
                 ].copy()
 
     if len(filtered_df) == len(result_df):
         st.success(f"共筛选出 {len(result_df)} 家企业")
     else:
-        st.success(f"共筛选出 {len(result_df)} 家企业，当前行业筛选后显示 {len(filtered_df)} 家")
+        st.success(f"共筛选出 {len(result_df)} 家企业，当前行业“{st.session_state.get('tech_picker_industry_filter', '全部行业')}”下显示 {len(filtered_df)} 家")
 
     if filtered_df.empty:
         st.warning("当前行业筛选条件下暂无符合条件的股票。")
