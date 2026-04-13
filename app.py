@@ -365,58 +365,20 @@ def hydrate_security_jump_from_query_params() -> None:
         st.session_state["security_search_type"] = "指数"
 
     if open_tab == "security":
-        st.session_state["jump_to_security_tab"] = True
+        st.session_state["main_active_tab"] = "🔎 个股/指数查询"
 
     if jump_nonce:
         st.session_state["last_consumed_jump_nonce"] = jump_nonce
 
 
 def trigger_security_tab_jump_if_needed() -> None:
-    """若存在跳转请求，通过前端脚本切换到“个股/指数查询”标签页。"""
-    if not st.session_state.get("jump_to_security_tab", False):
-        return
-
-    import streamlit.components.v1 as components
-
-    components.html(
-        """
-        <script>
-        (function () {
-          const targetText = "个股/指数查询";
-          const maxAttempts = 30;
-          let attempts = 0;
-
-          const clickTargetTab = () => {
-            const tabs = window.parent.document.querySelectorAll('button[role="tab"]');
-            for (const tab of tabs) {
-              const label = (tab.innerText || tab.textContent || "").trim();
-              if (label.includes(targetText)) {
-                tab.click();
-                return true;
-              }
-            }
-            return false;
-          };
-
-          const timer = setInterval(() => {
-            attempts += 1;
-            if (clickTargetTab() || attempts >= maxAttempts) {
-              clearInterval(timer);
-            }
-          }, 120);
-        })();
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
-    st.session_state["jump_to_security_tab"] = False
-
+    """兼容旧逻辑：统一改为通过 session_state 指定默认 tab。"""
+    if st.session_state.get("jump_to_security_tab", False):
+        st.session_state["main_active_tab"] = "🔎 个股/指数查询"
+        st.session_state["jump_to_security_tab"] = False
 
 def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
     import html
-    import streamlit.components.v1 as components
 
     if df is None or df.empty:
         return
@@ -439,106 +401,50 @@ def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
         display_df['满足日期'] = pd.to_datetime(display_df['满足日期'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('-')
 
     display_df = display_df.fillna('-')
-    columns = ['操作'] + list(display_df.columns)
 
-    head_html = ''.join(f'<th>{html.escape(str(col))}</th>' for col in columns)
-    row_html_parts = []
+    rows_for_action = []
     for _, row in display_df.iterrows():
         query = str(row.get('代码') or row.get('简称') or '').strip()
-        if not query:
-            continue
-        action_cell = '<td><a href="#" class="jump-link" title="双击行或点这里跳转">🔎 查询</a></td>'
-        cells_html = ''.join(f'<td>{html.escape(str(row[col]))}</td>' for col in display_df.columns)
-        row_html_parts.append(
-            f'<tr data-query="{html.escape(query, quote=True)}" title="双击跳转到个股/指数查询">{action_cell}{cells_html}</tr>'
-        )
-    rows_html = ''.join(row_html_parts)
-    height = min(max(320, 120 + len(display_df) * 38), 680)
+        rows_for_action.append({
+            '查询': f'🔎 查询 {query}' if query else '🔎 查询',
+            **{col: row[col] for col in display_df.columns}
+        })
 
-    components.html(
-        f"""
-        <style>
-          body {{ margin: 0; font-family: Inter, "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif; background: transparent; }}
-          .tip {{
-            margin: 0 0 10px 0; padding: 10px 12px; border-radius: 10px;
-            background: linear-gradient(135deg, rgba(37,99,235,0.10), rgba(59,130,246,0.05));
-            color: #1E40AF; font-size: 13px; font-weight: 600;
-          }}
-          .table-wrap {{
-            border: 1px solid rgba(226,232,240,1); border-radius: 12px; overflow: auto;
-            background: #FFFFFF; box-shadow: 0 1px 3px rgba(15,23,42,0.08);
-          }}
-          table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
-          thead th {{
-            position: sticky; top: 0; z-index: 1; background: #F8FAFC; color: #0F172A;
-            text-align: left; font-weight: 700; border-bottom: 1px solid #E2E8F0; padding: 10px 12px;
-            white-space: nowrap;
-          }}
-          tbody td {{
-            padding: 10px 12px; border-bottom: 1px solid #F1F5F9; color: #334155;
-            vertical-align: top;
-          }}
-          tbody tr {{ cursor: pointer; transition: background 0.15s ease; }}
-          tbody tr:hover {{ background: rgba(59,130,246,0.06); }}
-          tbody tr:last-child td {{ border-bottom: none; }}
-          .jump-link {{
-            color: #1D4ED8; text-decoration: none; font-weight: 600;
-          }}
-          .jump-link:hover {{ text-decoration: underline; }}
-        </style>
-        <div class="tip">💡 双击任意股票行（或点击“🔎 查询”）可跳转到“个股/指数查询”并自动打开该股票详情。</div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr>{head_html}</tr></thead>
-            <tbody>{rows_html}</tbody>
-          </table>
-        </div>
-        <script>
-          const buildTargetUrl = (query) => {{
-            let base;
-            try {{
-              base = new URL(window.top.location.href);
-            }} catch (e) {{
-              base = new URL(window.location.href);
-            }}
-            base.searchParams.set('security_query', query);
-            base.searchParams.set('security_type', 'stock');
-            base.searchParams.set('open_tab', 'security');
-            base.searchParams.set('jump_nonce', String(Date.now()));
-            return base.toString();
-          }};
+    action_df = pd.DataFrame(rows_for_action)
 
-          const navigateToSecurity = (query) => {{
-            if (!query) return;
-            const targetUrl = buildTargetUrl(query);
-            try {{ window.top.location.assign(targetUrl); return; }} catch (e) {{}}
-            try {{ window.parent.location.assign(targetUrl); return; }} catch (e) {{}}
-            window.location.assign(targetUrl);
-          }};
+    st.info("💡 双击整行在部分环境可能被浏览器拦截；请点击左侧“🔎 查询”按钮进行应用内跳转。")
 
-          const rows = document.querySelectorAll('tr[data-query]');
-          rows.forEach((row) => {{
-            row.addEventListener('dblclick', (event) => {{
-              event.preventDefault();
-              event.stopPropagation();
-              navigateToSecurity(row.dataset.query || '');
-            }});
-          }});
-
-          const links = document.querySelectorAll('a.jump-link');
-          links.forEach((link) => {{
-            link.addEventListener('click', (event) => {{
-              event.preventDefault();
-              event.stopPropagation();
-              const tr = event.target.closest('tr[data-query]');
-              navigateToSecurity((tr && tr.dataset && tr.dataset.query) || '');
-            }});
-          }});
-        </script>
-        """,
-        height=height,
-        scrolling=True,
+    event = st.dataframe(
+        action_df,
+        use_container_width=True,
+        hide_index=True,
+        on_select='rerun',
+        selection_mode='single-row',
+        key='tech_picker_result_table'
     )
+
+    try:
+        selection = (event.selection or {}).get('rows', []) if event is not None else []
+    except Exception:
+        selection = []
+
+    if not selection:
+        return
+
+    idx = selection[0]
+    if idx is None or idx < 0 or idx >= len(display_df):
+        return
+
+    selected_row = display_df.iloc[idx]
+    query = str(selected_row.get('代码') or selected_row.get('简称') or '').strip()
+    if not query:
+        st.warning("未找到可查询的股票代码")
+        return
+
+    st.session_state['security_search_keyword'] = query
+    st.session_state['security_search_type'] = '股票'
+    st.session_state['main_active_tab'] = '🔎 个股/指数查询'
+    st.rerun()
 
 def format_security_option(row: pd.Series) -> str:
     security_type_label = "股票" if row.get('security_type') == 'stock' else "指数"
@@ -1316,11 +1222,16 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
+    tab_labels = ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股"]
+    default_tab = st.session_state.get("main_active_tab", tab_labels[0])
+    if default_tab not in tab_labels:
+        default_tab = tab_labels[0]
     tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_security, tab_screener, tab_tech_picker = st.tabs(
-        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股"]
+        tab_labels,
+        default=default_tab,
+        key="main_active_tab",
+        on_change="rerun"
     )
-
-    trigger_security_tab_jump_if_needed()
 
     # ========== ETF 份额变动 Tab ==========
     with tab_etf:
