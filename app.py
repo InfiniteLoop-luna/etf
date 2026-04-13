@@ -365,17 +365,53 @@ def hydrate_security_jump_from_query_params() -> None:
         st.session_state["security_search_type"] = "指数"
 
     if open_tab == "security":
-        st.session_state["main_active_tab"] = "🔎 个股/指数查询"
+        st.session_state["jump_to_security_tab"] = True
 
     if jump_nonce:
         st.session_state["last_consumed_jump_nonce"] = jump_nonce
 
 
 def trigger_security_tab_jump_if_needed() -> None:
-    """兼容旧逻辑：统一改为通过 session_state 指定默认 tab。"""
-    if st.session_state.get("jump_to_security_tab", False):
-        st.session_state["main_active_tab"] = "🔎 个股/指数查询"
-        st.session_state["jump_to_security_tab"] = False
+    """若存在跳转请求，通过前端脚本切换到“个股/指数查询”标签页。"""
+    if not st.session_state.get("jump_to_security_tab", False):
+        return
+
+    import streamlit.components.v1 as components
+
+    components.html(
+        """
+        <script>
+        (function () {
+          const targetText = "个股/指数查询";
+          const maxAttempts = 30;
+          let attempts = 0;
+
+          const clickTargetTab = () => {
+            const tabs = window.parent.document.querySelectorAll('button[role="tab"]');
+            for (const tab of tabs) {
+              const label = (tab.innerText || tab.textContent || "").trim();
+              if (label.includes(targetText)) {
+                tab.click();
+                return true;
+              }
+            }
+            return false;
+          };
+
+          const timer = setInterval(() => {
+            attempts += 1;
+            if (clickTargetTab() || attempts >= maxAttempts) {
+              clearInterval(timer);
+            }
+          }, 120);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+    st.session_state["jump_to_security_tab"] = False
 
 def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
     if df is None or df.empty:
@@ -446,7 +482,7 @@ def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
     st.session_state['tech_picker_last_jump_marker'] = jump_marker
     st.session_state['pending_security_search_keyword'] = query
     st.session_state['pending_security_search_type'] = '股票'
-    st.session_state['main_active_tab'] = '🔎 个股/指数查询'
+    st.session_state['jump_to_security_tab'] = True
     st.rerun()
 
 def format_security_option(row: pd.Series) -> str:
@@ -1225,16 +1261,10 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
-    tab_labels = ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股"]
-    default_tab = st.session_state.get("main_active_tab", tab_labels[0])
-    if default_tab not in tab_labels:
-        default_tab = tab_labels[0]
     tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_security, tab_screener, tab_tech_picker = st.tabs(
-        tab_labels,
-        default=default_tab,
-        key="main_active_tab",
-        on_change="rerun"
+        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股"]
     )
+    trigger_security_tab_jump_if_needed()
 
     # ========== ETF 份额变动 Tab ==========
     with tab_etf:
