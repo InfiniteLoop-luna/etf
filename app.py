@@ -414,6 +414,8 @@ def trigger_security_tab_jump_if_needed() -> None:
     st.session_state["jump_to_security_tab"] = False
 
 def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
+    from urllib.parse import quote
+
     if df is None or df.empty:
         return
 
@@ -436,54 +438,36 @@ def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
 
     display_df = display_df.fillna('-')
 
-    rows_for_action = []
+    render_nonce = st.session_state.get('tech_picker_render_nonce', 0) + 1
+    st.session_state['tech_picker_render_nonce'] = render_nonce
+
+    query_links = []
     for _, row in display_df.iterrows():
         query = str(row.get('代码') or row.get('简称') or '').strip()
-        rows_for_action.append({
-            '查询': f'🔎 查询 {query}' if query else '🔎 查询',
-            **{col: row[col] for col in display_df.columns}
-        })
+        if not query:
+            query_links.append('#')
+            continue
+        query_links.append(
+            f"?security_query={quote(query)}&security_type=stock&open_tab=security&jump_nonce={render_nonce}_{quote(query)}"
+        )
 
-    action_df = pd.DataFrame(rows_for_action)
+    render_df = display_df.copy()
+    render_df.insert(0, '查询', query_links)
 
-    st.info("💡 点击左侧“🔎 查询”所在行，会在当前应用内切到“个股/指数查询”，并自动代入股票代码。")
+    st.info("💡 直接点击每行最左侧“🔎 查询”即可跳到“个股/指数查询”，并自动带入该股票代码。")
 
-    event = st.dataframe(
-        action_df,
+    st.dataframe(
+        render_df,
         use_container_width=True,
         hide_index=True,
-        on_select='rerun',
-        selection_mode='single-row',
-        key='tech_picker_result_table'
+        column_config={
+            '查询': st.column_config.LinkColumn(
+                '查询',
+                help='点击后跳转到个股/指数查询',
+                display_text='🔎 查询'
+            )
+        }
     )
-
-    try:
-        selection = (event.selection or {}).get('rows', []) if event is not None else []
-    except Exception:
-        selection = []
-
-    if not selection:
-        return
-
-    idx = selection[0]
-    if idx is None or idx < 0 or idx >= len(display_df):
-        return
-
-    selected_row = display_df.iloc[idx]
-    query = str(selected_row.get('代码') or selected_row.get('简称') or '').strip()
-    if not query:
-        st.warning("未找到可查询的股票代码")
-        return
-
-    jump_marker = f"{idx}:{query}"
-    if st.session_state.get('tech_picker_last_jump_marker') == jump_marker:
-        return
-
-    st.session_state['tech_picker_last_jump_marker'] = jump_marker
-    st.session_state['pending_security_search_keyword'] = query
-    st.session_state['pending_security_search_type'] = '股票'
-    st.session_state['jump_to_security_tab'] = True
-    st.rerun()
 
 def format_security_option(row: pd.Series) -> str:
     security_type_label = "股票" if row.get('security_type') == 'stock' else "指数"
