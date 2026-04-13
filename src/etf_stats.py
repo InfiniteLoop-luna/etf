@@ -558,8 +558,14 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
         engine = _get_engine()
 
     like_kw = f'%{keyword}%'
+    prefix_kw = f'{keyword}%'
     queries = []
-    params = {'like_kw': like_kw, 'limit': max(1, int(limit))}
+    params = {
+        'like_kw': like_kw,
+        'prefix_kw': prefix_kw,
+        'exact_kw': keyword,
+        'limit': max(1, int(limit))
+    }
 
     if security_type in {'all', 'stock'}:
         queries.append(f"""
@@ -570,7 +576,13 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
                 name,
                 industry,
                 market,
-                NULL::date AS latest_date
+                NULL::date AS latest_date,
+                CASE
+                    WHEN ts_code ILIKE :exact_kw OR COALESCE(symbol, '') ILIKE :exact_kw OR COALESCE(name, '') ILIKE :exact_kw THEN 0
+                    WHEN ts_code ILIKE :prefix_kw OR COALESCE(symbol, '') ILIKE :prefix_kw OR COALESCE(name, '') ILIKE :prefix_kw THEN 1
+                    WHEN COALESCE(cnspell, '') ILIKE :prefix_kw OR COALESCE(fullname, '') ILIKE :prefix_kw THEN 2
+                    ELSE 3
+                END AS match_rank
             FROM {STOCK_BASIC_VIEW}
             WHERE
                 (ts_code ILIKE :like_kw
@@ -592,7 +604,12 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
                 name,
                 NULL::text AS industry,
                 NULL::text AS market,
-                trade_date AS latest_date
+                trade_date AS latest_date,
+                CASE
+                    WHEN ts_code ILIKE :exact_kw OR COALESCE(name, '') ILIKE :exact_kw THEN 0
+                    WHEN ts_code ILIKE :prefix_kw OR COALESCE(name, '') ILIKE :prefix_kw THEN 1
+                    ELSE 3
+                END AS match_rank
             FROM (
                 SELECT DISTINCT ON (ts_code)
                     ts_code,
@@ -608,12 +625,13 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
 
     union_sql = "\nUNION ALL\n".join(queries)
     sql = f"""
-        SELECT *
+        SELECT security_type, ts_code, symbol, name, industry, market, latest_date
         FROM (
             {union_sql}
         ) s
         ORDER BY
             CASE security_type WHEN 'stock' THEN 1 ELSE 2 END,
+            match_rank,
             name NULLS LAST,
             ts_code
         LIMIT :limit
