@@ -17,6 +17,7 @@ from src.etf_stats import (
     get_available_dates, get_category_daily_summary,
     get_category_tree, get_category_timeseries, get_agg_summary,
     get_wide_index_available_dates, get_wide_index_timeseries,
+    get_macro_date_bounds, get_macro_dataset_timeseries,
     search_security, get_security_profile, get_security_timeseries,
     get_security_financial_timeseries, get_stock_basic_summary,
     export_stock_basic_summary_excel, search_companies, update_stock_custom_info
@@ -243,6 +244,14 @@ st.markdown("""
 
 # 数据文件路径
 DATA_FILE = "主要ETF基金份额变动情况.xlsx"
+MACRO_DATASET_META = {
+    "cn_gdp": {"label": "GDP", "card_label": "GDP同比", "card_col": "gdp_yoy", "card_unit": "%"},
+    "cn_cpi": {"label": "CPI", "card_label": "CPI同比", "card_col": "nt_yoy", "card_unit": "%"},
+    "cn_ppi": {"label": "PPI", "card_label": "PPI同比", "card_col": "ppi_yoy", "card_unit": "%"},
+    "cn_m": {"label": "M2", "card_label": "M2同比", "card_col": "m2_yoy", "card_unit": "%"},
+    "shibor": {"label": "Shibor", "card_label": "Shibor 1Y", "card_col": "rate_1y", "card_unit": "%"},
+    "shibor_lpr": {"label": "LPR", "card_label": "LPR 5Y", "card_col": "lpr_5y", "card_unit": "%"},
+}
 
 
 @st.cache_data(ttl=300)
@@ -293,6 +302,16 @@ def load_security_financial_timeseries(ts_code: str, security_type: str) -> pd.D
 @st.cache_data(ttl=300)
 def load_stock_basic_summary_export() -> pd.DataFrame:
     return get_stock_basic_summary()
+
+
+@st.cache_data(ttl=300)
+def load_macro_date_bounds() -> tuple[str | None, str | None]:
+    return get_macro_date_bounds()
+
+
+@st.cache_data(ttl=300)
+def load_macro_dataset(dataset_name: str, start_date: str, end_date: str) -> pd.DataFrame:
+    return get_macro_dataset_timeseries(dataset_name=dataset_name, start_date=start_date, end_date=end_date)
 
 
 def get_stock_info_edit_password() -> str:
@@ -1245,8 +1264,8 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
-    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_security, tab_screener, tab_tech_picker = st.tabs(
-        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股"]
+    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_macro, tab_security, tab_screener, tab_tech_picker = st.tabs(
+        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🌏 宏观经济", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股"]
     )
     trigger_security_tab_jump_if_needed()
 
@@ -1271,6 +1290,9 @@ def main():
 
     with tab_wide_index:
         render_wide_index_tab()
+
+    with tab_macro:
+        render_macro_tab()
 
     with tab_security:
         render_security_search_tab()
@@ -2052,6 +2074,85 @@ def create_change_bar_chart(
     fig.update_yaxes(
         showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
         showline=True, linewidth=1, linecolor='#E2E8F0',
+        zeroline=False,
+        fixedrange=True
+    )
+    return fig
+
+
+def format_macro_value(value, unit: str = "") -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    unit = unit or ""
+    return f"{float(value):,.2f}{unit}"
+
+
+def build_macro_metric_snapshot(df: pd.DataFrame, metric_col: str):
+    if df is None or df.empty or metric_col not in df.columns:
+        return None, None, None, None
+
+    working = df.dropna(subset=[metric_col]).sort_values("trade_date").copy()
+    if working.empty:
+        return None, None, None, None
+
+    latest_row = working.iloc[-1]
+    latest_value = latest_row[metric_col]
+    latest_date = pd.to_datetime(latest_row["trade_date"])
+    prev_value = working.iloc[-2][metric_col] if len(working) >= 2 else None
+    delta = float(latest_value) - float(prev_value) if prev_value is not None and pd.notna(prev_value) else None
+    return latest_date, latest_value, prev_value, delta
+
+
+def create_macro_line_chart(
+    df: pd.DataFrame,
+    series: list[tuple[str, str]],
+    title: str,
+    yaxis_title: str
+) -> go.Figure:
+    fig = go.Figure()
+    palette = ['#2E5BFF', '#EF4444', '#00A76F', '#F59E0B', '#8E54E9']
+    chart_df = df.sort_values("trade_date").copy()
+
+    for idx, (column, label) in enumerate(series):
+        if column not in chart_df.columns:
+            continue
+        line_df = chart_df.dropna(subset=[column])
+        if line_df.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=line_df["trade_date"],
+            y=line_df[column],
+            mode="lines+markers",
+            name=label,
+            line=dict(width=2.2, color=palette[idx % len(palette)], shape="spline"),
+            marker=dict(size=4, color=palette[idx % len(palette)]),
+            hovertemplate=f"<b>{label}</b><br>%{{x|%Y-%m-%d}}<br>{yaxis_title}: %{{y:,.2f}}<extra></extra>"
+        ))
+
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=20, weight=700, color="#1E293B"), x=0.02),
+        xaxis_title="日期",
+        yaxis_title=yaxis_title,
+        hovermode="x unified",
+        height=420,
+        template="plotly_white",
+        plot_bgcolor="rgba(248, 250, 252, 0.5)",
+        paper_bgcolor="white",
+        font=dict(family="Inter, PingFang SC, sans-serif"),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=-0.25,
+            xanchor="center", x=0.5,
+            bgcolor="rgba(255,255,255,0)", font=dict(size=11)
+        ),
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+    fig.update_xaxes(
+        showgrid=True, gridwidth=1, gridcolor="rgba(226,232,240,0.5)",
+        showline=True, linewidth=1, linecolor="#E2E8F0"
+    )
+    fig.update_yaxes(
+        showgrid=True, gridwidth=1, gridcolor="rgba(226,232,240,0.5)",
+        showline=True, linewidth=1, linecolor="#E2E8F0",
         zeroline=False,
         fixedrange=True
     )
@@ -3066,6 +3167,193 @@ def render_wide_index_tab():
         hide_index=True,
         height=560
     )
+
+
+def render_macro_tab():
+    st.subheader("🌏 宏观经济总览")
+    st.caption("展示 GDP、CPI、PPI、M2、Shibor、LPR 的最新读数、历史趋势与原始明细")
+
+    try:
+        min_trade_date, max_trade_date = load_macro_date_bounds()
+    except Exception as e:
+        st.error(f"获取宏观数据日期范围失败: {e}")
+        st.info("请先运行宏观数据同步脚本并确保标准化视图已创建。")
+        return
+
+    if not min_trade_date or not max_trade_date:
+        st.warning("暂无宏观数据，请先执行同步脚本。")
+        return
+
+    min_d = pd.to_datetime(min_trade_date).date()
+    max_d = pd.to_datetime(max_trade_date).date()
+    default_start = max(min_d, max_d - timedelta(days=365 * 5))
+
+    date_range = st.slider(
+        "时间范围",
+        min_value=min_d,
+        max_value=max_d,
+        value=(default_start, max_d),
+        format="YYYY-MM-DD",
+        key="macro_date_range"
+    )
+
+    datasets = {}
+    for dataset_name in MACRO_DATASET_META:
+        try:
+            dataset_df = load_macro_dataset(dataset_name, str(date_range[0]), str(date_range[1]))
+            if dataset_df is not None and not dataset_df.empty:
+                dataset_df = dataset_df.copy()
+                dataset_df["trade_date"] = pd.to_datetime(dataset_df["trade_date"])
+            datasets[dataset_name] = dataset_df
+        except Exception as e:
+            st.warning(f"{MACRO_DATASET_META[dataset_name]['label']} 数据加载失败: {e}")
+            datasets[dataset_name] = pd.DataFrame()
+
+    if all(df is None or df.empty for df in datasets.values()):
+        st.warning("当前时间范围内暂无宏观数据。")
+        return
+
+    st.markdown("### 总览")
+    card_cols = st.columns(6)
+    for idx, (dataset_name, meta) in enumerate(MACRO_DATASET_META.items()):
+        latest_date, latest_value, _, delta = build_macro_metric_snapshot(datasets.get(dataset_name), meta["card_col"])
+        with card_cols[idx]:
+            st.metric(
+                meta["card_label"],
+                format_macro_value(latest_value, meta["card_unit"]),
+                format_macro_value(delta, meta["card_unit"]) if delta is not None else "-"
+            )
+            if latest_date is not None:
+                st.caption(f"最新日期: {latest_date.strftime('%Y-%m-%d')}")
+
+    tab_overview, tab_growth, tab_liquidity, tab_detail = st.tabs(
+        ["📌 总览图表", "📈 增长与通胀", "💧 流动性与利率", "📋 原始明细"]
+    )
+
+    with tab_overview:
+        overview_left, overview_right = st.columns(2)
+        with overview_left:
+            gdp_df = datasets.get("cn_gdp", pd.DataFrame())
+            if not gdp_df.empty:
+                st.plotly_chart(
+                    create_macro_line_chart(gdp_df, [("gdp_yoy", "GDP同比")], "GDP同比趋势", "GDP同比(%)"),
+                    use_container_width=True
+                )
+            else:
+                st.info("GDP 数据为空")
+        with overview_right:
+            cpi_df = datasets.get("cn_cpi", pd.DataFrame())
+            ppi_df = datasets.get("cn_ppi", pd.DataFrame())
+            merged_df = pd.DataFrame()
+            if not cpi_df.empty:
+                merged_df = cpi_df[["trade_date", "nt_yoy"]].rename(columns={"nt_yoy": "CPI同比"})
+            if not ppi_df.empty:
+                ppi_view = ppi_df[["trade_date", "ppi_yoy"]].rename(columns={"ppi_yoy": "PPI同比"})
+                merged_df = ppi_view if merged_df.empty else merged_df.merge(ppi_view, on="trade_date", how="outer")
+            if not merged_df.empty:
+                st.plotly_chart(
+                    create_macro_line_chart(
+                        merged_df,
+                        [("CPI同比", "CPI同比"), ("PPI同比", "PPI同比")],
+                        "CPI / PPI 同比对比",
+                        "同比(%)"
+                    ),
+                    use_container_width=True
+                )
+            else:
+                st.info("CPI/PPI 数据为空")
+
+    with tab_growth:
+        growth_left, growth_right = st.columns(2)
+        with growth_left:
+            gdp_df = datasets.get("cn_gdp", pd.DataFrame())
+            if not gdp_df.empty:
+                st.plotly_chart(
+                    create_macro_line_chart(
+                        gdp_df,
+                        [("gdp", "GDP累计值"), ("gdp_yoy", "GDP同比")],
+                        "GDP 总量与同比",
+                        "数值"
+                    ),
+                    use_container_width=True
+                )
+        with growth_right:
+            cpi_df = datasets.get("cn_cpi", pd.DataFrame())
+            if not cpi_df.empty:
+                st.plotly_chart(
+                    create_macro_line_chart(
+                        cpi_df,
+                        [("nt_yoy", "全国同比"), ("nt_mom", "全国环比")],
+                        "CPI 同比与环比",
+                        "CPI(%)"
+                    ),
+                    use_container_width=True
+                )
+        ppi_df = datasets.get("cn_ppi", pd.DataFrame())
+        if not ppi_df.empty:
+            st.plotly_chart(
+                create_macro_line_chart(
+                    ppi_df,
+                    [("ppi_yoy", "PPI同比"), ("ppi_mom", "PPI环比"), ("ppi_accu", "PPI累计同比")],
+                    "PPI 走势",
+                    "PPI(%)"
+                ),
+                use_container_width=True
+            )
+
+    with tab_liquidity:
+        liquidity_left, liquidity_right = st.columns(2)
+        with liquidity_left:
+            m2_df = datasets.get("cn_m", pd.DataFrame())
+            if not m2_df.empty:
+                st.plotly_chart(
+                    create_macro_line_chart(
+                        m2_df,
+                        [("m2", "M2余额"), ("m2_yoy", "M2同比")],
+                        "M2 余额与同比",
+                        "M2"
+                    ),
+                    use_container_width=True
+                )
+        with liquidity_right:
+            shibor_df = datasets.get("shibor", pd.DataFrame())
+            if not shibor_df.empty:
+                st.plotly_chart(
+                    create_macro_line_chart(
+                        shibor_df,
+                        [("rate_1w", "Shibor 1W"), ("rate_1m", "Shibor 1M"), ("rate_3m", "Shibor 3M"), ("rate_1y", "Shibor 1Y")],
+                        "Shibor 多期限走势",
+                        "利率(%)"
+                    ),
+                    use_container_width=True
+                )
+        lpr_df = datasets.get("shibor_lpr", pd.DataFrame())
+        if not lpr_df.empty:
+            st.plotly_chart(
+                create_macro_line_chart(
+                    lpr_df,
+                    [("lpr_1y", "LPR 1Y"), ("lpr_5y", "LPR 5Y")],
+                    "LPR 走势",
+                    "利率(%)"
+                ),
+                use_container_width=True
+            )
+
+    with tab_detail:
+        detail_dataset = st.selectbox(
+            "选择数据集",
+            options=list(MACRO_DATASET_META.keys()),
+            format_func=lambda x: MACRO_DATASET_META[x]["label"],
+            key="macro_detail_dataset"
+        )
+        detail_df = datasets.get(detail_dataset, pd.DataFrame())
+        if detail_df is None or detail_df.empty:
+            st.info("当前数据集暂无明细数据")
+        else:
+            display_df = detail_df.sort_values("trade_date", ascending=False).copy()
+            if "trade_date" in display_df.columns:
+                display_df["trade_date"] = display_df["trade_date"].dt.strftime("%Y-%m-%d")
+            st.dataframe(display_df, use_container_width=True, hide_index=True, height=520)
 
 
 if __name__ == "__main__":

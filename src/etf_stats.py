@@ -546,6 +546,65 @@ def get_wide_index_timeseries(
     return pd.read_sql(text(sql), engine, params=params)
 
 
+MACRO_DATASET_VIEWS = {
+    "cn_gdp": "vw_ts_macro_cn_gdp",
+    "cn_cpi": "vw_ts_macro_cn_cpi",
+    "cn_ppi": "vw_ts_macro_cn_ppi",
+    "cn_m": "vw_ts_macro_cn_m",
+    "shibor": "vw_ts_macro_shibor",
+    "shibor_lpr": "vw_ts_macro_shibor_lpr",
+}
+
+
+def get_macro_date_bounds(engine=None) -> tuple[str | None, str | None]:
+    union_sql = " UNION ALL ".join(
+        [f"SELECT trade_date FROM {view_name}" for view_name in MACRO_DATASET_VIEWS.values()]
+    )
+    sql = f"""
+        SELECT
+            MIN(trade_date) AS min_trade_date,
+            MAX(trade_date) AS max_trade_date
+        FROM ({union_sql}) t
+    """
+    if engine is None:
+        engine = _get_engine()
+
+    df = pd.read_sql(text(sql), engine)
+    if df.empty or pd.isna(df.loc[0, "min_trade_date"]) or pd.isna(df.loc[0, "max_trade_date"]):
+        return None, None
+    return str(df.loc[0, "min_trade_date"]), str(df.loc[0, "max_trade_date"])
+
+
+def get_macro_dataset_timeseries(
+    dataset_name: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    engine=None
+) -> pd.DataFrame:
+    if dataset_name not in MACRO_DATASET_VIEWS:
+        raise ValueError(f"不支持的宏观数据集: {dataset_name}")
+
+    conditions = ["1=1"]
+    params = {}
+    if start_date:
+        conditions.append("trade_date >= :start_date")
+        params["start_date"] = start_date
+    if end_date:
+        conditions.append("trade_date <= :end_date")
+        params["end_date"] = end_date
+
+    sql = f"""
+        SELECT *
+        FROM {MACRO_DATASET_VIEWS[dataset_name]}
+        WHERE {' AND '.join(conditions)}
+        ORDER BY trade_date
+    """
+    if engine is None:
+        engine = _get_engine()
+
+    return pd.read_sql(text(sql), engine, params=params)
+
+
 def search_security(keyword: str, security_type: str = 'all', limit: int = 20, engine=None) -> pd.DataFrame:
     keyword = (keyword or '').strip()
     if not keyword:

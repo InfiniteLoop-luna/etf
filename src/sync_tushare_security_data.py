@@ -57,6 +57,12 @@ DATASET_TABLES = {
     "index_dailybasic": "ts_index_dailybasic",
     "namechange": "ts_stock_namechange",
     "stk_week_month_adj": "ts_stk_week_month_adj",
+    "cn_gdp": "ts_macro_cn_gdp",
+    "cn_cpi": "ts_macro_cn_cpi",
+    "cn_ppi": "ts_macro_cn_ppi",
+    "cn_m": "ts_macro_cn_m",
+    "shibor": "ts_macro_shibor",
+    "shibor_lpr": "ts_macro_shibor_lpr",
 }
 STOCK_BASIC_FIELDS = ",".join(
     [
@@ -317,6 +323,84 @@ NORMALIZED_VIEW_SPECS = {
             ("numeric", "m_amount"),
         ],
     },
+    "cn_gdp": {
+        "view_name": "vw_ts_macro_cn_gdp",
+        "columns": [
+            ("text", "quarter"),
+            ("numeric", "gdp"),
+            ("numeric", "gdp_yoy"),
+            ("numeric", "pi"),
+            ("numeric", "pi_yoy"),
+            ("numeric", "si"),
+            ("numeric", "si_yoy"),
+            ("numeric", "ti"),
+            ("numeric", "ti_yoy"),
+        ],
+    },
+    "cn_cpi": {
+        "view_name": "vw_ts_macro_cn_cpi",
+        "columns": [
+            ("text", "month"),
+            ("numeric", "nt_val"),
+            ("numeric", "nt_yoy"),
+            ("numeric", "nt_mom"),
+            ("numeric", "nt_accu"),
+            ("numeric", "town_val"),
+            ("numeric", "town_yoy"),
+            ("numeric", "town_mom"),
+            ("numeric", "town_accu"),
+            ("numeric", "cnt_val"),
+            ("numeric", "cnt_yoy"),
+            ("numeric", "cnt_mom"),
+            ("numeric", "cnt_accu"),
+        ],
+    },
+    "cn_ppi": {
+        "view_name": "vw_ts_macro_cn_ppi",
+        "columns": [
+            ("text", "month"),
+            ("numeric", "ppi_yoy"),
+            ("numeric", "ppi_mom"),
+            ("numeric", "ppi_accu"),
+        ],
+    },
+    "cn_m": {
+        "view_name": "vw_ts_macro_cn_m",
+        "columns": [
+            ("text", "month"),
+            ("numeric", "m0"),
+            ("numeric", "m0_yoy"),
+            ("numeric", "m0_mom"),
+            ("numeric", "m1"),
+            ("numeric", "m1_yoy"),
+            ("numeric", "m1_mom"),
+            ("numeric", "m2"),
+            ("numeric", "m2_yoy"),
+            ("numeric", "m2_mom"),
+        ],
+    },
+    "shibor": {
+        "view_name": "vw_ts_macro_shibor",
+        "columns": [
+            ("date", "date|published_date"),
+            ("numeric", "on|rate_on"),
+            ("numeric", "1w|rate_1w"),
+            ("numeric", "2w|rate_2w"),
+            ("numeric", "1m|rate_1m"),
+            ("numeric", "3m|rate_3m"),
+            ("numeric", "6m|rate_6m"),
+            ("numeric", "9m|rate_9m"),
+            ("numeric", "1y|rate_1y"),
+        ],
+    },
+    "shibor_lpr": {
+        "view_name": "vw_ts_macro_shibor_lpr",
+        "columns": [
+            ("date", "date|published_date"),
+            ("numeric", "1y|lpr_1y"),
+            ("numeric", "5y|lpr_5y"),
+        ],
+    },
 }
 
 logging.basicConfig(
@@ -327,6 +411,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 FINANCIAL_DATASETS = {"income", "balancesheet", "cashflow", "fina_indicator"}
 DAILY_DATASETS = {"daily_basic", "index_dailybasic", "stk_week_month_adj"}
+MACRO_DATASETS = {"cn_gdp", "cn_cpi", "cn_ppi", "cn_m", "shibor", "shibor_lpr"}
 BACKFILL_SKIP_TS_CODES = {
     "ts_stock_income": {
         "302132.SZ",
@@ -397,6 +482,34 @@ def to_date_value(value):
         return pd.to_datetime(text_value).date()
     except Exception:
         return None
+
+
+def quarter_to_trade_date(value: str | None):
+    if value is None:
+        return None
+    text_value = str(value).strip().upper()
+    if len(text_value) != 6 or not text_value.startswith(("19", "20")) or "Q" not in text_value:
+        return None
+    year = int(text_value[:4])
+    quarter = text_value[-1]
+    mapping = {
+        "1": datetime(year, 3, 31),
+        "2": datetime(year, 6, 30),
+        "3": datetime(year, 9, 30),
+        "4": datetime(year, 12, 31),
+    }
+    return mapping.get(quarter).date() if mapping.get(quarter) else None
+
+
+def month_to_trade_date(value: str | None):
+    if value is None:
+        return None
+    text_value = str(value).strip().replace("-", "")
+    if len(text_value) != 6 or not text_value.isdigit():
+        return None
+    month_start = datetime.strptime(f"{text_value}01", "%Y%m%d")
+    month_end = month_start + pd.offsets.MonthEnd(0)
+    return pd.Timestamp(month_end).date()
 
 
 def normalize_scalar(value):
@@ -679,6 +792,12 @@ def resolve_business_key(dataset_name: str, payload: dict) -> str:
         "daily_basic": ["ts_code", "trade_date"],
         "index_dailybasic": ["ts_code", "trade_date"],
         "stk_week_month_adj": ["ts_code", "trade_date"],
+        "cn_gdp": ["period", "trade_date"],
+        "cn_cpi": ["period", "trade_date"],
+        "cn_ppi": ["period", "trade_date"],
+        "cn_m": ["period", "trade_date"],
+        "shibor": ["trade_date"],
+        "shibor_lpr": ["trade_date"],
         "income": ["ts_code", "ann_date", "end_date", "report_type", "comp_type"],
         "balancesheet": ["ts_code", "ann_date", "end_date", "report_type", "comp_type"],
         "cashflow": ["ts_code", "ann_date", "end_date", "report_type", "comp_type"],
@@ -1218,6 +1337,32 @@ def normalize_stk_week_month_adj_frame(df: pd.DataFrame, prefix: str) -> pd.Data
     return selected.drop_duplicates(subset=["ts_code", "trade_date"], keep="last")
 
 
+def normalize_macro_period_frame(df: pd.DataFrame, period_col: str, date_resolver) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    normalized = df.copy()
+    normalized[period_col] = normalized[period_col].astype(str).str.strip()
+    normalized["trade_date"] = normalized[period_col].map(date_resolver)
+    normalized["end_date"] = normalized["trade_date"]
+    normalized["period"] = normalized[period_col]
+    normalized = normalized.dropna(subset=["trade_date"])
+    return normalized.drop_duplicates(subset=[period_col], keep="last")
+
+
+def normalize_macro_daily_frame(df: pd.DataFrame, date_col: str = "date") -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    normalized = df.copy()
+    normalized[date_col] = normalized[date_col].astype(str).str.strip()
+    normalized["trade_date"] = normalized[date_col].map(to_date_value)
+    normalized["end_date"] = normalized["trade_date"]
+    normalized["period"] = normalized[date_col]
+    normalized = normalized.dropna(subset=["trade_date"])
+    return normalized.drop_duplicates(subset=[date_col], keep="last")
+
+
 def merge_stk_week_month_adj_frames(weekly_df: pd.DataFrame, monthly_df: pd.DataFrame) -> pd.DataFrame:
     weekly_normalized = normalize_stk_week_month_adj_frame(weekly_df, "w")
     monthly_normalized = normalize_stk_week_month_adj_frame(monthly_df, "m")
@@ -1254,6 +1399,36 @@ def fetch_stk_week_month_adj(pro, start_date: str, end_date: str) -> pd.DataFram
             logger.info("stk_week_month_adj trade_date=%s 无数据", trade_date)
         time.sleep(DEFAULT_API_SLEEP)
     return combine_frames(frames)
+
+
+def fetch_cn_gdp(pro) -> pd.DataFrame:
+    df = pro.cn_gdp()
+    return normalize_macro_period_frame(df, "quarter", quarter_to_trade_date)
+
+
+def fetch_cn_cpi(pro) -> pd.DataFrame:
+    df = pro.cn_cpi()
+    return normalize_macro_period_frame(df, "month", month_to_trade_date)
+
+
+def fetch_cn_ppi(pro) -> pd.DataFrame:
+    df = pro.cn_ppi()
+    return normalize_macro_period_frame(df, "month", month_to_trade_date)
+
+
+def fetch_cn_m(pro) -> pd.DataFrame:
+    df = pro.cn_m()
+    return normalize_macro_period_frame(df, "month", month_to_trade_date)
+
+
+def fetch_shibor(pro) -> pd.DataFrame:
+    df = pro.shibor()
+    return normalize_macro_daily_frame(df, "date")
+
+
+def fetch_shibor_lpr(pro) -> pd.DataFrame:
+    df = pro.shibor_lpr()
+    return normalize_macro_daily_frame(df, "date")
 
 
 def fetch_stk_week_month_adj_missing_history(pro, engine: Engine, table_name: str, run_end_date: str) -> int:
@@ -1436,6 +1611,18 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
                     get_required_trade_dates(pro, start_date, end_date, args.index_publish_cutoff_hour),
                     args.index_codes,
                 )
+        elif dataset_name == "cn_gdp":
+            raw_df = fetch_cn_gdp(pro)
+        elif dataset_name == "cn_cpi":
+            raw_df = fetch_cn_cpi(pro)
+        elif dataset_name == "cn_ppi":
+            raw_df = fetch_cn_ppi(pro)
+        elif dataset_name == "cn_m":
+            raw_df = fetch_cn_m(pro)
+        elif dataset_name == "shibor":
+            raw_df = fetch_shibor(pro)
+        elif dataset_name == "shibor_lpr":
+            raw_df = fetch_shibor_lpr(pro)
         else:
             raise ValueError(f"不支持的数据集: {dataset_name}")
 
