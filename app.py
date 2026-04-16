@@ -1264,8 +1264,8 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
-    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_macro, tab_security, tab_screener, tab_tech_picker = st.tabs(
-        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🌏 宏观经济", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股"]
+    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_macro, tab_security, tab_screener, tab_tech_picker, tab_moneyflow = st.tabs(
+        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🌏 宏观经济", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股", "💹 资金流向"]
     )
     trigger_security_tab_jump_if_needed()
 
@@ -1302,6 +1302,9 @@ def main():
         
     with tab_tech_picker:
         render_tech_picker_tab()
+
+    with tab_moneyflow:
+        render_moneyflow_tab()
 
 
 def render_tech_picker_tab():
@@ -3356,6 +3359,594 @@ def render_macro_tab():
             st.dataframe(display_df, use_container_width=True, hide_index=True, height=520)
 
 
+def render_moneyflow_tab():
+    """渲染资金流向 Tab 页"""
+    from src.moneyflow_fetcher import (
+        query_moneyflow_daily_top,
+        query_moneyflow_stock_history,
+        query_moneyflow_consecutive_inflow,
+        query_moneyflow_hsgt_history,
+        query_moneyflow_ind_ths_daily,
+        query_moneyflow_dc_ind_daily,
+        get_moneyflow_latest_date,
+        get_engine,
+        MONEYFLOW_TABLES,
+        get_max_trade_date,
+    )
+
+    st.subheader("💹 资金流向分析")
+    st.caption("数据来源：Tushare | 2026-01-01 起 | 包含个股主力、行业板块（THS+DC）、北向资金")
+
+    # 尝试连接数据库
+    try:
+        _mf_engine = get_engine()
+        latest_date = get_moneyflow_latest_date(_mf_engine)
+    except Exception as exc:
+        st.error(f"❌ 无法连接数据库：{exc}")
+        return
+
+    if not latest_date:
+        st.warning("⚠️ 暂无资金流向数据，请先运行初始化脚本：\n```\npython -m src.moneyflow_fetcher --full\n```")
+        return
+
+    latest_dt = pd.to_datetime(latest_date, format="%Y%m%d").date()
+    st.info(f"📅 数据最新日期：**{latest_dt.strftime('%Y-%m-%d')}**")
+
+    # ---- 子标签页 ----
+    sub_top, sub_stock, sub_screen, sub_sector, sub_hsgt = st.tabs([
+        "🏆 主力净流入排行",
+        "📊 个股资金走势",
+        "🔍 连续净流入选股",
+        "🏭 行业板块流向",
+        "🌐 北向资金",
+    ])
+
+    # ============================================================
+    # 子标签1：每日 Top20 主力净流入排行
+    # ============================================================
+    with sub_top:
+        st.markdown("#### 🏆 当日主力净流入 Top 个股")
+
+        col_date, col_n = st.columns([2, 1])
+        with col_date:
+            query_date = st.date_input(
+                "查询日期",
+                value=latest_dt,
+                key="mf_top_date"
+            )
+        with col_n:
+            top_n = st.selectbox("显示数量", [10, 20, 30, 50], index=1, key="mf_top_n")
+
+        if st.button("查询排行", type="primary", key="btn_mf_top"):
+            with st.spinner("查询中..."):
+                try:
+                    df_top = query_moneyflow_daily_top(
+                        str(query_date).replace("-", ""),
+                        top_n=top_n,
+                        engine=_mf_engine
+                    )
+                    st.session_state["mf_top_result"] = df_top
+                except Exception as e:
+                    st.error(f"查询失败：{e}")
+                    st.session_state["mf_top_result"] = pd.DataFrame()
+        else:
+            # 首次进入自动查最新日期
+            if "mf_top_result" not in st.session_state:
+                try:
+                    df_top = query_moneyflow_daily_top(latest_date, top_n=top_n, engine=_mf_engine)
+                    st.session_state["mf_top_result"] = df_top
+                except Exception:
+                    st.session_state["mf_top_result"] = pd.DataFrame()
+
+        df_top = st.session_state.get("mf_top_result", pd.DataFrame())
+
+        if df_top is not None and not df_top.empty:
+            # 计算派生指标
+            df_disp = df_top.copy()
+            df_disp["超大单净额(万)"] = (
+                df_disp.get("buy_elg_amount", 0).fillna(0)
+                - df_disp.get("sell_elg_amount", 0).fillna(0)
+            )
+            df_disp["大单净额(万)"] = (
+                df_disp.get("buy_lg_amount", 0).fillna(0)
+                - df_disp.get("sell_lg_amount", 0).fillna(0)
+            )
+            df_disp["小单净额(万)"] = (
+                df_disp.get("buy_sm_amount", 0).fillna(0)
+                - df_disp.get("sell_sm_amount", 0).fillna(0)
+            )
+
+            # 主力净流入条形图
+            fig_bar = go.Figure(go.Bar(
+                x=df_disp["net_mf_amount"].astype(float),
+                y=df_disp["ts_code"],
+                orientation="h",
+                marker=dict(
+                    color=df_disp["net_mf_amount"].astype(float),
+                    colorscale=[[0, "#10B981"], [0.5, "#F59E0B"], [1, "#EF4444"]],
+                    showscale=False,
+                ),
+                text=df_disp["net_mf_amount"].apply(lambda v: f"{float(v):,.0f}万"),
+                textposition="outside",
+                hovertemplate="%{y}<br>主力净流入: %{x:,.0f} 万元<extra></extra>",
+            ))
+            fig_bar.update_layout(
+                title=dict(text="主力净流入（万元）", x=0.02, font=dict(size=18, color="#1E293B")),
+                xaxis_title="净流入额（万元）",
+                height=max(400, top_n * 22),
+                template="plotly_white",
+                paper_bgcolor="white",
+                plot_bgcolor="rgba(248,250,252,0.5)",
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                margin=dict(l=100, r=60, t=60, b=20),
+                yaxis=dict(autorange="reversed"),
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+            # 详细数据表格
+            display_cols = {
+                "ts_code": "代码",
+                "net_mf_amount": "主力净流入(万)",
+                "超大单净额(万)": "超大单净额(万)",
+                "大单净额(万)": "大单净额(万)",
+                "小单净额(万)": "小散净额(万)",
+            }
+            show_df = df_disp[[c for c in display_cols if c in df_disp.columns]].rename(columns=display_cols)
+            for col in show_df.columns:
+                if col != "代码":
+                    show_df[col] = pd.to_numeric(show_df[col], errors="coerce").map(
+                        lambda v: f"{v:,.0f}" if pd.notna(v) else "-"
+                    )
+            st.dataframe(show_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("该日期暂无数据（可能非交易日，或数据尚未入库）")
+
+    # ============================================================
+    # 子标签2：个股历史资金走势
+    # ============================================================
+    with sub_stock:
+        st.markdown("#### 📊 个股历史资金流向趋势")
+
+        col_code, col_range = st.columns([2, 2])
+        with col_code:
+            stock_code = st.text_input(
+                "股票代码（如 000001.SZ）",
+                value=st.session_state.get("mf_stock_code", ""),
+                placeholder="000001.SZ",
+                key="mf_stock_code_input"
+            )
+        with col_range:
+            date_range_opts = {"近1月": 30, "近3月": 90, "近半年": 180, "全部": 0}
+            range_choice = st.selectbox("时间范围", list(date_range_opts.keys()), key="mf_stock_range")
+
+        if st.button("查询个股走势", type="primary", key="btn_mf_stock") and stock_code.strip():
+            code = stock_code.strip().upper()
+            days = date_range_opts[range_choice]
+            start_d = None
+            if days > 0:
+                start_d = (pd.Timestamp.today() - pd.Timedelta(days=days)).strftime("%Y%m%d")
+
+            with st.spinner(f"正在拉取 {code} 资金流向..."):
+                try:
+                    df_hist = query_moneyflow_stock_history(code, start_date=start_d, engine=_mf_engine)
+                    st.session_state["mf_stock_result"] = df_hist
+                    st.session_state["mf_stock_code"] = code
+                except Exception as e:
+                    st.error(f"查询失败：{e}")
+                    st.session_state["mf_stock_result"] = pd.DataFrame()
+
+        df_hist = st.session_state.get("mf_stock_result")
+        if df_hist is not None and not df_hist.empty:
+            df_hist = df_hist.copy()
+            df_hist["trade_date"] = pd.to_datetime(df_hist["trade_date"])
+            df_hist = df_hist.sort_values("trade_date")
+
+            # 主力净流入趋势（面积图）
+            fig_hist = go.Figure()
+            net = df_hist["net_mf_amount"].astype(float)
+            colors = ["#EF4444" if v >= 0 else "#10B981" for v in net]
+
+            fig_hist.add_trace(go.Bar(
+                x=df_hist["trade_date"],
+                y=df_hist["net_mf_amount"].astype(float),
+                name="主力净流入",
+                marker_color=colors,
+                hovertemplate="%{x|%Y-%m-%d}<br>主力净流入: %{y:,.0f} 万元<extra></extra>",
+            ))
+
+            # 叠加超大单
+            if "buy_elg_amount" in df_hist.columns and "sell_elg_amount" in df_hist.columns:
+                elg_net = df_hist["buy_elg_amount"].astype(float) - df_hist["sell_elg_amount"].astype(float)
+                fig_hist.add_trace(go.Scatter(
+                    x=df_hist["trade_date"],
+                    y=elg_net,
+                    mode="lines",
+                    name="超大单净额",
+                    line=dict(color="#8E54E9", width=2),
+                    hovertemplate="%{x|%Y-%m-%d}<br>超大单净额: %{y:,.0f} 万元<extra></extra>",
+                ))
+
+            fig_hist.update_layout(
+                title=dict(
+                    text=f"{st.session_state.get('mf_stock_code', '')} 主力资金流入趋势",
+                    x=0.02, font=dict(size=18, color="#1E293B")
+                ),
+                xaxis_title="日期",
+                yaxis_title="净流入额（万元）",
+                hovermode="x unified",
+                height=420,
+                template="plotly_white",
+                paper_bgcolor="white",
+                plot_bgcolor="rgba(248,250,252,0.5)",
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                margin=dict(l=20, r=20, t=60, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+            )
+            fig_hist.update_xaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)")
+            fig_hist.update_yaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)", zeroline=True, zerolinecolor="#CBD5E1", zerolinewidth=1.5)
+            st.plotly_chart(fig_hist, use_container_width=True)
+
+            # 买卖力量对比（最近20个交易日）
+            recent = df_hist.tail(20).copy()
+            if len(recent) > 0:
+                fig_force = go.Figure()
+                fig_force.add_trace(go.Bar(
+                    name="超大单买入",
+                    x=recent["trade_date"], y=recent.get("buy_elg_amount", pd.Series(dtype=float)).astype(float),
+                    marker_color="#EF4444", opacity=0.85,
+                ))
+                fig_force.add_trace(go.Bar(
+                    name="超大单卖出",
+                    x=recent["trade_date"], y=-recent.get("sell_elg_amount", pd.Series(dtype=float)).astype(float),
+                    marker_color="#10B981", opacity=0.85,
+                ))
+                fig_force.add_trace(go.Bar(
+                    name="大单买入",
+                    x=recent["trade_date"], y=recent.get("buy_lg_amount", pd.Series(dtype=float)).astype(float),
+                    marker_color="#F97316", opacity=0.7,
+                ))
+                fig_force.add_trace(go.Bar(
+                    name="大单卖出",
+                    x=recent["trade_date"], y=-recent.get("sell_lg_amount", pd.Series(dtype=float)).astype(float),
+                    marker_color="#34D399", opacity=0.7,
+                ))
+                fig_force.update_layout(
+                    barmode="relative",
+                    title=dict(text="近20日买卖力量博弈（万元）", x=0.02, font=dict(size=16, color="#1E293B")),
+                    height=360,
+                    template="plotly_white",
+                    paper_bgcolor="white",
+                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    margin=dict(l=20, r=20, t=60, b=20),
+                    hovermode="x unified",
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+                )
+                fig_force.update_xaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)")
+                fig_force.update_yaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)", zeroline=True, zerolinecolor="#CBD5E1", zerolinewidth=1.5)
+                st.plotly_chart(fig_force, use_container_width=True)
+        elif df_hist is not None and df_hist.empty:
+            st.info("该股票暂无资金流向数据，可能尚未入库。")
+
+    # ============================================================
+    # 子标签3：连续净流入选股
+    # ============================================================
+    with sub_screen:
+        st.markdown("#### 🔍 连续主力净流入选股策略")
+        st.info("筛选截至最新交易日，连续至少 N 天主力净流入的个股。")
+
+        col_days, col_dt = st.columns(2)
+        with col_days:
+            min_days = st.slider("最少连续天数", min_value=2, max_value=20, value=3, key="mf_screen_days")
+        with col_dt:
+            screen_date = st.date_input("截止日期", value=latest_dt, key="mf_screen_date")
+
+        if st.button("开始筛选", type="primary", key="btn_mf_screen"):
+            with st.spinner(f"正在筛选连续 {min_days} 天净流入个股..."):
+                try:
+                    df_screen = query_moneyflow_consecutive_inflow(
+                        min_days=min_days,
+                        end_date=str(screen_date).replace("-", ""),
+                        engine=_mf_engine
+                    )
+                    st.session_state["mf_screen_result"] = df_screen
+                except Exception as e:
+                    st.error(f"筛选失败：{e}")
+                    st.session_state["mf_screen_result"] = pd.DataFrame()
+
+        df_screen = st.session_state.get("mf_screen_result")
+        if df_screen is not None and not df_screen.empty:
+            st.success(f"✅ 共筛选出 **{len(df_screen)}** 只符合条件的个股")
+
+            # 散点图：连续天数 vs 累计净流入
+            fig_scatter = go.Figure(go.Scatter(
+                x=df_screen["consecutive_days"].astype(float),
+                y=df_screen["total_net_amount"].astype(float),
+                mode="markers+text",
+                text=df_screen["ts_code"],
+                textposition="top center",
+                marker=dict(
+                    size=df_screen["consecutive_days"].astype(float) * 4,
+                    color=df_screen["total_net_amount"].astype(float),
+                    colorscale="RdYlGn",
+                    showscale=True,
+                    colorbar=dict(title="累计净流入(万)"),
+                    line=dict(color="white", width=1),
+                ),
+                hovertemplate="<b>%{text}</b><br>连续天数: %{x}<br>累计净流入: %{y:,.0f} 万<extra></extra>",
+            ))
+            fig_scatter.update_layout(
+                title=dict(text="连续净流入天数 vs 累计净流入额", x=0.02, font=dict(size=18, color="#1E293B")),
+                xaxis_title="连续净流入天数",
+                yaxis_title="累计主力净流入（万元）",
+                height=480,
+                template="plotly_white",
+                paper_bgcolor="white",
+                plot_bgcolor="rgba(248,250,252,0.5)",
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                margin=dict(l=20, r=20, t=60, b=20),
+            )
+            st.plotly_chart(fig_scatter, use_container_width=True)
+
+            # 表格
+            disp_cols = {
+                "ts_code": "代码",
+                "consecutive_days": "连续天数",
+                "total_net_amount": "累计净流入(万)",
+                "avg_net_amount": "日均净流入(万)",
+                "last_date": "最后日期",
+            }
+            show_df = df_screen[[c for c in disp_cols if c in df_screen.columns]].rename(columns=disp_cols)
+            for col in ["累计净流入(万)", "日均净流入(万)"]:
+                if col in show_df.columns:
+                    show_df[col] = pd.to_numeric(show_df[col], errors="coerce").map(
+                        lambda v: f"{v:,.0f}" if pd.notna(v) else "-"
+                    )
+            st.dataframe(show_df, use_container_width=True, hide_index=True)
+        elif df_screen is not None and df_screen.empty:
+            st.info(f"未发现连续 {min_days} 天净流入个股（或该日非交易日）")
+
+    # ============================================================
+    # 子标签4：行业板块资金流向（THS + DC 两口径）
+    # ============================================================
+    with sub_sector:
+        st.markdown("#### 🏭 行业/板块资金流向")
+
+        sector_date = st.date_input("查询日期", value=latest_dt, key="mf_sector_date")
+        sector_query_date = str(sector_date).replace("-", "")
+
+        col_ths, col_dc = st.columns(2)
+
+        with col_ths:
+            st.markdown("**📗 同花顺口径（THS）**")
+            try:
+                df_ths = query_moneyflow_ind_ths_daily(sector_query_date, engine=_mf_engine)
+                if df_ths is not None and not df_ths.empty:
+                    df_ths["net_amount"] = pd.to_numeric(df_ths["net_amount"], errors="coerce")
+                    df_ths = df_ths.dropna(subset=["net_amount"]).sort_values("net_amount", ascending=False)
+
+                    colors_ths = ["#EF4444" if v >= 0 else "#10B981" for v in df_ths["net_amount"]]
+                    fig_ths = go.Figure(go.Bar(
+                        x=df_ths["net_amount"],
+                        y=df_ths["industry"].fillna("未知"),
+                        orientation="h",
+                        marker_color=colors_ths,
+                        hovertemplate="%{y}<br>净流入: %{x:,.2f} 亿元<extra></extra>",
+                    ))
+                    fig_ths.update_layout(
+                        title=dict(text="THS 行业净流入（亿元）", x=0.02, font=dict(size=15, color="#1E293B")),
+                        height=max(380, len(df_ths) * 20),
+                        template="plotly_white",
+                        paper_bgcolor="white",
+                        plot_bgcolor="rgba(248,250,252,0.5)",
+                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        margin=dict(l=20, r=20, t=50, b=20),
+                        yaxis=dict(autorange="reversed"),
+                    )
+                    st.plotly_chart(fig_ths, use_container_width=True)
+
+                    show_ths = df_ths[["industry", "net_amount", "pct_change", "lead_stock"]].rename(columns={
+                        "industry": "行业", "net_amount": "净流入(亿)",
+                        "pct_change": "涨跌幅(%)", "lead_stock": "领涨股",
+                    }).copy()
+                    for c in ["净流入(亿)", "涨跌幅(%)"]:
+                        if c in show_ths.columns:
+                            show_ths[c] = pd.to_numeric(show_ths[c], errors="coerce").map(
+                                lambda v: f"{v:,.2f}" if pd.notna(v) else "-"
+                            )
+                    st.dataframe(show_ths, use_container_width=True, hide_index=True)
+                else:
+                    st.info("THS 行业数据暂无（需要5000+积分，或当日非交易日）")
+            except Exception as e:
+                st.warning(f"THS行业数据查询失败：{e}")
+
+        with col_dc:
+            st.markdown("**📘 东方财富口径（DC）**")
+            try:
+                df_dc = query_moneyflow_dc_ind_daily(sector_query_date, engine=_mf_engine)
+                if df_dc is not None and not df_dc.empty:
+                    df_dc["net_amount"] = pd.to_numeric(df_dc["net_amount"], errors="coerce")
+                    df_dc = df_dc.dropna(subset=["net_amount"]).sort_values("net_amount", ascending=False)
+
+                    colors_dc = ["#EF4444" if v >= 0 else "#10B981" for v in df_dc["net_amount"]]
+                    fig_dc = go.Figure(go.Bar(
+                        x=df_dc["net_amount"],
+                        y=df_dc["name"].fillna("未知"),
+                        orientation="h",
+                        marker_color=colors_dc,
+                        hovertemplate="%{y}<br>净流入: %{x:,.2f} 亿元<extra></extra>",
+                    ))
+                    fig_dc.update_layout(
+                        title=dict(text="DC 板块净流入（亿元）", x=0.02, font=dict(size=15, color="#1E293B")),
+                        height=max(380, len(df_dc) * 20),
+                        template="plotly_white",
+                        paper_bgcolor="white",
+                        plot_bgcolor="rgba(248,250,252,0.5)",
+                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        margin=dict(l=20, r=20, t=50, b=20),
+                        yaxis=dict(autorange="reversed"),
+                    )
+                    st.plotly_chart(fig_dc, use_container_width=True)
+
+                    show_dc = df_dc[["name", "net_amount", "pct_change", "net_amount_rate"]].rename(columns={
+                        "name": "板块", "net_amount": "净流入(亿)",
+                        "pct_change": "涨跌幅(%)", "net_amount_rate": "净流入占比(%)",
+                    }).copy()
+                    for c in ["净流入(亿)", "涨跌幅(%)", "净流入占比(%)"]:
+                        if c in show_dc.columns:
+                            show_dc[c] = pd.to_numeric(show_dc[c], errors="coerce").map(
+                                lambda v: f"{v:,.2f}" if pd.notna(v) else "-"
+                            )
+                    st.dataframe(show_dc, use_container_width=True, hide_index=True)
+                else:
+                    st.info("DC 板块数据暂无（需要2000+积分，或当日非交易日）")
+            except Exception as e:
+                st.warning(f"DC板块数据查询失败：{e}")
+
+    # ============================================================
+    # 子标签5：北向资金（沪深港通）
+    # ============================================================
+    with sub_hsgt:
+        st.markdown("#### 🌐 沪深港通资金流向（北向 / 南向）")
+
+        hsgt_days_map = {"近1月": 30, "近3月": 90, "近半年": 180, "近1年": 365, "全部": 0}
+        hsgt_range = st.selectbox("时间范围", list(hsgt_days_map.keys()), index=1, key="mf_hsgt_range")
+        hsgt_days = hsgt_days_map[hsgt_range]
+
+        try:
+            hsgt_start = None
+            if hsgt_days > 0:
+                hsgt_start = (pd.Timestamp.today() - pd.Timedelta(days=hsgt_days)).strftime("%Y%m%d")
+            df_hsgt = query_moneyflow_hsgt_history(start_date=hsgt_start, engine=_mf_engine)
+            if df_hsgt is not None and not df_hsgt.empty:
+                df_hsgt["trade_date"] = pd.to_datetime(df_hsgt["trade_date"])
+                df_hsgt = df_hsgt.sort_values("trade_date")
+
+                # 摘要指标卡片
+                latest_hsgt = df_hsgt.iloc[-1]
+                prev_hsgt = df_hsgt.iloc[-2] if len(df_hsgt) >= 2 else None
+
+                def safe_float(val):
+                    try:
+                        return float(val)
+                    except Exception:
+                        return None
+
+                north_val = safe_float(latest_hsgt.get("north_money"))
+                south_val = safe_float(latest_hsgt.get("south_money"))
+                north_prev = safe_float(prev_hsgt.get("north_money")) if prev_hsgt is not None else None
+
+                hsgt_cols = st.columns(3)
+                with hsgt_cols[0]:
+                    n_str = f"{north_val:,.2f} 亿" if north_val is not None else "-"
+                    nd = f"{north_val - north_prev:+.2f}" if north_val is not None and north_prev is not None else "-"
+                    st.markdown(draw_metric_card("北向净流入（亿元）", n_str, nd), unsafe_allow_html=True)
+                with hsgt_cols[1]:
+                    s_str = f"{south_val:,.2f} 亿" if south_val is not None else "-"
+                    st.markdown(draw_metric_card("南向净流入（亿元）", s_str, "-"), unsafe_allow_html=True)
+                with hsgt_cols[2]:
+                    cumul_north = df_hsgt["north_money"].astype(float).sum()
+                    st.markdown(draw_metric_card("区间北向累计（亿元）", f"{cumul_north:,.2f}", "-"), unsafe_allow_html=True)
+
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                # 北向/南向趋势图
+                fig_hsgt = go.Figure()
+
+                north_vals = df_hsgt["north_money"].astype(float)
+                colors_n = ["#EF4444" if v >= 0 else "#10B981" for v in north_vals]
+                fig_hsgt.add_trace(go.Bar(
+                    x=df_hsgt["trade_date"],
+                    y=north_vals,
+                    name="北向净流入",
+                    marker_color=colors_n,
+                    opacity=0.85,
+                    hovertemplate="%{x|%Y-%m-%d}<br>北向净流入: %{y:,.2f} 亿元<extra></extra>",
+                ))
+
+                # 北向5日累计均线
+                north_ma5 = north_vals.rolling(5).mean()
+                fig_hsgt.add_trace(go.Scatter(
+                    x=df_hsgt["trade_date"],
+                    y=north_ma5,
+                    mode="lines",
+                    name="5日均线",
+                    line=dict(color="#8E54E9", width=2.5),
+                    hovertemplate="%{x|%Y-%m-%d}<br>5日均线: %{y:,.2f} 亿<extra></extra>",
+                ))
+
+                fig_hsgt.update_layout(
+                    title=dict(text="北向资金每日净流入（亿元）", x=0.02, font=dict(size=18, color="#1E293B")),
+                    xaxis_title="日期",
+                    yaxis_title="净流入额（亿元）",
+                    hovermode="x unified",
+                    height=420,
+                    template="plotly_white",
+                    paper_bgcolor="white",
+                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    margin=dict(l=20, r=20, t=60, b=20),
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+                )
+                fig_hsgt.update_xaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)")
+                fig_hsgt.update_yaxes(
+                    showgrid=True, gridcolor="rgba(226,232,240,0.5)",
+                    zeroline=True, zerolinecolor="#CBD5E1", zerolinewidth=1.5
+                )
+                st.plotly_chart(fig_hsgt, use_container_width=True)
+
+                # 沪股通 + 深股通分项
+                if "hgt" in df_hsgt.columns and "sgt" in df_hsgt.columns:
+                    fig_detail = go.Figure()
+                    fig_detail.add_trace(go.Scatter(
+                        x=df_hsgt["trade_date"],
+                        y=df_hsgt["hgt"].astype(float),
+                        mode="lines",
+                        name="沪股通",
+                        line=dict(color="#3B82F6", width=2),
+                        hovertemplate="%{x|%Y-%m-%d}<br>沪股通: %{y:,.2f} 亿<extra></extra>",
+                    ))
+                    fig_detail.add_trace(go.Scatter(
+                        x=df_hsgt["trade_date"],
+                        y=df_hsgt["sgt"].astype(float),
+                        mode="lines",
+                        name="深股通",
+                        line=dict(color="#F59E0B", width=2),
+                        hovertemplate="%{x|%Y-%m-%d}<br>深股通: %{y:,.2f} 亿<extra></extra>",
+                    ))
+                    fig_detail.update_layout(
+                        title=dict(text="沪股通 / 深股通 净流入分项", x=0.02, font=dict(size=16, color="#1E293B")),
+                        height=360,
+                        template="plotly_white",
+                        paper_bgcolor="white",
+                        plot_bgcolor="rgba(248,250,252,0.5)",
+                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        margin=dict(l=20, r=20, t=60, b=20),
+                        hovermode="x unified",
+                        legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+                    )
+                    fig_detail.update_xaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)")
+                    fig_detail.update_yaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)")
+                    st.plotly_chart(fig_detail, use_container_width=True)
+
+                # 明细表格
+                show_hsgt = df_hsgt[["trade_date", "north_money", "south_money", "hgt", "sgt"]].copy()
+                show_hsgt["trade_date"] = show_hsgt["trade_date"].dt.strftime("%Y-%m-%d")
+                show_hsgt = show_hsgt.rename(columns={
+                    "trade_date": "日期", "north_money": "北向(亿)",
+                    "south_money": "南向(亿)", "hgt": "沪股通(亿)", "sgt": "深股通(亿)"
+                }).sort_values("日期", ascending=False)
+                for col in ["北向(亿)", "南向(亿)", "沪股通(亿)", "深股通(亿)"]:
+                    if col in show_hsgt.columns:
+                        show_hsgt[col] = pd.to_numeric(show_hsgt[col], errors="coerce").map(
+                            lambda v: f"{v:,.2f}" if pd.notna(v) else "-"
+                        )
+                st.dataframe(show_hsgt, use_container_width=True, hide_index=True, height=380)
+            else:
+                st.info("暂无北向资金数据（moneyflow_hsgt 尚未入库，或时间范围内无交易日）")
+        except Exception as e:
+            st.warning(f"北向资金查询失败：{e}")
+
+
 if __name__ == "__main__":
     main()
-
