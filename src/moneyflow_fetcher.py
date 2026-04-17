@@ -599,7 +599,7 @@ def sync_moneyflow_dc_ind(engine: Engine, pro, start_date: Optional[str] = None,
                           end_date: Optional[str] = None) -> int:
     """
     东方财富行业/板块资金流向，按日期逐日拉取。
-    接口名：moneyflow_dc_ind（若接口名有出入，自动降级到 moneyflow_dc_sector）
+    接口名兼容：moneyflow_ind_dc / moneyflow_dc_ind / moneyflow_dc_sector
     """
     table = MONEYFLOW_TABLES["moneyflow_dc_ind"]
     s = resolve_start_date(engine, table, start_date, lookback_days=DEFAULT_INCREMENTAL_LOOKBACK_DAYS)
@@ -614,11 +614,25 @@ def sync_moneyflow_dc_ind(engine: Engine, pro, start_date: Optional[str] = None,
 
     for dt in iter_trade_dates(s, e):
         try:
-            # 尝试 moneyflow_dc_ind 接口（doc_id=344 板块资金流向DC）
-            try:
-                df = pro.moneyflow_dc_ind(trade_date=dt)
-            except AttributeError:
-                df = pro.moneyflow_dc_sector(trade_date=dt)
+            # 兼容不同 Tushare 版本/别名：优先 moneyflow_ind_dc
+            df = None
+            last_exc = None
+            for api_name in ("moneyflow_ind_dc", "moneyflow_dc_ind", "moneyflow_dc_sector"):
+                fn = getattr(pro, api_name, None)
+                if fn is None:
+                    continue
+                try:
+                    df = fn(trade_date=dt)
+                    break
+                except Exception as api_exc:
+                    last_exc = api_exc
+                    continue
+
+            if df is None:
+                if last_exc is not None:
+                    raise last_exc
+                logger.debug(f"  moneyflow_dc_ind {dt}: 无可用接口")
+                continue
 
             if df is not None and not df.empty:
                 n = upsert_rows(engine, table, "moneyflow_dc_ind", df.to_dict("records"))
