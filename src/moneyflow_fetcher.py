@@ -854,11 +854,18 @@ def query_moneyflow_consecutive_inflow(min_days: int = 3,
         FROM streaks
         ORDER BY ts_code, last_date DESC
     )
-    SELECT *
-    FROM latest
-    WHERE consecutive_days >= :min_days
-      AND last_date = :end_date
-    ORDER BY consecutive_days DESC, total_net_amount DESC
+    SELECT
+        l.ts_code,
+        COALESCE(b.name, l.ts_code) AS name,
+        l.last_date,
+        l.consecutive_days,
+        l.total_net_amount,
+        l.avg_net_amount
+    FROM latest l
+    LEFT JOIN vw_ts_stock_basic b ON b.ts_code = l.ts_code
+    WHERE l.consecutive_days >= :min_days
+      AND l.last_date = :end_date
+    ORDER BY l.consecutive_days DESC, l.total_net_amount DESC
     """
     with engine.connect() as conn:
         df = pd.read_sql(text(sql), conn,

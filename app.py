@@ -3727,12 +3727,16 @@ def render_moneyflow_tab():
         if df_screen is not None and not df_screen.empty:
             st.success(f"✅ 共筛选出 **{len(df_screen)}** 只符合条件的个股")
 
+            df_screen = df_screen.copy()
+            df_screen["name"] = df_screen.get("name", df_screen.get("ts_code", "")).fillna(df_screen.get("ts_code", ""))
+            df_screen["display_name"] = df_screen["name"].astype(str) + "（" + df_screen["ts_code"].astype(str) + "）"
+
             # 散点图：连续天数 vs 累计净流入
             fig_scatter = go.Figure(go.Scatter(
                 x=df_screen["consecutive_days"].astype(float),
                 y=df_screen["total_net_amount"].astype(float),
                 mode="markers+text",
-                text=df_screen["ts_code"],
+                text=df_screen["display_name"],
                 textposition="top center",
                 marker=dict(
                     size=df_screen["consecutive_days"].astype(float) * 4,
@@ -3759,6 +3763,7 @@ def render_moneyflow_tab():
 
             # 表格
             disp_cols = {
+                "name": "名称",
                 "ts_code": "代码",
                 "consecutive_days": "连续天数",
                 "total_net_amount": "累计净流入(万)",
