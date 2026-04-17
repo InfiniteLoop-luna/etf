@@ -11,7 +11,6 @@
 import os
 import sys
 import argparse
-import yaml
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 if PROJECT_ROOT not in sys.path:
@@ -29,7 +28,6 @@ def load_pg_password_from_secrets():
         try:
             import tomli as tomllib
         except ImportError:
-            # Python < 3.11 + no tomli: 简单解析
             with open(secrets_path, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
@@ -42,7 +40,6 @@ def load_pg_password_from_secrets():
     with open(secrets_path, "rb") as f:
         secrets = tomllib.load(f)
 
-    # 支持扁平或嵌套结构
     return (
         secrets.get("ETF_PG_PASSWORD")
         or secrets.get("PGPASSWORD")
@@ -63,7 +60,6 @@ def inject_env_from_secrets():
         try:
             import tomli as tomllib
         except ImportError:
-            # 简单行解析回退
             mapping = {}
             with open(secrets_path, "r", encoding="utf-8") as f:
                 for line in f:
@@ -72,7 +68,7 @@ def inject_env_from_secrets():
                         k, v = line.split("=", 1)
                         mapping[k.strip()] = v.strip().strip('"').strip("'")
             for key in ["ETF_PG_PASSWORD", "PGPASSWORD", "ETF_PG_HOST",
-                         "ETF_PG_USER", "ETF_PG_DATABASE", "ETF_PG_URL", "DATABASE_URL"]:
+                        "ETF_PG_USER", "ETF_PG_DATABASE", "ETF_PG_URL", "DATABASE_URL"]:
                 if key in mapping and not os.environ.get(key):
                     os.environ[key] = mapping[key]
             return
@@ -100,12 +96,17 @@ def main():
     parser.add_argument("--datasets", type=str, default=None,
                         help="逗号分隔数据集，如 moneyflow,moneyflow_hsgt")
     parser.add_argument("--init-tables", action="store_true", help="仅初始化数据库表和视图")
+    parser.add_argument("--lookback-days", type=int, default=1,
+                        help="增量同步时向前回看 N 天，避免补发/修订数据漏采")
+    parser.add_argument("--purge-before-start", action="store_true",
+                        help="删除 start 之前的资金流向数据后再重建指定区间")
     args = parser.parse_args()
 
-    # 注入密码
     inject_env_from_secrets()
 
-    from src.moneyflow_fetcher import DEFAULT_START_DATE, get_engine, ensure_all_tables, run_sync
+    from src.moneyflow_fetcher import DEFAULT_START_DATE, MONEYFLOW_TABLES, get_engine, ensure_all_tables, run_sync
+    from sqlalchemy import text
+    from datetime import datetime
 
     if args.init_tables:
         eng = get_engine()
@@ -115,6 +116,23 @@ def main():
 
     target_ds = [d.strip() for d in args.datasets.split(",")] if args.datasets else None
     start = DEFAULT_START_DATE if args.full else args.start
+
+    if args.lookback_days < 0:
+        raise ValueError("--lookback-days 不能小于 0")
+    os.environ["TUSHARE_MF_LOOKBACK_DAYS"] = str(args.lookback_days)
+
+    if args.purge_before_start and not start:
+        raise ValueError("--purge-before-start 需要配合 --start 或 --full 使用")
+
+    if args.purge_before_start and start:
+        eng = get_engine()
+        with eng.begin() as conn:
+            for table_name in MONEYFLOW_TABLES.values():
+                conn.execute(
+                    text(f"DELETE FROM {table_name} WHERE trade_date < :cutoff"),
+                    {"cutoff": datetime.strptime(start, "%Y%m%d").date()},
+                )
+        print(f"✅ 已清理 {start} 之前的资金流向数据")
 
     run_sync(datasets=target_ds, start_date=start, end_date=args.end)
 

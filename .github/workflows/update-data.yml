@@ -40,7 +40,7 @@ jobs:
       run: |
         python update_volume.py
 
-    # DB ??????? VPS ?? etf-data-update.timer ????? GitHub Actions ?? runner ?????????
+    # DB 同步在 VPS 上由 etf-data-update.timer 触发，GitHub Actions 只负责 Excel+Volume 部分
 
     - name: Write update timestamp
       if: success()

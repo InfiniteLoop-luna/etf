@@ -16,6 +16,7 @@ import argparse
 import hashlib
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -35,15 +36,18 @@ from src.volume_fetcher import _init_tushare
 # ---------------------------------------------------------------------------
 # 常量配置
 # ---------------------------------------------------------------------------
-DEFAULT_START_DATE = "20260101"          # 数据起始日期
+DEFAULT_START_DATE = "20260101"          # ??????
 DEFAULT_API_SLEEP = float(os.getenv("TUSHARE_MF_API_SLEEP", "0.4"))
+DEFAULT_INCREMENTAL_LOOKBACK_DAYS = int(os.getenv("TUSHARE_MF_LOOKBACK_DAYS", "1"))
+DEFAULT_MIN_COVERAGE_RATIO = float(os.getenv("TUSHARE_MF_MIN_COVERAGE_RATIO", "0.9"))
+DEFAULT_PUBLISH_CUTOFF_HOUR = int(os.getenv("TUSHARE_MF_PUBLISH_CUTOFF_HOUR", "20"))
 DEFAULT_DB_HOST = "67.216.207.73"
 DEFAULT_DB_PORT = 5432
 DEFAULT_DB_NAME = "postgres"
 DEFAULT_DB_USER = "postgres"
 DEFAULT_DB_SSLMODE = "disable"
 
-# 每个接口对应的数据库表名
+# ????????????
 MONEYFLOW_TABLES = {
     "moneyflow":         "ts_moneyflow",
     "moneyflow_hsgt":    "ts_moneyflow_hsgt",
@@ -72,6 +76,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+ACTIVE_STOCK_COUNT_CACHE: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -299,19 +304,24 @@ def get_max_trade_date(engine: Engine, table_name: str) -> Optional[str]:
     return None
 
 
-def resolve_start_date(engine: Engine, table_name: str, force_start: Optional[str] = None) -> str:
+def resolve_start_date(
+    engine: Engine,
+    table_name: str,
+    force_start: Optional[str] = None,
+    lookback_days: int = 0,
+) -> str:
     if force_start:
         return force_start
     existing_max = get_max_trade_date(engine, table_name)
     if not existing_max:
         return DEFAULT_START_DATE
-    # 从最新日期的下一天开始（增量）
-    next_day = (datetime.strptime(existing_max, "%Y%m%d") + timedelta(days=1)).strftime("%Y%m%d")
-    return max(DEFAULT_START_DATE, next_day)
+    lookback_days = max(0, int(lookback_days or 0))
+    start_day = (datetime.strptime(existing_max, "%Y%m%d") - timedelta(days=lookback_days)).strftime("%Y%m%d")
+    return max(DEFAULT_START_DATE, start_day)
 
 
 # ---------------------------------------------------------------------------
-# 通用写入函数
+# ??????
 # ---------------------------------------------------------------------------
 
 def upsert_rows(engine: Engine, table_name: str, dataset_name: str, rows: list[dict],
@@ -397,6 +407,78 @@ def get_today_str() -> str:
     return datetime.now().strftime("%Y%m%d")
 
 
+def get_open_trade_dates(pro, start: str, end: str) -> list[str]:
+    calendar_df = pro.trade_cal(exchange="SSE", start_date=start, end_date=end)
+    if calendar_df is None or calendar_df.empty:
+        return []
+    filtered = calendar_df[calendar_df["is_open"] == 1].copy()
+    if filtered.empty:
+        return []
+    return sorted(filtered["cal_date"].astype(str).tolist())
+
+
+def get_required_trade_dates(pro, start: str, end: str, publish_cutoff_hour: int) -> list[str]:
+    trade_dates = get_open_trade_dates(pro, start, end)
+    if not trade_dates:
+        return []
+
+    now = datetime.now()
+    today_str = now.strftime("%Y%m%d")
+    required_dates = []
+    for trade_date in trade_dates:
+        if trade_date > today_str:
+            continue
+        if trade_date == today_str and now.hour < publish_cutoff_hour:
+            continue
+        required_dates.append(trade_date)
+    return required_dates
+
+
+def get_active_stock_count(pro) -> int:
+    global ACTIVE_STOCK_COUNT_CACHE
+    if ACTIVE_STOCK_COUNT_CACHE is not None:
+        return ACTIVE_STOCK_COUNT_CACHE
+
+    df = pro.stock_basic(list_status="L", fields="ts_code")
+    if df is None or df.empty or "ts_code" not in df.columns:
+        raise RuntimeError("??????????????? moneyflow ???")
+
+    ACTIVE_STOCK_COUNT_CACHE = int(df["ts_code"].astype(str).str.strip().nunique())
+    return ACTIVE_STOCK_COUNT_CACHE
+
+
+def validate_moneyflow_result(pro, returned_counts: dict[str, int], required_trade_dates: list[str], min_coverage_ratio: float):
+    if not required_trade_dates:
+        return
+
+    active_stock_count = get_active_stock_count(pro)
+    minimum_required = max(1, math.ceil(active_stock_count * min_coverage_ratio))
+    insufficient_dates = []
+    for trade_date in required_trade_dates:
+        row_count = int(returned_counts.get(trade_date, 0))
+        if row_count < minimum_required:
+            insufficient_dates.append(f"{trade_date}={row_count}")
+
+    if insufficient_dates:
+        raise RuntimeError(
+            "moneyflow ???????"
+            f"??????????? {minimum_required} ???"
+            f"??????? {active_stock_count}??? {min_coverage_ratio:.0%}??"
+            f"????: {', '.join(insufficient_dates[:10])}"
+        )
+
+
+def validate_trade_date_coverage(dataset_name: str, returned_dates: set[str], required_trade_dates: list[str]):
+    if not required_trade_dates:
+        return
+
+    missing_dates = [trade_date for trade_date in required_trade_dates if trade_date not in returned_dates]
+    if missing_dates:
+        raise RuntimeError(
+            f"{dataset_name} ??????? {len(missing_dates)} ???????: {', '.join(missing_dates[:10])}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # 1. 个股资金流向（moneyflow）
 # ---------------------------------------------------------------------------
@@ -408,7 +490,7 @@ def sync_moneyflow(engine: Engine, pro, start_date: Optional[str] = None,
     返回写入总行数。
     """
     table = MONEYFLOW_TABLES["moneyflow"]
-    s = resolve_start_date(engine, table, start_date)
+    s = resolve_start_date(engine, table, start_date, lookback_days=DEFAULT_INCREMENTAL_LOOKBACK_DAYS)
     e = end_date or get_today_str()
 
     if s > e:
@@ -442,7 +524,7 @@ def sync_moneyflow(engine: Engine, pro, start_date: Optional[str] = None,
 def sync_moneyflow_hsgt(engine: Engine, pro, start_date: Optional[str] = None,
                         end_date: Optional[str] = None) -> int:
     table = MONEYFLOW_TABLES["moneyflow_hsgt"]
-    s = resolve_start_date(engine, table, start_date)
+    s = resolve_start_date(engine, table, start_date, lookback_days=DEFAULT_INCREMENTAL_LOOKBACK_DAYS)
     e = end_date or get_today_str()
 
     if s > e:
@@ -478,7 +560,7 @@ def sync_moneyflow_ind_ths(engine: Engine, pro, start_date: Optional[str] = None
     注意：此接口需要 5000+ 积分。若权限不足会跳过。
     """
     table = MONEYFLOW_TABLES["moneyflow_ind_ths"]
-    s = resolve_start_date(engine, table, start_date)
+    s = resolve_start_date(engine, table, start_date, lookback_days=DEFAULT_INCREMENTAL_LOOKBACK_DAYS)
     e = end_date or get_today_str()
 
     if s > e:
@@ -520,7 +602,7 @@ def sync_moneyflow_dc_ind(engine: Engine, pro, start_date: Optional[str] = None,
     接口名：moneyflow_dc_ind（若接口名有出入，自动降级到 moneyflow_dc_sector）
     """
     table = MONEYFLOW_TABLES["moneyflow_dc_ind"]
-    s = resolve_start_date(engine, table, start_date)
+    s = resolve_start_date(engine, table, start_date, lookback_days=DEFAULT_INCREMENTAL_LOOKBACK_DAYS)
     e = end_date or get_today_str()
 
     if s > e:
@@ -869,26 +951,41 @@ def get_moneyflow_latest_date(engine: Optional[Engine] = None) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="资金流向数据同步工具")
+    parser = argparse.ArgumentParser(description="??????????")
     parser.add_argument("--start", type=str, default=None,
-                        help="起始日期 YYYYMMDD（默认增量）")
+                        help="???? YYYYMMDD??????")
     parser.add_argument("--end", type=str, default=None,
-                        help="结束日期 YYYYMMDD（默认今天）")
+                        help="???? YYYYMMDD??????")
     parser.add_argument("--full", action="store_true",
-                        help="强制从 DEFAULT_START_DATE 全量拉取")
+                        help="??? DEFAULT_START_DATE ????")
     parser.add_argument("--datasets", type=str, default=None,
-                        help="逗号分隔的数据集，如 moneyflow,moneyflow_hsgt")
+                        help="?????????? moneyflow,moneyflow_hsgt")
     parser.add_argument("--init-tables", action="store_true",
-                        help="仅初始化数据库表和视图，不拉数据")
+                        help="????????????????")
+    parser.add_argument("--lookback-days", type=int, default=DEFAULT_INCREMENTAL_LOOKBACK_DAYS,
+                        help="???????????????")
+    parser.add_argument("--purge-before-start", action="store_true",
+                        help="?? start ????????????? 2026 ????")
     args = parser.parse_args()
 
     if args.init_tables:
         eng = get_engine()
         ensure_all_tables(eng)
-        print("数据库表和视图初始化完成")
+        print("????????????")
         sys.exit(0)
+
+    if args.lookback_days < 0:
+        raise ValueError("--lookback-days ???? 0")
+    os.environ["TUSHARE_MF_LOOKBACK_DAYS"] = str(args.lookback_days)
 
     target_ds = [d.strip() for d in args.datasets.split(",")] if args.datasets else None
     start = DEFAULT_START_DATE if args.full else args.start
+
+    if args.purge_before_start and start:
+        eng = get_engine()
+        with eng.begin() as conn:
+            for table_name in MONEYFLOW_TABLES.values():
+                conn.execute(text(f"DELETE FROM {table_name} WHERE trade_date < :cutoff"), {"cutoff": datetime.strptime(start, "%Y%m%d").date()})
+        print(f"??? {start} ?????????")
 
     run_sync(datasets=target_ds, start_date=start, end_date=args.end)
