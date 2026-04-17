@@ -1264,8 +1264,8 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
-    tab_etf, tab_volume, tab_etf_classification, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_macro, tab_security, tab_screener, tab_tech_picker, tab_moneyflow = st.tabs(
-        ["📈 ETF份额变动", "📊 每日成交量", "📊 ETF分类统计", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🌏 宏观经济", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股", "💹 资金流向"]
+    tab_etf, tab_volume, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_macro, tab_security, tab_screener, tab_tech_picker, tab_moneyflow = st.tabs(
+        ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🌏 宏观经济", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股", "💹 资金流向"]
     )
     trigger_security_tab_jump_if_needed()
 
@@ -1277,9 +1277,6 @@ def main():
     with tab_volume:
         render_volume_tab()
 
-    # ========== ETF分类统计 Tab ==========
-    with tab_etf_classification:
-        render_etf_classification_tab()
 
     with tab_etf_ratio:
         render_etf_category_ratio_tab()
