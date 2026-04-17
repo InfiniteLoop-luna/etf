@@ -31,6 +31,9 @@ python src/sync_tushare_security_data.py --datasets daily_basic index_dailybasic
 echo "[$(date -Is)] etf-data-update: run fetch_etf_share_size.py"
 python src/fetch_etf_share_size.py
 
+echo "[$(date -Is)] etf-data-update: run update_moneyflow.py (incremental)"
+python update_moneyflow.py --datasets moneyflow,moneyflow_hsgt,moneyflow_ind_ths,moneyflow_dc_ind --lookback-days 1
+
 echo "[$(date -Is)] etf-data-update: restart streamlit"
 systemctl restart etf-streamlit
 
