@@ -3531,34 +3531,74 @@ def render_moneyflow_tab():
     # ============================================================
     with sub_stock:
         st.markdown("#### 📊 个股历史资金流向趋势")
+        st.caption("支持输入股票代码、名称或拼音缩写，自动模糊匹配后查询资金走势")
 
-        col_code, col_range = st.columns([2, 2])
+        col_code, col_match, col_range = st.columns([1.6, 2.4, 1.6])
         with col_code:
-            stock_code = st.text_input(
-                "股票代码（如 000001.SZ）",
-                value=st.session_state.get("mf_stock_code", ""),
-                placeholder="000001.SZ",
+            stock_keyword = st.text_input(
+                "股票代码 / 名称 / 拼音",
+                value=st.session_state.get("mf_stock_keyword", st.session_state.get("mf_stock_code", "")),
+                placeholder="如 000001.SZ、平安银行、payh",
                 key="mf_stock_code_input"
-            )
+            ).strip()
+
+        candidate_df = pd.DataFrame()
+        option_labels = []
+        selected_row = None
+
+        if stock_keyword:
+            try:
+                candidate_df = load_security_search(stock_keyword, 'stock', limit=30)
+            except Exception as e:
+                st.warning(f"匹配股票失败：{e}")
+                candidate_df = pd.DataFrame()
+
+        with col_match:
+            if candidate_df is not None and len(candidate_df) > 0:
+                option_labels = [format_security_option(row) for _, row in candidate_df.iterrows()]
+                default_index = 0
+                existing_code = st.session_state.get("mf_stock_code", "")
+                if existing_code:
+                    for idx, (_, row) in enumerate(candidate_df.iterrows()):
+                        if str(row.get('ts_code', '')).upper() == str(existing_code).upper():
+                            default_index = idx
+                            break
+                selected_label = st.selectbox(
+                    "匹配结果",
+                    options=option_labels,
+                    index=default_index,
+                    key="mf_stock_match_option"
+                )
+                selected_idx = option_labels.index(selected_label)
+                selected_row = candidate_df.iloc[selected_idx]
+            else:
+                st.text_input("匹配结果", value="请输入关键词后自动匹配", disabled=True, key="mf_stock_match_placeholder")
+
         with col_range:
             date_range_opts = {"近1月": 30, "近3月": 90, "近半年": 180, "全部": 0}
             range_choice = st.selectbox("时间范围", list(date_range_opts.keys()), key="mf_stock_range")
 
-        if st.button("查询个股走势", type="primary", key="btn_mf_stock") and stock_code.strip():
-            code = stock_code.strip().upper()
-            days = date_range_opts[range_choice]
-            start_d = None
-            if days > 0:
-                start_d = (pd.Timestamp.today() - pd.Timedelta(days=days)).strftime("%Y%m%d")
+        if st.button("查询个股走势", type="primary", key="btn_mf_stock"):
+            if selected_row is None:
+                st.warning("请先输入股票代码/名称，并从匹配结果中选择股票")
+            else:
+                code = str(selected_row['ts_code']).strip().upper()
+                name = str(selected_row.get('name') or code).strip()
+                days = date_range_opts[range_choice]
+                start_d = None
+                if days > 0:
+                    start_d = (pd.Timestamp.today() - pd.Timedelta(days=days)).strftime("%Y%m%d")
 
-            with st.spinner(f"正在拉取 {code} 资金流向..."):
-                try:
-                    df_hist = query_moneyflow_stock_history(code, start_date=start_d, engine=_mf_engine)
-                    st.session_state["mf_stock_result"] = df_hist
-                    st.session_state["mf_stock_code"] = code
-                except Exception as e:
-                    st.error(f"查询失败：{e}")
-                    st.session_state["mf_stock_result"] = pd.DataFrame()
+                with st.spinner(f"正在拉取 {name}（{code}）资金流向..."):
+                    try:
+                        df_hist = query_moneyflow_stock_history(code, start_date=start_d, engine=_mf_engine)
+                        st.session_state["mf_stock_result"] = df_hist
+                        st.session_state["mf_stock_code"] = code
+                        st.session_state["mf_stock_name"] = name
+                        st.session_state["mf_stock_keyword"] = stock_keyword
+                    except Exception as e:
+                        st.error(f"查询失败：{e}")
+                        st.session_state["mf_stock_result"] = pd.DataFrame()
 
         df_hist = st.session_state.get("mf_stock_result")
         if df_hist is not None and not df_hist.empty:
@@ -3591,9 +3631,13 @@ def render_moneyflow_tab():
                     hovertemplate="%{x|%Y-%m-%d}<br>超大单净额: %{y:,.0f} 万元<extra></extra>",
                 ))
 
+            selected_stock_title = st.session_state.get('mf_stock_name') or st.session_state.get('mf_stock_code', '')
+            if st.session_state.get('mf_stock_code') and st.session_state.get('mf_stock_name'):
+                selected_stock_title = f"{st.session_state.get('mf_stock_name')}（{st.session_state.get('mf_stock_code')}）"
+
             fig_hist.update_layout(
                 title=dict(
-                    text=f"{st.session_state.get('mf_stock_code', '')} 主力资金流入趋势",
+                    text=f"{selected_stock_title} 主力资金流入趋势",
                     x=0.02, font=dict(size=18, color="#1E293B")
                 ),
                 xaxis_title="日期",
