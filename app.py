@@ -3453,10 +3453,13 @@ def render_moneyflow_tab():
                 - df_disp.get("sell_sm_amount", 0).fillna(0)
             )
 
-            # 主力净流入条形图
+            # 主力净流入条形图（显示名称，便于识别）
+            df_disp["name"] = df_disp.get("name", df_disp.get("ts_code", "")).fillna(df_disp.get("ts_code", ""))
+            df_disp["display_name"] = df_disp["name"].astype(str) + "（" + df_disp["ts_code"].astype(str) + "）"
+
             fig_bar = go.Figure(go.Bar(
                 x=df_disp["net_mf_amount"].astype(float),
-                y=df_disp["ts_code"],
+                y=df_disp["display_name"],
                 orientation="h",
                 marker=dict(
                     color=df_disp["net_mf_amount"].astype(float),
@@ -3480,8 +3483,19 @@ def render_moneyflow_tab():
             )
             st.plotly_chart(fig_bar, use_container_width=True)
 
-            # 详细数据表格
+            # 详细数据表格（名称可点击跳转到“个股/指数查询”）
+            from urllib.parse import quote
+
+            render_nonce = st.session_state.get('mf_top_render_nonce', 0) + 1
+            st.session_state['mf_top_render_nonce'] = render_nonce
+
+            df_disp["jump_link"] = df_disp["ts_code"].astype(str).map(
+                lambda code: f"?security_query={quote(code)}&security_type=stock&open_tab=security&jump_nonce={render_nonce}_{quote(code)}"
+            )
+            df_disp["name_link"] = df_disp["name"].astype(str)
+
             display_cols = {
+                "name_link": "名称",
                 "ts_code": "代码",
                 "net_mf_amount": "主力净流入(万)",
                 "超大单净额(万)": "超大单净额(万)",
@@ -3489,12 +3503,26 @@ def render_moneyflow_tab():
                 "小单净额(万)": "小散净额(万)",
             }
             show_df = df_disp[[c for c in display_cols if c in df_disp.columns]].rename(columns=display_cols)
+            show_df.insert(0, "跳转", df_disp["jump_link"])
             for col in show_df.columns:
-                if col != "代码":
+                if col not in {"代码", "名称", "跳转"}:
                     show_df[col] = pd.to_numeric(show_df[col], errors="coerce").map(
                         lambda v: f"{v:,.0f}" if pd.notna(v) else "-"
                     )
-            st.dataframe(show_df, use_container_width=True, hide_index=True)
+
+            st.info("💡 点击“名称”列最左侧的“🔎 查询”即可跳转到“个股/指数查询”，并自动带入该股票代码。")
+            st.dataframe(
+                show_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "跳转": st.column_config.LinkColumn(
+                        "跳转",
+                        help='点击后跳转到个股/指数查询',
+                        display_text='🔎 查询'
+                    )
+                }
+            )
         else:
             st.info("该日期暂无数据（可能非交易日，或数据尚未入库）")
 

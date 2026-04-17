@@ -718,7 +718,7 @@ def query_moneyflow_daily_top(trade_date: str, top_n: int = 20,
     查询指定日期主力净流入 Top N 个股。
 
     Returns: DataFrame with columns:
-        ts_code, trade_date, net_mf_amount(万元),
+        ts_code, name, trade_date, net_mf_amount(万元),
         buy_elg_amount, sell_elg_amount, buy_lg_amount, sell_lg_amount,
         buy_sm_amount, sell_sm_amount
     """
@@ -727,21 +727,23 @@ def query_moneyflow_daily_top(trade_date: str, top_n: int = 20,
 
     sql = """
     SELECT
-        ts_code,
-        trade_date,
-        (payload->>'net_mf_amount')::numeric   AS net_mf_amount,
-        (payload->>'buy_elg_amount')::numeric  AS buy_elg_amount,
-        (payload->>'sell_elg_amount')::numeric AS sell_elg_amount,
-        (payload->>'buy_lg_amount')::numeric   AS buy_lg_amount,
-        (payload->>'sell_lg_amount')::numeric  AS sell_lg_amount,
-        (payload->>'buy_md_amount')::numeric   AS buy_md_amount,
-        (payload->>'sell_md_amount')::numeric  AS sell_md_amount,
-        (payload->>'buy_sm_amount')::numeric   AS buy_sm_amount,
-        (payload->>'sell_sm_amount')::numeric  AS sell_sm_amount
-    FROM ts_moneyflow
-    WHERE trade_date = :trade_date
-      AND (payload->>'net_mf_amount') IS NOT NULL
-    ORDER BY (payload->>'net_mf_amount')::numeric DESC
+        m.ts_code,
+        COALESCE(b.name, m.ts_code)            AS name,
+        m.trade_date,
+        (m.payload->>'net_mf_amount')::numeric   AS net_mf_amount,
+        (m.payload->>'buy_elg_amount')::numeric  AS buy_elg_amount,
+        (m.payload->>'sell_elg_amount')::numeric AS sell_elg_amount,
+        (m.payload->>'buy_lg_amount')::numeric   AS buy_lg_amount,
+        (m.payload->>'sell_lg_amount')::numeric  AS sell_lg_amount,
+        (m.payload->>'buy_md_amount')::numeric   AS buy_md_amount,
+        (m.payload->>'sell_md_amount')::numeric  AS sell_md_amount,
+        (m.payload->>'buy_sm_amount')::numeric   AS buy_sm_amount,
+        (m.payload->>'sell_sm_amount')::numeric  AS sell_sm_amount
+    FROM ts_moneyflow m
+    LEFT JOIN vw_ts_stock_basic b ON b.ts_code = m.ts_code
+    WHERE m.trade_date = :trade_date
+      AND (m.payload->>'net_mf_amount') IS NOT NULL
+    ORDER BY (m.payload->>'net_mf_amount')::numeric DESC
     LIMIT :top_n
     """
     dt_str = str(trade_date).replace("-", "")
