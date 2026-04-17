@@ -3770,13 +3770,35 @@ def render_moneyflow_tab():
                 "avg_net_amount": "日均净流入(万)",
                 "last_date": "最后日期",
             }
+            from urllib.parse import quote
+
+            render_nonce = st.session_state.get('mf_screen_render_nonce', 0) + 1
+            st.session_state['mf_screen_render_nonce'] = render_nonce
+            df_screen["jump_link"] = df_screen["ts_code"].astype(str).map(
+                lambda code: f"?security_query={quote(code)}&security_type=stock&open_tab=security&jump_nonce={render_nonce}_{quote(code)}"
+            )
+
             show_df = df_screen[[c for c in disp_cols if c in df_screen.columns]].rename(columns=disp_cols)
+            show_df.insert(0, "跳转", df_screen["jump_link"])
             for col in ["累计净流入(万)", "日均净流入(万)"]:
                 if col in show_df.columns:
                     show_df[col] = pd.to_numeric(show_df[col], errors="coerce").map(
                         lambda v: f"{v:,.0f}" if pd.notna(v) else "-"
                     )
-            st.dataframe(show_df, use_container_width=True, hide_index=True)
+
+            st.info("💡 点击“跳转”列的“🔎 查询”即可跳到“个股/指数查询”，并自动带入该股票代码。")
+            st.dataframe(
+                show_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "跳转": st.column_config.LinkColumn(
+                        "跳转",
+                        help='点击后跳转到个股/指数查询',
+                        display_text='🔎 查询'
+                    )
+                }
+            )
         elif df_screen is not None and df_screen.empty:
             st.info(f"未发现连续 {min_days} 天净流入个股（或该日非交易日）")
 
