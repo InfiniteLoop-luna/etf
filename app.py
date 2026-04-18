@@ -3442,6 +3442,7 @@ def render_fund_hot_stocks_tab():
         get_latest_agg_period,
         query_hot_stocks_leaderboard,
         query_stock_fund_holding_detail,
+        query_stock_holding_trend,
     )
 
     st.subheader("🏦 公募基金持仓热股")
@@ -3757,6 +3758,90 @@ def render_fund_hot_stocks_tab():
             show_df["持仓数量"] = pd.to_numeric(show_df["持仓数量"], errors="coerce").map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
 
             st.dataframe(show_df, use_container_width=True, hide_index=True, height=520)
+
+            st.markdown("#### 📈 个股季度趋势")
+            trend_periods = st.selectbox("趋势季度数", [4, 6, 8, 12], index=2, key="fh_trend_periods")
+            try:
+                trend_df = query_stock_holding_trend(
+                    symbol=st.session_state.get("fh_stock_code", ""),
+                    periods=int(trend_periods),
+                    engine=_fh_engine,
+                )
+            except Exception as exc:
+                logger.error(f"query_stock_holding_trend failed: {exc}", exc_info=True)
+                trend_df = pd.DataFrame()
+
+            if trend_df is not None and not trend_df.empty:
+                trend_df = trend_df.copy()
+                trend_df["end_date"] = pd.to_datetime(trend_df["end_date"])
+                trend_df["end_date_label"] = trend_df["end_date"].dt.strftime("%Y-%m-%d")
+                trend_df["total_mkv_yi"] = pd.to_numeric(trend_df["total_mkv"], errors="coerce").fillna(0) / 1e8
+                trend_df["holding_fund_count"] = pd.to_numeric(trend_df["holding_fund_count"], errors="coerce").fillna(0)
+
+                fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
+                fig_trend.add_trace(
+                    go.Bar(
+                        x=trend_df["end_date_label"],
+                        y=trend_df["holding_fund_count"],
+                        name="持有基金数",
+                        marker_color="#3B82F6",
+                        opacity=0.75,
+                    ),
+                    secondary_y=False,
+                )
+                fig_trend.add_trace(
+                    go.Scatter(
+                        x=trend_df["end_date_label"],
+                        y=trend_df["total_mkv_yi"],
+                        name="总持仓市值(亿)",
+                        mode="lines+markers",
+                        line=dict(color="#F59E0B", width=3),
+                        marker=dict(size=7),
+                    ),
+                    secondary_y=True,
+                )
+                fig_trend.update_layout(
+                    title=dict(text="近季度持仓趋势", x=0.02, font=dict(size=17, color="#1E293B")),
+                    template="plotly_white",
+                    paper_bgcolor="white",
+                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    height=420,
+                    margin=dict(l=50, r=50, t=55, b=30),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+                )
+                fig_trend.update_yaxes(title_text="持有基金数", secondary_y=False)
+                fig_trend.update_yaxes(title_text="总持仓市值（亿元）", secondary_y=True)
+                st.plotly_chart(fig_trend, use_container_width=True)
+
+                trend_show = trend_df[[
+                    "end_date_label",
+                    "holding_fund_count",
+                    "total_mkv_yi",
+                    "delta_holding_fund_count",
+                    "delta_total_mkv",
+                    "new_fund_count",
+                    "exited_fund_count",
+                    "heat_score",
+                ]].copy()
+                trend_show.columns = [
+                    "报告期",
+                    "持有基金数",
+                    "总持仓市值(亿)",
+                    "基金数环比变化",
+                    "市值环比变化",
+                    "新进基金数",
+                    "退出基金数",
+                    "热度分",
+                ]
+                trend_show["市值环比变化"] = pd.to_numeric(trend_show["市值环比变化"], errors="coerce").fillna(0) / 1e8
+                trend_show["热度分"] = pd.to_numeric(trend_show["热度分"], errors="coerce").fillna(0) * 100
+                for col in ["总持仓市值(亿)", "市值环比变化", "热度分"]:
+                    trend_show[col] = pd.to_numeric(trend_show[col], errors="coerce").map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+                st.dataframe(trend_show, use_container_width=True, hide_index=True)
+            else:
+                st.info("该股票暂无可用的季度趋势数据。")
+
         elif df_detail is not None and df_detail.empty and not detail_error and st.session_state.get("fh_last_query_code"):
             st.info("该股票在所选报告期暂无基金持仓明细。可能原因：当前季度未被基金持有，或该股票尚未纳入本期聚合数据。")
 

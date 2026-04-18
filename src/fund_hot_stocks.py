@@ -914,6 +914,50 @@ def query_stock_fund_holding_detail(
         )
 
 
+def query_stock_holding_trend(
+    symbol: str,
+    periods: int = 8,
+    engine: Optional[Engine] = None,
+) -> pd.DataFrame:
+    engine = engine or get_engine()
+    symbol = str(symbol or "").strip().upper()
+    if not symbol:
+        return pd.DataFrame()
+
+    sql = f"""
+    SELECT
+        end_date,
+        symbol,
+        stock_name,
+        holding_fund_count,
+        total_mkv,
+        total_amount,
+        avg_stk_mkv_ratio,
+        delta_holding_fund_count,
+        delta_total_mkv,
+        new_fund_count,
+        exited_fund_count,
+        heat_score
+    FROM {AGG_TABLE}
+    WHERE symbol = :symbol
+    ORDER BY end_date DESC
+    LIMIT :periods
+    """
+
+    with engine.connect() as conn:
+        df = pd.read_sql(
+            text(sql),
+            conn,
+            params={"symbol": symbol, "periods": int(periods)},
+        )
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.sort_values("end_date").reset_index(drop=True)
+    return df
+
+
 # ---------------------------------------------------------------------------
 # 一键运行
 # ---------------------------------------------------------------------------
