@@ -4634,18 +4634,19 @@ def render_moneyflow_tab():
                             pad = (ymax - ymin) * 0.15
                         y_range = [ymin - pad, ymax + pad]
 
-                        def _build_frame_data(frame_df: pd.DataFrame, current_dt=None):
+                        def _build_frame_payload(frame_df: pd.DataFrame, current_dt=None):
                             traces = []
+                            ann = []
                             last_points = frame_df.sort_values(["sector_name", "date_dt"]).groupby("sector_name", as_index=False).tail(1).copy()
                             last_points["label_text"] = last_points.apply(lambda r: f"{r['sector_name']} {r['net_amount_yi']:.2f}亿", axis=1)
                             y_span = float(frame_df["net_amount_yi"].max() - frame_df["net_amount_yi"].min()) if not frame_df.empty else 0.0
                             y_offset = max(0.08, y_span * 0.015)
                             if current_dt is not None:
                                 current_dt = pd.to_datetime(current_dt)
-                                last_points["label_x"] = current_dt + pd.Timedelta(days=2)
+                                label_x = current_dt + pd.Timedelta(days=2)
                             else:
-                                last_points["label_x"] = last_points["date_dt"] + pd.Timedelta(days=2)
-                            last_points["label_y"] = pd.to_numeric(last_points["net_amount_yi"], errors="coerce").fillna(0) + y_offset
+                                label_x = last_points["date_dt"].max() + pd.Timedelta(days=2)
+
                             for sector_name, g in frame_df.groupby("sector_name", sort=False):
                                 traces.append(go.Scatter(
                                     x=g["date_dt"],
@@ -4657,26 +4658,23 @@ def render_moneyflow_tab():
                                     hovertemplate="%{x|%Y-%m-%d}<br>%{fullData.name}: %{y:.2f}亿<extra></extra>",
                                     showlegend=True,
                                 ))
-                            traces.append(go.Scatter(
-                                x=last_points["date_dt"],
-                                y=last_points["net_amount_yi"],
-                                mode="markers",
-                                marker=dict(size=7, color="#111827"),
-                                hoverinfo="skip",
-                                showlegend=False,
-                            ))
-                            traces.append(go.Scatter(
-                                x=last_points["label_x"],
-                                y=last_points["label_y"],
-                                mode="text",
-                                text=last_points["label_text"],
-                                textposition="top left",
-                                textfont=dict(size=12, color="#0F172A"),
-                                hoverinfo="skip",
-                                cliponaxis=False,
-                                showlegend=False,
-                            ))
-                            return traces
+
+                            for _, r in last_points.iterrows():
+                                ann.append(dict(
+                                    x=label_x,
+                                    y=float(r.get("net_amount_yi") or 0) + y_offset,
+                                    xref="x",
+                                    yref="y",
+                                    text=str(r.get("label_text") or ""),
+                                    showarrow=False,
+                                    xanchor="left",
+                                    yanchor="middle",
+                                    font=dict(size=12, color="#0F172A"),
+                                    bgcolor="rgba(255,255,255,0.75)",
+                                    bordercolor="rgba(148,163,184,0.35)",
+                                    borderwidth=1,
+                                ))
+                            return traces, ann
 
                         frames = []
                         for i, d in enumerate(curve_dates, start=1):
@@ -4684,10 +4682,12 @@ def render_moneyflow_tab():
                             if frame_df.empty:
                                 continue
                             frame_name = pd.to_datetime(d).strftime("%Y-%m-%d")
-                            frames.append(go.Frame(data=_build_frame_data(frame_df, current_dt=d), name=frame_name))
+                            frame_traces, frame_ann = _build_frame_payload(frame_df, current_dt=d)
+                            frames.append(go.Frame(data=frame_traces, layout=go.Layout(annotations=frame_ann), name=frame_name))
 
                         first_df = anim_top_sorted[anim_top_sorted["date_dt"].isin([curve_dates[0]])].copy()
-                        fig_anim = go.Figure(data=_build_frame_data(first_df, current_dt=curve_dates[0]))
+                        first_traces, first_ann = _build_frame_payload(first_df, current_dt=curve_dates[0])
+                        fig_anim = go.Figure(data=first_traces)
                         fig_anim.frames = frames
                         fig_anim.update_layout(
                             title=dict(text=f"{sector_anim_source} 资金曲线动画（从 {str(sector_anim_start)} 到 {latest_date}）", x=0.02, font=dict(size=17, color="#1E293B")),
@@ -4703,6 +4703,7 @@ def render_moneyflow_tab():
                             hovermode="x unified",
                             xaxis=dict(type="date", tickformat="%Y-%m-%d", tickangle=-35, showgrid=True, range=[curve_dates[0], pd.to_datetime(curve_dates[-1]) + pd.Timedelta(days=12)]),
                             yaxis=dict(range=y_range, autorange=False, showgrid=True),
+                            annotations=first_ann,
                             updatemenus=[{
                                 "type": "buttons",
                                 "showactive": False,
@@ -4720,7 +4721,6 @@ def render_moneyflow_tab():
                                 ]
                             }],
                         )
-                        fig_anim.update_traces(cliponaxis=False, selector=dict(mode="markers+text"))
                         st.plotly_chart(fig_anim, use_container_width=True)
                         st.caption("说明：曲线末端标签会随帧持续更新并始终在线显示；初始状态已固定坐标范围，无需手动 autoscale。")
                 latest_frame = anim_top[anim_top["date_label"] == anim_top["date_label"].max()].copy()
