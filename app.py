@@ -3599,6 +3599,65 @@ def render_fund_hot_stocks_tab():
                     "跳转": st.column_config.LinkColumn("跳转", display_text="🔎 查询")
                 },
             )
+
+            st.markdown("#### 📊 季度对比 / 新晋抱团股")
+            prev_candidates = [p for p in periods if p != selected_period]
+            prev_period_label = prev_candidates[0] if prev_candidates else None
+            if prev_period_label:
+                try:
+                    prev_df = query_hot_stocks_leaderboard(
+                        period=prev_period_label.replace("-", ""),
+                        top_n=int(top_n),
+                        order_by=sort_options[sort_label],
+                        min_holding_funds=int(min_holding_funds),
+                        fund_type_filter=selected_fund_type,
+                        engine=_fh_engine,
+                    )
+                except Exception as exc:
+                    logger.error(f"query previous leaderboard failed: {exc}", exc_info=True)
+                    prev_df = pd.DataFrame()
+
+                if prev_df is not None and not prev_df.empty:
+                    cur_codes = set(df_top["symbol"].astype(str))
+                    prev_codes = set(prev_df["symbol"].astype(str))
+                    new_entries = df_top[df_top["symbol"].astype(str).isin(cur_codes - prev_codes)].copy()
+                    dropped_entries = prev_df[prev_df["symbol"].astype(str).isin(prev_codes - cur_codes)].copy()
+                    strongest_up = df_top.sort_values(["delta_holding_fund_count", "delta_total_mkv"], ascending=[False, False]).head(10).copy()
+
+                    compare_metrics = st.columns(3)
+                    compare_metrics[0].metric("新晋上榜数", f"{len(new_entries):,}")
+                    compare_metrics[1].metric("退出上榜数", f"{len(dropped_entries):,}")
+                    compare_metrics[2].metric("对比基准季度", prev_period_label)
+
+                    cmp_a, cmp_b, cmp_c = st.tabs(["🆕 新晋上榜", "📉 退出上榜", "🚀 增幅最强"])
+
+                    with cmp_a:
+                        if not new_entries.empty:
+                            new_show = new_entries[["stock_name", "symbol", "holding_fund_count", "total_mkv", "heat_score"]].copy()
+                            new_show.columns = ["名称", "代码", "持有基金数", "总持仓市值", "热度分"]
+                            st.dataframe(new_show, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("本季度 Top 榜中没有新晋上榜股票。")
+
+                    with cmp_b:
+                        if not dropped_entries.empty:
+                            drop_show = dropped_entries[["stock_name", "symbol", "holding_fund_count", "total_mkv", "heat_score"]].copy()
+                            drop_show.columns = ["名称", "代码", "持有基金数", "总持仓市值", "热度分"]
+                            st.dataframe(drop_show, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("上季度 Top 榜股票本季度仍基本延续，没有明显掉队。")
+
+                    with cmp_c:
+                        if not strongest_up.empty:
+                            up_show = strongest_up[["stock_name", "symbol", "delta_holding_fund_count", "delta_total_mkv", "holding_fund_count", "total_mkv"]].copy()
+                            up_show.columns = ["名称", "代码", "基金数环比+", "市值环比+", "当前持有基金数", "当前总持仓市值"]
+                            st.dataframe(up_show, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("暂无可用的增幅对比数据。")
+                else:
+                    st.info("上一季度缺少可比榜单数据，暂时无法生成季度对比。")
+            else:
+                st.info("当前仅有一个报告期，暂时无法做季度对比。")
         else:
             st.info("当前筛选条件下暂无热股榜数据。")
 
