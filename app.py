@@ -4659,19 +4659,33 @@ def render_moneyflow_tab():
                                     showlegend=True,
                                 ))
 
-                            for _, r in last_points.iterrows():
+                            label_rows = []
+                            min_gap = max(0.12, y_span * 0.05)
+                            for _, r in last_points.sort_values("net_amount_yi", ascending=True).iterrows():
+                                base_y = float(r.get("net_amount_yi") or 0) + y_offset
+                                if label_rows and base_y - label_rows[-1]["y"] < min_gap:
+                                    base_y = label_rows[-1]["y"] + min_gap
+                                label_rows.append({"text": str(r.get("label_text") or ""), "y": base_y})
+
+                            if label_rows:
+                                overflow = label_rows[-1]["y"] - (y_range[1] - y_offset)
+                                if overflow > 0:
+                                    for item in label_rows:
+                                        item["y"] -= overflow
+
+                            for item in label_rows:
                                 ann.append(dict(
                                     x=label_x,
-                                    y=float(r.get("net_amount_yi") or 0) + y_offset,
+                                    y=item["y"],
                                     xref="x",
                                     yref="y",
-                                    text=str(r.get("label_text") or ""),
+                                    text=item["text"],
                                     showarrow=False,
                                     xanchor="left",
                                     yanchor="middle",
                                     font=dict(size=12, color="#0F172A"),
-                                    bgcolor="rgba(255,255,255,0.75)",
-                                    bordercolor="rgba(148,163,184,0.35)",
+                                    bgcolor="rgba(255,255,255,0.82)",
+                                    bordercolor="rgba(148,163,184,0.45)",
                                     borderwidth=1,
                                 ))
                             return traces, ann
