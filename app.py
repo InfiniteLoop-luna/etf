@@ -4634,10 +4634,15 @@ def render_moneyflow_tab():
                             pad = (ymax - ymin) * 0.15
                         y_range = [ymin - pad, ymax + pad]
 
-                        def _build_frame_data(frame_df: pd.DataFrame):
+                        def _build_frame_data(frame_df: pd.DataFrame, current_dt=None):
                             traces = []
                             last_points = frame_df.sort_values(["sector_name", "date_dt"]).groupby("sector_name", as_index=False).tail(1).copy()
                             last_points["label_text"] = last_points.apply(lambda r: f"{r['sector_name']} {r['net_amount_yi']:.2f}亿", axis=1)
+                            if current_dt is not None:
+                                current_dt = pd.to_datetime(current_dt)
+                                last_points["label_x"] = current_dt + pd.Timedelta(days=3)
+                            else:
+                                last_points["label_x"] = last_points["date_dt"]
                             for sector_name, g in frame_df.groupby("sector_name", sort=False):
                                 traces.append(go.Scatter(
                                     x=g["date_dt"],
@@ -4652,8 +4657,15 @@ def render_moneyflow_tab():
                             traces.append(go.Scatter(
                                 x=last_points["date_dt"],
                                 y=last_points["net_amount_yi"],
-                                mode="markers+text",
-                                marker=dict(size=1, color="rgba(0,0,0,0)"),
+                                mode="markers",
+                                marker=dict(size=7, color="#111827"),
+                                hoverinfo="skip",
+                                showlegend=False,
+                            ))
+                            traces.append(go.Scatter(
+                                x=last_points["label_x"],
+                                y=last_points["net_amount_yi"],
+                                mode="text",
                                 text=last_points["label_text"],
                                 textposition="middle left",
                                 textfont=dict(size=12, color="#0F172A"),
@@ -4669,10 +4681,10 @@ def render_moneyflow_tab():
                             if frame_df.empty:
                                 continue
                             frame_name = pd.to_datetime(d).strftime("%Y-%m-%d")
-                            frames.append(go.Frame(data=_build_frame_data(frame_df), name=frame_name))
+                            frames.append(go.Frame(data=_build_frame_data(frame_df, current_dt=d), name=frame_name))
 
                         first_df = anim_top_sorted[anim_top_sorted["date_dt"].isin([curve_dates[0]])].copy()
-                        fig_anim = go.Figure(data=_build_frame_data(first_df))
+                        fig_anim = go.Figure(data=_build_frame_data(first_df, current_dt=curve_dates[0]))
                         fig_anim.frames = frames
                         fig_anim.update_layout(
                             title=dict(text=f"{sector_anim_source} 资金曲线动画（从 {str(sector_anim_start)} 到 {latest_date}）", x=0.02, font=dict(size=17, color="#1E293B")),
