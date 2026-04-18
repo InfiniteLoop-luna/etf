@@ -37,6 +37,10 @@ python update_moneyflow.py --datasets moneyflow,moneyflow_hsgt,moneyflow_ind_ths
 echo "[$(date -Is)] etf-data-update: run update_limitup_monitor.py (incremental)"
 python update_limitup_monitor.py --datasets limit_list_d,limit_step,limit_cpt_list,kpl_list,limit_list_ths
 
+echo "[$(date -Is)] etf-data-update: run update_hotmoney.py (safe incremental)"
+python update_hotmoney.py --datasets hm_list
+python update_hotmoney.py --datasets hm_detail
+
 echo "[$(date -Is)] etf-data-update: restart streamlit"
 systemctl restart etf-streamlit
 

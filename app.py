@@ -1341,8 +1341,8 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
-    tab_etf, tab_volume, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_macro, tab_security, tab_screener, tab_tech_picker, tab_moneyflow, tab_fund_hot, tab_limitup = st.tabs(
-        ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🌏 宏观经济", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股", "💹 资金流向", "🏦 公募持仓热股", "🔥 打板情绪"]
+    tab_etf, tab_volume, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_macro, tab_security, tab_screener, tab_tech_picker, tab_moneyflow, tab_fund_hot, tab_limitup, tab_hotmoney = st.tabs(
+        ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🌏 宏观经济", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股", "💹 资金流向", "🏦 公募持仓热股", "🔥 打板情绪", "🧨 游资名录"]
     )
     trigger_security_tab_jump_if_needed()
 
@@ -1386,6 +1386,188 @@ def main():
     with tab_limitup:
         render_limitup_monitor_tab()
 
+    with tab_hotmoney:
+        render_hotmoney_tab()
+
+
+
+def render_hotmoney_tab():
+    st.subheader("🧨 游资名录与博弈明细")
+    st.caption("基于 Tushare 游资名录（hm_list）与游资每日明细（hm_detail），观察活跃游资、偏好个股与净买卖。")
+
+    from src.hotmoney_monitor import (
+        get_hotmoney_latest_detail_date,
+        get_hotmoney_sync_meta,
+        query_hotmoney_list,
+        query_hotmoney_detail,
+        query_hotmoney_top_active,
+        query_hotmoney_top_stocks,
+    )
+    from src.moneyflow_fetcher import _get_engine_cached
+
+    try:
+        _hm_engine = _get_engine_cached()
+        sync_meta = get_hotmoney_sync_meta(_hm_engine)
+        latest_date = get_hotmoney_latest_detail_date(_hm_engine)
+    except Exception as e:
+        st.error(f"游资数据初始化失败：{e}")
+        return
+
+    latest_trade_label = latest_date if latest_date else "-"
+    if latest_date:
+        latest_trade_label = pd.to_datetime(latest_date, format="%Y%m%d").strftime("%Y-%m-%d")
+    latest_sync_val = sync_meta.get("latest_ingested_at")
+    latest_sync_label = "-"
+    if latest_sync_val is not None and not pd.isna(latest_sync_val):
+        latest_sync_label = pd.to_datetime(latest_sync_val).strftime("%Y-%m-%d %H:%M")
+
+    meta_cols = st.columns(4)
+    meta_cols[0].metric("游资名录数", f"{int(sync_meta.get('hm_list_count') or 0):,}")
+    meta_cols[1].metric("游资明细行数", f"{int(sync_meta.get('hm_detail_count') or 0):,}")
+    meta_cols[2].metric("最新明细交易日", latest_trade_label)
+    meta_cols[3].metric("最近同步时间", latest_sync_label)
+
+    ctl1, ctl2, ctl3 = st.columns([1.2, 1, 1])
+    with ctl1:
+        hm_keyword = st.text_input("搜索游资名称", value="", key="hm_keyword")
+    with ctl2:
+        detail_window = st.selectbox("明细窗口", ["最近1日", "最近5日", "最近20日", "全部已入库"], index=1, key="hm_detail_window")
+    with ctl3:
+        top_n = st.selectbox("TopN", [10, 20, 30, 50], index=1, key="hm_topn")
+
+    hm_list_df = query_hotmoney_list(name=hm_keyword or None, limit=300, engine=_hm_engine)
+    if hm_list_df is not None and not hm_list_df.empty:
+        list_cols = st.columns([1.15, 1.85])
+        with list_cols[0]:
+            show = hm_list_df.copy()
+            show["org_count"] = show["hm_orgs"].astype(str).apply(lambda x: len([i for i in x.split('、') if i.strip()]))
+            show = show.sort_values(["org_count", "hm_name"], ascending=[False, True]).head(20)
+            fig_org = go.Figure(go.Bar(
+                x=show["org_count"],
+                y=show["hm_name"],
+                orientation="h",
+                marker=dict(color=show["org_count"], colorscale="Blues", showscale=False),
+                text=show["org_count"],
+                textposition="outside",
+            ))
+            fig_org.update_layout(
+                title=dict(text="游资关联机构数 Top20", x=0.02, font=dict(size=16, color="#1E293B")),
+                template="plotly_white",
+                paper_bgcolor="white",
+                plot_bgcolor="rgba(248,250,252,0.5)",
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                height=max(360, len(show) * 24),
+                margin=dict(l=120, r=30, t=55, b=20),
+                yaxis=dict(autorange="reversed"),
+                xaxis_title="关联机构数",
+            )
+            st.plotly_chart(fig_org, use_container_width=True)
+        with list_cols[1]:
+            out = hm_list_df[["hm_name", "hm_desc", "hm_orgs"]].copy()
+            out.columns = ["游资名称", "说明", "关联机构"]
+            st.dataframe(out, use_container_width=True, hide_index=True, height=420)
+    else:
+        st.info("暂无游资名录数据。")
+
+    if latest_date:
+        latest_dt = pd.to_datetime(latest_date, format="%Y%m%d").date()
+        if detail_window == "最近1日":
+            start_dt = latest_dt
+        elif detail_window == "最近5日":
+            start_dt = latest_dt - timedelta(days=7)
+        elif detail_window == "最近20日":
+            start_dt = latest_dt - timedelta(days=30)
+        else:
+            start_dt = pd.to_datetime("2024-01-01").date()
+
+        try:
+            df_active = query_hotmoney_top_active(start_dt.strftime("%Y%m%d"), latest_date, top_n=int(top_n), engine=_hm_engine)
+            df_stocks = query_hotmoney_top_stocks(start_dt.strftime("%Y%m%d"), latest_date, top_n=int(top_n), engine=_hm_engine)
+            df_detail = query_hotmoney_detail(start_dt.strftime("%Y%m%d"), latest_date, hm_name=hm_keyword or None, limit=500, engine=_hm_engine)
+        except Exception as e:
+            st.error(f"游资明细查询失败：{e}")
+            return
+
+        row1 = st.columns(2)
+        with row1[0]:
+            st.markdown("#### 🔥 活跃游资榜")
+            if df_active is not None and not df_active.empty:
+                show = df_active.copy()
+                show["total_net_amount_yi"] = pd.to_numeric(show["total_net_amount"], errors="coerce").fillna(0) / 1e8
+                fig_active = go.Figure(go.Bar(
+                    x=show["hit_count"],
+                    y=show["hm_name"],
+                    orientation="h",
+                    marker=dict(color=show["total_net_amount_yi"], colorscale="Tealgrn", showscale=False),
+                    text=show["hit_count"],
+                    textposition="outside",
+                ))
+                fig_active.update_layout(
+                    title=dict(text="活跃游资 TopN", x=0.02, font=dict(size=16, color="#1E293B")),
+                    template="plotly_white",
+                    paper_bgcolor="white",
+                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    height=max(320, len(show) * 24),
+                    margin=dict(l=120, r=30, t=55, b=20),
+                    yaxis=dict(autorange="reversed"),
+                    xaxis_title="上榜次数",
+                )
+                st.plotly_chart(fig_active, use_container_width=True)
+                out = show[["hm_name", "hit_count", "stock_count", "total_net_amount_yi"]].copy()
+                out.columns = ["游资", "上榜次数", "涉及股票数", "净买卖(亿)"]
+                out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda v: f"{v:,.2f}")
+                st.dataframe(out, use_container_width=True, hide_index=True)
+            else:
+                st.info("当前窗口暂无活跃游资数据。")
+
+        with row1[1]:
+            st.markdown("#### 🎯 游资偏好个股")
+            if df_stocks is not None and not df_stocks.empty:
+                show = df_stocks.copy()
+                show["total_net_amount_yi"] = pd.to_numeric(show["total_net_amount"], errors="coerce").fillna(0) / 1e8
+                fig_stocks = go.Figure(go.Bar(
+                    x=show["hit_count"],
+                    y=show["ts_name"],
+                    orientation="h",
+                    marker=dict(color=show["hm_count"], colorscale="Oranges", showscale=False),
+                    text=show["hit_count"],
+                    textposition="outside",
+                ))
+                fig_stocks.update_layout(
+                    title=dict(text="游资关注个股 TopN", x=0.02, font=dict(size=16, color="#1E293B")),
+                    template="plotly_white",
+                    paper_bgcolor="white",
+                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    height=max(320, len(show) * 24),
+                    margin=dict(l=120, r=30, t=55, b=20),
+                    yaxis=dict(autorange="reversed"),
+                    xaxis_title="上榜次数",
+                )
+                st.plotly_chart(fig_stocks, use_container_width=True)
+                out = show[["ts_name", "ts_code", "hit_count", "hm_count", "total_net_amount_yi"]].copy()
+                out.columns = ["股票", "代码", "上榜次数", "游资数", "净买卖(亿)"]
+                out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda v: f"{v:,.2f}")
+                st.dataframe(out, use_container_width=True, hide_index=True)
+            else:
+                st.info("当前窗口暂无游资个股数据。")
+
+        st.markdown("#### 🧾 游资博弈每日明细")
+        if df_detail is not None and not df_detail.empty:
+            show = df_detail.copy()
+            show["trade_date"] = pd.to_datetime(show["trade_date"]).dt.strftime("%Y-%m-%d")
+            for col in ["buy_amount", "sell_amount", "net_amount"]:
+                show[col] = pd.to_numeric(show[col], errors="coerce").fillna(0) / 1e8
+            out = show[["trade_date", "hm_name", "ts_name", "ts_code", "tag", "buy_amount", "sell_amount", "net_amount", "hm_orgs"]].copy()
+            out.columns = ["日期", "游资", "股票", "代码", "标签", "买入(亿)", "卖出(亿)", "净买卖(亿)", "关联机构"]
+            for col in ["买入(亿)", "卖出(亿)", "净买卖(亿)"]:
+                out[col] = pd.to_numeric(out[col], errors="coerce").map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+            st.dataframe(out, use_container_width=True, hide_index=True, height=420)
+        else:
+            st.info("当前窗口暂无游资明细数据。")
+    else:
+        st.warning("游资每日明细目前仅成功拉到 2024-01-02；该接口限频很低，后续需要按低频增量策略继续补数。")
 
 
 def render_limitup_monitor_tab():

@@ -1,0 +1,291 @@
+# -*- coding: utf-8 -*-
+"""
+游资名录 / 游资每日明细 同步模块
+覆盖接口：
+- hm_list
+- hm_detail
+
+存储：PostgreSQL JSONB landing tables
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import sys
+import time
+from datetime import datetime, timedelta
+from typing import Optional
+
+import pandas as pd
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine, URL
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from src.volume_fetcher import _init_tushare
+
+DEFAULT_ROSTER_START_DATE = "20220801"
+DEFAULT_DETAIL_START_DATE = "20240101"
+DEFAULT_API_SLEEP = float(os.getenv("TUSHARE_HM_API_SLEEP", "0.25"))
+DEFAULT_LOOKBACK_DAYS = int(os.getenv("TUSHARE_HM_LOOKBACK_DAYS", "2"))
+DEFAULT_DB_HOST = "67.216.207.73"
+DEFAULT_DB_PORT = 5432
+DEFAULT_DB_NAME = "postgres"
+DEFAULT_DB_USER = "postgres"
+DEFAULT_DB_SSLMODE = "disable"
+
+HM_TABLES = {
+    "hm_list": "ts_hm_list",
+    "hm_detail": "ts_hm_detail",
+}
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+
+def build_db_url():
+    try:
+        from src.sync_tushare_security_data import build_db_url as _sync_build_db_url
+        return _sync_build_db_url()
+    except Exception:
+        pass
+
+    direct_url = os.getenv("ETF_PG_URL") or os.getenv("DATABASE_URL")
+    if direct_url:
+        return direct_url
+
+    password = os.getenv("ETF_PG_PASSWORD") or os.getenv("PGPASSWORD")
+    if not password:
+        try:
+            import streamlit as st
+            password = (
+                st.secrets.get("ETF_PG_PASSWORD")
+                or st.secrets.get("PGPASSWORD")
+                or st.secrets.get("database", {}).get("password")
+            )
+            if password:
+                os.environ["ETF_PG_PASSWORD"] = str(password)
+        except Exception:
+            pass
+
+    password = os.getenv("ETF_PG_PASSWORD") or os.getenv("PGPASSWORD")
+    if not password:
+        raise RuntimeError("未配置数据库密码 ETF_PG_PASSWORD / PGPASSWORD")
+
+    return URL.create(
+        "postgresql+psycopg2",
+        username=os.getenv("ETF_PG_USER", DEFAULT_DB_USER),
+        password=password,
+        host=os.getenv("ETF_PG_HOST", DEFAULT_DB_HOST),
+        port=int(os.getenv("ETF_PG_PORT", str(DEFAULT_DB_PORT))),
+        database=os.getenv("ETF_PG_DATABASE", DEFAULT_DB_NAME),
+        query={"sslmode": os.getenv("ETF_PG_SSLMODE", DEFAULT_DB_SSLMODE)},
+    )
+
+
+def get_engine() -> Engine:
+    return create_engine(build_db_url(), pool_pre_ping=True)
+
+
+def ensure_landing_table(engine: Engine, table_name: str):
+    sql = f"""
+    CREATE TABLE IF NOT EXISTS {table_name} (
+        business_key TEXT PRIMARY KEY,
+        dataset_name VARCHAR(64) NOT NULL,
+        ts_code VARCHAR(20),
+        trade_date DATE,
+        ann_date DATE,
+        end_date DATE,
+        period VARCHAR(20),
+        record_hash VARCHAR(64) NOT NULL,
+        payload JSONB NOT NULL,
+        ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_{table_name}_trade_date ON {table_name}(trade_date);
+    CREATE INDEX IF NOT EXISTS idx_{table_name}_ts_code ON {table_name}(ts_code);
+    """
+    with engine.begin() as conn:
+        for stmt in [s.strip() for s in sql.split(";") if s.strip()]:
+            conn.execute(text(stmt))
+
+
+def ensure_all_tables(engine: Engine):
+    for table_name in HM_TABLES.values():
+        ensure_landing_table(engine, table_name)
+
+
+def compute_record_hash(payload: dict) -> str:
+    content = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(content.encode()).hexdigest()[:64]
+
+
+def make_business_key(dataset_name: str, ts_code: Optional[str], trade_date_raw: Optional[str], extra: Optional[str] = None) -> str:
+    parts = [dataset_name]
+    if ts_code:
+        parts.append(str(ts_code))
+    if trade_date_raw:
+        parts.append(str(trade_date_raw))
+    if extra:
+        parts.append(str(extra))
+    return "|".join(parts)
+
+
+def _parse_trade_date(raw) -> Optional[datetime.date]:
+    if raw is None:
+        return None
+    s = str(raw).replace("-", "").strip()
+    if len(s) >= 8 and s[:8].isdigit():
+        return datetime.strptime(s[:8], "%Y%m%d").date()
+    return None
+
+
+def get_max_trade_date(engine: Engine, table_name: str) -> Optional[str]:
+    with engine.connect() as conn:
+        row = conn.execute(text(f"SELECT MAX(trade_date) FROM {table_name}")).fetchone()
+    if row and row[0]:
+        return row[0].strftime("%Y%m%d")
+    return None
+
+
+def resolve_start_date(engine: Engine, table_name: str, default_start: str, force_start: Optional[str] = None, lookback_days: int = 0) -> str:
+    if force_start:
+        return force_start
+    existing_max = get_max_trade_date(engine, table_name)
+    if not existing_max:
+        return default_start
+    start_day = (datetime.strptime(existing_max, "%Y%m%d") - timedelta(days=max(0, int(lookback_days or 0)))).strftime("%Y%m%d")
+    return max(default_start, start_day)
+
+
+def upsert_rows(
+    engine: Engine,
+    table_name: str,
+    dataset_name: str,
+    rows: list[dict],
+    ts_code_key: str = "ts_code",
+    trade_date_key: str = "trade_date",
+    extra_key: Optional[str] = None,
+) -> int:
+    if not rows:
+        return 0
+
+    records = []
+    for row in rows:
+        payload = {}
+        for k, v in row.items():
+            if isinstance(v, float) and pd.isna(v):
+                payload[k] = None
+            elif hasattr(v, "item"):
+                payload[k] = v.item()
+            else:
+                payload[k] = v
+
+        ts_code = payload.get(ts_code_key)
+        trade_date_raw = payload.get(trade_date_key)
+        extra_val = payload.get(extra_key) if extra_key else None
+        trade_date_val = _parse_trade_date(trade_date_raw)
+
+        records.append(
+            {
+                "business_key": make_business_key(dataset_name, ts_code, trade_date_raw, extra=extra_val),
+                "dataset_name": dataset_name,
+                "ts_code": ts_code,
+                "trade_date": trade_date_val,
+                "ann_date": None,
+                "end_date": None,
+                "period": None,
+                "record_hash": compute_record_hash(payload),
+                "payload": json.dumps(payload, ensure_ascii=False, default=str),
+            }
+        )
+
+    sql = f"""
+    INSERT INTO {table_name} (
+        business_key, dataset_name, ts_code, trade_date,
+        ann_date, end_date, period, record_hash, payload, ingested_at
+    ) VALUES (
+        :business_key, :dataset_name, :ts_code, :trade_date,
+        :ann_date, :end_date, :period, :record_hash, CAST(:payload AS jsonb), NOW()
+    )
+    ON CONFLICT (business_key) DO UPDATE SET
+        record_hash = EXCLUDED.record_hash,
+        payload = EXCLUDED.payload,
+        ingested_at = NOW()
+    WHERE {table_name}.record_hash <> EXCLUDED.record_hash
+    """
+    with engine.begin() as conn:
+        conn.execute(text(sql), records)
+    return len(records)
+
+
+def sync_hm_list(engine: Engine, pro, name: Optional[str] = None) -> int:
+    table = HM_TABLES["hm_list"]
+    logger.info("hm_list: 拉取游资名录")
+    total = 0
+    try:
+        df = pro.hm_list(name=name) if name else pro.hm_list()
+        if df is not None and not df.empty:
+            total = upsert_rows(engine, table, "hm_list", df.to_dict("records"), ts_code_key="name", trade_date_key="trade_date", extra_key="name")
+    except Exception as exc:
+        logger.warning(f"hm_list 拉取失败: {exc}")
+    logger.info(f"hm_list 完成，共写入 {total} 行")
+    return total
+
+
+def sync_hm_detail(engine: Engine, pro, start_date: Optional[str] = None, end_date: Optional[str] = None) -> int:
+    table = HM_TABLES["hm_detail"]
+    s = resolve_start_date(engine, table, DEFAULT_DETAIL_START_DATE, start_date, lookback_days=DEFAULT_LOOKBACK_DAYS)
+    e = end_date or datetime.now().strftime("%Y%m%d")
+    logger.info(f"hm_detail: 拉取 {s} -> {e}")
+    total = 0
+    dt_range = pd.date_range(pd.to_datetime(s), pd.to_datetime(e), freq="D")
+    for dt in dt_range:
+        trade_date = dt.strftime("%Y%m%d")
+        try:
+            df = pro.hm_detail(trade_date=trade_date)
+            if df is not None and not df.empty:
+                rows = []
+                for row in df.to_dict("records"):
+                    r = dict(row)
+                    r["hm_name_key"] = r.get("hm_name")
+                    rows.append(r)
+                total += upsert_rows(engine, table, "hm_detail", rows, extra_key="hm_name_key")
+        except Exception as exc:
+            logger.warning(f"hm_detail[{trade_date}] 拉取失败: {exc}")
+        time.sleep(DEFAULT_API_SLEEP)
+    logger.info(f"hm_detail 完成，共写入 {total} 行")
+    return total
+
+
+def run_sync(datasets: Optional[list[str]] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
+    all_datasets = ["hm_list", "hm_detail"]
+    target_datasets = datasets or all_datasets
+
+    logger.info("=== 游资数据同步开始 ===")
+    logger.info(f"数据集: {target_datasets}")
+    logger.info(f"日期范围: {start_date or '增量'} -> {end_date or '今天'}")
+
+    engine = get_engine()
+    ensure_all_tables(engine)
+    pro = _init_tushare()
+
+    results = {}
+    if "hm_list" in target_datasets:
+        results["hm_list"] = sync_hm_list(engine, pro)
+        time.sleep(DEFAULT_API_SLEEP)
+    if "hm_detail" in target_datasets:
+        results["hm_detail"] = sync_hm_detail(engine, pro, start_date, end_date)
+
+    total = sum(results.values()) if results else 0
+    logger.info(f"=== 同步完成，共写入 {total} 行 ===")
+    for ds, n in results.items():
+        logger.info(f"  {ds}: {n} 行")
+    return results
