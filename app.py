@@ -3445,6 +3445,7 @@ def render_fund_hot_stocks_tab():
         query_stock_fund_holding_detail,
         query_stock_holding_trend,
         query_fund_preference_snapshot,
+        search_funds,
     )
 
     st.subheader("🏦 公募基金持仓热股")
@@ -3963,24 +3964,60 @@ def render_fund_hot_stocks_tab():
 
     with sub_fund:
         st.markdown("#### 🏦 基金偏好分析")
-        st.caption("输入基金代码，查看该基金在当前报告期的偏好持仓、持仓变化与核心偏好方向。")
+        st.caption("输入基金代码 / 基金名称，支持模糊匹配后选择基金，再查看该基金在当前报告期的偏好持仓。")
 
-        fund_col1, fund_col2 = st.columns([1.2, 1])
+        fund_col1, fund_col2, fund_col3 = st.columns([1.5, 1.6, 1])
         with fund_col1:
-            fund_code_input = st.text_input("基金代码", value=st.session_state.get("fh_fund_code", ""), placeholder="如 000001.OF / 010238.OF", key="fh_fund_code_input").strip().upper()
+            fund_keyword = st.text_input(
+                "基金代码 / 基金名称",
+                value=st.session_state.get("fh_fund_keyword", st.session_state.get("fh_fund_code", "")),
+                placeholder="如 000001.OF、招商中证白酒、白酒",
+                key="fh_fund_keyword_input",
+            ).strip()
         with fund_col2:
+            fund_candidates = pd.DataFrame()
+            fund_option_labels = []
+            fund_selected_row = None
+            if fund_keyword:
+                try:
+                    fund_candidates = search_funds(fund_keyword, limit=30, engine=_fh_engine)
+                except Exception as exc:
+                    st.warning(f"匹配基金失败：{exc}")
+                    fund_candidates = pd.DataFrame()
+
+            if fund_keyword and (fund_candidates is None or len(fund_candidates) == 0):
+                st.warning("未找到匹配基金，请换个代码、名称或关键词再试。")
+                st.text_input("匹配基金", value="没有匹配结果", disabled=True, key="fh_fund_match_placeholder")
+            elif fund_candidates is not None and len(fund_candidates) > 0:
+                fund_option_labels = [
+                    f"{str(row.get('name') or row.get('fund_code') or '')}（{str(row.get('fund_code') or '')}｜{str(row.get('management') or '未知管理人')}｜{str(row.get('fund_type') or '未知类型')}）"
+                    for _, row in fund_candidates.iterrows()
+                ]
+                fund_selected_label = st.selectbox("匹配基金", options=fund_option_labels, key="fh_fund_match_option")
+                fund_selected_idx = fund_option_labels.index(fund_selected_label)
+                fund_selected_row = fund_candidates.iloc[fund_selected_idx]
+            else:
+                st.text_input("匹配基金", value="请输入关键词后自动匹配", disabled=True, key="fh_fund_match_placeholder")
+        with fund_col3:
             fund_period = st.selectbox("报告期", periods, index=0, key="fh_fund_period")
 
         if st.button("查询基金偏好", type="primary", key="btn_fh_fund_query"):
             st.session_state["fh_fund_error"] = ""
             st.session_state["fh_fund_result"] = pd.DataFrame()
-            st.session_state["fh_fund_code"] = fund_code_input
-            if not fund_code_input:
-                st.session_state["fh_fund_error"] = "请先输入基金代码。"
+            st.session_state["fh_fund_keyword"] = fund_keyword
+            if fund_selected_row is None:
+                st.session_state["fh_fund_code"] = ""
+                if fund_keyword:
+                    st.session_state["fh_fund_error"] = "没有匹配到基金，请先从候选结果中选择基金。"
+                else:
+                    st.session_state["fh_fund_error"] = "请先输入基金代码/名称，并从匹配结果中选择基金。"
             else:
+                fund_code = str(fund_selected_row.get("fund_code") or "").strip().upper()
+                st.session_state["fh_fund_code"] = fund_code
+                st.session_state["fh_fund_name"] = str(fund_selected_row.get("name") or fund_code).strip()
                 try:
                     fund_df = query_fund_preference_snapshot(
-                        fund_code=fund_code_input,
+                        fund_code=fund_code,
                         period=fund_period.replace("-", ""),
                         top_n=30,
                         engine=_fh_engine,
@@ -3988,7 +4025,7 @@ def render_fund_hot_stocks_tab():
                     st.session_state["fh_fund_result"] = fund_df
                 except Exception as exc:
                     logger.error(f"query_fund_preference_snapshot failed: {exc}", exc_info=True)
-                    st.session_state["fh_fund_error"] = "基金偏好分析查询失败，请检查基金代码或稍后重试。"
+                    st.session_state["fh_fund_error"] = "基金偏好分析查询失败，请检查基金选择结果或稍后重试。"
 
         fund_error = st.session_state.get("fh_fund_error", "")
         if fund_error:
@@ -4006,7 +4043,7 @@ def render_fund_hot_stocks_tab():
                 "stable": "持平",
             })
 
-            fund_name = str(fund_df.iloc[0].get("fund_name") or st.session_state.get("fh_fund_code", ""))
+            fund_name = str(fund_df.iloc[0].get("fund_name") or st.session_state.get("fh_fund_name") or st.session_state.get("fh_fund_code", ""))
             management = str(fund_df.iloc[0].get("management") or "-")
             st.info(f"📌 当前基金：{fund_name}｜管理人：{management}｜报告期：{fund_period}")
 

@@ -1064,6 +1064,53 @@ def query_stock_holding_trend(
 # ---------------------------------------------------------------------------
 
 
+
+def search_funds(
+    keyword: str,
+    limit: int = 20,
+    engine: Optional[Engine] = None,
+) -> pd.DataFrame:
+    engine = engine or get_engine()
+    keyword = str(keyword or "").strip()
+    if not keyword:
+        return pd.DataFrame()
+
+    kw = keyword.upper()
+    sql = """
+    SELECT
+        fund_code,
+        name,
+        management,
+        fund_type
+    FROM vw_fund_basic
+    WHERE fund_code ILIKE :prefix
+       OR COALESCE(name, '') ILIKE :contains
+       OR COALESCE(management, '') ILIKE :contains
+    ORDER BY
+        CASE
+            WHEN UPPER(fund_code) = :exact THEN 0
+            WHEN UPPER(COALESCE(name, '')) = :exact THEN 1
+            WHEN UPPER(fund_code) LIKE :prefix_upper THEN 2
+            WHEN UPPER(COALESCE(name, '')) LIKE :prefix_upper THEN 3
+            ELSE 9
+        END,
+        fund_code
+    LIMIT :limit
+    """
+
+    with engine.connect() as conn:
+        return pd.read_sql(
+            text(sql),
+            conn,
+            params={
+                'prefix': f'{keyword}%',
+                'contains': f'%{keyword}%',
+                'exact': kw,
+                'prefix_upper': f'{kw}%',
+                'limit': int(limit),
+            },
+        )
+
 def query_fund_preference_snapshot(
     fund_code: str,
     period: Optional[str] = None,
