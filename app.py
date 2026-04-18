@@ -4653,7 +4653,8 @@ def render_moneyflow_tab():
                             hoverinfo="skip",
                             showlegend=False,
                         ))
-                        frames.append(go.Frame(data=frame_fig.data, name=d))
+                        frame_name = pd.to_datetime(d).strftime("%Y-%m-%d") if pd.notna(d) else str(d)
+                        frames.append(go.Frame(data=frame_fig.data, name=frame_name))
 
                     first_frame = frames[0] if frames else None
                     fig_anim = go.Figure(data=first_frame.data if first_frame else [])
