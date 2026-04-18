@@ -1063,6 +1063,83 @@ def query_stock_holding_trend(
 # 一键运行
 # ---------------------------------------------------------------------------
 
+
+def query_fund_preference_snapshot(
+    fund_code: str,
+    period: Optional[str] = None,
+    top_n: int = 20,
+    engine: Optional[Engine] = None,
+) -> pd.DataFrame:
+    engine = engine or get_engine()
+    fund_code = str(fund_code or "").strip().upper()
+    if not fund_code:
+        return pd.DataFrame()
+
+    target_period = period or get_latest_agg_period(engine)
+    if not target_period:
+        return pd.DataFrame()
+    target_period = str(target_period).replace("-", "")
+
+    sql = """
+    WITH target AS (
+        SELECT CAST(:fund_code AS varchar) AS fund_code, CAST(:end_date AS date) AS end_date
+    ), prev_period AS (
+        SELECT MAX(end_date) AS prev_end_date
+        FROM vw_fund_portfolio
+        WHERE end_date < (SELECT end_date FROM target)
+    ), cur AS (
+        SELECT
+            p.fund_code,
+            p.symbol,
+            sb.name AS stock_name,
+            p.mkv,
+            p.amount,
+            p.stk_mkv_ratio,
+            p.stk_float_ratio
+        FROM vw_fund_portfolio p
+        JOIN target t ON p.fund_code = t.fund_code AND p.end_date = t.end_date
+        LEFT JOIN vw_ts_stock_basic sb ON sb.ts_code = p.symbol
+    ), prev AS (
+        SELECT
+            p.fund_code,
+            p.symbol,
+            p.mkv AS prev_mkv
+        FROM vw_fund_portfolio p
+        JOIN target t ON p.fund_code = t.fund_code
+        JOIN prev_period pp ON p.end_date = pp.prev_end_date
+    )
+    SELECT
+        c.fund_code,
+        fb.name AS fund_name,
+        fb.management,
+        c.symbol,
+        COALESCE(c.stock_name, c.symbol) AS stock_name,
+        c.mkv,
+        c.amount,
+        c.stk_mkv_ratio,
+        c.stk_float_ratio,
+        p.prev_mkv,
+        c.mkv - COALESCE(p.prev_mkv, 0) AS delta_mkv,
+        CASE
+            WHEN p.symbol IS NULL THEN 'new'
+            WHEN c.mkv > p.prev_mkv THEN 'increase'
+            WHEN c.mkv < p.prev_mkv THEN 'decrease'
+            ELSE 'stable'
+        END AS holding_change_flag
+    FROM cur c
+    LEFT JOIN prev p ON p.fund_code = c.fund_code AND p.symbol = c.symbol
+    LEFT JOIN vw_fund_basic fb ON fb.fund_code = c.fund_code
+    ORDER BY c.mkv DESC NULLS LAST
+    LIMIT :top_n
+    """
+
+    with engine.connect() as conn:
+        return pd.read_sql(
+            text(sql),
+            conn,
+            params={"fund_code": fund_code, "end_date": target_period, "top_n": int(top_n)},
+        )
+
 def run_sync(
     sync_basic: bool = True,
     sync_portfolio: bool = True,

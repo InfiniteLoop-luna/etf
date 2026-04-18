@@ -7,7 +7,6 @@ from hmac import compare_digest
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import logging
 from typing import Optional, List, Union
@@ -3444,6 +3443,7 @@ def render_fund_hot_stocks_tab():
         query_hot_stocks_leaderboard,
         query_stock_fund_holding_detail,
         query_stock_holding_trend,
+        query_fund_preference_snapshot,
     )
 
     st.subheader("🏦 公募基金持仓热股")
@@ -3486,7 +3486,7 @@ def render_fund_hot_stocks_tab():
     fund_type_options = ["全部", "混合型", "股票型", "债券型", "ETF", "QDII", "LOF", "货币型"]
     selected_fund_type = st.selectbox("基金类型筛选", fund_type_options, index=0, key="fh_fund_type_filter")
 
-    sub_top, sub_stock = st.tabs(["🔥 热股榜", "🔎 个股持仓透视"])
+    sub_top, sub_stock, sub_fund = st.tabs(["🔥 热股榜", "🔎 个股持仓透视", "🏦 基金偏好分析"])
 
     with sub_top:
         sort_options = {
@@ -3873,17 +3873,6 @@ def render_fund_hot_stocks_tab():
             else:
                 st.info("当前结果暂无可用的管理人维度数据。")
 
-            st.markdown("#### 🧭 管理人趋势")
-            if not mgmt_group.empty:
-                mgmt_trend_show = mgmt_group.copy().sort_values(["市值变化亿", "总持仓市值亿"], ascending=[False, False]).head(15)
-                mgmt_trend_show["趋势判断"] = mgmt_trend_show["市值变化亿"].apply(lambda v: "持续加仓" if pd.notna(v) and v > 0 else ("持续撤退" if pd.notna(v) and v < 0 else "基本持平"))
-                mgmt_trend_show["总持仓市值(亿)"] = pd.to_numeric(mgmt_trend_show["总持仓市值亿"], errors="coerce").map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
-                mgmt_trend_show["市值变化(亿)"] = pd.to_numeric(mgmt_trend_show["市值变化亿"], errors="coerce").map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
-                mgmt_trend_show = mgmt_trend_show.rename(columns={"management": "管理人"})[["管理人", "持有基金数", "总持仓市值(亿)", "市值变化(亿)", "趋势判断"]]
-                st.dataframe(mgmt_trend_show, use_container_width=True, hide_index=True)
-            else:
-                st.info("暂无可用的管理人趋势数据。")
-
             st.markdown("#### 📈 个股季度趋势")
             trend_periods = st.selectbox("趋势季度数", [4, 6, 8, 12], index=2, key="fh_trend_periods")
             try:
@@ -3970,6 +3959,92 @@ def render_fund_hot_stocks_tab():
 
         elif df_detail is not None and df_detail.empty and not detail_error and st.session_state.get("fh_last_query_code"):
             st.info("该股票在所选报告期暂无基金持仓明细。可能原因：当前季度未被基金持有，或该股票尚未纳入本期聚合数据。")
+
+    with sub_fund:
+        st.markdown("#### 🏦 基金偏好分析")
+        st.caption("输入基金代码，查看该基金在当前报告期的偏好持仓、持仓变化与核心偏好方向。")
+
+        fund_col1, fund_col2 = st.columns([1.2, 1])
+        with fund_col1:
+            fund_code_input = st.text_input("基金代码", value=st.session_state.get("fh_fund_code", ""), placeholder="如 000001.OF / 010238.OF", key="fh_fund_code_input").strip().upper()
+        with fund_col2:
+            fund_period = st.selectbox("报告期", periods, index=0, key="fh_fund_period")
+
+        if st.button("查询基金偏好", type="primary", key="btn_fh_fund_query"):
+            st.session_state["fh_fund_error"] = ""
+            st.session_state["fh_fund_result"] = pd.DataFrame()
+            st.session_state["fh_fund_code"] = fund_code_input
+            if not fund_code_input:
+                st.session_state["fh_fund_error"] = "请先输入基金代码。"
+            else:
+                try:
+                    fund_df = query_fund_preference_snapshot(
+                        fund_code=fund_code_input,
+                        period=fund_period.replace("-", ""),
+                        top_n=30,
+                        engine=_fh_engine,
+                    )
+                    st.session_state["fh_fund_result"] = fund_df
+                except Exception as exc:
+                    logger.error(f"query_fund_preference_snapshot failed: {exc}", exc_info=True)
+                    st.session_state["fh_fund_error"] = "基金偏好分析查询失败，请检查基金代码或稍后重试。"
+
+        fund_error = st.session_state.get("fh_fund_error", "")
+        if fund_error:
+            st.error(fund_error)
+
+        fund_df = st.session_state.get("fh_fund_result")
+        if fund_df is not None and not fund_df.empty:
+            fund_df = fund_df.copy()
+            fund_df["mkv_yi"] = pd.to_numeric(fund_df["mkv"], errors="coerce").fillna(0) / 1e8
+            fund_df["delta_mkv_yi"] = pd.to_numeric(fund_df["delta_mkv"], errors="coerce").fillna(0) / 1e8
+            fund_df["holding_change_flag"] = fund_df["holding_change_flag"].replace({
+                "new": "新进",
+                "increase": "加仓",
+                "decrease": "减仓",
+                "stable": "持平",
+            })
+
+            fund_name = str(fund_df.iloc[0].get("fund_name") or st.session_state.get("fh_fund_code", ""))
+            management = str(fund_df.iloc[0].get("management") or "-")
+            st.info(f"📌 当前基金：{fund_name}｜管理人：{management}｜报告期：{fund_period}")
+
+            fund_metrics = st.columns(4)
+            fund_metrics[0].metric("偏好持仓数", f"{len(fund_df):,}")
+            fund_metrics[1].metric("持仓总市值", f"{fund_df['mkv_yi'].sum():,.2f} 亿")
+            fund_metrics[2].metric("新进持仓", f"{int((fund_df['holding_change_flag'] == '新进').sum())}")
+            fund_metrics[3].metric("加仓持仓", f"{int((fund_df['holding_change_flag'] == '加仓').sum())}")
+
+            pref_plot = fund_df.head(15).copy()
+            fig_pref = go.Figure(go.Bar(
+                x=pref_plot["mkv_yi"],
+                y=pref_plot["stock_name"],
+                orientation="h",
+                marker=dict(color=pref_plot["mkv_yi"], colorscale="Bluered", showscale=False),
+                text=pref_plot["mkv_yi"].map(lambda v: f"{v:,.2f}亿" if pd.notna(v) else "-"),
+                textposition="outside",
+                hovertemplate="%{y}<br>持仓市值：%{x:,.2f} 亿<extra></extra>",
+            ))
+            fig_pref.update_layout(
+                title=dict(text="基金偏好持仓 Top15", x=0.02, font=dict(size=17, color="#1E293B")),
+                xaxis_title="持仓市值（亿元）",
+                height=max(380, len(pref_plot) * 26),
+                template="plotly_white",
+                paper_bgcolor="white",
+                plot_bgcolor="rgba(248,250,252,0.5)",
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                margin=dict(l=120, r=40, t=55, b=20),
+                yaxis=dict(autorange="reversed"),
+            )
+            st.plotly_chart(fig_pref, use_container_width=True)
+
+            pref_show = fund_df[["stock_name", "symbol", "mkv_yi", "delta_mkv_yi", "stk_mkv_ratio", "holding_change_flag"]].copy()
+            pref_show.columns = ["股票", "代码", "持仓市值(亿)", "市值变化(亿)", "占基金股票市值比(%)", "变动类型"]
+            for col in ["持仓市值(亿)", "市值变化(亿)", "占基金股票市值比(%)"]:
+                pref_show[col] = pd.to_numeric(pref_show[col], errors="coerce").map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+            st.dataframe(pref_show, use_container_width=True, hide_index=True)
+        elif fund_df is not None and fund_df.empty and not fund_error and st.session_state.get("fh_fund_code"):
+            st.info("该基金在所选报告期暂无可用偏好持仓数据。")
 
 
 def render_moneyflow_tab():
