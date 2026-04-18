@@ -844,7 +844,7 @@ def query_stock_fund_holding_detail(
 
     sql = """
     WITH target AS (
-        SELECT :symbol::varchar AS symbol, :end_date::date AS end_date
+        SELECT CAST(:symbol AS varchar) AS symbol, CAST(:end_date AS date) AS end_date
     ),
     prev_period AS (
         SELECT MAX(end_date) AS prev_end_date
