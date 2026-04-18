@@ -4629,9 +4629,9 @@ def render_moneyflow_tab():
                         ymin = float(anim_top_sorted["net_amount_yi"].min())
                         ymax = float(anim_top_sorted["net_amount_yi"].max())
                         if ymin == ymax:
-                            pad = max(1.0, abs(ymin) * 0.2)
+                            pad = max(1.5, abs(ymin) * 0.35)
                         else:
-                            pad = (ymax - ymin) * 0.15
+                            pad = (ymax - ymin) * 0.32
                         y_range = [ymin - pad, ymax + pad]
 
                         def _build_frame_payload(frame_df: pd.DataFrame, current_dt=None):
@@ -4640,7 +4640,7 @@ def render_moneyflow_tab():
                             last_points = frame_df.sort_values(["sector_name", "date_dt"]).groupby("sector_name", as_index=False).tail(1).copy()
                             last_points["label_text"] = last_points.apply(lambda r: f"{r['sector_name']} {r['net_amount_yi']:.2f}亿", axis=1)
                             y_span = float(frame_df["net_amount_yi"].max() - frame_df["net_amount_yi"].min()) if not frame_df.empty else 0.0
-                            y_offset = max(0.08, y_span * 0.015)
+                            y_offset = max(0.12, y_span * 0.02)
                             if current_dt is not None:
                                 current_dt = pd.to_datetime(current_dt)
                                 label_x = current_dt + pd.Timedelta(days=2)
@@ -4659,51 +4659,22 @@ def render_moneyflow_tab():
                                     showlegend=True,
                                 ))
 
-                            label_rows = []
-                            min_gap = max(0.12, y_span * 0.05)
-                            for _, r in last_points.sort_values("net_amount_yi", ascending=True).iterrows():
-                                tail_y = float(r.get("net_amount_yi") or 0)
-                                base_y = tail_y + y_offset
-                                if label_rows and base_y - label_rows[-1]["y"] < min_gap:
-                                    base_y = label_rows[-1]["y"] + min_gap
-                                label_rows.append({
-                                    "text": str(r.get("label_text") or ""),
-                                    "y": base_y,
-                                    "tail_y": tail_y,
-                                    "tail_x": pd.to_datetime(r.get("date_dt")),
-                                })
-
-                            if label_rows:
-                                overflow = label_rows[-1]["y"] - (y_range[1] - y_offset)
-                                if overflow > 0:
-                                    for item in label_rows:
-                                        item["y"] -= overflow
-
-                            for item in label_rows:
+                            for _, r in last_points.iterrows():
                                 ann.append(dict(
                                     x=label_x,
-                                    y=item["y"],
+                                    y=float(r.get("net_amount_yi") or 0) + y_offset,
                                     xref="x",
                                     yref="y",
-                                    text=item["text"],
-                                    showarrow=True,
-                                    arrowhead=0,
-                                    arrowsize=1,
-                                    arrowwidth=1.2,
-                                    arrowcolor="rgba(100,116,139,0.85)",
-                                    ax=item["tail_x"],
-                                    ay=item["tail_y"],
-                                    axref="x",
-                                    ayref="y",
+                                    text=str(r.get("label_text") or ""),
+                                    showarrow=False,
                                     xanchor="left",
                                     yanchor="middle",
+                                    align="left",
                                     font=dict(size=12, color="#0F172A"),
-                                    bgcolor="rgba(255,255,255,0.88)",
-                                    bordercolor="rgba(148,163,184,0.55)",
-                                    borderwidth=1,
+                                    bgcolor="rgba(255,255,255,0.0)",
+                                    borderwidth=0,
                                 ))
                             return traces, ann
-
                         frames = []
                         for i, d in enumerate(curve_dates, start=1):
                             frame_df = anim_top_sorted[anim_top_sorted["date_dt"].isin(curve_dates[:i])].copy()
@@ -4723,8 +4694,8 @@ def render_moneyflow_tab():
                             paper_bgcolor="white",
                             plot_bgcolor="rgba(248,250,252,0.5)",
                             font=dict(family="Inter, PingFang SC, sans-serif"),
-                            height=560,
-                            margin=dict(l=30, r=220, t=60, b=30),
+                            height=720,
+                            margin=dict(l=30, r=260, t=80, b=30),
                             xaxis_title="日期",
                             yaxis_title="净流入（亿元）",
                             legend_title_text="板块",
@@ -4750,7 +4721,7 @@ def render_moneyflow_tab():
                             }],
                         )
                         st.plotly_chart(fig_anim, use_container_width=True)
-                        st.caption("说明：末端标签会随帧更新，并通过引导线指向真实线尾，避免重叠时也能对应到正确板块。")
+                        st.caption("说明：已抬高图面并增加右侧留白，让每条线的末端标签跟随线尾运动，不再使用引导线。")
                 latest_frame = anim_top[anim_top["date_label"] == anim_top["date_label"].max()].copy()
                 latest_frame = latest_frame.sort_values("net_amount_yi", ascending=False)
                 latest_show = latest_frame[["sector_name", "net_amount_yi", "pct_change"]].copy()
