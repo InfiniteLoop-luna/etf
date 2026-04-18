@@ -173,6 +173,7 @@ def query_hotmoney_top_active(start_date: str,
 def query_hotmoney_top_stocks(start_date: str,
                               end_date: str,
                               top_n: int = 20,
+                              order_by: str = "hit_count",
                               engine: Optional[Engine] = None) -> pd.DataFrame:
     if engine is None:
         engine = _get_engine_cached()
@@ -180,22 +181,41 @@ def query_hotmoney_top_stocks(start_date: str,
     s_val = _to_date(start_date)
     e_val = _to_date(end_date)
 
-    sql = """
-    SELECT
-      ts_code,
-      COALESCE(payload->>'ts_name', ts_code) AS ts_name,
-      COUNT(*) AS hit_count,
-      COUNT(DISTINCT COALESCE(payload->>'hm_name', '未知游资')) AS hm_count,
-      SUM(
-        COALESCE(
-          CASE WHEN COALESCE(payload->>'net_amount','') ~ '^-?\\d+(\\.\\d+)?$' THEN (payload->>'net_amount')::numeric ELSE 0 END,
-          0
-        )
-      ) AS total_net_amount
-    FROM ts_hm_detail
-    WHERE trade_date BETWEEN :start_date AND :end_date
-    GROUP BY ts_code, COALESCE(payload->>'ts_name', ts_code)
-    ORDER BY hit_count DESC, 5 DESC
+    order_by = (order_by or "hit_count").lower()
+    if order_by == "hm_count":
+        order_sql = "hm_count DESC, hit_count DESC, total_net_amount_abs DESC"
+    elif order_by == "net_amount_abs":
+        order_sql = "total_net_amount_abs DESC, hit_count DESC, hm_count DESC"
+    else:
+        order_sql = "hit_count DESC, hm_count DESC, total_net_amount_abs DESC"
+
+    sql = f"""
+    SELECT *
+    FROM (
+      SELECT
+        ts_code,
+        COALESCE(payload->>'ts_name', ts_code) AS ts_name,
+        COUNT(*) AS hit_count,
+        COUNT(DISTINCT COALESCE(payload->>'hm_name', '未知游资')) AS hm_count,
+        SUM(
+          COALESCE(
+            CASE WHEN COALESCE(payload->>'net_amount','') ~ '^-?\\d+(\\.\\d+)?$' THEN (payload->>'net_amount')::numeric ELSE 0 END,
+            0
+          )
+        ) AS total_net_amount,
+        ABS(
+          SUM(
+            COALESCE(
+              CASE WHEN COALESCE(payload->>'net_amount','') ~ '^-?\\d+(\\.\\d+)?$' THEN (payload->>'net_amount')::numeric ELSE 0 END,
+              0
+            )
+          )
+        ) AS total_net_amount_abs
+      FROM ts_hm_detail
+      WHERE trade_date BETWEEN :start_date AND :end_date
+      GROUP BY ts_code, COALESCE(payload->>'ts_name', ts_code)
+    ) t
+    ORDER BY {order_sql}
     LIMIT :top_n
     """
     with engine.connect() as conn:

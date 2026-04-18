@@ -1427,13 +1427,15 @@ def render_hotmoney_tab():
     meta_cols[2].metric("最新明细交易日", latest_trade_label)
     meta_cols[3].metric("最近同步时间", latest_sync_label)
 
-    ctl1, ctl2, ctl3 = st.columns([1.2, 1, 1])
+    ctl1, ctl2, ctl3, ctl4 = st.columns([1.1, 1, 1, 1.1])
     with ctl1:
         hm_keyword = st.text_input("搜索游资名称", value="", key="hm_keyword")
     with ctl2:
         detail_window = st.selectbox("明细窗口", ["最近1日", "最近5日", "最近20日", "全部已入库"], index=1, key="hm_detail_window")
     with ctl3:
         top_n = st.selectbox("TopN", [10, 20, 30, 50], index=1, key="hm_topn")
+    with ctl4:
+        stock_rank_mode = st.selectbox("个股排序", ["按上榜次数", "按游资数", "按净买卖绝对值"], index=0, key="hm_stock_rank_mode")
 
     hm_list_df = query_hotmoney_list(name=hm_keyword or None, limit=300, engine=_hm_engine)
     if hm_list_df is not None and not hm_list_df.empty:
@@ -1480,9 +1482,15 @@ def render_hotmoney_tab():
         else:
             start_dt = pd.to_datetime("2024-01-01").date()
 
+        stock_order_by = "hit_count"
+        if stock_rank_mode == "按游资数":
+            stock_order_by = "hm_count"
+        elif stock_rank_mode == "按净买卖绝对值":
+            stock_order_by = "net_amount_abs"
+
         try:
             df_active = query_hotmoney_top_active(start_dt.strftime("%Y%m%d"), latest_date, top_n=int(top_n), engine=_hm_engine)
-            df_stocks = query_hotmoney_top_stocks(start_dt.strftime("%Y%m%d"), latest_date, top_n=int(top_n), engine=_hm_engine)
+            df_stocks = query_hotmoney_top_stocks(start_dt.strftime("%Y%m%d"), latest_date, top_n=int(top_n), order_by=stock_order_by, engine=_hm_engine)
             df_detail = query_hotmoney_detail(start_dt.strftime("%Y%m%d"), latest_date, hm_name=hm_keyword or None, limit=500, engine=_hm_engine)
         except Exception as e:
             st.error(f"游资明细查询失败：{e}")
@@ -1522,16 +1530,29 @@ def render_hotmoney_tab():
                 st.info("当前窗口暂无活跃游资数据。")
 
         with row1[1]:
-            st.markdown("#### 🎯 游资偏好个股")
+            rank_mode_label = stock_rank_mode.replace("按", "")
+            st.markdown(f"#### 🎯 游资偏好个股（{rank_mode_label}）")
             if df_stocks is not None and not df_stocks.empty:
                 show = df_stocks.copy()
                 show["total_net_amount_yi"] = pd.to_numeric(show["total_net_amount"], errors="coerce").fillna(0) / 1e8
+                stock_x_col = "hit_count"
+                stock_x_title = "上榜次数"
+                stock_text_col = "hit_count"
+                if stock_order_by == "hm_count":
+                    stock_x_col = "hm_count"
+                    stock_x_title = "游资数"
+                    stock_text_col = "hm_count"
+                elif stock_order_by == "net_amount_abs":
+                    stock_x_col = "total_net_amount_yi"
+                    stock_x_title = "净买卖绝对值(亿)"
+                    stock_text_col = "total_net_amount_yi"
+
                 fig_stocks = go.Figure(go.Bar(
-                    x=show["hit_count"],
+                    x=show[stock_x_col],
                     y=show["ts_name"],
                     orientation="h",
                     marker=dict(color=show["hm_count"], colorscale="Oranges", showscale=False),
-                    text=show["hit_count"],
+                    text=show[stock_text_col],
                     textposition="outside",
                 ))
                 fig_stocks.update_layout(
@@ -1543,7 +1564,7 @@ def render_hotmoney_tab():
                     height=max(320, len(show) * 24),
                     margin=dict(l=120, r=30, t=55, b=20),
                     yaxis=dict(autorange="reversed"),
-                    xaxis_title="上榜次数",
+                    xaxis_title=stock_x_title,
                 )
                 st.plotly_chart(fig_stocks, use_container_width=True)
                 out = show[["ts_name", "ts_code", "hit_count", "hm_count", "total_net_amount_yi"]].copy()
