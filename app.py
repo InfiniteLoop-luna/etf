@@ -3872,6 +3872,17 @@ def render_fund_hot_stocks_tab():
             else:
                 st.info("当前结果暂无可用的管理人维度数据。")
 
+            st.markdown("#### 🧭 管理人趋势")
+            if not mgmt_group.empty:
+                mgmt_trend_show = mgmt_group.copy().sort_values(["市值变化亿", "总持仓市值亿"], ascending=[False, False]).head(15)
+                mgmt_trend_show["趋势判断"] = mgmt_trend_show["市值变化亿"].apply(lambda v: "持续加仓" if pd.notna(v) and v > 0 else ("持续撤退" if pd.notna(v) and v < 0 else "基本持平"))
+                mgmt_trend_show["总持仓市值(亿)"] = pd.to_numeric(mgmt_trend_show["总持仓市值亿"], errors="coerce").map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+                mgmt_trend_show["市值变化(亿)"] = pd.to_numeric(mgmt_trend_show["市值变化亿"], errors="coerce").map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+                mgmt_trend_show = mgmt_trend_show.rename(columns={"management": "管理人"})[["管理人", "持有基金数", "总持仓市值(亿)", "市值变化(亿)", "趋势判断"]]
+                st.dataframe(mgmt_trend_show, use_container_width=True, hide_index=True)
+            else:
+                st.info("暂无可用的管理人趋势数据。")
+
             st.markdown("#### 📈 个股季度趋势")
             trend_periods = st.selectbox("趋势季度数", [4, 6, 8, 12], index=2, key="fh_trend_periods")
             try:
