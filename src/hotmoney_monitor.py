@@ -163,7 +163,7 @@ def query_hotmoney_top_active(start_date: str,
     FROM ts_hm_detail
     WHERE trade_date BETWEEN :start_date AND :end_date
     GROUP BY COALESCE(payload->>'hm_name', '未知游资')
-    ORDER BY hit_count DESC, ABS(total_net_amount) DESC
+    ORDER BY hit_count DESC, 4 DESC
     LIMIT :top_n
     """
     with engine.connect() as conn:
@@ -195,7 +195,7 @@ def query_hotmoney_top_stocks(start_date: str,
     FROM ts_hm_detail
     WHERE trade_date BETWEEN :start_date AND :end_date
     GROUP BY ts_code, COALESCE(payload->>'ts_name', ts_code)
-    ORDER BY hit_count DESC, ABS(total_net_amount) DESC
+    ORDER BY hit_count DESC, 5 DESC
     LIMIT :top_n
     """
     with engine.connect() as conn:
