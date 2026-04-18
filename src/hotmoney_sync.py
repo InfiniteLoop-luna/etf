@@ -32,6 +32,13 @@ DEFAULT_ROSTER_START_DATE = "20220801"
 DEFAULT_DETAIL_START_DATE = "20240101"
 DEFAULT_API_SLEEP = float(os.getenv("TUSHARE_HM_API_SLEEP", "0.25"))
 DEFAULT_LOOKBACK_DAYS = int(os.getenv("TUSHARE_HM_LOOKBACK_DAYS", "2"))
+
+# hm_detail 限频很严，默认走“慢速小窗口补数”
+DEFAULT_DETAIL_BATCH_DAYS = int(os.getenv("TUSHARE_HM_DETAIL_BATCH_DAYS", "1"))
+DEFAULT_DETAIL_REQUEST_SLEEP_SECONDS = float(os.getenv("TUSHARE_HM_DETAIL_REQUEST_SLEEP_SECONDS", "35"))
+DEFAULT_DETAIL_LOOKBACK_DAYS = int(os.getenv("TUSHARE_HM_DETAIL_LOOKBACK_DAYS", "0"))
+DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS = float(os.getenv("TUSHARE_HM_RATE_LIMIT_COOLDOWN_SECONDS", "90"))
+
 DEFAULT_DB_HOST = "67.216.207.73"
 DEFAULT_DB_PORT = 5432
 DEFAULT_DB_NAME = "postgres"
@@ -54,6 +61,7 @@ logger = logging.getLogger(__name__)
 def build_db_url():
     try:
         from src.sync_tushare_security_data import build_db_url as _sync_build_db_url
+
         return _sync_build_db_url()
     except Exception:
         pass
@@ -66,6 +74,7 @@ def build_db_url():
     if not password:
         try:
             import streamlit as st
+
             password = (
                 st.secrets.get("ETF_PG_PASSWORD")
                 or st.secrets.get("PGPASSWORD")
@@ -145,6 +154,21 @@ def _parse_trade_date(raw) -> Optional[datetime.date]:
     if len(s) >= 8 and s[:8].isdigit():
         return datetime.strptime(s[:8], "%Y%m%d").date()
     return None
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    msg = str(exc)
+    tokens = ["每分钟最多访问", "每小时最多访问", "频次", "rate limit", "too many requests"]
+    return any(t in msg for t in tokens)
+
+
+def _calc_batch_end(start_date: str, hard_end_date: str, batch_days: int) -> str:
+    s_dt = datetime.strptime(start_date, "%Y%m%d").date()
+    e_dt = datetime.strptime(hard_end_date, "%Y%m%d").date()
+    if batch_days <= 0:
+        return hard_end_date
+    b_dt = s_dt + timedelta(days=batch_days - 1)
+    return min(e_dt, b_dt).strftime("%Y%m%d")
 
 
 def get_max_trade_date(engine: Engine, table_name: str) -> Optional[str]:
@@ -233,21 +257,47 @@ def sync_hm_list(engine: Engine, pro, name: Optional[str] = None) -> int:
     try:
         df = pro.hm_list(name=name) if name else pro.hm_list()
         if df is not None and not df.empty:
-            total = upsert_rows(engine, table, "hm_list", df.to_dict("records"), ts_code_key="name", trade_date_key="trade_date", extra_key="name")
+            total = upsert_rows(
+                engine,
+                table,
+                "hm_list",
+                df.to_dict("records"),
+                ts_code_key="name",
+                trade_date_key="trade_date",
+                extra_key="name",
+            )
     except Exception as exc:
         logger.warning(f"hm_list 拉取失败: {exc}")
     logger.info(f"hm_list 完成，共写入 {total} 行")
     return total
 
 
-def sync_hm_detail(engine: Engine, pro, start_date: Optional[str] = None, end_date: Optional[str] = None) -> int:
+def sync_hm_detail(
+    engine: Engine,
+    pro,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    batch_days: int = DEFAULT_DETAIL_BATCH_DAYS,
+    request_sleep_seconds: float = DEFAULT_DETAIL_REQUEST_SLEEP_SECONDS,
+    lookback_days: int = DEFAULT_DETAIL_LOOKBACK_DAYS,
+    stop_on_rate_limit: bool = True,
+    max_days: Optional[int] = None,
+) -> int:
     table = HM_TABLES["hm_detail"]
-    s = resolve_start_date(engine, table, DEFAULT_DETAIL_START_DATE, start_date, lookback_days=DEFAULT_LOOKBACK_DAYS)
-    e = end_date or datetime.now().strftime("%Y%m%d")
-    logger.info(f"hm_detail: 拉取 {s} -> {e}")
+    s = resolve_start_date(engine, table, DEFAULT_DETAIL_START_DATE, start_date, lookback_days=lookback_days)
+    hard_end = end_date or datetime.now().strftime("%Y%m%d")
+    e = _calc_batch_end(s, hard_end, batch_days)
+
+    logger.info(
+        f"hm_detail: 拉取 {s} -> {e} (hard_end={hard_end}, batch_days={batch_days}, sleep={request_sleep_seconds}s)"
+    )
+
     total = 0
-    dt_range = pd.date_range(pd.to_datetime(s), pd.to_datetime(e), freq="D")
-    for dt in dt_range:
+    dt_range = list(pd.date_range(pd.to_datetime(s), pd.to_datetime(e), freq="D"))
+    if max_days is not None and max_days > 0:
+        dt_range = dt_range[:max_days]
+
+    for idx, dt in enumerate(dt_range, start=1):
         trade_date = dt.strftime("%Y%m%d")
         try:
             df = pro.hm_detail(trade_date=trade_date)
@@ -258,14 +308,36 @@ def sync_hm_detail(engine: Engine, pro, start_date: Optional[str] = None, end_da
                     r["hm_name_key"] = r.get("hm_name")
                     rows.append(r)
                 total += upsert_rows(engine, table, "hm_detail", rows, extra_key="hm_name_key")
+                logger.info(f"hm_detail[{trade_date}] 写入 {len(rows)} 行")
+            else:
+                logger.info(f"hm_detail[{trade_date}] 返回空")
         except Exception as exc:
-            logger.warning(f"hm_detail[{trade_date}] 拉取失败: {exc}")
-        time.sleep(DEFAULT_API_SLEEP)
+            if _is_rate_limit_error(exc):
+                logger.warning(f"hm_detail[{trade_date}] 触发限频: {exc}")
+                if stop_on_rate_limit:
+                    logger.warning("检测到限频，提前停止本轮补数，等待下次任务继续。")
+                    break
+                time.sleep(max(request_sleep_seconds, DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS))
+            else:
+                logger.warning(f"hm_detail[{trade_date}] 拉取失败: {exc}")
+
+        if idx < len(dt_range):
+            time.sleep(max(0.1, request_sleep_seconds))
+
     logger.info(f"hm_detail 完成，共写入 {total} 行")
     return total
 
 
-def run_sync(datasets: Optional[list[str]] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
+def run_sync(
+    datasets: Optional[list[str]] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    detail_batch_days: int = DEFAULT_DETAIL_BATCH_DAYS,
+    detail_request_sleep_seconds: float = DEFAULT_DETAIL_REQUEST_SLEEP_SECONDS,
+    detail_lookback_days: int = DEFAULT_DETAIL_LOOKBACK_DAYS,
+    detail_stop_on_rate_limit: bool = True,
+    detail_max_days: Optional[int] = None,
+):
     all_datasets = ["hm_list", "hm_detail"]
     target_datasets = datasets or all_datasets
 
@@ -282,7 +354,17 @@ def run_sync(datasets: Optional[list[str]] = None, start_date: Optional[str] = N
         results["hm_list"] = sync_hm_list(engine, pro)
         time.sleep(DEFAULT_API_SLEEP)
     if "hm_detail" in target_datasets:
-        results["hm_detail"] = sync_hm_detail(engine, pro, start_date, end_date)
+        results["hm_detail"] = sync_hm_detail(
+            engine,
+            pro,
+            start_date,
+            end_date,
+            batch_days=detail_batch_days,
+            request_sleep_seconds=detail_request_sleep_seconds,
+            lookback_days=detail_lookback_days,
+            stop_on_rate_limit=detail_stop_on_rate_limit,
+            max_days=detail_max_days,
+        )
 
     total = sum(results.values()) if results else 0
     logger.info(f"=== 同步完成，共写入 {total} 行 ===")

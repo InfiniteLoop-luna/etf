@@ -33,6 +33,14 @@ def main():
     parser.add_argument("--end", type=str, default=None, help="结束日期 YYYYMMDD")
     parser.add_argument("--datasets", type=str, default=None, help="逗号分隔数据集 hm_list,hm_detail")
     parser.add_argument("--init-tables", action="store_true", help="仅初始化 landing tables")
+
+    # 慢速补数策略参数
+    parser.add_argument("--detail-batch-days", type=int, default=1, help="hm_detail 每次最多补几天")
+    parser.add_argument("--detail-sleep", type=float, default=35, help="hm_detail 每个交易日请求间隔(秒)")
+    parser.add_argument("--detail-lookback-days", type=int, default=0, help="hm_detail 增量回看天数")
+    parser.add_argument("--detail-max-days", type=int, default=None, help="hm_detail 本次最多处理天数")
+    parser.add_argument("--detail-continue-on-rate-limit", action="store_true", help="遇限频后不提前停止（默认停止）")
+
     args = parser.parse_args()
 
     inject_env_from_dotenv()
@@ -48,7 +56,16 @@ def main():
     target_ds = [d.strip() for d in args.datasets.split(",")] if args.datasets else None
     start = args.start or (DEFAULT_DETAIL_START_DATE if args.full else None)
 
-    result = run_sync(datasets=target_ds, start_date=start, end_date=args.end)
+    result = run_sync(
+        datasets=target_ds,
+        start_date=start,
+        end_date=args.end,
+        detail_batch_days=max(1, int(args.detail_batch_days)),
+        detail_request_sleep_seconds=max(1.0, float(args.detail_sleep)),
+        detail_lookback_days=max(0, int(args.detail_lookback_days)),
+        detail_stop_on_rate_limit=not args.detail_continue_on_rate_limit,
+        detail_max_days=args.detail_max_days,
+    )
     print(f"[OK] 游资数据同步完成: {result}")
 
 
