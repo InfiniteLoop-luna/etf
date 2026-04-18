@@ -44,6 +44,39 @@ def get_limitup_latest_date(engine: Optional[Engine] = None) -> Optional[str]:
     return row[0] if row and row[0] else None
 
 
+def get_limitup_sync_meta(engine: Optional[Engine] = None) -> dict:
+    if engine is None:
+        engine = _get_engine_cached()
+
+    sql = """
+    SELECT
+      COALESCE(SUM(cnt), 0) AS total_rows,
+      MAX(latest_trade_date) AS latest_trade_date,
+      MAX(latest_ingested_at) AS latest_ingested_at
+    FROM (
+      SELECT COUNT(*) AS cnt, MAX(trade_date) AS latest_trade_date, MAX(ingested_at) AS latest_ingested_at FROM ts_limit_list_d
+      UNION ALL
+      SELECT COUNT(*) AS cnt, MAX(trade_date) AS latest_trade_date, MAX(ingested_at) AS latest_ingested_at FROM ts_limit_step
+      UNION ALL
+      SELECT COUNT(*) AS cnt, MAX(trade_date) AS latest_trade_date, MAX(ingested_at) AS latest_ingested_at FROM ts_limit_cpt_list
+      UNION ALL
+      SELECT COUNT(*) AS cnt, MAX(trade_date) AS latest_trade_date, MAX(ingested_at) AS latest_ingested_at FROM ts_kpl_list
+    ) t
+    """
+    with engine.connect() as conn:
+        row = conn.execute(text(sql)).fetchone()
+
+    latest_trade_date = None
+    if row and row[1] is not None:
+        latest_trade_date = row[1].strftime("%Y%m%d")
+
+    return {
+        "total_rows": int(row[0] or 0) if row else 0,
+        "latest_trade_date": latest_trade_date,
+        "latest_ingested_at": row[2] if row else None,
+    }
+
+
 def query_limitup_emotion_daily(start_date: str,
                                 end_date: Optional[str] = None,
                                 engine: Optional[Engine] = None) -> pd.DataFrame:
@@ -107,7 +140,6 @@ def query_limitup_emotion_daily(start_date: str,
     df["zha_rate"] = (pd.to_numeric(df["zha_cnt"], errors="coerce").fillna(0) /
                       pd.to_numeric(df["up_cnt"], errors="coerce").replace(0, pd.NA)).fillna(0)
 
-    # 情绪评分：高分=强，低分=弱
     def _z(series: pd.Series) -> pd.Series:
       s = pd.to_numeric(series, errors='coerce').fillna(0)
       std = s.std(ddof=0)

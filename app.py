@@ -1397,6 +1397,7 @@ def render_limitup_monitor_tab():
 
         _lu_engine = _get_engine_cached()
         latest_date = get_limitup_latest_date(_lu_engine)
+        sync_meta = get_limitup_sync_meta(_lu_engine)
         if not latest_date:
             st.info("暂无打板情绪数据。")
             return
@@ -1404,6 +1405,18 @@ def render_limitup_monitor_tab():
     except Exception as e:
         st.error(f"打板情绪数据初始化失败：{e}")
         return
+
+    latest_trade_label = latest_dt.strftime("%Y-%m-%d")
+    latest_sync_val = sync_meta.get("latest_ingested_at")
+    latest_sync_label = "-"
+    if latest_sync_val is not None and not pd.isna(latest_sync_val):
+        latest_sync_label = pd.to_datetime(latest_sync_val).strftime("%Y-%m-%d %H:%M")
+    total_rows = int(sync_meta.get("total_rows") or 0)
+
+    meta_cols = st.columns(3)
+    meta_cols[0].metric("最新交易日", latest_trade_label)
+    meta_cols[1].metric("最近同步时间", latest_sync_label)
+    meta_cols[2].metric("累计入库行数", f"{total_rows:,}")
 
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
@@ -3557,6 +3570,7 @@ def render_fund_hot_stocks_tab():
     )
     from src.limitup_monitor import (
         get_limitup_latest_date,
+        get_limitup_sync_meta,
         query_limitup_emotion_daily,
         query_limitup_sector_relay_daily,
         query_limitup_leader_daily,
