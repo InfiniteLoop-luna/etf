@@ -4544,7 +4544,7 @@ def render_moneyflow_tab():
         st.markdown("#### 🏭 行业/板块资金流向")
 
         st.markdown("##### 🎬 行业板块动画能力")
-        anim_col0, anim_col1, anim_col2, anim_col3, anim_col4 = st.columns([1.2, 1.1, 1, 0.9, 0.9])
+        anim_col0, anim_col1, anim_col2, anim_col3, anim_col4, anim_col5 = st.columns([1.1, 1.0, 1.0, 0.8, 0.8, 0.9])
         with anim_col0:
             sector_anim_mode = st.selectbox("动画类型", ["条形轮动", "资金曲线"], index=0, key="mf_sector_anim_mode")
         with anim_col1:
@@ -4552,9 +4552,11 @@ def render_moneyflow_tab():
         with anim_col2:
             sector_anim_start = st.date_input("起始日期", value=max(latest_dt - timedelta(days=30), sector_min_dt), min_value=sector_min_dt, max_value=latest_dt, key="mf_sector_anim_start")
         with anim_col3:
-            sector_anim_topn = st.selectbox("TopN", [8, 10, 12, 15, 20], index=2, key="mf_sector_anim_topn")
+            sector_anim_topn = st.selectbox("TopN", [5, 8, 10, 12, 15], index=2, key="mf_sector_anim_topn")
         with anim_col4:
             sector_anim_speed = st.selectbox("速度", [300, 500, 800], index=1, format_func=lambda x: {300: "快", 500: "中", 800: "慢"}[x], key="mf_sector_anim_speed")
+        with anim_col5:
+            sector_anim_sampling = st.selectbox("采样", ["每日", "每2日", "每5日"], index=0, key="mf_sector_anim_sampling")
 
         try:
             start_str = str(sector_anim_start).replace("-", "")
@@ -4571,6 +4573,13 @@ def render_moneyflow_tab():
                 anim_df["sector_name"] = anim_df["sector_name"].fillna("未知板块")
                 anim_df["net_amount"] = pd.to_numeric(anim_df["net_amount"], errors="coerce").fillna(0)
                 anim_df["net_amount_yi"] = anim_df["net_amount"]
+
+                sampling_step = {"每日": 1, "每2日": 2, "每5日": 5}.get(sector_anim_sampling, 1)
+                date_list = sorted(anim_df["date_label"].unique().tolist())
+                kept_dates = set(date_list[::sampling_step] or date_list)
+                if date_list and date_list[-1] not in kept_dates:
+                    kept_dates.add(date_list[-1])
+                anim_df = anim_df[anim_df["date_label"].isin(kept_dates)].copy()
 
                 anim_df["abs_rank"] = anim_df.groupby("date_label")["net_amount_yi"].transform(lambda s: s.abs().rank(method="first", ascending=False))
                 anim_top = anim_df[anim_df["abs_rank"] <= int(sector_anim_topn)].copy()
@@ -4616,27 +4625,37 @@ def render_moneyflow_tab():
                     frames = []
                     for i, d in enumerate(curve_dates, start=1):
                         frame_df = anim_top_sorted[anim_top_sorted["date_label"].isin(curve_dates[:i])].copy()
-                        frame_fig = px.line(
-                            frame_df,
-                            x="date_label",
-                            y="net_amount_yi",
-                            color="sector_name",
-                            line_group="sector_name",
-                            hover_data={"net_amount_yi": ':.2f', "sector_name": True, "date_label": True},
-                        )
-                        frame_fig.update_traces(mode="lines+markers")
+                        if frame_df.empty:
+                            continue
+                        last_points = frame_df.sort_values(["sector_name", "date_label"]).groupby("sector_name", as_index=False).tail(1).copy()
+                        last_points["label_text"] = last_points.apply(lambda r: f"{r['sector_name']} {r['net_amount_yi']:.2f}亿", axis=1)
+
+                        frame_fig = go.Figure()
+                        for sector_name, g in frame_df.groupby("sector_name", sort=False):
+                            frame_fig.add_trace(go.Scatter(
+                                x=g["date_label"],
+                                y=g["net_amount_yi"],
+                                mode="lines+markers",
+                                name=sector_name,
+                                line=dict(width=3, shape="spline", smoothing=0.9),
+                                marker=dict(size=6),
+                                hovertemplate="%{x}<br>%{fullData.name}: %{y:.2f}亿<extra></extra>",
+                                showlegend=True,
+                            ))
+                        frame_fig.add_trace(go.Scatter(
+                            x=last_points["date_label"],
+                            y=last_points["net_amount_yi"],
+                            mode="text",
+                            text=last_points["label_text"],
+                            textposition="middle right",
+                            textfont=dict(size=12, color="#1E293B"),
+                            hoverinfo="skip",
+                            showlegend=False,
+                        ))
                         frames.append(go.Frame(data=frame_fig.data, name=d))
 
-                    base_df = anim_top_sorted[anim_top_sorted["date_label"] == curve_dates[0]].copy()
-                    fig_anim = px.line(
-                        base_df,
-                        x="date_label",
-                        y="net_amount_yi",
-                        color="sector_name",
-                        line_group="sector_name",
-                        hover_data={"net_amount_yi": ':.2f', "sector_name": True, "date_label": True},
-                    )
-                    fig_anim.update_traces(mode="lines+markers")
+                    first_frame = frames[0] if frames else None
+                    fig_anim = go.Figure(data=first_frame.data if first_frame else [])
                     fig_anim.frames = frames
                     fig_anim.update_layout(
                         title=dict(text=f"{sector_anim_source} 资金曲线动画（从 {str(sector_anim_start)} 到 {latest_date}）", x=0.02, font=dict(size=17, color="#1E293B")),
@@ -4645,10 +4664,11 @@ def render_moneyflow_tab():
                         plot_bgcolor="rgba(248,250,252,0.5)",
                         font=dict(family="Inter, PingFang SC, sans-serif"),
                         height=560,
-                        margin=dict(l=30, r=30, t=60, b=30),
+                        margin=dict(l=30, r=180, t=60, b=30),
                         xaxis_title="日期",
                         yaxis_title="净流入（亿元）",
                         legend_title_text="板块",
+                        hovermode="x unified",
                         updatemenus=[{
                             "type": "buttons",
                             "showactive": False,
@@ -4656,7 +4676,7 @@ def render_moneyflow_tab():
                                 {
                                     "label": "播放",
                                     "method": "animate",
-                                    "args": [None, {"frame": {"duration": int(sector_anim_speed), "redraw": True}, "transition": {"duration": max(120, int(sector_anim_speed * 0.6))}, "fromcurrent": True}]
+                                    "args": [None, {"frame": {"duration": int(sector_anim_speed), "redraw": True}, "transition": {"duration": max(180, int(sector_anim_speed * 0.8))}, "fromcurrent": True}]
                                 },
                                 {
                                     "label": "暂停",
@@ -4666,8 +4686,9 @@ def render_moneyflow_tab():
                             ]
                         }],
                     )
+                    fig_anim.update_xaxes(type="category", tickangle=-35)
                     st.plotly_chart(fig_anim, use_container_width=True)
-                    st.caption("说明：资金曲线动画会让各板块净流入曲线随时间逐步生长，更适合观察持续性资金趋势。")
+                    st.caption("说明：资金曲线动画支持在线尾显示板块名称+资金值；如果日期太密，可改成每2日/每5日采样，动画会更平滑。")
 
                 latest_frame = anim_top[anim_top["date_label"] == anim_top["date_label"].max()].copy()
                 latest_frame = latest_frame.sort_values("net_amount_yi", ascending=False)
