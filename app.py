@@ -3637,14 +3637,22 @@ def render_fund_hot_stocks_tab():
         if st.button("查询持仓透视", type="primary", key="btn_fh_detail_query"):
             st.session_state["fh_detail_error"] = ""
             st.session_state["fh_detail_result"] = pd.DataFrame()
+            st.session_state["fh_last_query_period"] = detail_period
+            st.session_state["fh_last_query_status"] = ""
             if selected_row is None:
+                st.session_state["fh_last_query_code"] = ""
+                st.session_state["fh_last_query_name"] = ""
                 if stock_keyword:
                     st.session_state["fh_detail_error"] = "没有匹配到股票，暂时无法查询持仓透视。"
+                    st.session_state["fh_last_query_status"] = "未匹配到股票"
                 else:
                     st.session_state["fh_detail_error"] = "请先输入股票代码/名称，并从匹配结果中选择股票。"
+                    st.session_state["fh_last_query_status"] = "缺少查询对象"
             else:
                 code = str(selected_row.get("ts_code") or "").strip().upper()
                 name = str(selected_row.get("name") or code).strip()
+                st.session_state["fh_last_query_code"] = code
+                st.session_state["fh_last_query_name"] = name
                 try:
                     df_detail = query_stock_fund_holding_detail(
                         symbol=code,
@@ -3656,12 +3664,28 @@ def render_fund_hot_stocks_tab():
                     st.session_state["fh_stock_code"] = code
                     st.session_state["fh_stock_name"] = name
                     st.session_state["fh_stock_keyword"] = stock_keyword
+                    if df_detail is None or df_detail.empty:
+                        st.session_state["fh_last_query_status"] = "该季度暂无基金持仓明细"
+                    else:
+                        st.session_state["fh_last_query_status"] = "查询成功"
                 except Exception as exc:
                     logger.error(f"query_stock_fund_holding_detail failed: {exc}", exc_info=True)
                     st.session_state["fh_detail_error"] = "持仓透视查询失败，请稍后重试；若持续失败，说明该股票当前报告期数据可能缺失。"
                     st.session_state["fh_detail_result"] = pd.DataFrame()
+                    st.session_state["fh_last_query_status"] = "查询异常"
 
         detail_error = st.session_state.get("fh_detail_error", "")
+        last_query_code = st.session_state.get("fh_last_query_code", "")
+        last_query_name = st.session_state.get("fh_last_query_name", "")
+        last_query_period = st.session_state.get("fh_last_query_period", detail_period)
+        last_query_status = st.session_state.get("fh_last_query_status", "")
+
+        if last_query_code or last_query_name or last_query_status:
+            query_title = last_query_name or last_query_code or "未选择股票"
+            if last_query_code and last_query_name:
+                query_title = f"{last_query_name}（{last_query_code}）"
+            st.info(f"📌 当前查询对象：{query_title}｜报告期：{last_query_period}｜状态：{last_query_status or '待查询'}")
+
         if detail_error:
             st.error(detail_error)
 
@@ -3733,8 +3757,8 @@ def render_fund_hot_stocks_tab():
             show_df["持仓数量"] = pd.to_numeric(show_df["持仓数量"], errors="coerce").map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
 
             st.dataframe(show_df, use_container_width=True, hide_index=True, height=520)
-        elif df_detail is not None and df_detail.empty and not detail_error and st.session_state.get("fh_stock_code"):
-            st.info("该股票在所选报告期暂无基金持仓明细。")
+        elif df_detail is not None and df_detail.empty and not detail_error and st.session_state.get("fh_last_query_code"):
+            st.info("该股票在所选报告期暂无基金持仓明细。可能原因：当前季度未被基金持有，或该股票尚未纳入本期聚合数据。")
 
 
 def render_moneyflow_tab():
