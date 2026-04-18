@@ -4569,17 +4569,18 @@ def render_moneyflow_tab():
             if anim_df is not None and not anim_df.empty:
                 anim_df = anim_df.copy()
                 anim_df["trade_date"] = pd.to_datetime(anim_df["trade_date"])
+                anim_df["date_dt"] = pd.to_datetime(anim_df["trade_date"]).dt.normalize()
                 anim_df["date_label"] = anim_df["trade_date"].dt.strftime("%Y-%m-%d")
                 anim_df["sector_name"] = anim_df["sector_name"].fillna("未知板块")
                 anim_df["net_amount"] = pd.to_numeric(anim_df["net_amount"], errors="coerce").fillna(0)
                 anim_df["net_amount_yi"] = anim_df["net_amount"]
 
                 sampling_step = {"每日": 1, "每2日": 2, "每5日": 5}.get(sector_anim_sampling, 1)
-                date_list = sorted(anim_df["date_label"].unique().tolist())
+                date_list = sorted(anim_df["date_dt"].dropna().unique().tolist())
                 kept_dates = set(date_list[::sampling_step] or date_list)
                 if date_list and date_list[-1] not in kept_dates:
                     kept_dates.add(date_list[-1])
-                anim_df = anim_df[anim_df["date_label"].isin(kept_dates)].copy()
+                anim_df = anim_df[anim_df["date_dt"].isin(kept_dates)].copy()
 
                 anim_df["abs_rank"] = anim_df.groupby("date_label")["net_amount_yi"].transform(lambda s: s.abs().rank(method="first", ascending=False))
                 anim_top = anim_df[anim_df["abs_rank"] <= int(sector_anim_topn)].copy()
@@ -4621,19 +4622,19 @@ def render_moneyflow_tab():
                     st.caption("说明：条形轮动动画展示每个交易日 TopN 净流入/净流出最显著板块，用于观察行业轮动路径。")
                 else:
                     anim_top_sorted = anim_top.sort_values(["trade_date", "net_amount_yi"], ascending=[True, False]).copy()
-                    curve_dates = sorted(anim_top_sorted["date_label"].unique().tolist())
+                    curve_dates = sorted(anim_top_sorted["date_dt"].dropna().unique().tolist())
                     frames = []
                     for i, d in enumerate(curve_dates, start=1):
-                        frame_df = anim_top_sorted[anim_top_sorted["date_label"].isin(curve_dates[:i])].copy()
+                        frame_df = anim_top_sorted[anim_top_sorted["date_dt"].isin(curve_dates[:i])].copy()
                         if frame_df.empty:
                             continue
-                        last_points = frame_df.sort_values(["sector_name", "date_label"]).groupby("sector_name", as_index=False).tail(1).copy()
+                        last_points = frame_df.sort_values(["sector_name", "date_dt"]).groupby("sector_name", as_index=False).tail(1).copy()
                         last_points["label_text"] = last_points.apply(lambda r: f"{r['sector_name']} {r['net_amount_yi']:.2f}亿", axis=1)
 
                         frame_fig = go.Figure()
                         for sector_name, g in frame_df.groupby("sector_name", sort=False):
                             frame_fig.add_trace(go.Scatter(
-                                x=g["date_label"],
+                                x=g["date_dt"],
                                 y=g["net_amount_yi"],
                                 mode="lines+markers",
                                 name=sector_name,
@@ -4643,7 +4644,7 @@ def render_moneyflow_tab():
                                 showlegend=True,
                             ))
                         frame_fig.add_trace(go.Scatter(
-                            x=last_points["date_label"],
+                            x=last_points["date_dt"],
                             y=last_points["net_amount_yi"],
                             mode="text",
                             text=last_points["label_text"],
@@ -4686,9 +4687,9 @@ def render_moneyflow_tab():
                             ]
                         }],
                     )
-                    fig_anim.update_xaxes(type="category", tickangle=-35)
+                    fig_anim.update_xaxes(type="date", tickformat="%Y-%m-%d", tickangle=-35, showgrid=True)
                     st.plotly_chart(fig_anim, use_container_width=True)
-                    st.caption("说明：资金曲线动画支持在线尾显示板块名称+资金值；如果日期太密，可改成每2日/每5日采样，动画会更平滑。")
+                    st.caption("说明：资金曲线动画已使用真实时间轴，同一交易日只对应一个时间点；支持在线尾显示板块名称+资金值。若时间跨度太长，可改成每2日/每5日采样让动画更平滑。")
 
                 latest_frame = anim_top[anim_top["date_label"] == anim_top["date_label"].max()].copy()
                 latest_frame = latest_frame.sort_values("net_amount_yi", ascending=False)
