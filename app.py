@@ -1341,8 +1341,8 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     # 创建Tab页
-    tab_etf, tab_volume, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_macro, tab_security, tab_screener, tab_tech_picker, tab_moneyflow, tab_fund_hot = st.tabs(
-        ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🌏 宏观经济", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股", "💹 资金流向", "🏦 公募持仓热股"]
+    tab_etf, tab_volume, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_macro, tab_security, tab_screener, tab_tech_picker, tab_moneyflow, tab_fund_hot, tab_limitup = st.tabs(
+        ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🌏 宏观经济", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股", "💹 资金流向", "🏦 公募持仓热股", "🔥 打板情绪"]
     )
     trigger_security_tab_jump_if_needed()
 
@@ -1383,6 +1383,111 @@ def main():
     with tab_fund_hot:
         render_fund_hot_stocks_tab()
 
+    with tab_limitup:
+        render_limitup_monitor_tab()
+
+
+
+def render_limitup_monitor_tab():
+    st.subheader("🔥 打板情绪与接力监控")
+    st.caption("基于 Tushare 打板专题数据，观察情绪周期、板块接力和龙头健康度。")
+
+    try:
+        _lu_engine = get_moneyflow_engine()
+        latest_date = get_limitup_latest_date(_lu_engine)
+        if not latest_date:
+            st.info("暂无打板情绪数据。")
+            return
+        latest_dt = pd.to_datetime(latest_date, format="%Y%m%d").date()
+    except Exception as e:
+        st.error(f"打板情绪数据初始化失败：{e}")
+        return
+
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col1:
+        window_mode = st.selectbox("观察窗口", ["快览(120日)", "标准(2024至今)", "研究(2023至今)"], index=1, key="lu_window_mode")
+    with col2:
+        relay_topn = st.selectbox("板块榜 TopN", [10, 15, 20, 30], index=1, key="lu_relay_topn")
+    with col3:
+        leader_topn = st.selectbox("龙头榜 TopN", [10, 20, 30, 50], index=1, key="lu_leader_topn")
+
+    if window_mode == "快览(120日)":
+        start_dt = latest_dt - timedelta(days=180)
+    elif window_mode == "研究(2023至今)":
+        start_dt = pd.to_datetime("2023-01-01").date()
+    else:
+        start_dt = pd.to_datetime("2024-01-01").date()
+
+    try:
+        df_emotion = query_limitup_emotion_daily(start_dt.strftime("%Y%m%d"), latest_date, engine=_lu_engine)
+    except Exception as e:
+        st.error(f"情绪序列查询失败：{e}")
+        return
+
+    if df_emotion is None or df_emotion.empty:
+        st.info("当前时间窗口暂无情绪数据。")
+        return
+
+    latest_row = df_emotion.iloc[-1]
+    met1, met2, met3, met4, met5 = st.columns(5)
+    met1.metric("情绪阶段", str(latest_row.get("emotion_stage") or "-"))
+    met2.metric("涨停数", f"{int(latest_row.get('up_cnt') or 0)}")
+    met3.metric("炸板数", f"{int(latest_row.get('zha_cnt') or 0)}")
+    met4.metric("连板高度", f"{int(latest_row.get('high_days') or 0)}")
+    met5.metric("强势概念数", f"{int(latest_row.get('strong_cpt_cnt') or 0)}")
+
+    fig_emotion = go.Figure()
+    fig_emotion.add_trace(go.Scatter(
+        x=df_emotion["trade_date"],
+        y=df_emotion["emotion_score"],
+        mode="lines+markers",
+        name="情绪分",
+        line=dict(color="#EF4444", width=2.5),
+    ))
+    fig_emotion.update_layout(
+        title=dict(text="情绪趋势图", x=0.02, font=dict(size=17, color="#1E293B")),
+        template="plotly_white",
+        paper_bgcolor="white",
+        plot_bgcolor="rgba(248,250,252,0.5)",
+        font=dict(family="Inter, PingFang SC, sans-serif"),
+        height=360,
+        margin=dict(l=30, r=30, t=55, b=30),
+        xaxis_title="日期",
+        yaxis_title="情绪分",
+    )
+    st.plotly_chart(fig_emotion, use_container_width=True)
+
+    low1, low2 = st.columns(2)
+    with low1:
+        st.markdown("#### 🚀 板块接力榜")
+        try:
+            df_relay = query_limitup_sector_relay_daily(latest_date, top_n=int(relay_topn), engine=_lu_engine)
+            if df_relay is not None and not df_relay.empty:
+                show = df_relay.copy()
+                show["relay_score"] = pd.to_numeric(show["up_cnt"], errors="coerce").fillna(0) * 1.0 + pd.to_numeric(show["max_height"], errors="coerce").fillna(0) * 1.5 - pd.to_numeric(show["zha_cnt"], errors="coerce").fillna(0) * 0.8
+                show = show.sort_values(["relay_score", "up_cnt"], ascending=[False, False])
+                out = show[["concept_name", "up_cnt", "zha_cnt", "lead_cnt", "max_height", "relay_score"]].copy()
+                out.columns = ["概念", "涨停数", "炸板数", "龙头数", "连板高度", "接力分"]
+                st.dataframe(out, use_container_width=True, hide_index=True)
+            else:
+                st.info("暂无板块接力数据。")
+        except Exception as e:
+            st.warning(f"板块接力榜查询失败：{e}")
+
+    with low2:
+        st.markdown("#### 👑 龙头健康度")
+        try:
+            df_leader = query_limitup_leader_daily(latest_date, top_n=int(leader_topn), engine=_lu_engine)
+            if df_leader is not None and not df_leader.empty:
+                show = df_leader.copy()
+                show["health_score"] = pd.to_numeric(show["high_days"], errors="coerce").fillna(0) * 1.5 + pd.to_numeric(show["fd_amount"], errors="coerce").fillna(0) * 0.01 - pd.to_numeric(show["open_num"], errors="coerce").fillna(0) * 0.8
+                out = show[["name", "ts_code", "high_days", "status", "open_num", "fd_amount", "health_score"]].copy()
+                out.columns = ["名称", "代码", "连板高度", "状态", "开板次数", "封单额", "健康分"]
+                st.dataframe(out.sort_values("健康分", ascending=False), use_container_width=True, hide_index=True)
+            else:
+                st.info("暂无龙头健康度数据。")
+        except Exception as e:
+            st.warning(f"龙头健康度查询失败：{e}")
 
 def render_tech_picker_tab():
     st.subheader("🎯 技术指标选股")
@@ -3447,6 +3552,12 @@ def render_fund_hot_stocks_tab():
         query_stock_holding_trend,
         query_fund_preference_snapshot,
         search_funds,
+    )
+    from src.limitup_monitor import (
+        get_limitup_latest_date,
+        query_limitup_emotion_daily,
+        query_limitup_sector_relay_daily,
+        query_limitup_leader_daily,
     )
 
     st.subheader("🏦 公募基金持仓热股")
