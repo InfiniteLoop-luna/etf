@@ -90,9 +90,9 @@ def query_limitup_emotion_daily(start_date: str,
     WITH lim AS (
       SELECT
         trade_date,
-        COUNT(*) FILTER (WHERE UPPER(COALESCE(limit,''))='U') AS up_cnt,
-        COUNT(*) FILTER (WHERE UPPER(COALESCE(limit,''))='D') AS down_cnt,
-        COUNT(*) FILTER (WHERE UPPER(COALESCE(limit,''))='Z') AS zha_cnt,
+        COUNT(*) FILTER (WHERE UPPER(COALESCE(payload->>'limit', '')) = 'U') AS up_cnt,
+        COUNT(*) FILTER (WHERE UPPER(COALESCE(payload->>'limit', '')) = 'D') AS down_cnt,
+        COUNT(*) FILTER (WHERE UPPER(COALESCE(payload->>'limit', '')) = 'Z') AS zha_cnt,
         COUNT(*) AS total_cnt
       FROM ts_limit_list_d
       WHERE trade_date BETWEEN :start_date AND :end_date
@@ -101,8 +101,18 @@ def query_limitup_emotion_daily(start_date: str,
     step AS (
       SELECT
         trade_date,
-        MAX(COALESCE((payload->>'high_days')::int, 0)) AS high_days,
-        COUNT(*) FILTER (WHERE COALESCE((payload->>'high_days')::int, 0) >= 2) AS lb_cnt
+        MAX(
+          CASE
+            WHEN COALESCE(payload->>'nums', '') ~ '^\\d+$' THEN (payload->>'nums')::int
+            ELSE 0
+          END
+        ) AS high_days,
+        COUNT(*) FILTER (
+          WHERE CASE
+            WHEN COALESCE(payload->>'nums', '') ~ '^\\d+$' THEN (payload->>'nums')::int
+            ELSE 0
+          END >= 2
+        ) AS lb_cnt
       FROM ts_limit_step
       WHERE trade_date BETWEEN :start_date AND :end_date
       GROUP BY trade_date
@@ -137,35 +147,37 @@ def query_limitup_emotion_daily(start_date: str,
         return df
 
     df["trade_date"] = pd.to_datetime(df["trade_date"])
-    df["zha_rate"] = (pd.to_numeric(df["zha_cnt"], errors="coerce").fillna(0) /
-                      pd.to_numeric(df["up_cnt"], errors="coerce").replace(0, pd.NA)).fillna(0)
+    df["zha_rate"] = (
+        pd.to_numeric(df["zha_cnt"], errors="coerce").fillna(0)
+        / pd.to_numeric(df["up_cnt"], errors="coerce").replace(0, pd.NA)
+    ).fillna(0)
 
     def _z(series: pd.Series) -> pd.Series:
-      s = pd.to_numeric(series, errors='coerce').fillna(0)
-      std = s.std(ddof=0)
-      if std == 0 or pd.isna(std):
-          return s * 0
-      return (s - s.mean()) / std
+        s = pd.to_numeric(series, errors='coerce').fillna(0)
+        std = s.std(ddof=0)
+        if std == 0 or pd.isna(std):
+            return s * 0
+        return (s - s.mean()) / std
 
     score = (
-      _z(df["up_cnt"]) +
-      _z(df["high_days"]) +
-      _z(df["strong_cpt_cnt"]) -
-      _z(df["zha_rate"]) -
-      _z(df["down_cnt"])
+        _z(df["up_cnt"])
+        + _z(df["high_days"])
+        + _z(df["strong_cpt_cnt"])
+        - _z(df["zha_rate"])
+        - _z(df["down_cnt"])
     )
     df["emotion_score"] = score
 
     def _stage(v: float) -> str:
-      if v >= 1.2:
-          return "高潮"
-      if v >= 0.5:
-          return "强势"
-      if v >= -0.2:
-          return "震荡"
-      if v >= -0.8:
-          return "转弱"
-      return "退潮"
+        if v >= 1.2:
+            return "高潮"
+        if v >= 0.5:
+            return "强势"
+        if v >= -0.2:
+            return "震荡"
+        if v >= -0.8:
+            return "转弱"
+        return "退潮"
 
     df["emotion_stage"] = df["emotion_score"].map(_stage)
     return df
@@ -181,14 +193,23 @@ def query_limitup_sector_relay_daily(trade_date: str,
     sql = """
     SELECT
       trade_date,
-      COALESCE(payload->>'concept_name', payload->>'cpt', payload->>'name', '未知概念') AS concept_name,
-      COALESCE((payload->>'up_cnt')::int, 0) AS up_cnt,
-      COALESCE((payload->>'zha_cnt')::int, 0) AS zha_cnt,
-      COALESCE((payload->>'lead_cnt')::int, 0) AS lead_cnt,
-      COALESCE((payload->>'max_height')::int, 0) AS max_height
+      COALESCE(payload->>'name', ts_code, '未知概念') AS concept_name,
+      COALESCE(
+        CASE WHEN COALESCE(payload->>'up_nums', '') ~ '^\\d+$' THEN (payload->>'up_nums')::int ELSE 0 END,
+        0
+      ) AS up_cnt,
+      0 AS zha_cnt,
+      COALESCE(
+        CASE WHEN COALESCE(payload->>'cons_nums', '') ~ '^\\d+$' THEN (payload->>'cons_nums')::int ELSE 0 END,
+        0
+      ) AS lead_cnt,
+      COALESCE(
+        CASE WHEN COALESCE(payload->>'days', '') ~ '^\\d+$' THEN (payload->>'days')::int ELSE 0 END,
+        0
+      ) AS max_height
     FROM ts_limit_cpt_list
     WHERE trade_date = :trade_date
-    ORDER BY up_cnt DESC, max_height DESC
+    ORDER BY up_cnt DESC, lead_cnt DESC, max_height DESC
     LIMIT :top_n
     """
     with engine.connect() as conn:
@@ -204,15 +225,28 @@ def query_limitup_leader_daily(trade_date: str,
     d_val = _to_date(trade_date)
     sql = """
     SELECT
-      trade_date,
-      ts_code,
-      COALESCE(name, payload->>'name', ts_code) AS name,
-      COALESCE((payload->>'high_days')::int, 0) AS high_days,
-      COALESCE(payload->>'status', payload->>'limit_type', payload->>'tag', '未知') AS status,
-      COALESCE((payload->>'open_num')::int, 0) AS open_num,
-      COALESCE((payload->>'fd_amount')::numeric, 0) AS fd_amount
-    FROM ts_limit_step
-    WHERE trade_date = :trade_date
+      s.trade_date,
+      s.ts_code,
+      COALESCE(s.payload->>'name', k.payload->>'name', l.payload->>'name', s.ts_code) AS name,
+      COALESCE(
+        CASE WHEN COALESCE(s.payload->>'nums', '') ~ '^\\d+$' THEN (s.payload->>'nums')::int ELSE 0 END,
+        0
+      ) AS high_days,
+      COALESCE(k.payload->>'status', '未知') AS status,
+      COALESCE(
+        CASE WHEN COALESCE(l.payload->>'open_times', '') ~ '^\\d+$' THEN (l.payload->>'open_times')::int ELSE 0 END,
+        0
+      ) AS open_num,
+      COALESCE(
+        CASE WHEN COALESCE(l.payload->>'fd_amount', '') ~ '^-?\\d+(\\.\\d+)?$' THEN (l.payload->>'fd_amount')::numeric ELSE 0 END,
+        0
+      ) AS fd_amount
+    FROM ts_limit_step s
+    LEFT JOIN ts_kpl_list k
+      ON s.trade_date = k.trade_date AND s.ts_code = k.ts_code
+    LEFT JOIN ts_limit_list_d l
+      ON s.trade_date = l.trade_date AND s.ts_code = l.ts_code
+    WHERE s.trade_date = :trade_date
     ORDER BY high_days DESC, fd_amount DESC
     LIMIT :top_n
     """
