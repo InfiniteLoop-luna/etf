@@ -4638,11 +4638,14 @@ def render_moneyflow_tab():
                             traces = []
                             last_points = frame_df.sort_values(["sector_name", "date_dt"]).groupby("sector_name", as_index=False).tail(1).copy()
                             last_points["label_text"] = last_points.apply(lambda r: f"{r['sector_name']} {r['net_amount_yi']:.2f}亿", axis=1)
+                            y_span = float(frame_df["net_amount_yi"].max() - frame_df["net_amount_yi"].min()) if not frame_df.empty else 0.0
+                            y_offset = max(0.08, y_span * 0.015)
                             if current_dt is not None:
                                 current_dt = pd.to_datetime(current_dt)
-                                last_points["label_x"] = current_dt + pd.Timedelta(days=3)
+                                last_points["label_x"] = current_dt + pd.Timedelta(days=2)
                             else:
-                                last_points["label_x"] = last_points["date_dt"]
+                                last_points["label_x"] = last_points["date_dt"] + pd.Timedelta(days=2)
+                            last_points["label_y"] = pd.to_numeric(last_points["net_amount_yi"], errors="coerce").fillna(0) + y_offset
                             for sector_name, g in frame_df.groupby("sector_name", sort=False):
                                 traces.append(go.Scatter(
                                     x=g["date_dt"],
@@ -4664,10 +4667,10 @@ def render_moneyflow_tab():
                             ))
                             traces.append(go.Scatter(
                                 x=last_points["label_x"],
-                                y=last_points["net_amount_yi"],
+                                y=last_points["label_y"],
                                 mode="text",
                                 text=last_points["label_text"],
-                                textposition="middle left",
+                                textposition="top left",
                                 textfont=dict(size=12, color="#0F172A"),
                                 hoverinfo="skip",
                                 cliponaxis=False,
