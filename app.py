@@ -1393,7 +1393,9 @@ def render_limitup_monitor_tab():
     st.caption("基于 Tushare 打板专题数据，观察情绪周期、板块接力和龙头健康度。")
 
     try:
-        _lu_engine = get_moneyflow_engine()
+        from src.moneyflow_fetcher import _get_engine_cached
+
+        _lu_engine = _get_engine_cached()
         latest_date = get_limitup_latest_date(_lu_engine)
         if not latest_date:
             st.info("暂无打板情绪数据。")
