@@ -1521,7 +1521,38 @@ def render_limitup_monitor_tab():
             df_ths_tag = query_limitup_ths_tag_daily(latest_date, top_n=15, engine=_lu_engine)
             if df_ths_tag is not None and not df_ths_tag.empty:
                 show = df_ths_tag.copy()
+                show["stock_count"] = pd.to_numeric(show["stock_count"], errors="coerce").fillna(0)
+                show["lb_count"] = pd.to_numeric(show["lb_count"], errors="coerce").fillna(0)
                 show["avg_open_num"] = pd.to_numeric(show["avg_open_num"], errors="coerce").round(2)
+                show = show.sort_values(["stock_count", "lb_count"], ascending=[False, False])
+
+                fig_tag = go.Figure()
+                fig_tag.add_trace(go.Bar(
+                    x=show["tag"],
+                    y=show["stock_count"],
+                    name="个股数",
+                    marker_color="#3B82F6",
+                ))
+                fig_tag.add_trace(go.Bar(
+                    x=show["tag"],
+                    y=show["lb_count"],
+                    name="连板股数",
+                    marker_color="#EF4444",
+                ))
+                fig_tag.update_layout(
+                    barmode="group",
+                    title=dict(text="同花顺标签分布", x=0.02, font=dict(size=15, color="#1E293B")),
+                    template="plotly_white",
+                    paper_bgcolor="white",
+                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    height=300,
+                    margin=dict(l=25, r=25, t=50, b=25),
+                    xaxis_title="标签",
+                    yaxis_title="数量",
+                )
+                st.plotly_chart(fig_tag, use_container_width=True)
+
                 out = show[["tag", "stock_count", "lb_count", "avg_open_num", "sample_reason"]].copy()
                 out.columns = ["标签", "个股数", "连板股数", "平均开板次数", "样例题材"]
                 st.dataframe(out, use_container_width=True, hide_index=True)
@@ -1534,7 +1565,37 @@ def render_limitup_monitor_tab():
         try:
             df_ths_reason = query_limitup_ths_reason_daily(latest_date, top_n=15, engine=_lu_engine)
             if df_ths_reason is not None and not df_ths_reason.empty:
-                out = df_ths_reason[["reason", "stock_count", "uniq_stock_count"]].copy()
+                show = df_ths_reason.copy()
+                show["stock_count"] = pd.to_numeric(show["stock_count"], errors="coerce").fillna(0)
+                show["uniq_stock_count"] = pd.to_numeric(show["uniq_stock_count"], errors="coerce").fillna(0)
+                show = show.sort_values(["stock_count", "uniq_stock_count"], ascending=[False, False])
+
+                chart_df = show.head(10).copy()
+                chart_df["reason_short"] = chart_df["reason"].astype(str).apply(lambda x: x if len(x) <= 20 else x[:20] + "…")
+
+                fig_reason = go.Figure()
+                fig_reason.add_trace(go.Bar(
+                    x=chart_df["stock_count"],
+                    y=chart_df["reason_short"],
+                    orientation="h",
+                    marker_color="#10B981",
+                    name="出现次数",
+                ))
+                fig_reason.update_layout(
+                    title=dict(text="涨停原因 Top10", x=0.02, font=dict(size=15, color="#1E293B")),
+                    template="plotly_white",
+                    paper_bgcolor="white",
+                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    height=300,
+                    margin=dict(l=25, r=25, t=50, b=25),
+                    xaxis_title="出现次数",
+                    yaxis_title="涨停原因",
+                    yaxis=dict(autorange="reversed"),
+                )
+                st.plotly_chart(fig_reason, use_container_width=True)
+
+                out = show[["reason", "stock_count", "uniq_stock_count"]].copy()
                 out.columns = ["涨停原因", "出现次数", "股票数"]
                 st.dataframe(out, use_container_width=True, hide_index=True)
             else:
