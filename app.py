@@ -3482,6 +3482,9 @@ def render_fund_hot_stocks_tab():
     periods = load_fund_hot_stock_periods() or [latest_period_label]
     periods = list(dict.fromkeys(periods))
 
+    fund_type_options = ["全部", "混合型", "股票型", "债券型", "ETF", "QDII", "LOF", "货币型"]
+    selected_fund_type = st.selectbox("基金类型筛选", fund_type_options, index=0, key="fh_fund_type_filter")
+
     sub_top, sub_stock = st.tabs(["🔥 热股榜", "🔎 个股持仓透视"])
 
     with sub_top:
@@ -3510,6 +3513,7 @@ def render_fund_hot_stocks_tab():
                     top_n=int(top_n),
                     order_by=sort_options[sort_label],
                     min_holding_funds=int(min_holding_funds),
+                    fund_type_filter=selected_fund_type,
                     engine=_fh_engine,
                 )
                 st.session_state["fh_top_result"] = df_top
@@ -3659,6 +3663,7 @@ def render_fund_hot_stocks_tab():
                         symbol=code,
                         period=detail_period.replace("-", ""),
                         top_n=200,
+                        fund_type_filter=selected_fund_type,
                         engine=_fh_engine,
                     )
                     st.session_state["fh_detail_result"] = df_detail
@@ -3814,6 +3819,7 @@ def render_fund_hot_stocks_tab():
                 trend_df = query_stock_holding_trend(
                     symbol=st.session_state.get("fh_stock_code", ""),
                     periods=int(trend_periods),
+                    fund_type_filter=selected_fund_type,
                     engine=_fh_engine,
                 )
             except Exception as exc:

@@ -774,6 +774,7 @@ def query_hot_stocks_leaderboard(
     top_n: int = 50,
     order_by: str = "heat_score",
     min_holding_funds: int = 1,
+    fund_type_filter: Optional[str] = None,
     engine: Optional[Engine] = None,
 ) -> pd.DataFrame:
     engine = engine or get_engine()
@@ -791,46 +792,117 @@ def query_hot_stocks_leaderboard(
     if not target_period:
         return pd.DataFrame()
 
-    sql = f"""
-    SELECT
-        end_date,
-        symbol,
-        stock_name,
-        holding_fund_count,
-        total_mkv,
-        total_amount,
-        avg_stk_mkv_ratio,
-        prev_holding_fund_count,
-        prev_total_mkv,
-        delta_holding_fund_count,
-        delta_total_mkv,
-        new_fund_count,
-        exited_fund_count,
-        increased_fund_count,
-        decreased_fund_count,
-        heat_score
-    FROM {AGG_TABLE}
-    WHERE end_date = :end_date
-      AND holding_fund_count >= :min_holding_funds
-    ORDER BY {order_sql}
-    LIMIT :top_n
-    """
-    with engine.connect() as conn:
-        return pd.read_sql(
-            text(sql),
-            conn,
-            params={
-                "end_date": target_period,
-                "min_holding_funds": int(min_holding_funds),
-                "top_n": int(top_n),
-            },
+    if fund_type_filter and fund_type_filter != "全部":
+        sql = """
+        WITH funds AS (
+            SELECT DISTINCT fund_code
+            FROM vw_fund_basic
+            WHERE fund_type = :fund_type_filter
+               OR invest_type = :fund_type_filter
+        ),
+        cur AS (
+            SELECT
+                p.end_date,
+                p.symbol,
+                COALESCE(sb.name, p.symbol) AS stock_name,
+                COUNT(DISTINCT p.fund_code) AS holding_fund_count,
+                SUM(COALESCE(p.mkv, 0)) AS total_mkv,
+                SUM(COALESCE(p.amount, 0)) AS total_amount,
+                AVG(COALESCE(p.stk_mkv_ratio, 0)) AS avg_stk_mkv_ratio
+            FROM vw_fund_portfolio p
+            JOIN funds f ON f.fund_code = p.fund_code
+            LEFT JOIN vw_ts_stock_basic sb ON sb.ts_code = p.symbol
+            WHERE p.end_date = :end_date
+            GROUP BY p.end_date, p.symbol, COALESCE(sb.name, p.symbol)
+        ),
+        prev_date AS (
+            SELECT MAX(end_date) AS prev_end_date
+            FROM vw_fund_portfolio
+            WHERE end_date < :end_date
+        ),
+        prev AS (
+            SELECT
+                p.symbol,
+                COUNT(DISTINCT p.fund_code) AS prev_holding_fund_count,
+                SUM(COALESCE(p.mkv, 0)) AS prev_total_mkv
+            FROM vw_fund_portfolio p
+            JOIN funds f ON f.fund_code = p.fund_code
+            JOIN prev_date d ON p.end_date = d.prev_end_date
+            GROUP BY p.symbol
         )
+        SELECT
+            c.end_date,
+            c.symbol,
+            c.stock_name,
+            c.holding_fund_count,
+            c.total_mkv,
+            c.total_amount,
+            c.avg_stk_mkv_ratio,
+            p.prev_holding_fund_count,
+            p.prev_total_mkv,
+            c.holding_fund_count - COALESCE(p.prev_holding_fund_count, 0) AS delta_holding_fund_count,
+            c.total_mkv - COALESCE(p.prev_total_mkv, 0) AS delta_total_mkv,
+            NULL::bigint AS new_fund_count,
+            NULL::bigint AS exited_fund_count,
+            NULL::bigint AS increased_fund_count,
+            NULL::bigint AS decreased_fund_count,
+            (
+                COALESCE(c.holding_fund_count, 0) * 0.5
+                + LEAST(COALESCE(c.total_mkv, 0) / 100000000.0, 100) * 0.3
+                + LEAST(COALESCE(c.avg_stk_mkv_ratio, 0), 20) * 0.2
+            ) AS heat_score
+        FROM cur c
+        LEFT JOIN prev p ON p.symbol = c.symbol
+        WHERE c.holding_fund_count >= :min_holding_funds
+        ORDER BY """ + order_sql + """
+        LIMIT :top_n
+        """
+        params = {
+            "end_date": target_period,
+            "min_holding_funds": int(min_holding_funds),
+            "top_n": int(top_n),
+            "fund_type_filter": fund_type_filter,
+        }
+    else:
+        sql = f"""
+        SELECT
+            end_date,
+            symbol,
+            stock_name,
+            holding_fund_count,
+            total_mkv,
+            total_amount,
+            avg_stk_mkv_ratio,
+            prev_holding_fund_count,
+            prev_total_mkv,
+            delta_holding_fund_count,
+            delta_total_mkv,
+            new_fund_count,
+            exited_fund_count,
+            increased_fund_count,
+            decreased_fund_count,
+            heat_score
+        FROM {AGG_TABLE}
+        WHERE end_date = :end_date
+          AND holding_fund_count >= :min_holding_funds
+        ORDER BY {order_sql}
+        LIMIT :top_n
+        """
+        params = {
+            "end_date": target_period,
+            "min_holding_funds": int(min_holding_funds),
+            "top_n": int(top_n),
+        }
+
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params=params)
 
 
 def query_stock_fund_holding_detail(
     symbol: str,
     period: Optional[str] = None,
     top_n: int = 200,
+    fund_type_filter: Optional[str] = None,
     engine: Optional[Engine] = None,
 ) -> pd.DataFrame:
     engine = engine or get_engine()
@@ -863,6 +935,9 @@ def query_stock_fund_holding_detail(
         JOIN target t
           ON p.end_date = t.end_date
          AND p.symbol = t.symbol
+        LEFT JOIN vw_fund_basic fb_filter
+          ON fb_filter.fund_code = p.fund_code
+        WHERE (:fund_type_filter IS NULL OR :fund_type_filter = '全部' OR fb_filter.fund_type = :fund_type_filter OR fb_filter.invest_type = :fund_type_filter)
     ),
     prev AS (
         SELECT
@@ -875,6 +950,9 @@ def query_stock_fund_holding_detail(
           ON p.end_date = pp.prev_end_date
         JOIN target t
           ON p.symbol = t.symbol
+        LEFT JOIN vw_fund_basic fb_filter
+          ON fb_filter.fund_code = p.fund_code
+        WHERE (:fund_type_filter IS NULL OR :fund_type_filter = '全部' OR fb_filter.fund_type = :fund_type_filter OR fb_filter.invest_type = :fund_type_filter)
     )
     SELECT
         c.fund_code,
@@ -910,13 +988,14 @@ def query_stock_fund_holding_detail(
         return pd.read_sql(
             text(sql),
             conn,
-            params={"symbol": symbol, "end_date": target_period, "top_n": int(top_n)},
+            params={"symbol": symbol, "end_date": target_period, "top_n": int(top_n), "fund_type_filter": fund_type_filter},
         )
 
 
 def query_stock_holding_trend(
     symbol: str,
     periods: int = 8,
+    fund_type_filter: Optional[str] = None,
     engine: Optional[Engine] = None,
 ) -> pd.DataFrame:
     engine = engine or get_engine()
@@ -924,31 +1003,53 @@ def query_stock_holding_trend(
     if not symbol:
         return pd.DataFrame()
 
-    sql = f"""
-    SELECT
-        end_date,
-        symbol,
-        stock_name,
-        holding_fund_count,
-        total_mkv,
-        total_amount,
-        avg_stk_mkv_ratio,
-        delta_holding_fund_count,
-        delta_total_mkv,
-        new_fund_count,
-        exited_fund_count,
-        heat_score
-    FROM {AGG_TABLE}
-    WHERE symbol = :symbol
-    ORDER BY end_date DESC
-    LIMIT :periods
-    """
+    if fund_type_filter and fund_type_filter != "全部":
+        sql = """
+        SELECT
+            p.end_date,
+            p.symbol,
+            COALESCE(sb.name, p.symbol) AS stock_name,
+            COUNT(DISTINCT p.fund_code) AS holding_fund_count,
+            SUM(COALESCE(p.mkv, 0)) AS total_mkv,
+            SUM(COALESCE(p.amount, 0)) AS total_amount,
+            AVG(COALESCE(p.stk_mkv_ratio, 0)) AS avg_stk_mkv_ratio
+        FROM vw_fund_portfolio p
+        LEFT JOIN vw_fund_basic fb ON fb.fund_code = p.fund_code
+        LEFT JOIN vw_ts_stock_basic sb ON sb.ts_code = p.symbol
+        WHERE p.symbol = :symbol
+          AND (fb.fund_type = :fund_type_filter OR fb.invest_type = :fund_type_filter)
+        GROUP BY p.end_date, p.symbol, COALESCE(sb.name, p.symbol)
+        ORDER BY p.end_date DESC
+        LIMIT :periods
+        """
+        params = {"symbol": symbol, "periods": int(periods), "fund_type_filter": fund_type_filter}
+    else:
+        sql = f"""
+        SELECT
+            end_date,
+            symbol,
+            stock_name,
+            holding_fund_count,
+            total_mkv,
+            total_amount,
+            avg_stk_mkv_ratio,
+            delta_holding_fund_count,
+            delta_total_mkv,
+            new_fund_count,
+            exited_fund_count,
+            heat_score
+        FROM {AGG_TABLE}
+        WHERE symbol = :symbol
+        ORDER BY end_date DESC
+        LIMIT :periods
+        """
+        params = {"symbol": symbol, "periods": int(periods)}
 
     with engine.connect() as conn:
         df = pd.read_sql(
             text(sql),
             conn,
-            params={"symbol": symbol, "periods": int(periods)},
+            params=params,
         )
 
     if df is None or df.empty:
