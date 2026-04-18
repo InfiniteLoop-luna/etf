@@ -6,6 +6,7 @@
 - limit_step
 - limit_cpt_list
 - kpl_list
+- limit_list_ths
 
 存储：PostgreSQL JSONB landing tables
 """
@@ -44,6 +45,7 @@ LIMIT_TABLES = {
     "limit_step": "ts_limit_step",
     "limit_cpt_list": "ts_limit_cpt_list",
     "kpl_list": "ts_kpl_list",
+    "limit_list_ths": "ts_limit_list_ths",
 }
 
 logging.basicConfig(
@@ -298,8 +300,26 @@ def sync_kpl_list(engine: Engine, pro, start_date: Optional[str] = None, end_dat
     return total
 
 
+def sync_limit_list_ths(engine: Engine, pro, start_date: Optional[str] = None, end_date: Optional[str] = None) -> int:
+    table = LIMIT_TABLES["limit_list_ths"]
+    s = resolve_start_date(engine, table, start_date, lookback_days=DEFAULT_LOOKBACK_DAYS)
+    e = end_date or datetime.now().strftime("%Y%m%d")
+    if s < "20231101":
+        s = "20231101"
+    logger.info(f"limit_list_ths: 拉取 {s} -> {e}")
+    total = 0
+    try:
+        df = pro.limit_list_ths(start_date=s, end_date=e)
+        if df is not None and not df.empty:
+            total = upsert_rows(engine, table, "limit_list_ths", df.to_dict("records"))
+    except Exception as exc:
+        logger.warning(f"limit_list_ths 拉取失败: {exc}")
+    logger.info(f"limit_list_ths 完成，共写入 {total} 行")
+    return total
+
+
 def run_sync(datasets: Optional[list[str]] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
-    all_datasets = ["limit_list_d", "limit_step", "limit_cpt_list", "kpl_list"]
+    all_datasets = ["limit_list_d", "limit_step", "limit_cpt_list", "kpl_list", "limit_list_ths"]
     target_datasets = datasets or all_datasets
 
     logger.info("=== 打板专题数据同步开始 ===")
@@ -322,6 +342,9 @@ def run_sync(datasets: Optional[list[str]] = None, start_date: Optional[str] = N
         time.sleep(DEFAULT_API_SLEEP)
     if "kpl_list" in target_datasets:
         results["kpl_list"] = sync_kpl_list(engine, pro, start_date, end_date, tag="涨停")
+        time.sleep(DEFAULT_API_SLEEP)
+    if "limit_list_ths" in target_datasets:
+        results["limit_list_ths"] = sync_limit_list_ths(engine, pro, start_date, end_date)
 
     total = sum(results.values()) if results else 0
     logger.info(f"=== 同步完成，共写入 {total} 行 ===")

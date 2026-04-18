@@ -6,6 +6,7 @@
 - ts_limit_step
 - ts_limit_cpt_list
 - ts_kpl_list
+- ts_limit_list_ths
 """
 
 from __future__ import annotations
@@ -37,6 +38,8 @@ def get_limitup_latest_date(engine: Optional[Engine] = None) -> Optional[str]:
       SELECT MAX(trade_date) AS dt FROM ts_limit_cpt_list
       UNION ALL
       SELECT MAX(trade_date) AS dt FROM ts_kpl_list
+      UNION ALL
+      SELECT MAX(trade_date) AS dt FROM ts_limit_list_ths
     ) t
     """
     with engine.connect() as conn:
@@ -61,6 +64,8 @@ def get_limitup_sync_meta(engine: Optional[Engine] = None) -> dict:
       SELECT COUNT(*) AS cnt, MAX(trade_date) AS latest_trade_date, MAX(ingested_at) AS latest_ingested_at FROM ts_limit_cpt_list
       UNION ALL
       SELECT COUNT(*) AS cnt, MAX(trade_date) AS latest_trade_date, MAX(ingested_at) AS latest_ingested_at FROM ts_kpl_list
+      UNION ALL
+      SELECT COUNT(*) AS cnt, MAX(trade_date) AS latest_trade_date, MAX(ingested_at) AS latest_ingested_at FROM ts_limit_list_ths
     ) t
     """
     with engine.connect() as conn:
@@ -248,6 +253,56 @@ def query_limitup_leader_daily(trade_date: str,
       ON s.trade_date = l.trade_date AND s.ts_code = l.ts_code
     WHERE s.trade_date = :trade_date
     ORDER BY high_days DESC, fd_amount DESC
+    LIMIT :top_n
+    """
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params={"trade_date": d_val, "top_n": int(top_n)})
+
+
+def query_limitup_ths_tag_daily(trade_date: str,
+                                top_n: int = 20,
+                                engine: Optional[Engine] = None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine_cached()
+
+    d_val = _to_date(trade_date)
+    sql = """
+    SELECT
+      trade_date,
+      COALESCE(payload->>'tag', '未知标签') AS tag,
+      COUNT(*) AS stock_count,
+      COUNT(*) FILTER (WHERE COALESCE(payload->>'status', '') LIKE '%连板%') AS lb_count,
+      AVG(
+        CASE WHEN COALESCE(payload->>'open_num', '') ~ '^\\d+$' THEN (payload->>'open_num')::numeric ELSE NULL END
+      ) AS avg_open_num,
+      MAX(COALESCE(payload->>'lu_desc', '')) AS sample_reason
+    FROM ts_limit_list_ths
+    WHERE trade_date = :trade_date
+    GROUP BY trade_date, COALESCE(payload->>'tag', '未知标签')
+    ORDER BY stock_count DESC, lb_count DESC
+    LIMIT :top_n
+    """
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params={"trade_date": d_val, "top_n": int(top_n)})
+
+
+def query_limitup_ths_reason_daily(trade_date: str,
+                                   top_n: int = 20,
+                                   engine: Optional[Engine] = None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine_cached()
+
+    d_val = _to_date(trade_date)
+    sql = """
+    SELECT
+      trade_date,
+      COALESCE(payload->>'lu_desc', '未知原因') AS reason,
+      COUNT(*) AS stock_count,
+      COUNT(DISTINCT ts_code) AS uniq_stock_count
+    FROM ts_limit_list_ths
+    WHERE trade_date = :trade_date
+    GROUP BY trade_date, COALESCE(payload->>'lu_desc', '未知原因')
+    ORDER BY stock_count DESC, uniq_stock_count DESC
     LIMIT :top_n
     """
     with engine.connect() as conn:

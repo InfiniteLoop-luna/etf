@@ -1398,6 +1398,8 @@ def render_limitup_monitor_tab():
         query_limitup_emotion_daily,
         query_limitup_sector_relay_daily,
         query_limitup_leader_daily,
+        query_limitup_ths_tag_daily,
+        query_limitup_ths_reason_daily,
     )
 
     try:
@@ -1511,6 +1513,34 @@ def render_limitup_monitor_tab():
                 st.info("暂无龙头健康度数据。")
         except Exception as e:
             st.warning(f"龙头健康度查询失败：{e}")
+
+    st.markdown("#### 🏷️ 同花顺标签 / 题材视角")
+    ths1, ths2 = st.columns(2)
+    with ths1:
+        try:
+            df_ths_tag = query_limitup_ths_tag_daily(latest_date, top_n=15, engine=_lu_engine)
+            if df_ths_tag is not None and not df_ths_tag.empty:
+                show = df_ths_tag.copy()
+                show["avg_open_num"] = pd.to_numeric(show["avg_open_num"], errors="coerce").round(2)
+                out = show[["tag", "stock_count", "lb_count", "avg_open_num", "sample_reason"]].copy()
+                out.columns = ["标签", "个股数", "连板股数", "平均开板次数", "样例题材"]
+                st.dataframe(out, use_container_width=True, hide_index=True)
+            else:
+                st.info("暂无同花顺标签数据。")
+        except Exception as e:
+            st.warning(f"同花顺标签榜查询失败：{e}")
+
+    with ths2:
+        try:
+            df_ths_reason = query_limitup_ths_reason_daily(latest_date, top_n=15, engine=_lu_engine)
+            if df_ths_reason is not None and not df_ths_reason.empty:
+                out = df_ths_reason[["reason", "stock_count", "uniq_stock_count"]].copy()
+                out.columns = ["涨停原因", "出现次数", "股票数"]
+                st.dataframe(out, use_container_width=True, hide_index=True)
+            else:
+                st.info("暂无同花顺题材数据。")
+        except Exception as e:
+            st.warning(f"同花顺题材榜查询失败：{e}")
 
 def render_tech_picker_tab():
     st.subheader("🎯 技术指标选股")
@@ -3582,6 +3612,8 @@ def render_fund_hot_stocks_tab():
         query_limitup_emotion_daily,
         query_limitup_sector_relay_daily,
         query_limitup_leader_daily,
+        query_limitup_ths_tag_daily,
+        query_limitup_ths_reason_daily,
     )
 
     st.subheader("🏦 公募基金持仓热股")

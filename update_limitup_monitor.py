@@ -7,7 +7,7 @@
   python update_limitup_monitor.py --init-tables
   python update_limitup_monitor.py --full
   python update_limitup_monitor.py --start 20240101 --end 20240430
-  python update_limitup_monitor.py --datasets limit_list_d,limit_step
+  python update_limitup_monitor.py --datasets limit_list_d,limit_step,limit_list_ths
 """
 import argparse
 import os
@@ -19,7 +19,6 @@ if PROJECT_ROOT not in sys.path:
 
 
 def inject_env_from_secrets():
-    """将 .streamlit/secrets.toml 中关键配置注入环境变量（仅在未设置时）"""
     secrets_path = os.path.join(PROJECT_ROOT, ".streamlit", "secrets.toml")
     if not os.path.exists(secrets_path):
         return
