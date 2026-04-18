@@ -4652,11 +4652,13 @@ def render_moneyflow_tab():
                             traces.append(go.Scatter(
                                 x=last_points["date_dt"],
                                 y=last_points["net_amount_yi"],
-                                mode="text",
+                                mode="markers+text",
+                                marker=dict(size=1, color="rgba(0,0,0,0)"),
                                 text=last_points["label_text"],
-                                textposition="middle right",
-                                textfont=dict(size=12, color="#1E293B"),
+                                textposition="middle left",
+                                textfont=dict(size=12, color="#0F172A"),
                                 hoverinfo="skip",
+                                cliponaxis=False,
                                 showlegend=False,
                             ))
                             return traces
@@ -4684,7 +4686,7 @@ def render_moneyflow_tab():
                             yaxis_title="净流入（亿元）",
                             legend_title_text="板块",
                             hovermode="x unified",
-                            xaxis=dict(type="date", tickformat="%Y-%m-%d", tickangle=-35, showgrid=True, range=[curve_dates[0], curve_dates[-1]]),
+                            xaxis=dict(type="date", tickformat="%Y-%m-%d", tickangle=-35, showgrid=True, range=[curve_dates[0], pd.to_datetime(curve_dates[-1]) + pd.Timedelta(days=12)]),
                             yaxis=dict(range=y_range, autorange=False, showgrid=True),
                             updatemenus=[{
                                 "type": "buttons",
@@ -4703,6 +4705,7 @@ def render_moneyflow_tab():
                                 ]
                             }],
                         )
+                        fig_anim.update_traces(cliponaxis=False, selector=dict(mode="markers+text"))
                         st.plotly_chart(fig_anim, use_container_width=True)
                         st.caption("说明：曲线末端标签会随帧持续更新并始终在线显示；初始状态已固定坐标范围，无需手动 autoscale。")
                 latest_frame = anim_top[anim_top["date_label"] == anim_top["date_label"].max()].copy()
