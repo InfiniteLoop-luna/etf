@@ -910,6 +910,32 @@ def query_moneyflow_hsgt_history(start_date: str = None, end_date: str = None,
     return df
 
 
+
+def query_moneyflow_ind_ths_range(start_date: str,
+                                  end_date: Optional[str] = None,
+                                  engine: Optional[Engine] = None) -> pd.DataFrame:
+    """查询日期区间行业资金流向（THS口径）"""
+    if engine is None:
+        engine = _get_engine_cached()
+
+    s_val = datetime.strptime(str(start_date).replace("-", ""), "%Y%m%d").date()
+    e_raw = end_date or start_date
+    e_val = datetime.strptime(str(e_raw).replace("-", ""), "%Y%m%d").date()
+    sql = """
+    SELECT
+        trade_date,
+        NULLIF(payload->>'industry', '') AS sector_name,
+        NULLIF(payload->>'lead_stock', '') AS lead_stock,
+        (payload->>'pct_change')::numeric AS pct_change,
+        (payload->>'net_amount')::numeric AS net_amount
+    FROM ts_moneyflow_ind_ths
+    WHERE trade_date BETWEEN :start_date AND :end_date
+    ORDER BY trade_date ASC, (payload->>'net_amount')::numeric DESC
+    """
+    with engine.connect() as conn:
+        df = pd.read_sql(text(sql), conn, params={"start_date": s_val, "end_date": e_val})
+    return df
+
 def query_moneyflow_ind_ths_daily(trade_date: str,
                                   engine: Optional[Engine] = None) -> pd.DataFrame:
     """查询某日行业资金流向（THS口径），按净流入额降序"""
@@ -934,6 +960,32 @@ def query_moneyflow_ind_ths_daily(trade_date: str,
         df = pd.read_sql(text(sql), conn, params={"trade_date": dt_val})
     return df
 
+
+
+def query_moneyflow_dc_ind_range(start_date: str,
+                                 end_date: Optional[str] = None,
+                                 engine: Optional[Engine] = None) -> pd.DataFrame:
+    """查询日期区间板块资金流向（DC口径）"""
+    if engine is None:
+        engine = _get_engine_cached()
+
+    s_val = datetime.strptime(str(start_date).replace("-", ""), "%Y%m%d").date()
+    e_raw = end_date or start_date
+    e_val = datetime.strptime(str(e_raw).replace("-", ""), "%Y%m%d").date()
+    sql = """
+    SELECT
+        trade_date,
+        NULLIF(payload->>'name', '') AS sector_name,
+        (payload->>'pct_change')::numeric AS pct_change,
+        (payload->>'net_amount')::numeric AS net_amount,
+        (payload->>'net_amount_rate')::numeric AS net_amount_rate
+    FROM ts_moneyflow_dc_ind
+    WHERE trade_date BETWEEN :start_date AND :end_date
+    ORDER BY trade_date ASC, (payload->>'net_amount')::numeric DESC
+    """
+    with engine.connect() as conn:
+        df = pd.read_sql(text(sql), conn, params={"start_date": s_val, "end_date": e_val})
+    return df
 
 def query_moneyflow_dc_ind_daily(trade_date: str,
                                  engine: Optional[Engine] = None) -> pd.DataFrame:
