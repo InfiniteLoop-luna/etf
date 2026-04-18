@@ -1014,6 +1014,23 @@ def query_moneyflow_dc_ind_daily(trade_date: str,
     return df
 
 
+
+def get_moneyflow_sector_min_date(engine: Optional[Engine] = None) -> Optional[str]:
+    """获取行业/板块资金流向数据的最早交易日期（THS/DC并集）"""
+    if engine is None:
+        engine = _get_engine_cached()
+    sql = """
+    SELECT TO_CHAR(MIN(dt), 'YYYYMMDD') AS min_date
+    FROM (
+        SELECT MIN(trade_date) AS dt FROM ts_moneyflow_ind_ths
+        UNION ALL
+        SELECT MIN(trade_date) AS dt FROM ts_moneyflow_dc_ind
+    ) t
+    """
+    with engine.connect() as conn:
+        row = conn.execute(text(sql)).fetchone()
+    return row[0] if row and row[0] else None
+
 def get_moneyflow_latest_date(engine: Optional[Engine] = None) -> Optional[str]:
     """获取个股资金流向数据的最新交易日期"""
     if engine is None:

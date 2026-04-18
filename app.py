@@ -4098,6 +4098,7 @@ def render_moneyflow_tab():
         query_moneyflow_ind_ths_range,
         query_moneyflow_dc_ind_range,
         get_moneyflow_latest_date,
+        get_moneyflow_sector_min_date,
         get_engine,
         MONEYFLOW_TABLES,
         get_max_trade_date,
@@ -4119,6 +4120,8 @@ def render_moneyflow_tab():
         return
 
     latest_dt = pd.to_datetime(latest_date, format="%Y%m%d").date()
+    sector_min_raw = get_moneyflow_sector_min_date(_mf_engine)
+    sector_min_dt = pd.to_datetime(sector_min_raw, format="%Y%m%d").date() if sector_min_raw else latest_dt
     st.info(f"📅 数据最新日期：**{latest_dt.strftime('%Y-%m-%d')}**")
 
     # ---- 子标签页 ----
@@ -4545,7 +4548,7 @@ def render_moneyflow_tab():
         with anim_col1:
             sector_anim_source = st.selectbox("动画口径", ["THS行业", "DC板块"], index=1, key="mf_sector_anim_source")
         with anim_col2:
-            sector_anim_start = st.date_input("起始日期", value=max(latest_dt - timedelta(days=30), min_date), min_value=min_date, max_value=latest_dt, key="mf_sector_anim_start")
+            sector_anim_start = st.date_input("起始日期", value=max(latest_dt - timedelta(days=30), sector_min_dt), min_value=sector_min_dt, max_value=latest_dt, key="mf_sector_anim_start")
         with anim_col3:
             sector_anim_topn = st.selectbox("TopN", [8, 10, 12, 15, 20], index=2, key="mf_sector_anim_topn")
         with anim_col4:
