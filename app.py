@@ -3759,6 +3759,55 @@ def render_fund_hot_stocks_tab():
 
             st.dataframe(show_df, use_container_width=True, hide_index=True, height=520)
 
+            st.markdown("#### 🏢 管理人维度")
+            mgmt_df = df_detail.copy()
+            mgmt_df["management"] = management_series.fillna("未知管理人").replace("", "未知管理人")
+            mgmt_df["mkv_yi"] = pd.to_numeric(mgmt_df["mkv"], errors="coerce").fillna(0) / 1e8
+            mgmt_df["delta_mkv_yi"] = pd.to_numeric(mgmt_df["delta_mkv"], errors="coerce").fillna(0) / 1e8 if "delta_mkv" in mgmt_df.columns else 0
+
+            mgmt_group = mgmt_df.groupby("management", dropna=False).agg(
+                持有基金数=("fund_code", "nunique"),
+                总持仓市值亿=("mkv_yi", "sum"),
+                市值变化亿=("delta_mkv_yi", "sum"),
+            ).reset_index().sort_values(["总持仓市值亿", "持有基金数"], ascending=[False, False])
+
+            mgmt_metrics = st.columns(3)
+            mgmt_metrics[0].metric("参与管理人数", f"{len(mgmt_group):,}")
+            mgmt_metrics[1].metric("抱团最强管理人", mgmt_group.iloc[0]["management"] if not mgmt_group.empty else "-")
+            mgmt_metrics[2].metric("Top管理人持仓市值", f"{mgmt_group.iloc[0]['总持仓市值亿']:,.2f} 亿" if not mgmt_group.empty else "-")
+
+            if not mgmt_group.empty:
+                mgmt_plot = mgmt_group.head(15).copy()
+                fig_mgmt = go.Figure(go.Bar(
+                    x=mgmt_plot["总持仓市值亿"],
+                    y=mgmt_plot["management"],
+                    orientation="h",
+                    marker=dict(color=mgmt_plot["总持仓市值亿"], colorscale="Tealgrn", showscale=False),
+                    text=mgmt_plot["总持仓市值亿"].map(lambda v: f"{v:,.2f}亿" if pd.notna(v) else "-"),
+                    textposition="outside",
+                    hovertemplate="%{y}<br>总持仓市值：%{x:,.2f} 亿<extra></extra>",
+                ))
+                fig_mgmt.update_layout(
+                    title=dict(text="管理人抱团分布 Top15", x=0.02, font=dict(size=17, color="#1E293B")),
+                    xaxis_title="总持仓市值（亿元）",
+                    height=max(360, len(mgmt_plot) * 26),
+                    template="plotly_white",
+                    paper_bgcolor="white",
+                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    margin=dict(l=120, r=40, t=55, b=20),
+                    yaxis=dict(autorange="reversed"),
+                )
+                st.plotly_chart(fig_mgmt, use_container_width=True)
+
+                mgmt_show = mgmt_group.copy()
+                mgmt_show["总持仓市值(亿)"] = pd.to_numeric(mgmt_show["总持仓市值亿"], errors="coerce").map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+                mgmt_show["市值变化(亿)"] = pd.to_numeric(mgmt_show["市值变化亿"], errors="coerce").map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+                mgmt_show = mgmt_show.rename(columns={"management": "管理人"})[["管理人", "持有基金数", "总持仓市值(亿)", "市值变化(亿)"]]
+                st.dataframe(mgmt_show, use_container_width=True, hide_index=True)
+            else:
+                st.info("当前结果暂无可用的管理人维度数据。")
+
             st.markdown("#### 📈 个股季度趋势")
             trend_periods = st.selectbox("趋势季度数", [4, 6, 8, 12], index=2, key="fh_trend_periods")
             try:
