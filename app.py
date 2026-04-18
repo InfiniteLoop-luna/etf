@@ -4544,7 +4544,7 @@ def render_moneyflow_tab():
         st.markdown("#### 🏭 行业/板块资金流向")
 
         st.markdown("##### 🎬 行业板块动画能力")
-        anim_col0, anim_col1, anim_col2, anim_col3, anim_col4, anim_col5 = st.columns([1.1, 1.0, 1.0, 0.8, 0.8, 0.9])
+        anim_col0, anim_col1, anim_col2, anim_col3, anim_col4, anim_col5, anim_col6 = st.columns([1.0, 0.95, 0.95, 0.75, 0.75, 0.85, 0.9])
         with anim_col0:
             sector_anim_mode = st.selectbox("动画类型", ["条形轮动", "资金曲线"], index=0, key="mf_sector_anim_mode")
         with anim_col1:
@@ -4557,6 +4557,8 @@ def render_moneyflow_tab():
             sector_anim_speed = st.selectbox("速度", [300, 500, 800], index=1, format_func=lambda x: {300: "快", 500: "中", 800: "慢"}[x], key="mf_sector_anim_speed")
         with anim_col5:
             sector_anim_sampling = st.selectbox("采样", ["每日", "每2日", "每5日"], index=0, key="mf_sector_anim_sampling")
+        with anim_col6:
+            sector_label_count = st.selectbox("标签数", [3, 5, 8], index=1, key="mf_sector_label_count")
 
         try:
             start_str = str(sector_anim_start).replace("-", "")
@@ -4638,6 +4640,8 @@ def render_moneyflow_tab():
                             traces = []
                             ann = []
                             last_points = frame_df.sort_values(["sector_name", "date_dt"]).groupby("sector_name", as_index=False).tail(1).copy()
+                            last_points["abs_val"] = pd.to_numeric(last_points["net_amount_yi"], errors="coerce").fillna(0).abs()
+                            last_points = last_points.sort_values("abs_val", ascending=False).head(int(sector_label_count)).copy()
                             last_points["label_text"] = last_points.apply(lambda r: f"{r['sector_name']} {r['net_amount_yi']:.2f}亿", axis=1)
                             y_span = float(frame_df["net_amount_yi"].max() - frame_df["net_amount_yi"].min()) if not frame_df.empty else 0.0
                             y_offset = max(0.12, y_span * 0.02)
@@ -4721,7 +4725,7 @@ def render_moneyflow_tab():
                             }],
                         )
                         st.plotly_chart(fig_anim, use_container_width=True)
-                        st.caption("说明：已抬高图面并增加右侧留白，让每条线的末端标签跟随线尾运动，不再使用引导线。")
+                        st.caption("说明：为避免重叠，曲线动画默认只显示部分末端标签（可调 3/5/8），标签会跟随线尾运动。")
                 latest_frame = anim_top[anim_top["date_label"] == anim_top["date_label"].max()].copy()
                 latest_frame = latest_frame.sort_values("net_amount_yi", ascending=False)
                 latest_show = latest_frame[["sector_name", "net_amount_yi", "pct_change"]].copy()
