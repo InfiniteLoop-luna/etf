@@ -4543,8 +4543,10 @@ def render_moneyflow_tab():
     with sub_sector:
         st.markdown("#### 🏭 行业/板块资金流向")
 
-        st.markdown("##### 🎬 行业板块轮动动画")
-        anim_col1, anim_col2, anim_col3, anim_col4 = st.columns([1.1, 1, 0.9, 0.9])
+        st.markdown("##### 🎬 行业板块动画能力")
+        anim_col0, anim_col1, anim_col2, anim_col3, anim_col4 = st.columns([1.2, 1.1, 1, 0.9, 0.9])
+        with anim_col0:
+            sector_anim_mode = st.selectbox("动画类型", ["条形轮动", "资金曲线"], index=0, key="mf_sector_anim_mode")
         with anim_col1:
             sector_anim_source = st.selectbox("动画口径", ["THS行业", "DC板块"], index=1, key="mf_sector_anim_source")
         with anim_col2:
@@ -4577,40 +4579,98 @@ def render_moneyflow_tab():
                     max_abs = 1
                 anim_top["color_group"] = anim_top["net_amount_yi"].apply(lambda v: "净流入" if v >= 0 else "净流出")
 
-                fig_anim = px.bar(
-                    anim_top,
-                    x="net_amount_yi",
-                    y="sector_name",
-                    animation_frame="date_label",
-                    animation_group="sector_name",
-                    color="color_group",
-                    color_discrete_map={"净流入": "#EF4444", "净流出": "#10B981"},
-                    orientation="h",
-                    range_x=[-max_abs * 1.15, max_abs * 1.15],
-                    hover_data={"net_amount_yi": ':.2f', "sector_name": True, "date_label": True},
-                )
-                fig_anim.update_layout(
-                    title=dict(text=f"{sector_anim_source} 资金流向轮动（从 {str(sector_anim_start)} 到 {latest_date}）", x=0.02, font=dict(size=17, color="#1E293B")),
-                    template="plotly_white",
-                    paper_bgcolor="white",
-                    plot_bgcolor="rgba(248,250,252,0.5)",
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
-                    height=560,
-                    margin=dict(l=30, r=30, t=60, b=30),
-                    xaxis_title="净流入（亿元）",
-                    yaxis_title="",
-                    legend_title_text="方向",
-                )
-                fig_anim.update_yaxes(categoryorder="total ascending")
-                if fig_anim.layout.updatemenus:
-                    fig_anim.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = int(sector_anim_speed)
-                    fig_anim.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = max(120, int(sector_anim_speed * 0.6))
+                if sector_anim_mode == "条形轮动":
+                    fig_anim = px.bar(
+                        anim_top,
+                        x="net_amount_yi",
+                        y="sector_name",
+                        animation_frame="date_label",
+                        animation_group="sector_name",
+                        color="color_group",
+                        color_discrete_map={"净流入": "#EF4444", "净流出": "#10B981"},
+                        orientation="h",
+                        range_x=[-max_abs * 1.15, max_abs * 1.15],
+                        hover_data={"net_amount_yi": ':.2f', "sector_name": True, "date_label": True},
+                    )
+                    fig_anim.update_layout(
+                        title=dict(text=f"{sector_anim_source} 资金流向轮动（从 {str(sector_anim_start)} 到 {latest_date}）", x=0.02, font=dict(size=17, color="#1E293B")),
+                        template="plotly_white",
+                        paper_bgcolor="white",
+                        plot_bgcolor="rgba(248,250,252,0.5)",
+                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        height=560,
+                        margin=dict(l=30, r=30, t=60, b=30),
+                        xaxis_title="净流入（亿元）",
+                        yaxis_title="",
+                        legend_title_text="方向",
+                    )
+                    fig_anim.update_yaxes(categoryorder="total ascending")
+                    if fig_anim.layout.updatemenus:
+                        fig_anim.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] = int(sector_anim_speed)
+                        fig_anim.layout.updatemenus[0].buttons[0].args[1]["transition"]["duration"] = max(120, int(sector_anim_speed * 0.6))
+                    st.plotly_chart(fig_anim, use_container_width=True)
+                    st.caption("说明：条形轮动动画展示每个交易日 TopN 净流入/净流出最显著板块，用于观察行业轮动路径。")
+                else:
+                    anim_top_sorted = anim_top.sort_values(["trade_date", "net_amount_yi"], ascending=[True, False]).copy()
+                    curve_dates = sorted(anim_top_sorted["date_label"].unique().tolist())
+                    frames = []
+                    for i, d in enumerate(curve_dates, start=1):
+                        frame_df = anim_top_sorted[anim_top_sorted["date_label"].isin(curve_dates[:i])].copy()
+                        frame_fig = px.line(
+                            frame_df,
+                            x="date_label",
+                            y="net_amount_yi",
+                            color="sector_name",
+                            line_group="sector_name",
+                            hover_data={"net_amount_yi": ':.2f', "sector_name": True, "date_label": True},
+                        )
+                        frame_fig.update_traces(mode="lines+markers")
+                        frames.append(go.Frame(data=frame_fig.data, name=d))
 
-                st.plotly_chart(fig_anim, use_container_width=True)
+                    base_df = anim_top_sorted[anim_top_sorted["date_label"] == curve_dates[0]].copy()
+                    fig_anim = px.line(
+                        base_df,
+                        x="date_label",
+                        y="net_amount_yi",
+                        color="sector_name",
+                        line_group="sector_name",
+                        hover_data={"net_amount_yi": ':.2f', "sector_name": True, "date_label": True},
+                    )
+                    fig_anim.update_traces(mode="lines+markers")
+                    fig_anim.frames = frames
+                    fig_anim.update_layout(
+                        title=dict(text=f"{sector_anim_source} 资金曲线动画（从 {str(sector_anim_start)} 到 {latest_date}）", x=0.02, font=dict(size=17, color="#1E293B")),
+                        template="plotly_white",
+                        paper_bgcolor="white",
+                        plot_bgcolor="rgba(248,250,252,0.5)",
+                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        height=560,
+                        margin=dict(l=30, r=30, t=60, b=30),
+                        xaxis_title="日期",
+                        yaxis_title="净流入（亿元）",
+                        legend_title_text="板块",
+                        updatemenus=[{
+                            "type": "buttons",
+                            "showactive": False,
+                            "buttons": [
+                                {
+                                    "label": "播放",
+                                    "method": "animate",
+                                    "args": [None, {"frame": {"duration": int(sector_anim_speed), "redraw": True}, "transition": {"duration": max(120, int(sector_anim_speed * 0.6))}, "fromcurrent": True}]
+                                },
+                                {
+                                    "label": "暂停",
+                                    "method": "animate",
+                                    "args": [[None], {"frame": {"duration": 0, "redraw": False}, "mode": "immediate", "transition": {"duration": 0}}]
+                                }
+                            ]
+                        }],
+                    )
+                    st.plotly_chart(fig_anim, use_container_width=True)
+                    st.caption("说明：资金曲线动画会让各板块净流入曲线随时间逐步生长，更适合观察持续性资金趋势。")
 
                 latest_frame = anim_top[anim_top["date_label"] == anim_top["date_label"].max()].copy()
                 latest_frame = latest_frame.sort_values("net_amount_yi", ascending=False)
-                st.caption("说明：动画默认展示每个交易日 TopN 净流入/净流出最显著板块，用于观察行业轮动路径。")
                 latest_show = latest_frame[["sector_name", "net_amount_yi", "pct_change"]].copy()
                 latest_show.columns = ["板块", "最新净流入(亿)", "涨跌幅(%)"]
                 for c in ["最新净流入(亿)", "涨跌幅(%)"]:
