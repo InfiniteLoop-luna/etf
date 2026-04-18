@@ -4662,10 +4662,16 @@ def render_moneyflow_tab():
                             label_rows = []
                             min_gap = max(0.12, y_span * 0.05)
                             for _, r in last_points.sort_values("net_amount_yi", ascending=True).iterrows():
-                                base_y = float(r.get("net_amount_yi") or 0) + y_offset
+                                tail_y = float(r.get("net_amount_yi") or 0)
+                                base_y = tail_y + y_offset
                                 if label_rows and base_y - label_rows[-1]["y"] < min_gap:
                                     base_y = label_rows[-1]["y"] + min_gap
-                                label_rows.append({"text": str(r.get("label_text") or ""), "y": base_y})
+                                label_rows.append({
+                                    "text": str(r.get("label_text") or ""),
+                                    "y": base_y,
+                                    "tail_y": tail_y,
+                                    "tail_x": pd.to_datetime(r.get("date_dt")),
+                                })
 
                             if label_rows:
                                 overflow = label_rows[-1]["y"] - (y_range[1] - y_offset)
@@ -4680,12 +4686,20 @@ def render_moneyflow_tab():
                                     xref="x",
                                     yref="y",
                                     text=item["text"],
-                                    showarrow=False,
+                                    showarrow=True,
+                                    arrowhead=0,
+                                    arrowsize=1,
+                                    arrowwidth=1.2,
+                                    arrowcolor="rgba(100,116,139,0.85)",
+                                    ax=item["tail_x"],
+                                    ay=item["tail_y"],
+                                    axref="x",
+                                    ayref="y",
                                     xanchor="left",
                                     yanchor="middle",
                                     font=dict(size=12, color="#0F172A"),
-                                    bgcolor="rgba(255,255,255,0.82)",
-                                    bordercolor="rgba(148,163,184,0.45)",
+                                    bgcolor="rgba(255,255,255,0.88)",
+                                    bordercolor="rgba(148,163,184,0.55)",
                                     borderwidth=1,
                                 ))
                             return traces, ann
@@ -4736,7 +4750,7 @@ def render_moneyflow_tab():
                             }],
                         )
                         st.plotly_chart(fig_anim, use_container_width=True)
-                        st.caption("说明：曲线末端标签会随帧持续更新并始终在线显示；初始状态已固定坐标范围，无需手动 autoscale。")
+                        st.caption("说明：末端标签会随帧更新，并通过引导线指向真实线尾，避免重叠时也能对应到正确板块。")
                 latest_frame = anim_top[anim_top["date_label"] == anim_top["date_label"].max()].copy()
                 latest_frame = latest_frame.sort_values("net_amount_yi", ascending=False)
                 latest_show = latest_frame[["sector_name", "net_amount_yi", "pct_change"]].copy()
