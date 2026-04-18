@@ -34,6 +34,9 @@ python src/fetch_etf_share_size.py
 echo "[$(date -Is)] etf-data-update: run update_moneyflow.py (incremental)"
 python update_moneyflow.py --datasets moneyflow,moneyflow_hsgt,moneyflow_ind_ths,moneyflow_dc_ind --lookback-days 1
 
+echo "[$(date -Is)] etf-data-update: run update_limitup_monitor.py (incremental)"
+python update_limitup_monitor.py --datasets limit_list_d,limit_step,limit_cpt_list,kpl_list
+
 echo "[$(date -Is)] etf-data-update: restart streamlit"
 systemctl restart etf-streamlit
 
