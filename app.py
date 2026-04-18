@@ -1392,6 +1392,14 @@ def render_limitup_monitor_tab():
     st.subheader("🔥 打板情绪与接力监控")
     st.caption("基于 Tushare 打板专题数据，观察情绪周期、板块接力和龙头健康度。")
 
+    from src.limitup_monitor import (
+        get_limitup_latest_date,
+        get_limitup_sync_meta,
+        query_limitup_emotion_daily,
+        query_limitup_sector_relay_daily,
+        query_limitup_leader_daily,
+    )
+
     try:
         from src.moneyflow_fetcher import _get_engine_cached
 
