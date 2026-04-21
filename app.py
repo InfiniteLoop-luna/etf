@@ -94,14 +94,42 @@ st.markdown("""
         font-family: 'Inter', 'PingFang SC', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
+
+    /* 整体页面背景：浅灰蓝数据看板 */
+    html, body, .stApp, [data-testid="stAppViewContainer"] {
+        background:
+            radial-gradient(circle at top left, rgba(59, 130, 246, 0.10), transparent 28%),
+            radial-gradient(circle at top right, rgba(16, 185, 129, 0.06), transparent 24%),
+            linear-gradient(180deg, #F8FAFC 0%, #EEF4FF 48%, #E2E8F0 100%) !important;
+        color: #0F172A !important;
+    }
+
+    [data-testid="stAppViewContainer"] > .main {
+        background: transparent !important;
+    }
+
+    .main .block-container {
+        background: transparent !important;
+    }
+
+    .main p,
+    .main li,
+    .main label,
+    .main span,
+    .main .stMarkdown,
+    .main [data-testid="stCaptionContainer"] {
+        color: #334155 !important;
+    }
+
     /* 隐藏Streamlit默认元素 */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
 
-    /* 深色专业侧边栏 */
+    /* 平衡看板侧边栏（浅色高可读） */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%);
+        background: linear-gradient(180deg, #F8FAFC 0%, #EEF4FF 100%);
+        border-right: 1px solid rgba(148, 163, 184, 0.25);
         padding: 2rem 1rem;
         min-width: 300px !important;
     }
@@ -128,7 +156,7 @@ st.markdown("""
         border-radius: 9999px !important;
         border: 1px solid rgba(59, 130, 246, 0.35) !important;
         background: linear-gradient(135deg, rgba(30, 41, 59, 0.96) 0%, rgba(37, 99, 235, 0.96) 100%) !important;
-        color: #F8FAFC !important;
+        color: #0F172A !important;
         box-shadow: 0 10px 30px rgba(15, 23, 42, 0.28) !important;
         display: flex !important;
         align-items: center !important;
@@ -155,7 +183,7 @@ st.markdown("""
     }
 
     [data-testid="stSidebar"] * {
-        color: #E2E8F0 !important;
+        color: #1E293B !important;
     }
 
     [data-testid="stSidebar"] h1,
@@ -168,7 +196,7 @@ st.markdown("""
 
     /* 侧边栏标签样式 */
     [data-testid="stSidebar"] label {
-        color: #CBD5E1 !important;
+        color: #475569 !important;
         font-weight: 500;
         font-size: 0.875rem;
         text-transform: uppercase;
@@ -198,24 +226,27 @@ st.markdown("""
 
     /* 卡片式容器 */
     .stPlotlyChart {
-        background: white;
-        border-radius: 12px;
-        padding: 1.5rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.96) 100%);
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        border-radius: 16px;
+        padding: 1.25rem;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.10);
         margin: 1rem 0;
-        transition: box-shadow 0.3s ease;
+        transition: box-shadow 0.3s ease, transform 0.3s ease;
     }
 
     .stPlotlyChart:hover {
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+        box-shadow: 0 16px 32px rgba(15, 23, 42, 0.14);
+        transform: translateY(-1px);
     }
 
     /* 数据表格样式 */
     [data-testid="stDataFrame"] {
-        background: white;
-        border-radius: 12px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%);
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        border-radius: 16px;
         padding: 1rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
     }
 
     /* 标题样式 */
