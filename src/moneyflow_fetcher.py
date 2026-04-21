@@ -50,6 +50,8 @@ DEFAULT_DB_SSLMODE = "disable"
 # ????????????
 MONEYFLOW_TABLES = {
     "moneyflow":         "ts_moneyflow",
+    "moneyflow_ths":     "ts_moneyflow_ths",
+    "moneyflow_dc":      "ts_moneyflow_dc",
     "moneyflow_hsgt":    "ts_moneyflow_hsgt",
     "moneyflow_ind_ths": "ts_moneyflow_ind_ths",
     "moneyflow_dc_ind":  "ts_moneyflow_dc_ind",
@@ -69,6 +71,23 @@ MONEYFLOW_FIELDS = (
 HSGT_FIELDS = (
     "trade_date,ggt_ss,ggt_sz,hgt,sgt,north_money,south_money"
 )
+
+# 个股资金流向字段（THS 口径）
+MONEYFLOW_THS_FIELDS = (
+    "ts_code,trade_date,name,pct_change,latest,net_amount,net_d5_amount,"
+    "buy_lg_amount,buy_lg_amount_rate,buy_md_amount,buy_md_amount_rate,"
+    "buy_sm_amount,buy_sm_amount_rate"
+)
+
+# 个股资金流向字段（DC 口径）
+MONEYFLOW_DC_FIELDS = (
+    "ts_code,trade_date,name,pct_change,close,net_amount,net_amount_rate,"
+    "buy_elg_amount,buy_elg_amount_rate,buy_lg_amount,buy_lg_amount_rate,"
+    "buy_md_amount,buy_md_amount_rate,buy_sm_amount,buy_sm_amount_rate"
+)
+
+# THS/DC 个股口径回补起点
+STOCK_SOURCE_START_DATE = "20250101"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -181,6 +200,36 @@ def ensure_normalized_views(engine: Engine):
             "buy_elg_vol::bigint AS buy_elg_vol", "buy_elg_amount::numeric AS buy_elg_amount",
             "sell_elg_vol::bigint AS sell_elg_vol", "sell_elg_amount::numeric AS sell_elg_amount",
             "net_mf_vol::bigint AS net_mf_vol", "net_mf_amount::numeric AS net_mf_amount",
+        ]),
+        "ts_moneyflow_ths": ("vw_moneyflow_ths", [
+            "ts_code", "trade_date",
+            "name AS name",
+            "pct_change::numeric AS pct_change",
+            "latest::numeric AS latest",
+            "net_amount::numeric AS net_amount",
+            "net_d5_amount::numeric AS net_d5_amount",
+            "buy_lg_amount::numeric AS buy_lg_amount",
+            "buy_lg_amount_rate::numeric AS buy_lg_amount_rate",
+            "buy_md_amount::numeric AS buy_md_amount",
+            "buy_md_amount_rate::numeric AS buy_md_amount_rate",
+            "buy_sm_amount::numeric AS buy_sm_amount",
+            "buy_sm_amount_rate::numeric AS buy_sm_amount_rate",
+        ]),
+        "ts_moneyflow_dc": ("vw_moneyflow_dc", [
+            "ts_code", "trade_date",
+            "name AS name",
+            "pct_change::numeric AS pct_change",
+            "close::numeric AS close",
+            "net_amount::numeric AS net_amount",
+            "net_amount_rate::numeric AS net_amount_rate",
+            "buy_elg_amount::numeric AS buy_elg_amount",
+            "buy_elg_amount_rate::numeric AS buy_elg_amount_rate",
+            "buy_lg_amount::numeric AS buy_lg_amount",
+            "buy_lg_amount_rate::numeric AS buy_lg_amount_rate",
+            "buy_md_amount::numeric AS buy_md_amount",
+            "buy_md_amount_rate::numeric AS buy_md_amount_rate",
+            "buy_sm_amount::numeric AS buy_sm_amount",
+            "buy_sm_amount_rate::numeric AS buy_sm_amount_rate",
         ]),
         "ts_moneyflow_hsgt": ("vw_moneyflow_hsgt", [
             "trade_date",
@@ -518,6 +567,80 @@ def sync_moneyflow(engine: Engine, pro, start_date: Optional[str] = None,
 
 
 # ---------------------------------------------------------------------------
+# 1.1 个股资金流向（THS 口径，moneyflow_ths）
+# ---------------------------------------------------------------------------
+
+def sync_moneyflow_ths(engine: Engine, pro, start_date: Optional[str] = None,
+                       end_date: Optional[str] = None) -> int:
+    table = MONEYFLOW_TABLES["moneyflow_ths"]
+    s = resolve_start_date(engine, table, start_date or STOCK_SOURCE_START_DATE, lookback_days=DEFAULT_INCREMENTAL_LOOKBACK_DAYS)
+    s = max(STOCK_SOURCE_START_DATE, s)
+    e = end_date or get_today_str()
+
+    if s > e:
+        logger.info(f"moneyflow_ths: 数据已最新（{s} > {e}），跳过")
+        return 0
+
+    logger.info(f"moneyflow_ths: 拉取 {s} → {e}")
+    total = 0
+    for dt in get_required_trade_dates(pro, s, e, DEFAULT_PUBLISH_CUTOFF_HOUR):
+        try:
+            df = pro.moneyflow_ths(trade_date=dt, fields=MONEYFLOW_THS_FIELDS)
+            if df is not None and not df.empty:
+                n = upsert_rows(engine, table, "moneyflow_ths", df.to_dict("records"))
+                total += n
+                logger.info(f"  moneyflow_ths {dt}: {n} 行")
+            else:
+                logger.debug(f"  moneyflow_ths {dt}: 无数据")
+        except Exception as exc:
+            err_str = str(exc)
+            if "积分" in err_str or "权限" in err_str or "抱歉" in err_str:
+                logger.warning(f"  moneyflow_ths: 权限不足，跳过。{exc}")
+                break
+            logger.warning(f"  moneyflow_ths {dt} 失败: {exc}")
+        time.sleep(DEFAULT_API_SLEEP)
+    logger.info(f"moneyflow_ths 完成，共写入 {total} 行")
+    return total
+
+
+# ---------------------------------------------------------------------------
+# 1.2 个股资金流向（DC 口径，moneyflow_dc）
+# ---------------------------------------------------------------------------
+
+def sync_moneyflow_dc(engine: Engine, pro, start_date: Optional[str] = None,
+                      end_date: Optional[str] = None) -> int:
+    table = MONEYFLOW_TABLES["moneyflow_dc"]
+    s = resolve_start_date(engine, table, start_date or STOCK_SOURCE_START_DATE, lookback_days=DEFAULT_INCREMENTAL_LOOKBACK_DAYS)
+    s = max(STOCK_SOURCE_START_DATE, s)
+    e = end_date or get_today_str()
+
+    if s > e:
+        logger.info(f"moneyflow_dc: 数据已最新（{s} > {e}），跳过")
+        return 0
+
+    logger.info(f"moneyflow_dc: 拉取 {s} → {e}")
+    total = 0
+    for dt in get_required_trade_dates(pro, s, e, DEFAULT_PUBLISH_CUTOFF_HOUR):
+        try:
+            df = pro.moneyflow_dc(trade_date=dt, fields=MONEYFLOW_DC_FIELDS)
+            if df is not None and not df.empty:
+                n = upsert_rows(engine, table, "moneyflow_dc", df.to_dict("records"))
+                total += n
+                logger.info(f"  moneyflow_dc {dt}: {n} 行")
+            else:
+                logger.debug(f"  moneyflow_dc {dt}: 无数据")
+        except Exception as exc:
+            err_str = str(exc)
+            if "积分" in err_str or "权限" in err_str or "抱歉" in err_str:
+                logger.warning(f"  moneyflow_dc: 权限不足，跳过。{exc}")
+                break
+            logger.warning(f"  moneyflow_dc {dt} 失败: {exc}")
+        time.sleep(DEFAULT_API_SLEEP)
+    logger.info(f"moneyflow_dc 完成，共写入 {total} 行")
+    return total
+
+
+# ---------------------------------------------------------------------------
 # 2. 沪深港通资金流向（moneyflow_hsgt）
 # ---------------------------------------------------------------------------
 
@@ -670,7 +793,7 @@ def run_sync(
         start_date: 起始日期 YYYYMMDD，None 表示增量（从最新+1天）
         end_date:   结束日期 YYYYMMDD，None 表示今天
     """
-    all_datasets = ["moneyflow", "moneyflow_hsgt", "moneyflow_ind_ths", "moneyflow_dc_ind"]
+    all_datasets = ["moneyflow", "moneyflow_ths", "moneyflow_dc", "moneyflow_hsgt", "moneyflow_ind_ths", "moneyflow_dc_ind"]
     target_datasets = datasets or all_datasets
 
     logger.info(f"=== 资金流向数据同步开始 ===")
@@ -685,6 +808,12 @@ def run_sync(
 
     if "moneyflow" in target_datasets:
         results["moneyflow"] = sync_moneyflow(engine, pro, start_date, end_date)
+
+    if "moneyflow_ths" in target_datasets:
+        results["moneyflow_ths"] = sync_moneyflow_ths(engine, pro, start_date, end_date)
+
+    if "moneyflow_dc" in target_datasets:
+        results["moneyflow_dc"] = sync_moneyflow_dc(engine, pro, start_date, end_date)
 
     if "moneyflow_hsgt" in target_datasets:
         results["moneyflow_hsgt"] = sync_moneyflow_hsgt(engine, pro, start_date, end_date)
@@ -799,6 +928,109 @@ def query_moneyflow_stock_history(ts_code: str, start_date: str = None,
     with engine.connect() as conn:
         df = pd.read_sql(text(sql), conn, params=params)
     return df
+
+
+def query_moneyflow_stock_history_ths(ts_code: str, start_date: str = None,
+                                      end_date: str = None,
+                                      engine: Optional[Engine] = None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine_cached()
+
+    conditions = ["ts_code = :ts_code"]
+    params: dict = {"ts_code": ts_code}
+    if start_date:
+        params["start_date"] = datetime.strptime(str(start_date).replace("-", ""), "%Y%m%d").date()
+        conditions.append("trade_date >= :start_date")
+    if end_date:
+        params["end_date"] = datetime.strptime(str(end_date).replace("-", ""), "%Y%m%d").date()
+        conditions.append("trade_date <= :end_date")
+
+    sql = f"""
+    SELECT
+        ts_code,
+        trade_date,
+        NULLIF(payload->>'name', '') AS name,
+        (payload->>'pct_change')::numeric AS pct_change,
+        (payload->>'latest')::numeric AS latest,
+        (payload->>'net_amount')::numeric AS net_amount,
+        (payload->>'net_d5_amount')::numeric AS net_d5_amount,
+        (payload->>'buy_lg_amount')::numeric AS buy_lg_amount,
+        (payload->>'buy_md_amount')::numeric AS buy_md_amount,
+        (payload->>'buy_sm_amount')::numeric AS buy_sm_amount
+    FROM ts_moneyflow_ths
+    WHERE {' AND '.join(conditions)}
+    ORDER BY trade_date ASC
+    """
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params=params)
+
+
+
+def query_moneyflow_stock_history_dc(ts_code: str, start_date: str = None,
+                                     end_date: str = None,
+                                     engine: Optional[Engine] = None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine_cached()
+
+    conditions = ["ts_code = :ts_code"]
+    params: dict = {"ts_code": ts_code}
+    if start_date:
+        params["start_date"] = datetime.strptime(str(start_date).replace("-", ""), "%Y%m%d").date()
+        conditions.append("trade_date >= :start_date")
+    if end_date:
+        params["end_date"] = datetime.strptime(str(end_date).replace("-", ""), "%Y%m%d").date()
+        conditions.append("trade_date <= :end_date")
+
+    sql = f"""
+    SELECT
+        ts_code,
+        trade_date,
+        NULLIF(payload->>'name', '') AS name,
+        (payload->>'pct_change')::numeric AS pct_change,
+        (payload->>'close')::numeric AS close,
+        (payload->>'net_amount')::numeric AS net_amount,
+        (payload->>'net_amount_rate')::numeric AS net_amount_rate,
+        (payload->>'buy_elg_amount')::numeric AS buy_elg_amount,
+        (payload->>'buy_lg_amount')::numeric AS buy_lg_amount,
+        (payload->>'buy_md_amount')::numeric AS buy_md_amount,
+        (payload->>'buy_sm_amount')::numeric AS buy_sm_amount
+    FROM ts_moneyflow_dc
+    WHERE {' AND '.join(conditions)}
+    ORDER BY trade_date ASC
+    """
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params=params)
+
+
+
+def backfill_moneyflow_stock_sources(ts_code: str,
+                                     start_date: str = STOCK_SOURCE_START_DATE,
+                                     end_date: str = None,
+                                     engine: Optional[Engine] = None) -> dict:
+    if engine is None:
+        engine = _get_engine_cached()
+    ensure_all_tables(engine)
+    pro = _init_tushare()
+
+    s = max(STOCK_SOURCE_START_DATE, str(start_date or STOCK_SOURCE_START_DATE).replace('-', ''))
+    e = str(end_date or get_today_str()).replace('-', '')
+    results = {"moneyflow_ths": 0, "moneyflow_dc": 0}
+
+    try:
+        df = pro.moneyflow_ths(ts_code=ts_code, start_date=s, end_date=e, fields=MONEYFLOW_THS_FIELDS)
+        if df is not None and not df.empty:
+            results["moneyflow_ths"] = upsert_rows(engine, MONEYFLOW_TABLES["moneyflow_ths"], "moneyflow_ths", df.to_dict("records"))
+    except Exception as exc:
+        logger.warning(f"moneyflow_ths 回补失败({ts_code}): {exc}")
+
+    try:
+        df = pro.moneyflow_dc(ts_code=ts_code, start_date=s, end_date=e, fields=MONEYFLOW_DC_FIELDS)
+        if df is not None and not df.empty:
+            results["moneyflow_dc"] = upsert_rows(engine, MONEYFLOW_TABLES["moneyflow_dc"], "moneyflow_dc", df.to_dict("records"))
+    except Exception as exc:
+        logger.warning(f"moneyflow_dc 回补失败({ts_code}): {exc}")
+
+    return results
 
 
 def query_moneyflow_consecutive_inflow(min_days: int = 3,

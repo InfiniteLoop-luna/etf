@@ -3,11 +3,14 @@
 
 # Version: 2.0 - Fixed data_only issue for formula cells
 import os
+import json
 from hmac import compare_digest
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+import plotly.io as pio
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import logging
@@ -25,6 +28,15 @@ from src.etf_stats import (
     export_stock_basic_summary_excel, search_companies, update_stock_custom_info
 )
 
+try:
+    from src.security_trend_model import (
+        score_security_timeseries_model,
+        get_security_model_meta,
+    )
+except Exception:
+    score_security_timeseries_model = None
+    get_security_model_meta = None
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -34,10 +46,42 @@ logger = logging.getLogger(__name__)
 
 # 页面配置
 st.set_page_config(
-    page_title="交易数据可视化",
+    page_title="WealthSpark 决策看板",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Plotly 统一主题：匹配浅灰蓝数据看板
+pio.templates["wealthspark_balanced"] = go.layout.Template(
+    layout=go.Layout(
+        paper_bgcolor="rgba(248, 250, 252, 0.92)",
+        plot_bgcolor="rgba(241, 245, 249, 0.58)",
+        font=dict(color="#0F172A"),
+        hoverlabel=dict(bgcolor="rgba(15, 23, 42, 0.96)", font=dict(color="#F8FAFC")),
+        title=dict(font=dict(color="#0F172A")),
+        legend=dict(bgcolor="rgba(255,255,255,0.52)", bordercolor="rgba(148,163,184,0.10)", borderwidth=1),
+        xaxis=dict(
+            showline=True,
+            linewidth=1,
+            ticks="outside",
+            tickcolor="rgba(148, 163, 184, 0.28)",
+            gridcolor="rgba(148, 163, 184, 0.12)",
+            linecolor="rgba(148, 163, 184, 0.24)",
+            zerolinecolor="rgba(148, 163, 184, 0.10)"
+        ),
+        yaxis=dict(
+            showline=True,
+            linewidth=1,
+            ticks="outside",
+            tickcolor="rgba(148, 163, 184, 0.28)",
+            gridcolor="rgba(148, 163, 184, 0.12)",
+            linecolor="rgba(148, 163, 184, 0.24)",
+            zerolinecolor="rgba(148, 163, 184, 0.10)"
+        ),
+        colorway=["#2563EB", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4"]
+    )
+)
+pio.templates.default = "wealthspark_balanced"
 
 # 自定义CSS样式 - 金融专业风格
 st.markdown("""
@@ -246,6 +290,236 @@ st.markdown("""
 
 # 数据文件路径
 DATA_FILE = "主要ETF基金份额变动情况.xlsx"
+TREND_RECO_FILE = "data/recommendations/latest_trend_recommendations.json"
+
+
+# ===== 商业化MVP辅助函数 =====
+def get_pro_access_password() -> str:
+    secret_password = ""
+    try:
+        secret_password = st.secrets.get("pro_access_password", "")
+        if not secret_password:
+            secret_password = st.secrets.get("app", {}).get("pro_access_password", "")
+    except Exception:
+        secret_password = ""
+
+    return str(
+        secret_password
+        or os.getenv("ETF_PRO_ACCESS_PASSWORD")
+        or os.getenv("ETF_PRO_PASSWORD")
+        or ""
+    ).strip()
+
+
+def has_pro_access() -> bool:
+    return bool(st.session_state.get("is_pro_user", False))
+
+
+def grant_pro_access(password: str) -> bool:
+    expected_password = get_pro_access_password()
+    if not expected_password:
+        st.session_state["is_pro_user"] = False
+        return False
+
+    authorized = compare_digest(password or "", expected_password)
+    st.session_state["is_pro_user"] = authorized
+    return authorized
+
+
+def clear_pro_access() -> None:
+    st.session_state["is_pro_user"] = False
+
+
+def parse_watchlist_input(raw: str) -> list[str]:
+    if not raw:
+        return []
+    normalized = (
+        str(raw)
+        .replace("，", ",")
+        .replace("、", ",")
+        .replace(";", ",")
+        .replace("；", ",")
+        .replace("\n", ",")
+    )
+    tokens: list[str] = []
+    for part in normalized.split(","):
+        token = part.strip()
+        if token:
+            tokens.append(token)
+    return list(dict.fromkeys(tokens))
+
+
+def _safe_float(value, default=0.0) -> float:
+    try:
+        if value is None or (isinstance(value, float) and np.isnan(value)):
+            return float(default)
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+@st.cache_data(ttl=900)
+def load_security_model_score(ts_code: str, security_type: str = "stock") -> dict:
+    if not callable(score_security_timeseries_model):
+        return {}
+    code = str(ts_code or "").strip()
+    if not code:
+        return {}
+    try:
+        ts_df = load_security_timeseries(code, security_type)
+        if ts_df is None or ts_df.empty:
+            return {}
+        result = score_security_timeseries_model(ts_df, security_type=security_type, topk=60)
+        return result or {}
+    except Exception as exc:
+        logger.warning(f"load_security_model_score failed for {code}: {exc}")
+        return {}
+
+
+def build_opportunity_snapshot(top_up_df: pd.DataFrame, top_avoid_df: pd.DataFrame, moneyflow_df: pd.DataFrame, emotion_stage: str = "") -> pd.DataFrame:
+    if top_up_df is None or top_up_df.empty:
+        return pd.DataFrame()
+
+    base = top_up_df.copy()
+    for col in ["ts_code", "name", "industry", "reason"]:
+        if col not in base.columns:
+            base[col] = ""
+
+    base["trend_score"] = pd.to_numeric(base.get("trend_score"), errors="coerce")
+    base["risk_score"] = pd.to_numeric(base.get("risk_score"), errors="coerce")
+    base["prob_up_5d"] = pd.to_numeric(base.get("prob_up_5d"), errors="coerce")
+    base["prob_up_20d"] = pd.to_numeric(base.get("prob_up_20d"), errors="coerce")
+    base["close"] = pd.to_numeric(base.get("close"), errors="coerce")
+
+    if moneyflow_df is None or moneyflow_df.empty:
+        base["net_mf_amount"] = 0.0
+    else:
+        mf = moneyflow_df.copy()
+        if "ts_code" in mf.columns:
+            mf["ts_code"] = mf["ts_code"].astype(str)
+        mf["net_mf_amount"] = pd.to_numeric(mf.get("net_mf_amount"), errors="coerce").fillna(0.0)
+        keep_cols = [c for c in ["ts_code", "net_mf_amount"] if c in mf.columns]
+        mf = mf[keep_cols].drop_duplicates(subset=["ts_code"], keep="first")
+        base["ts_code"] = base["ts_code"].astype(str)
+        base = base.merge(mf, on="ts_code", how="left")
+        base["net_mf_amount"] = pd.to_numeric(base["net_mf_amount"], errors="coerce").fillna(0.0)
+
+    # 轻量机器学习增强：使用现有 KNN 趋势模型做概率融合
+    model_prob_5d = []
+    model_prob_20d = []
+    model_names = []
+    for code in base["ts_code"].astype(str).tolist():
+        model_res = load_security_model_score(code, "stock")
+        model_prob_5d.append(pd.to_numeric(model_res.get("prob_up_5d"), errors="coerce") if model_res else np.nan)
+        model_prob_20d.append(pd.to_numeric(model_res.get("prob_up_20d"), errors="coerce") if model_res else np.nan)
+        model_names.append(str(model_res.get("model_name") or "-") if model_res else "-")
+
+    base["model_prob_up_5d"] = model_prob_5d
+    base["model_prob_up_20d"] = model_prob_20d
+    base["model_name"] = model_names
+
+    blend_profile = load_reco_blend_profile(max_files=20)
+    rule_blend = float(blend_profile.get("rule_weight") or 0.65)
+    model_blend = float(blend_profile.get("model_weight") or 0.35)
+    base["blend_rule_weight"] = rule_blend
+    base["blend_model_weight"] = model_blend
+    base["prob_up_5d_final"] = np.where(
+        pd.notna(base["model_prob_up_5d"]),
+        base["prob_up_5d"].fillna(0.0) * rule_blend + base["model_prob_up_5d"].fillna(0.0) * model_blend,
+        base["prob_up_5d"].fillna(0.0),
+    )
+    base["prob_up_20d_final"] = np.where(
+        pd.notna(base["model_prob_up_20d"]),
+        base["prob_up_20d"].fillna(0.0) * rule_blend + base["model_prob_up_20d"].fillna(0.0) * model_blend,
+        base["prob_up_20d"].fillna(0.0),
+    )
+    base["model_agreement"] = np.where(
+        pd.notna(base["model_prob_up_5d"]),
+        1.0 - (base["prob_up_5d"].fillna(0.0) - base["model_prob_up_5d"].fillna(0.0)).abs(),
+        np.nan,
+    )
+
+    stage = str(emotion_stage or "").strip()
+    trend_weight = 0.50
+    prob_weight = 0.18
+    ml_weight = 0.14
+    moneyflow_weight = 0.08
+    risk_penalty_weight = 0.16
+
+    if any(k in stage for k in ["退潮", "冰点", "分歧"]):
+        trend_weight = 0.46
+        prob_weight = 0.16
+        ml_weight = 0.12
+        moneyflow_weight = 0.06
+        risk_penalty_weight = 0.22
+    elif any(k in stage for k in ["主升", "高潮", "亢奋", "强修复"]):
+        trend_weight = 0.52
+        prob_weight = 0.18
+        ml_weight = 0.16
+        moneyflow_weight = 0.10
+        risk_penalty_weight = 0.14
+
+    base["prob5_pct"] = base["prob_up_5d"].fillna(0.0) * 100.0
+    base["hybrid_prob5_pct"] = base["prob_up_5d_final"].fillna(0.0) * 100.0
+    base["ml_prob5_pct"] = base["model_prob_up_5d"].fillna(0.0) * 100.0
+    base["mf_norm"] = base["net_mf_amount"].clip(lower=-100000, upper=100000) / 10000.0
+    base["risk_penalty"] = base["risk_score"].fillna(50.0) * risk_penalty_weight
+
+    base["overheat_penalty"] = 0.0
+    base.loc[base["risk_score"].fillna(0) >= 70, "overheat_penalty"] += 6.0
+    base.loc[base["prob_up_5d_final"].fillna(0) >= 0.85, "overheat_penalty"] += 3.0
+    base.loc[base["net_mf_amount"].fillna(0) >= 80000, "overheat_penalty"] += 2.0
+
+    base["model_bonus"] = 0.0
+    base.loc[base["model_agreement"].fillna(0) >= 0.85, "model_bonus"] += 3.0
+    base.loc[(base["model_prob_up_5d"].fillna(0) >= 0.60) & (base["prob_up_5d"].fillna(0) >= 0.60), "model_bonus"] += 2.0
+    base.loc[pd.notna(base["model_agreement"]) & (base["model_agreement"] <= 0.65), "model_bonus"] -= 3.0
+
+    base["opportunity_score"] = (
+        base["trend_score"].fillna(0.0) * trend_weight
+        + base["hybrid_prob5_pct"] * prob_weight
+        + base["ml_prob5_pct"] * ml_weight
+        + base["mf_norm"] * moneyflow_weight
+        - base["risk_penalty"]
+        - base["overheat_penalty"]
+        + base["model_bonus"]
+    )
+    base["opportunity_score"] = base["opportunity_score"].clip(lower=0, upper=100)
+
+    def confidence_label(row: pd.Series) -> str:
+        score = _safe_float(row.get("opportunity_score"), 0.0)
+        risk = _safe_float(row.get("risk_score"), 100.0)
+        prob5 = _safe_float(row.get("prob_up_5d_final"), 0.0)
+        agreement = _safe_float(row.get("model_agreement"), 0.70)
+        if score >= 68 and risk <= 45 and prob5 >= 0.60 and agreement >= 0.75:
+            return "高"
+        if score >= 52 and risk <= 60 and prob5 >= 0.50:
+            return "中"
+        return "低"
+
+    avoid_codes = set()
+    if top_avoid_df is not None and not top_avoid_df.empty and "ts_code" in top_avoid_df.columns:
+        avoid_codes = set(top_avoid_df["ts_code"].astype(str).tolist())
+
+    def action_label(row: pd.Series) -> str:
+        code = str(row.get("ts_code") or "")
+        if code in avoid_codes:
+            return "⚠️ 回避"
+        score = _safe_float(row.get("opportunity_score"), 0.0)
+        risk = _safe_float(row.get("risk_score"), 0.0)
+        prob5 = _safe_float(row.get("prob_up_5d_final"), 0.0)
+        if score >= 65 and risk <= 45 and prob5 >= 0.60:
+            return "✅ 重点关注"
+        if score >= 50 and risk <= 60:
+            return "👀 观察"
+        return "🟡 等待"
+
+    base["confidence"] = base.apply(confidence_label, axis=1)
+    base["action"] = base.apply(action_label, axis=1)
+    base = base.sort_values(["opportunity_score", "trend_score"], ascending=False).reset_index(drop=True)
+    base["rank_commercial"] = np.arange(1, len(base) + 1)
+    return base
+
 MACRO_DATASET_META = {
     "cn_gdp": {"label": "GDP", "card_label": "GDP同比", "card_col": "gdp_yoy", "card_unit": "%"},
     "cn_cpi": {"label": "CPI", "card_label": "CPI同比", "card_col": "nt_yoy", "card_unit": "%"},
@@ -391,6 +665,591 @@ def load_fund_hot_stock_meta() -> dict:
         }
 
 
+@st.cache_data(ttl=300)
+def load_trend_recommendations() -> dict:
+    try:
+        if not os.path.exists(TREND_RECO_FILE):
+            return {}
+        with open(TREND_RECO_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as exc:
+        logger.warning(f"load_trend_recommendations failed: {exc}")
+        return {}
+
+
+
+
+def _parse_reco_date_from_filename(filename: str):
+    try:
+        prefix = str(filename).split("_")[0]
+        return datetime.strptime(prefix, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _compute_forward_returns_by_bars(ts_df: pd.DataFrame, trade_date: str, entry_close) -> dict:
+    result = {"ret_1d": np.nan, "ret_3d": np.nan, "ret_5d": np.nan}
+    if ts_df is None or ts_df.empty:
+        return result
+    if "trade_date" not in ts_df.columns or "close" not in ts_df.columns:
+        return result
+
+    df = ts_df[["trade_date", "close"]].copy()
+    df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    df = df.dropna(subset=["trade_date", "close"]).sort_values("trade_date").reset_index(drop=True)
+    if df.empty:
+        return result
+
+    td = pd.to_datetime(trade_date, errors="coerce")
+    if pd.isna(td):
+        return result
+
+    same_day = df[df["trade_date"] == td]
+    if same_day.empty:
+        same_day = df[df["trade_date"] <= td].tail(1)
+    if same_day.empty:
+        return result
+
+    entry_idx = int(same_day.index[0])
+    entry_px = pd.to_numeric(pd.Series([entry_close]), errors="coerce").iloc[0]
+    if pd.isna(entry_px) or float(entry_px) <= 0:
+        entry_px = float(same_day.iloc[0]["close"])
+
+    for h in [1, 3, 5]:
+        idx = entry_idx + h
+        if idx < len(df):
+            future_px = float(df.iloc[idx]["close"])
+            result[f"ret_{h}d"] = future_px / float(entry_px) - 1.0
+
+    return result
+
+
+def _summarize_group_returns(returns: list[dict], mode: str) -> dict:
+    out = {}
+    for h in [1, 3, 5]:
+        col = f"ret_{h}d"
+        values = [float(r[col]) for r in returns if col in r and pd.notna(r[col])]
+        sample = len(values)
+        out[f"sample_{h}d"] = sample
+        if sample == 0:
+            out[f"avg_ret_{h}d"] = np.nan
+            out[f"hit_count_{h}d"] = 0
+            out[f"hit_rate_{h}d"] = np.nan
+            continue
+
+        avg_ret = float(np.mean(values))
+        if mode == "up":
+            hit_count = sum(1 for v in values if v > 0)
+        else:
+            hit_count = sum(1 for v in values if v <= 0)
+
+        out[f"avg_ret_{h}d"] = avg_ret
+        out[f"hit_count_{h}d"] = int(hit_count)
+        out[f"hit_rate_{h}d"] = float(hit_count / sample)
+    return out
+
+
+def _evaluate_reco_payload(payload: dict, symbol_cache: dict, topn_limit: int = 10) -> dict:
+    trade_date = str(payload.get("trade_date") or "")
+    top_up = (payload.get("top_uptrend") or [])[:topn_limit]
+    top_avoid = (payload.get("top_avoid") or [])[:topn_limit]
+
+    up_returns = []
+    avoid_returns = []
+
+    def _get_ts(ts_code: str) -> pd.DataFrame:
+        code = str(ts_code or "").strip()
+        if not code:
+            return pd.DataFrame()
+        if code not in symbol_cache:
+            try:
+                symbol_cache[code] = load_security_timeseries(code, "stock")
+            except Exception:
+                symbol_cache[code] = pd.DataFrame()
+        return symbol_cache[code]
+
+    for row in top_up:
+        code = str(row.get("ts_code") or "").strip()
+        if not code:
+            continue
+        ts_df = _get_ts(code)
+        ret = _compute_forward_returns_by_bars(ts_df, trade_date, row.get("close"))
+        up_returns.append(ret)
+
+    for row in top_avoid:
+        code = str(row.get("ts_code") or "").strip()
+        if not code:
+            continue
+        ts_df = _get_ts(code)
+        ret = _compute_forward_returns_by_bars(ts_df, trade_date, row.get("close"))
+        avoid_returns.append(ret)
+
+    up_stats = _summarize_group_returns(up_returns, mode="up")
+    avoid_stats = _summarize_group_returns(avoid_returns, mode="avoid")
+
+    out = {
+        "trade_date": trade_date,
+        "up_candidates": len(top_up),
+        "avoid_candidates": len(top_avoid),
+    }
+    for k, v in up_stats.items():
+        out[f"up_{k}"] = v
+    for k, v in avoid_stats.items():
+        out[f"avoid_{k}"] = v
+    return out
+
+
+@st.cache_data(ttl=900)
+def load_reco_effectiveness_history(max_files: int = 30, topn_limit: int = 10) -> pd.DataFrame:
+    base_dir = os.path.dirname(TREND_RECO_FILE) or "."
+    if not os.path.isdir(base_dir):
+        return pd.DataFrame()
+
+    entries = []
+    try:
+        for name in os.listdir(base_dir):
+            if not str(name).endswith("_trend_recommendations.json"):
+                continue
+            d = _parse_reco_date_from_filename(name)
+            if d is None:
+                continue
+            entries.append((d, os.path.join(base_dir, name)))
+    except Exception:
+        return pd.DataFrame()
+
+    if not entries:
+        return pd.DataFrame()
+
+    entries.sort(key=lambda x: x[0])
+    if max_files and len(entries) > int(max_files):
+        entries = entries[-int(max_files):]
+
+    rows = []
+    symbol_cache = {}
+    for _, fp in entries:
+        try:
+            with open(fp, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            rows.append(_evaluate_reco_payload(payload, symbol_cache, topn_limit=topn_limit))
+        except Exception as exc:
+            logger.warning(f"load_reco_effectiveness_history skip {fp}: {exc}")
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    if "trade_date" in df.columns:
+        df = df.sort_values("trade_date").reset_index(drop=True)
+    return df
+
+
+@st.cache_data(ttl=900)
+def load_reco_blend_profile(max_files: int = 20) -> dict:
+    hist_df = load_reco_effectiveness_history(max_files=max_files, topn_limit=10)
+    if hist_df is None or hist_df.empty:
+        return {
+            "rule_weight": 0.65,
+            "model_weight": 0.35,
+            "source": "default",
+            "up_hit_rate_5d": np.nan,
+            "avoid_hit_rate_5d": np.nan,
+        }
+
+    up_col = "up_hit_rate_5d"
+    av_col = "avoid_hit_rate_5d"
+    up_rate = pd.to_numeric(hist_df.get(up_col), errors="coerce") if up_col in hist_df.columns else pd.Series(dtype=float)
+    av_rate = pd.to_numeric(hist_df.get(av_col), errors="coerce") if av_col in hist_df.columns else pd.Series(dtype=float)
+
+    up_mean = float(up_rate.dropna().mean()) if not up_rate.dropna().empty else np.nan
+    av_mean = float(av_rate.dropna().mean()) if not av_rate.dropna().empty else np.nan
+
+    rule_weight = 0.65
+    model_weight = 0.35
+
+    # 简单的历史效果驱动调权：
+    # - 强势命中率高且避雷有效率高，略提高模型权重
+    # - 若统计不稳定或历史偏弱，则更保守，偏向规则
+    if pd.notna(up_mean) and pd.notna(av_mean):
+        combined = 0.55 * up_mean + 0.45 * av_mean
+        if combined >= 0.62:
+            model_weight = 0.45
+            rule_weight = 0.55
+        elif combined >= 0.56:
+            model_weight = 0.40
+            rule_weight = 0.60
+        elif combined <= 0.48:
+            model_weight = 0.25
+            rule_weight = 0.75
+
+    return {
+        "rule_weight": float(rule_weight),
+        "model_weight": float(model_weight),
+        "source": "history-adaptive",
+        "up_hit_rate_5d": up_mean,
+        "avoid_hit_rate_5d": av_mean,
+    }
+
+
+
+
+def _score_rule_candidate(row: dict) -> float:
+    trend = _safe_float(row.get("trend_score"), 0.0)
+    prob5 = _safe_float(row.get("prob_up_5d"), 0.0) * 100.0
+    risk = _safe_float(row.get("risk_score"), 50.0)
+    return trend * 0.65 + prob5 * 0.25 - risk * 0.15
+
+
+def _slice_ts_to_trade_date(ts_df: pd.DataFrame, trade_date: str) -> pd.DataFrame:
+    if ts_df is None or ts_df.empty or "trade_date" not in ts_df.columns:
+        return pd.DataFrame()
+    df = ts_df.copy()
+    df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+    td = pd.to_datetime(trade_date, errors="coerce")
+    if pd.isna(td):
+        return pd.DataFrame()
+    return df[df["trade_date"] <= td].copy()
+
+
+def _evaluate_strategy_compare(payload: dict, symbol_cache: dict, topn_limit: int = 10) -> dict:
+    trade_date = str(payload.get("trade_date") or "")
+    candidates = (payload.get("top_uptrend") or [])[:topn_limit]
+    if not candidates:
+        return {"trade_date": trade_date, "rule_ret_5d": np.nan, "model_ret_5d": np.nan, "hybrid_ret_5d": np.nan}
+
+    blend = load_reco_blend_profile(max_files=20)
+    rule_w = float(blend.get("rule_weight") or 0.65)
+    model_w = float(blend.get("model_weight") or 0.35)
+
+    rows = []
+    for row in candidates:
+        code = str(row.get("ts_code") or "").strip()
+        if not code:
+            continue
+        if code not in symbol_cache:
+            try:
+                symbol_cache[code] = load_security_timeseries(code, "stock")
+            except Exception:
+                symbol_cache[code] = pd.DataFrame()
+        ts_full = symbol_cache.get(code)
+        ts_cut = _slice_ts_to_trade_date(ts_full, trade_date)
+        model_res = {}
+        try:
+            if callable(score_security_timeseries_model) and ts_cut is not None and not ts_cut.empty:
+                model_res = score_security_timeseries_model(ts_cut, security_type="stock", topk=60) or {}
+        except Exception:
+            model_res = {}
+
+        model_prob = _safe_float(model_res.get("prob_up_5d"), np.nan)
+        rule_score = _score_rule_candidate(row)
+        model_score = (model_prob * 100.0 - _safe_float(row.get("risk_score"), 50.0) * 0.10) if pd.notna(model_prob) else np.nan
+        hybrid_score = rule_score if pd.isna(model_score) else rule_w * rule_score + model_w * model_score
+
+        fwd = _compute_forward_returns_by_bars(ts_full, trade_date, row.get("close"))
+        rows.append({
+            "ts_code": code,
+            "name": str(row.get("name") or code),
+            "rule_score": rule_score,
+            "model_score": model_score,
+            "hybrid_score": hybrid_score,
+            "ret_5d": fwd.get("ret_5d"),
+        })
+
+    if not rows:
+        return {"trade_date": trade_date, "rule_ret_5d": np.nan, "model_ret_5d": np.nan, "hybrid_ret_5d": np.nan}
+
+    df = pd.DataFrame(rows)
+    rule_pick = df.sort_values("rule_score", ascending=False).head(1)
+    model_pick = df.sort_values("model_score", ascending=False, na_position="last").head(1)
+    hybrid_pick = df.sort_values("hybrid_score", ascending=False).head(1)
+
+    def _pick_ret(frame: pd.DataFrame):
+        if frame is None or frame.empty:
+            return np.nan
+        return pd.to_numeric(frame.iloc[0].get("ret_5d"), errors="coerce")
+
+    return {
+        "trade_date": trade_date,
+        "rule_ret_5d": _pick_ret(rule_pick),
+        "model_ret_5d": _pick_ret(model_pick),
+        "hybrid_ret_5d": _pick_ret(hybrid_pick),
+        "rule_pick": str(rule_pick.iloc[0].get("name")) if not rule_pick.empty else "-",
+        "model_pick": str(model_pick.iloc[0].get("name")) if not model_pick.empty else "-",
+        "hybrid_pick": str(hybrid_pick.iloc[0].get("name")) if not hybrid_pick.empty else "-",
+    }
+
+
+@st.cache_data(ttl=900)
+def load_reco_strategy_comparison(max_files: int = 20, topn_limit: int = 10) -> pd.DataFrame:
+    base_dir = os.path.dirname(TREND_RECO_FILE) or "."
+    if not os.path.isdir(base_dir):
+        return pd.DataFrame()
+
+    entries = []
+    for name in os.listdir(base_dir):
+        if not str(name).endswith("_trend_recommendations.json"):
+            continue
+        d = _parse_reco_date_from_filename(name)
+        if d is None:
+            continue
+        entries.append((d, os.path.join(base_dir, name)))
+
+    if not entries:
+        return pd.DataFrame()
+    entries.sort(key=lambda x: x[0])
+    entries = entries[-int(max_files):]
+
+    rows = []
+    symbol_cache = {}
+    for _, fp in entries:
+        try:
+            with open(fp, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            rows.append(_evaluate_strategy_compare(payload, symbol_cache, topn_limit=topn_limit))
+        except Exception as exc:
+            logger.warning(f"load_reco_strategy_comparison skip {fp}: {exc}")
+
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    if "trade_date" in df.columns:
+        df = df.sort_values("trade_date").reset_index(drop=True)
+    return df
+
+
+def render_strategy_comparison_panel():
+    st.markdown("#### 🧪 策略对比评估（Top1实验）")
+    st.caption("比较口径：对每个交易日的强势候选池，分别用纯规则、纯模型、混合模型选出 Top1，再比较其后续 5 日收益。")
+
+    ctl_cols = st.columns([1.1, 1.2, 3])
+    with ctl_cols[0]:
+        max_files = st.selectbox("对比样本", [20, 30, 60, 120], index=0, key="strategy_compare_max_files")
+    with ctl_cols[1]:
+        chart_mode = st.selectbox("图表模式", ["近5日收益曲线", "累计收益曲线", "双图对照"], index=2, key="strategy_compare_chart_mode")
+
+    comp_df = load_reco_strategy_comparison(max_files=int(max_files), topn_limit=10)
+    if comp_df is None or comp_df.empty:
+        st.info("暂无足够样本用于做规则 / 模型 / 混合 的 Top1 对比。")
+        return
+
+    comp_df = comp_df.copy()
+    comp_df["trade_date"] = pd.to_datetime(comp_df.get("trade_date"), errors="coerce")
+    comp_df = comp_df.sort_values("trade_date").reset_index(drop=True)
+
+    strategy_meta = [
+        ("rule_ret_5d", "纯规则", "#2563EB"),
+        ("model_ret_5d", "纯模型", "#F59E0B"),
+        ("hybrid_ret_5d", "混合模型", "#10B981"),
+    ]
+
+    metrics = []
+    plot_df = pd.DataFrame({"trade_date": comp_df["trade_date"]})
+    for key, label, _color in strategy_meta:
+        vals = pd.to_numeric(comp_df.get(key), errors="coerce")
+        clean = vals.dropna()
+        sample = len(clean)
+        avg_ret = float(clean.mean()) if sample > 0 else np.nan
+        hit_rate = float((clean > 0).mean()) if sample > 0 else np.nan
+        cum_ret = float((1 + clean).prod() - 1) if sample > 0 else np.nan
+        plot_df[label] = vals
+        plot_df[f"{label}_cum"] = (1 + vals.fillna(0.0)).cumprod() - 1
+        metrics.append({
+            "策略": label,
+            "样本数": sample,
+            "5日命中率": f"{hit_rate:.1%}" if pd.notna(hit_rate) else "-",
+            "5日平均收益": f"{avg_ret:+.2%}" if pd.notna(avg_ret) else "-",
+            "累计收益": f"{cum_ret:+.2%}" if pd.notna(cum_ret) else "-",
+        })
+
+    st.dataframe(pd.DataFrame(metrics), use_container_width=True, hide_index=True)
+
+    if plot_df["trade_date"].notna().any():
+        date_x = plot_df["trade_date"]
+
+        daily_fig = go.Figure()
+        for _key, label, color in strategy_meta:
+            daily_fig.add_trace(go.Scatter(
+                x=date_x,
+                y=plot_df[label],
+                mode="lines+markers",
+                name=label,
+                line=dict(width=2.5, color=color),
+                marker=dict(size=6),
+                hovertemplate=f"{label}<br>%{{x|%Y-%m-%d}}<br>5日收益: %{{y:.2%}}<extra></extra>",
+            ))
+        daily_fig.update_layout(
+            title="策略 Top1 单期收益趋势",
+            height=360,
+            template="wealthspark_balanced",
+            hovermode="x unified",
+            margin=dict(l=20, r=20, t=60, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        daily_fig.update_yaxes(tickformat=".0%", title_text="5日收益")
+        daily_fig.update_xaxes(title_text="交易日")
+
+        cum_fig = go.Figure()
+        for _key, label, color in strategy_meta:
+            cum_fig.add_trace(go.Scatter(
+                x=date_x,
+                y=plot_df[f"{label}_cum"],
+                mode="lines",
+                name=label,
+                line=dict(width=3, color=color),
+                hovertemplate=f"{label}<br>%{{x|%Y-%m-%d}}<br>累计收益: %{{y:.2%}}<extra></extra>",
+            ))
+        cum_fig.update_layout(
+            title="策略 Top1 累计收益曲线",
+            height=360,
+            template="wealthspark_balanced",
+            hovermode="x unified",
+            margin=dict(l=20, r=20, t=60, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        cum_fig.update_yaxes(tickformat=".0%", title_text="累计收益")
+        cum_fig.update_xaxes(title_text="交易日")
+
+        if chart_mode == "近5日收益曲线":
+            st.plotly_chart(daily_fig, use_container_width=True)
+        elif chart_mode == "累计收益曲线":
+            st.plotly_chart(cum_fig, use_container_width=True)
+        else:
+            chart_left, chart_right = st.columns(2)
+            with chart_left:
+                st.plotly_chart(daily_fig, use_container_width=True)
+            with chart_right:
+                st.plotly_chart(cum_fig, use_container_width=True)
+
+    show_df = comp_df[[c for c in ["trade_date", "rule_pick", "rule_ret_5d", "model_pick", "model_ret_5d", "hybrid_pick", "hybrid_ret_5d"] if c in comp_df.columns]].copy()
+    if "trade_date" in show_df.columns:
+        show_df["trade_date"] = pd.to_datetime(show_df["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    rename_map = {
+        "trade_date": "交易日",
+        "rule_pick": "纯规则Top1",
+        "rule_ret_5d": "纯规则5日收益",
+        "model_pick": "纯模型Top1",
+        "model_ret_5d": "纯模型5日收益",
+        "hybrid_pick": "混合模型Top1",
+        "hybrid_ret_5d": "混合模型5日收益",
+    }
+    show_df = show_df.rename(columns=rename_map)
+    for c in ["纯规则5日收益", "纯模型5日收益", "混合模型5日收益"]:
+        if c in show_df.columns:
+            show_df[c] = pd.to_numeric(show_df[c], errors="coerce").map(lambda v: f"{v:+.2%}" if pd.notna(v) else "-")
+    st.dataframe(show_df, use_container_width=True, hide_index=True, height=320)
+
+
+def render_reco_effectiveness_tracking_panel():
+    st.markdown("#### 📊 推荐有效性追踪（实验版）")
+    blend_profile = load_reco_blend_profile(max_files=20)
+    if blend_profile.get("source") == "history-adaptive":
+        st.caption(
+            f"当前融合策略：规则 {float(blend_profile.get('rule_weight') or 0.65):.0%} / 模型 {float(blend_profile.get('model_weight') or 0.35):.0%}（基于最近历史效果自动调节）"
+        )
+    st.caption("统计口径：以推荐当日收盘价为起点，按后续第 1 / 3 / 5 个交易日收盘价计算收益。强势榜命中 = 未来收益 > 0；避雷榜有效 = 未来收益 ≤ 0。")
+
+    ctl_cols = st.columns([1.2, 1, 3])
+    with ctl_cols[0]:
+        max_files = st.selectbox("样本文件", [10, 20, 30, 60, 120], index=2, key="reco_eval_max_files")
+    with ctl_cols[1]:
+        horizon_label = st.selectbox("核心周期", ["1日", "3日", "5日"], index=2, key="reco_eval_horizon")
+    horizon = {"1日": "1d", "3日": "3d", "5日": "5d"}[horizon_label]
+
+    hist_df = load_reco_effectiveness_history(max_files=int(max_files), topn_limit=10)
+    if hist_df is None or hist_df.empty:
+        st.info("暂无足够的历史推荐文件用于统计（至少需要生成并保留多日推荐结果）。")
+        return
+
+    up_sample_col = f"up_sample_{horizon}"
+    up_hit_col = f"up_hit_count_{horizon}"
+    up_avg_col = f"up_avg_ret_{horizon}"
+    av_sample_col = f"avoid_sample_{horizon}"
+    av_hit_col = f"avoid_hit_count_{horizon}"
+    av_avg_col = f"avoid_avg_ret_{horizon}"
+
+    for col in [up_sample_col, up_hit_col, up_avg_col, av_sample_col, av_hit_col, av_avg_col]:
+        if col not in hist_df.columns:
+            hist_df[col] = np.nan
+
+    up_samples = int(pd.to_numeric(hist_df[up_sample_col], errors="coerce").fillna(0).sum())
+    up_hits = int(pd.to_numeric(hist_df[up_hit_col], errors="coerce").fillna(0).sum())
+    av_samples = int(pd.to_numeric(hist_df[av_sample_col], errors="coerce").fillna(0).sum())
+    av_hits = int(pd.to_numeric(hist_df[av_hit_col], errors="coerce").fillna(0).sum())
+
+    up_hit_rate = (up_hits / up_samples) if up_samples > 0 else np.nan
+    av_hit_rate = (av_hits / av_samples) if av_samples > 0 else np.nan
+
+    up_weighted_ret = np.nan
+    if up_samples > 0:
+        up_weighted_ret = (
+            pd.to_numeric(hist_df[up_avg_col], errors="coerce").fillna(0)
+            * pd.to_numeric(hist_df[up_sample_col], errors="coerce").fillna(0)
+        ).sum() / up_samples
+
+    av_weighted_ret = np.nan
+    if av_samples > 0:
+        av_weighted_ret = (
+            pd.to_numeric(hist_df[av_avg_col], errors="coerce").fillna(0)
+            * pd.to_numeric(hist_df[av_sample_col], errors="coerce").fillna(0)
+        ).sum() / av_samples
+
+    metric_cols = st.columns(4)
+    metric_cols[0].metric(f"强势命中率（{horizon_label}）", f"{up_hit_rate:.1%}" if pd.notna(up_hit_rate) else "-")
+    metric_cols[1].metric(f"强势平均收益（{horizon_label}）", f"{up_weighted_ret:+.2%}" if pd.notna(up_weighted_ret) else "-")
+    metric_cols[2].metric(f"避雷有效率（{horizon_label}）", f"{av_hit_rate:.1%}" if pd.notna(av_hit_rate) else "-")
+    metric_cols[3].metric(f"避雷平均收益（{horizon_label}）", f"{av_weighted_ret:+.2%}" if pd.notna(av_weighted_ret) else "-")
+
+    st.caption(f"当前统计样本：强势 {up_samples} 条，避雷 {av_samples} 条（来自最近 {int(max_files)} 份推荐文件）。")
+
+    show_cols = [
+        "trade_date",
+        "up_candidates",
+        "up_hit_rate_1d", "up_hit_rate_3d", "up_hit_rate_5d",
+        "up_avg_ret_1d", "up_avg_ret_3d", "up_avg_ret_5d",
+        "avoid_candidates",
+        "avoid_hit_rate_1d", "avoid_hit_rate_3d", "avoid_hit_rate_5d",
+        "avoid_avg_ret_1d", "avoid_avg_ret_3d", "avoid_avg_ret_5d",
+    ]
+    avail_cols = [c for c in show_cols if c in hist_df.columns]
+    show_df = hist_df[avail_cols].copy()
+
+    for c in [
+        "up_hit_rate_1d", "up_hit_rate_3d", "up_hit_rate_5d",
+        "avoid_hit_rate_1d", "avoid_hit_rate_3d", "avoid_hit_rate_5d",
+    ]:
+        if c in show_df.columns:
+            show_df[c] = pd.to_numeric(show_df[c], errors="coerce").map(lambda v: f"{v:.1%}" if pd.notna(v) else "-")
+
+    for c in [
+        "up_avg_ret_1d", "up_avg_ret_3d", "up_avg_ret_5d",
+        "avoid_avg_ret_1d", "avoid_avg_ret_3d", "avoid_avg_ret_5d",
+    ]:
+        if c in show_df.columns:
+            show_df[c] = pd.to_numeric(show_df[c], errors="coerce").map(lambda v: f"{v:+.2%}" if pd.notna(v) else "-")
+
+    rename_map = {
+        "trade_date": "交易日",
+        "up_candidates": "强势候选数",
+        "up_hit_rate_1d": "强势命中率1日",
+        "up_hit_rate_3d": "强势命中率3日",
+        "up_hit_rate_5d": "强势命中率5日",
+        "up_avg_ret_1d": "强势均收1日",
+        "up_avg_ret_3d": "强势均收3日",
+        "up_avg_ret_5d": "强势均收5日",
+        "avoid_candidates": "避雷候选数",
+        "avoid_hit_rate_1d": "避雷有效率1日",
+        "avoid_hit_rate_3d": "避雷有效率3日",
+        "avoid_hit_rate_5d": "避雷有效率5日",
+        "avoid_avg_ret_1d": "避雷均收1日",
+        "avoid_avg_ret_3d": "避雷均收3日",
+        "avoid_avg_ret_5d": "避雷均收5日",
+    }
+    show_df = show_df.rename(columns={k: v for k, v in rename_map.items() if k in show_df.columns})
+    st.dataframe(show_df, use_container_width=True, hide_index=True, height=320)
+
+    render_strategy_comparison_panel()
+
+
 def get_stock_info_edit_password() -> str:
     secret_password = ""
     try:
@@ -461,6 +1320,9 @@ def hydrate_security_jump_from_query_params() -> None:
         st.session_state["security_search_type"] = "指数"
 
     if open_tab == "security":
+        # 方案B：通过 sidebar 一级导航 + 个股子导航完成跳转
+        st.session_state["sidebar_nav_group"] = "个股"
+        st.session_state["stock_subpage"] = "🔎 个股/指数查询"
         st.session_state["jump_to_security_tab"] = True
 
     if jump_nonce:
@@ -468,45 +1330,12 @@ def hydrate_security_jump_from_query_params() -> None:
 
 
 def trigger_security_tab_jump_if_needed() -> None:
-    """若存在跳转请求，通过前端脚本切换到“个股/指数查询”标签页。"""
+    """若存在跳转请求，切到 sidebar 的“个股 -> 个股/指数查询”。"""
     if not st.session_state.get("jump_to_security_tab", False):
         return
 
-    import streamlit.components.v1 as components
-
-    components.html(
-        """
-        <script>
-        (function () {
-          const targetText = "个股/指数查询";
-          const maxAttempts = 30;
-          let attempts = 0;
-
-          const clickTargetTab = () => {
-            const tabs = window.parent.document.querySelectorAll('button[role="tab"]');
-            for (const tab of tabs) {
-              const label = (tab.innerText || tab.textContent || "").trim();
-              if (label.includes(targetText)) {
-                tab.click();
-                return true;
-              }
-            }
-            return false;
-          };
-
-          const timer = setInterval(() => {
-            attempts += 1;
-            if (clickTargetTab() || attempts >= maxAttempts) {
-              clearInterval(timer);
-            }
-          }, 120);
-        })();
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
+    st.session_state["sidebar_nav_group"] = "个股"
+    st.session_state["stock_subpage"] = "🔎 个股/指数查询"
     st.session_state["jump_to_security_tab"] = False
 
 def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
@@ -589,6 +1418,401 @@ def format_optional_date(value) -> str:
     return pd.to_datetime(value).strftime('%Y-%m-%d')
 
 
+def clamp_value(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def compute_rsi(series: pd.Series, window: int = 14) -> pd.Series:
+    series = pd.to_numeric(series, errors='coerce')
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
+    avg_loss = loss.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+    return rsi.fillna(50)
+
+
+def build_security_trend_analysis(ts_df: pd.DataFrame, security_type: str = 'stock') -> dict | None:
+    if ts_df is None or ts_df.empty or 'close' not in ts_df.columns:
+        return None
+
+    df = ts_df.copy()
+    if 'trade_date' not in df.columns:
+        return None
+
+    df['trade_date'] = pd.to_datetime(df['trade_date'], errors='coerce')
+    df['close'] = pd.to_numeric(df['close'], errors='coerce')
+    for col in ['turnover_rate', 'volume_ratio', 'pe', 'pe_ttm', 'pb', 'ps_ttm', 'total_mv', 'circ_mv', 'float_mv']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    df = df.dropna(subset=['trade_date', 'close']).sort_values('trade_date').reset_index(drop=True)
+    if len(df) < 10:
+        return None
+
+    close = df['close']
+    df['ma5'] = close.rolling(5, min_periods=3).mean()
+    df['ma10'] = close.rolling(10, min_periods=5).mean()
+    df['ma20'] = close.rolling(20, min_periods=10).mean()
+    df['ma60'] = close.rolling(60, min_periods=20).mean()
+    df['ret_5'] = close.pct_change(5)
+    df['ret_20'] = close.pct_change(20)
+    df['rsi14'] = compute_rsi(close, 14)
+
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
+    df['macd_dif'] = ema12 - ema26
+    df['macd_dea'] = df['macd_dif'].ewm(span=9, adjust=False).mean()
+    df['macd_hist'] = df['macd_dif'] - df['macd_dea']
+
+    df['boll_mid'] = close.rolling(20, min_periods=10).mean()
+    boll_std = close.rolling(20, min_periods=10).std()
+    df['boll_up'] = df['boll_mid'] + 2 * boll_std
+    df['boll_down'] = df['boll_mid'] - 2 * boll_std
+    boll_span = (df['boll_up'] - df['boll_down']).replace(0, np.nan)
+    df['boll_pos'] = (close - df['boll_down']) / boll_span
+
+    df['volatility20'] = close.pct_change().rolling(20, min_periods=10).std() * np.sqrt(20) * 100
+    df['support_20'] = close.rolling(20, min_periods=5).min()
+    df['resistance_20'] = close.rolling(20, min_periods=5).max()
+    df['support_60'] = close.rolling(60, min_periods=20).min()
+    df['resistance_60'] = close.rolling(60, min_periods=20).max()
+
+    last = df.iloc[-1]
+    latest_close = float(last['close'])
+    ma5 = float(last['ma5']) if pd.notna(last['ma5']) else latest_close
+    ma20 = float(last['ma20']) if pd.notna(last['ma20']) else latest_close
+    ma60 = float(last['ma60']) if pd.notna(last['ma60']) else ma20
+    ret_5 = float(last['ret_5']) if pd.notna(last['ret_5']) else 0.0
+    ret_20 = float(last['ret_20']) if pd.notna(last['ret_20']) else 0.0
+    rsi14 = float(last['rsi14']) if pd.notna(last['rsi14']) else 50.0
+    macd_hist = float(last['macd_hist']) if pd.notna(last.get('macd_hist')) else 0.0
+    boll_pos = float(last['boll_pos']) if pd.notna(last.get('boll_pos')) else np.nan
+    volatility20 = float(last['volatility20']) if pd.notna(last['volatility20']) else 0.0
+    volume_ratio = float(last['volume_ratio']) if 'volume_ratio' in df.columns and pd.notna(last.get('volume_ratio')) else np.nan
+    turnover_rate = float(last['turnover_rate']) if 'turnover_rate' in df.columns and pd.notna(last.get('turnover_rate')) else np.nan
+
+    trend_score = 50.0
+    reasons: List[str] = []
+    risk_flags: List[str] = []
+
+    if latest_close >= ma20:
+        trend_score += 12
+        reasons.append('收盘价位于20日均线上方，短中期结构偏强')
+    else:
+        trend_score -= 12
+        risk_flags.append('收盘价跌破20日均线，短线结构偏弱')
+
+    if latest_close >= ma60:
+        trend_score += 10
+        reasons.append('收盘价站上60日均线，中期趋势仍有支撑')
+    else:
+        trend_score -= 10
+        risk_flags.append('收盘价位于60日均线下方，中期承压')
+
+    if ma5 >= ma20:
+        trend_score += 8
+        reasons.append('5日均线位于20日均线上方，短线动能占优')
+    else:
+        trend_score -= 8
+        risk_flags.append('5日均线跌破20日均线，短线动能转弱')
+
+    if ret_20 > 0:
+        trend_score += 10
+        reasons.append(f'近20日累计收益为 {ret_20:+.1%}，中期惯性偏正')
+    else:
+        trend_score -= 10
+        risk_flags.append(f'近20日累计收益为 {ret_20:+.1%}，中期惯性偏弱')
+
+    if ret_5 > 0:
+        trend_score += 6
+        reasons.append(f'近5日累计收益为 {ret_5:+.1%}，短线保持修复/上行动能')
+    else:
+        trend_score -= 6
+        risk_flags.append(f'近5日累计收益为 {ret_5:+.1%}，短线仍在消化压力')
+
+    if 45 <= rsi14 <= 70:
+        trend_score += 7
+        reasons.append(f'RSI14 为 {rsi14:.1f}，处于相对健康区间')
+    elif rsi14 < 30:
+        trend_score += 2
+        reasons.append(f'RSI14 为 {rsi14:.1f}，处于超跌观察区')
+    elif rsi14 > 80:
+        trend_score -= 7
+        risk_flags.append(f'RSI14 为 {rsi14:.1f}，短线偏热')
+
+    if macd_hist >= 0:
+        trend_score += 6
+        reasons.append(f'MACD柱值 {macd_hist:.4f} 为正，短线动能偏强')
+    else:
+        trend_score -= 6
+        risk_flags.append(f'MACD柱值 {macd_hist:.4f} 为负，动能仍偏弱')
+
+    if pd.notna(boll_pos):
+        if 0.30 <= boll_pos <= 0.80:
+            trend_score += 3
+            reasons.append(f'布林带位置 {boll_pos:.2f}，价格运行在相对健康区间')
+        elif boll_pos > 0.95:
+            trend_score -= 4
+            risk_flags.append(f'布林带位置 {boll_pos:.2f}，短线接近上轨，追高风险上升')
+        elif boll_pos < 0.05:
+            trend_score += 1
+            reasons.append(f'布林带位置 {boll_pos:.2f}，处于下轨附近，关注超跌修复')
+
+    if pd.notna(volume_ratio):
+        if 1.0 <= volume_ratio <= 2.2:
+            trend_score += 4
+            reasons.append(f'量比 {volume_ratio:.2f}，量能配合相对正常')
+        elif volume_ratio < 0.7:
+            trend_score -= 2
+            risk_flags.append(f'量比 {volume_ratio:.2f}，量能偏弱')
+        elif volume_ratio > 3.0:
+            trend_score -= 3
+            risk_flags.append(f'量比 {volume_ratio:.2f}，波动可能放大')
+
+    if pd.notna(turnover_rate) and turnover_rate > 8:
+        risk_flags.append(f'换手率 {turnover_rate:.2f}% 较高，短线博弈较强')
+
+    trend_score = clamp_value(trend_score, 0, 100)
+
+    if trend_score >= 72:
+        trend_label = '上涨趋势'
+    elif trend_score >= 58:
+        trend_label = '震荡偏强'
+    elif trend_score >= 45:
+        trend_label = '震荡整理'
+    elif trend_score >= 30:
+        trend_label = '震荡偏弱'
+    else:
+        trend_label = '下跌趋势'
+
+    prob_up_5d = 0.50
+    prob_up_20d = 0.50
+    prob_up_5d += 0.08 if latest_close >= ma20 else -0.08
+    prob_up_5d += 0.06 if ma5 >= ma20 else -0.06
+    prob_up_5d += 0.05 if ret_5 > 0 else -0.05
+    prob_up_5d += 0.03 if ret_20 > 0 else -0.03
+    if 45 <= rsi14 <= 70:
+        prob_up_5d += 0.04
+    elif rsi14 > 80:
+        prob_up_5d -= 0.06
+    elif rsi14 < 30:
+        prob_up_5d += 0.02
+    if pd.notna(volume_ratio):
+        if 1.0 <= volume_ratio <= 2.2:
+            prob_up_5d += 0.03
+        elif volume_ratio > 3.0:
+            prob_up_5d -= 0.03
+        elif volume_ratio < 0.7:
+            prob_up_5d -= 0.02
+    if latest_close < ma60:
+        prob_up_5d -= 0.04
+    if macd_hist > 0:
+        prob_up_5d += 0.04
+    else:
+        prob_up_5d -= 0.04
+    if pd.notna(boll_pos):
+        if boll_pos > 0.95:
+            prob_up_5d -= 0.04
+        elif boll_pos < 0.10:
+            prob_up_5d += 0.03
+
+    prob_up_20d += 0.10 if latest_close >= ma60 else -0.10
+    prob_up_20d += 0.08 if ma20 >= ma60 else -0.08
+    prob_up_20d += 0.08 if ret_20 > 0 else -0.08
+    prob_up_20d += 0.04 if latest_close >= ma20 else -0.04
+    if 45 <= rsi14 <= 68:
+        prob_up_20d += 0.03
+    elif rsi14 > 75:
+        prob_up_20d -= 0.04
+    if pd.notna(volume_ratio) and 0.9 <= volume_ratio <= 2.0:
+        prob_up_20d += 0.02
+    prob_up_20d += 0.03 if macd_hist > 0 else -0.03
+
+    prob_up_5d = clamp_value(prob_up_5d, 0.08, 0.92)
+    prob_up_20d = clamp_value(prob_up_20d, 0.08, 0.92)
+    rule_prob_up_5d = float(prob_up_5d)
+    rule_prob_up_20d = float(prob_up_20d)
+
+    model_v3 = None
+    model_prob_up_5d = None
+    model_prob_up_20d = None
+    blend_weight_model = 0.0
+
+    if callable(score_security_timeseries_model):
+        try:
+            score_cols = [c for c in ['trade_date', 'close', 'turnover_rate', 'volume_ratio'] if c in df.columns]
+            score_df = df[score_cols].copy()
+            model_v3 = score_security_timeseries_model(score_df, security_type=security_type, topk=60)
+        except Exception:
+            model_v3 = None
+
+    if model_v3:
+        model_prob_up_5d = float(model_v3.get('prob_up_5d', rule_prob_up_5d))
+        model_prob_up_20d = float(model_v3.get('prob_up_20d', rule_prob_up_20d))
+        neighbor_count = int(model_v3.get('neighbor_count', 0))
+        median_dist = float(model_v3.get('median_distance', 9.9))
+
+        base_weight = 0.35 if neighbor_count >= 50 else 0.25
+        if median_dist <= 1.2:
+            base_weight += 0.10
+        elif median_dist >= 2.0:
+            base_weight -= 0.10
+        blend_weight_model = clamp_value(base_weight, 0.15, 0.55)
+
+        prob_up_5d = clamp_value((1 - blend_weight_model) * rule_prob_up_5d + blend_weight_model * model_prob_up_5d, 0.08, 0.92)
+        prob_up_20d = clamp_value((1 - blend_weight_model) * rule_prob_up_20d + blend_weight_model * model_prob_up_20d, 0.08, 0.92)
+
+        avg_ret_5d = float(model_v3.get('avg_future_ret_5d', 0.0))
+        avg_ret_20d = float(model_v3.get('avg_future_ret_20d', 0.0))
+        reasons.append(
+            f"模型V3相似样本{neighbor_count}条，历史平均未来5日收益 {avg_ret_5d:+.2%} / 20日收益 {avg_ret_20d:+.2%}"
+        )
+
+    risk_score = 28.0
+    risk_score += min(25.0, volatility20 * 0.8)
+    if latest_close < ma20:
+        risk_score += 12
+    if latest_close < ma60:
+        risk_score += 12
+    if ret_20 < -0.10:
+        risk_score += 8
+    if rsi14 > 80:
+        risk_score += 6
+    if pd.notna(volume_ratio) and volume_ratio > 3.0:
+        risk_score += 6
+    if pd.notna(boll_pos) and boll_pos > 0.95:
+        risk_score += 5
+    if volatility20 > 45:
+        risk_score += 6
+
+    risk_score = clamp_value(risk_score, 0, 100)
+
+    if risk_score >= 70:
+        risk_level = '高风险'
+    elif risk_score >= 45:
+        risk_level = '中等风险'
+    else:
+        risk_level = '低到中等风险'
+
+    support = last['support_20'] if pd.notna(last['support_20']) else last['support_60']
+    resistance = last['resistance_20'] if pd.notna(last['resistance_20']) else last['resistance_60']
+    support = float(support) if pd.notna(support) else latest_close * 0.95
+    resistance = float(resistance) if pd.notna(resistance) else latest_close * 1.05
+
+    distance_to_support = (latest_close / support - 1) if support > 0 else np.nan
+    distance_to_resistance = (resistance / latest_close - 1) if latest_close > 0 else np.nan
+    if pd.notna(distance_to_support) and distance_to_support < 0.03:
+        reasons.append('当前价格靠近近20日支撑区，若能企稳有利于反弹/续涨')
+    if pd.notna(distance_to_resistance) and distance_to_resistance < 0.03:
+        risk_flags.append('当前价格接近近20日压力区，需关注突破有效性')
+
+    bull_trigger = f"站稳 {ma20:.2f} 并放量突破 {resistance:.2f}"
+    bear_trigger = f"跌破 {support:.2f} 且 MACD继续走弱"
+
+    security_label = '个股' if security_type == 'stock' else '指数'
+    summary = (
+        f"该{security_label}当前处于“{trend_label}”状态，未来5日上涨概率约 {prob_up_5d:.0%}，"
+        f"未来20日上涨概率约 {prob_up_20d:.0%}。"
+        f"短线关注 {support:.2f} 一带支撑与 {resistance:.2f} 一带压力。"
+    )
+
+    return {
+        'trend': trend_label,
+        'trend_score': float(trend_score),
+        'prob_up_5d': float(prob_up_5d),
+        'prob_up_20d': float(prob_up_20d),
+        'risk_score': float(risk_score),
+        'risk_level': risk_level,
+        'support': float(support),
+        'resistance': float(resistance),
+        'latest_close': latest_close,
+        'ret_5': float(ret_5),
+        'ret_20': float(ret_20),
+        'rsi14': float(rsi14),
+        'macd_hist': float(macd_hist),
+        'boll_pos': None if pd.isna(boll_pos) else float(boll_pos),
+        'volume_ratio': None if pd.isna(volume_ratio) else float(volume_ratio),
+        'turnover_rate': None if pd.isna(turnover_rate) else float(turnover_rate),
+        'volatility20': float(volatility20),
+        'summary': summary,
+        'bull_trigger': bull_trigger,
+        'bear_trigger': bear_trigger,
+        'prob_up_5d_rule': rule_prob_up_5d,
+        'prob_up_20d_rule': rule_prob_up_20d,
+        'prob_up_5d_model': model_prob_up_5d,
+        'prob_up_20d_model': model_prob_up_20d,
+        'blend_weight_model': float(blend_weight_model),
+        'model_v3': model_v3,
+        'reasons': reasons[:6],
+        'risk_flags': risk_flags[:6],
+    }
+
+
+def render_security_trend_analysis(analysis: dict | None, security_type: str) -> None:
+    st.markdown("##### 🔮 未来走势分析（V3）")
+    st.caption("基于规则信号 + 历史相似样本模型的融合判断，用于辅助分析，不构成投资建议。")
+
+    if not analysis:
+        st.info('该标的数据长度不足，暂时无法生成走势分析。')
+        return
+
+    top_cols = st.columns(5)
+    top_cols[0].metric('趋势状态', analysis['trend'])
+    top_cols[1].metric('趋势分', f"{analysis['trend_score']:.1f}")
+    top_cols[2].metric('5日上涨概率', f"{analysis['prob_up_5d']:.0%}")
+    top_cols[3].metric('20日上涨概率', f"{analysis['prob_up_20d']:.0%}")
+    top_cols[4].metric(analysis['risk_level'], f"{analysis['risk_score']:.1f}")
+
+    model_v3 = analysis.get('model_v3')
+    model_cols = st.columns(5)
+    model_cols[0].metric('规则5日概率', f"{analysis.get('prob_up_5d_rule', 0):.0%}")
+    model_cols[1].metric('规则20日概率', f"{analysis.get('prob_up_20d_rule', 0):.0%}")
+    model_cols[2].metric('模型5日概率', f"{analysis.get('prob_up_5d_model'):.0%}" if analysis.get('prob_up_5d_model') is not None else '-')
+    model_cols[3].metric('模型20日概率', f"{analysis.get('prob_up_20d_model'):.0%}" if analysis.get('prob_up_20d_model') is not None else '-')
+
+    if model_v3:
+        model_cols[4].metric('融合模式', '规则+模型')
+        st.caption(
+            f"模型权重 {analysis.get('blend_weight_model', 0):.0%} / 规则权重 {1-analysis.get('blend_weight_model', 0):.0%}"
+            f"｜相似样本 {model_v3.get('neighbor_count', 0)} 条｜中位距离 {model_v3.get('median_distance', 0):.3f}"
+        )
+    else:
+        model_cols[4].metric('融合模式', '仅规则')
+        st.caption("模型样本未命中或该品种暂未覆盖，因此当前仅展示规则概率。")
+
+    extra_cols = st.columns(5)
+    extra_cols[0].metric('支撑位', f"{analysis['support']:.2f}")
+    extra_cols[1].metric('压力位', f"{analysis['resistance']:.2f}")
+    extra_cols[2].metric('近5日收益', f"{analysis['ret_5']:+.2%}")
+    extra_cols[3].metric('近20日收益', f"{analysis['ret_20']:+.2%}")
+    extra_cols[4].metric('MACD柱值', f"{analysis['macd_hist']:.4f}")
+
+    st.info(analysis['summary'])
+
+    trigger_cols = st.columns(2)
+    trigger_cols[0].success(f"偏强触发条件：{analysis.get('bull_trigger', '-') }")
+    trigger_cols[1].warning(f"转弱触发条件：{analysis.get('bear_trigger', '-') }")
+
+    reason_cols = st.columns(2)
+    with reason_cols[0]:
+        st.markdown('**偏强依据**')
+        if analysis.get('reasons'):
+            for item in analysis['reasons']:
+                st.markdown(f'- {item}')
+        else:
+            st.markdown('- 暂无明显偏强依据')
+    with reason_cols[1]:
+        st.markdown('**风险提示**')
+        if analysis.get('risk_flags'):
+            for item in analysis['risk_flags']:
+                st.markdown(f'- {item}')
+        else:
+            st.markdown('- 当前未出现明显额外风险信号')
+
+
 def get_security_metric_config(security_type: str) -> dict[str, dict[str, Union[str, float, int]]]:
     if security_type == 'stock':
         return {
@@ -655,7 +1879,7 @@ def create_metric_line_chart(
         height=360,
         template='plotly_white',
         plot_bgcolor='rgba(248, 250, 252, 0.5)',
-        paper_bgcolor='white',
+        paper_bgcolor='rgba(248, 250, 252, 0.92)',
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -701,7 +1925,7 @@ def create_financial_bar_chart(
         height=360,
         template='plotly_white',
         plot_bgcolor='rgba(248, 250, 252, 0.5)',
-        paper_bgcolor='white',
+        paper_bgcolor='rgba(248, 250, 252, 0.92)',
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -885,7 +2109,7 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
         height=500,
         template='plotly_white',
         plot_bgcolor='rgba(248, 250, 252, 0.5)',
-        paper_bgcolor='white',
+        paper_bgcolor='rgba(248, 250, 252, 0.92)',
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -1061,7 +2285,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
         height=500,
         template='plotly_white',
         plot_bgcolor='rgba(248, 250, 252, 0.5)',
-        paper_bgcolor='white',
+        paper_bgcolor='rgba(248, 250, 252, 0.92)',
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -1149,7 +2373,7 @@ def create_volume_total_line(df: pd.DataFrame) -> go.Figure:
         height=500,
         template='plotly_white',
         plot_bgcolor='rgba(248, 250, 252, 0.5)',
-        paper_bgcolor='white',
+        paper_bgcolor='rgba(248, 250, 252, 0.92)',
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -1183,29 +2407,54 @@ def render_volume_tab():
     vol_min_date = vol_df['trade_date'].min().date()
     vol_max_date = vol_df['trade_date'].max().date()
 
-    st.sidebar.header("📅 成交量日期筛选")
+    iphone_mode = get_query_param_value("iphone_mode").strip() == "1"
 
-    if vol_min_date == vol_max_date:
-        st.sidebar.info(f"📅 当前数据日期: {vol_min_date}")
-        vol_date_range = (vol_min_date, vol_max_date)
+    if iphone_mode:
+        with st.expander("📅 成交量筛选", expanded=True):
+            if vol_min_date == vol_max_date:
+                st.info(f"📅 当前数据日期: {vol_min_date}")
+                vol_date_range = (vol_min_date, vol_max_date)
+            else:
+                vol_date_range = st.slider(
+                    "选择日期范围（成交量）",
+                    min_value=vol_min_date,
+                    max_value=vol_max_date,
+                    value=(vol_min_date, vol_max_date),
+                    format="YYYY-MM-DD",
+                    key="iphone_vol_date_range"
+                )
+
+            all_sectors = sorted(vol_df['ts_name'].unique())
+            selected_sectors = st.multiselect(
+                "选择板块",
+                options=all_sectors,
+                default=all_sectors,
+                key="iphone_vol_sectors"
+            )
     else:
-        vol_date_range = st.sidebar.slider(
-            "选择日期范围（成交量）",
-            min_value=vol_min_date,
-            max_value=vol_max_date,
-            value=(vol_min_date, vol_max_date),
-            format="YYYY-MM-DD",
-            key="vol_date_range"
-        )
+        st.sidebar.header("📅 成交量日期筛选")
 
-    # 板块筛选
-    all_sectors = sorted(vol_df['ts_name'].unique())
-    selected_sectors = st.sidebar.multiselect(
-        "选择板块",
-        options=all_sectors,
-        default=all_sectors,
-        key="vol_sectors"
-    )
+        if vol_min_date == vol_max_date:
+            st.sidebar.info(f"📅 当前数据日期: {vol_min_date}")
+            vol_date_range = (vol_min_date, vol_max_date)
+        else:
+            vol_date_range = st.sidebar.slider(
+                "选择日期范围（成交量）",
+                min_value=vol_min_date,
+                max_value=vol_max_date,
+                value=(vol_min_date, vol_max_date),
+                format="YYYY-MM-DD",
+                key="vol_date_range"
+            )
+
+        # 板块筛选
+        all_sectors = sorted(vol_df['ts_name'].unique())
+        selected_sectors = st.sidebar.multiselect(
+            "选择板块",
+            options=all_sectors,
+            default=all_sectors,
+            key="vol_sectors"
+        )
 
     # 筛选数据
     filtered_vol = vol_df[
@@ -1322,10 +2571,16 @@ def main():
     """主应用逻辑"""
     hydrate_security_jump_from_query_params()
 
-    st.title("交易数据可视化")
+    # ===== iPhone only mode (no sidebar dependency) =====
+    iphone_mode = get_query_param_value("iphone_mode").strip() == "1"
 
-    # 显示版本信息（用于验证部署）
-    st.caption("📌 Version 3.2 - 新增公募基金持仓热股前端 (2026-04-18)")
+    if iphone_mode:
+        st.title("WealthSpark")
+        st.caption("iPhone 模式")
+    else:
+        st.title("WealthSpark 决策看板")
+        st.caption("趋势 × 资金流 × 情绪，一页看懂今日机会")
+        st.caption("📌 Version 4.5 - 新增策略收益趋势图与累计收益曲线（规则/模型/混合）(2026-04-20)")
 
     # 显示最后更新时间
     try:
@@ -1336,59 +2591,623 @@ def main():
                 update_info = json.load(f)
                 update_date = update_info.get('update_date', '未知')
                 last_update = update_info.get('last_update', '未知')
-                st.info(f"📅 数据最后更新: {update_date} (GitHub Action 执行时间: {last_update})")
+                if iphone_mode:
+                    st.caption(f"📅 更新: {update_date}")
+                else:
+                    st.info(f"📅 数据最后更新: {update_date} (GitHub Action 执行时间: {last_update})")
     except Exception as e:
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
-    # 创建Tab页
-    tab_etf, tab_volume, tab_etf_ratio, tab_etf_trend, tab_wide_index, tab_macro, tab_security, tab_screener, tab_tech_picker, tab_moneyflow, tab_fund_hot, tab_limitup, tab_hotmoney = st.tabs(
-        ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🌏 宏观经济", "🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股", "💹 资金流向", "🏦 公募持仓热股", "🔥 打板情绪", "🧨 游资名录"]
-    )
+    # 处理外部跳转请求（例如从榜单点击跳到个股查询）
     trigger_security_tab_jump_if_needed()
 
-    # ========== ETF 份额变动 Tab ==========
-    with tab_etf:
-        render_etf_tab()
+    if not iphone_mode:
+        st.markdown(
+            '<div style="margin:0.25rem 0 0.75rem 0;"><a href="?iphone_mode=1" '
+            'style="display:inline-block;padding:0.45rem 0.8rem;border-radius:999px;'
+            'background:#2563eb;color:#fff;text-decoration:none;font-weight:700;">📱 iPhone模式</a></div>',
+            unsafe_allow_html=True,
+        )
 
-    # ========== 每日成交量 Tab ==========
-    with tab_volume:
-        render_volume_tab()
+    if iphone_mode:
+        st.markdown(
+            """
+            <style>
+            [data-testid="stSidebar"],
+            [data-testid="collapsedControl"],
+            button[aria-label="Open sidebar"],
+            button[aria-label="Close sidebar"] {
+                display: none !important;
+            }
+            .main .block-container {
+                max-width: 100% !important;
+                padding: 1rem 1rem 3rem 1rem !important;
+            }
+            div[data-testid="stExpander"] {
+                border: 1px solid #dbeafe !important;
+                border-radius: 14px !important;
+                background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%) !important;
+                overflow: hidden !important;
+                box-shadow: 0 8px 24px rgba(37, 99, 235, 0.08) !important;
+                margin-bottom: 1rem !important;
+            }
+            div[data-testid="stExpander"] details summary {
+                padding: 0.85rem 1rem !important;
+                font-weight: 700 !important;
+                color: #1e3a8a !important;
+            }
+            div[data-testid="stExpanderDetails"] {
+                padding: 0.2rem 1rem 1rem 1rem !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
 
+        st.markdown(
+            '<div style="margin-bottom:0.6rem;color:#475569;">'
+            '已启用 iPhone 专用模式（不依赖 sidebar）。 '
+            '<a href="?" style="color:#64748b;text-decoration:none;">退出 iPhone 模式</a>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
-    with tab_etf_ratio:
-        render_etf_category_ratio_tab()
+        mobile_group = st.radio(
+            "模块",
+            ["决策", "ETF", "个股", "资金", "宏观"],
+            horizontal=True,
+            key="iphone_group_radio",
+        )
 
-    # ========== ETF分类趋势 Tab ==========
-    with tab_etf_trend:
-        render_etf_trend_tab()
+        if mobile_group == "决策":
+            mobile_page = st.selectbox(
+                "页面",
+                ["💼 今日机会清单", "⭐ 每日趋势推荐"],
+                key="iphone_page_decision",
+            )
+            st.caption(f"当前位置：决策 / {mobile_page}")
+            if mobile_page == "💼 今日机会清单":
+                render_commercial_mvp_tab()
+            else:
+                render_daily_trend_reco_tab()
 
-    with tab_wide_index:
-        render_wide_index_tab()
+        elif mobile_group == "ETF":
+            mobile_page = st.selectbox(
+                "页面",
+                ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF"],
+                key="iphone_page_etf",
+            )
+            st.caption(f"当前位置：ETF / {mobile_page}")
+            if mobile_page == "📈 ETF份额变动":
+                render_etf_tab()
+            elif mobile_page == "📊 每日成交量":
+                render_volume_tab()
+            elif mobile_page == "🥧 ETF分类占比":
+                render_etf_category_ratio_tab()
+            elif mobile_page == "📈 ETF分类趋势":
+                render_etf_trend_tab()
+            else:
+                render_wide_index_tab()
 
-    with tab_macro:
+        elif mobile_group == "个股":
+            mobile_page = st.selectbox(
+                "页面",
+                ["🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股"],
+                key="iphone_page_stock",
+            )
+            st.caption(f"当前位置：个股 / {mobile_page}")
+            if mobile_page == "🔎 个股/指数查询":
+                render_security_search_tab()
+            elif mobile_page == "🏢 公司筛选":
+                render_company_screener_tab()
+            else:
+                render_tech_picker_tab()
+
+        elif mobile_group == "资金":
+            mobile_page = st.selectbox(
+                "页面",
+                ["💹 资金流向", "🏦 公募持仓热股", "🔥 打板情绪", "🧨 游资名录"],
+                key="iphone_page_money",
+            )
+            st.caption(f"当前位置：资金 / {mobile_page}")
+            if mobile_page == "💹 资金流向":
+                render_moneyflow_tab()
+            elif mobile_page == "🏦 公募持仓热股":
+                render_fund_hot_stocks_tab()
+            elif mobile_page == "🔥 打板情绪":
+                render_limitup_monitor_tab()
+            else:
+                render_hotmoney_tab()
+
+        else:
+            st.caption("当前位置：宏观 / 🌏 宏观经济")
+            render_macro_tab()
+
+        st.stop()
+
+    # ===== 方案B进阶版：sidebar 顶部一级导航 + 二级页面 + 下方动态筛选 =====
+    st.sidebar.markdown("---")
+    st.sidebar.header("🧭 页面导航")
+
+    nav_group = st.sidebar.radio(
+        "选择模块",
+        ["决策", "ETF", "个股", "资金", "宏观"],
+        key="sidebar_nav_group"
+    )
+
+    st.sidebar.markdown("**当前页面**")
+
+    if nav_group == "决策":
+        decision_subpage = st.sidebar.radio(
+            "决策模块",
+            ["💼 今日机会清单", "⭐ 每日趋势推荐"],
+            key="decision_subpage"
+        )
+        st.caption(f"当前位置：决策 / {decision_subpage}")
+        if decision_subpage == "💼 今日机会清单":
+            render_commercial_mvp_tab()
+        else:
+            render_daily_trend_reco_tab()
+
+    elif nav_group == "ETF":
+        etf_subpage = st.sidebar.radio(
+            "ETF模块",
+            ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF"],
+            key="etf_subpage"
+        )
+        st.caption(f"当前位置：ETF / {etf_subpage}")
+        if etf_subpage == "📈 ETF份额变动":
+            render_etf_tab()
+        elif etf_subpage == "📊 每日成交量":
+            render_volume_tab()
+        elif etf_subpage == "🥧 ETF分类占比":
+            render_etf_category_ratio_tab()
+        elif etf_subpage == "📈 ETF分类趋势":
+            render_etf_trend_tab()
+        else:
+            render_wide_index_tab()
+
+    elif nav_group == "个股":
+        stock_subpage = st.sidebar.radio(
+            "个股模块",
+            ["🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股"],
+            key="stock_subpage"
+        )
+        st.caption(f"当前位置：个股 / {stock_subpage}")
+        if stock_subpage == "🔎 个股/指数查询":
+            render_security_search_tab()
+        elif stock_subpage == "🏢 公司筛选":
+            render_company_screener_tab()
+        else:
+            render_tech_picker_tab()
+
+    elif nav_group == "资金":
+        money_subpage = st.sidebar.radio(
+            "资金模块",
+            ["💹 资金流向", "🏦 公募持仓热股", "🔥 打板情绪", "🧨 游资名录"],
+            key="money_subpage"
+        )
+        st.caption(f"当前位置：资金 / {money_subpage}")
+        if money_subpage == "💹 资金流向":
+            render_moneyflow_tab()
+        elif money_subpage == "🏦 公募持仓热股":
+            render_fund_hot_stocks_tab()
+        elif money_subpage == "🔥 打板情绪":
+            render_limitup_monitor_tab()
+        else:
+            render_hotmoney_tab()
+
+    else:
+        st.caption("当前位置：宏观 / 🌏 宏观经济")
         render_macro_tab()
 
-    with tab_security:
-        render_security_search_tab()
-        
-    with tab_screener:
-        render_company_screener_tab()
-        
-    with tab_tech_picker:
-        render_tech_picker_tab()
 
-    with tab_moneyflow:
-        render_moneyflow_tab()
 
-    with tab_fund_hot:
-        render_fund_hot_stocks_tab()
 
-    with tab_limitup:
-        render_limitup_monitor_tab()
+# ===== 商业化MVP Tab =====
+def render_commercial_mvp_tab():
+    st.subheader("💼 今日机会清单（商业化MVP）")
+    st.caption("整合趋势推荐 + 资金流 + 情绪快照，形成更接近产品化的每日机会视图。免费版看精简结果，Pro 版看完整候选与详细理由。")
 
-    with tab_hotmoney:
-        render_hotmoney_tab()
+    with st.expander("🔐 Pro 会员入口", expanded=False):
+        pro_pwd = get_pro_access_password()
+        if not pro_pwd:
+            st.info("当前未配置 Pro 口令（可通过 secrets.pro_access_password 或 ETF_PRO_ACCESS_PASSWORD 配置）。")
+        else:
+            if has_pro_access():
+                col_a, col_b = st.columns([2, 1])
+                with col_a:
+                    st.success("已解锁 Pro 视图")
+                with col_b:
+                    if st.button("退出 Pro", key="btn_pro_logout"):
+                        clear_pro_access()
+                        st.rerun()
+            else:
+                col_a, col_b = st.columns([2, 1])
+                with col_a:
+                    input_pwd = st.text_input("输入 Pro 口令", type="password", key="pro_pwd_input")
+                with col_b:
+                    if st.button("解锁 Pro", type="primary", key="btn_pro_login"):
+                        if grant_pro_access(input_pwd):
+                            st.success("Pro 解锁成功")
+                            st.rerun()
+                        else:
+                            st.error("口令错误，请重试")
 
+    payload = load_trend_recommendations()
+    if not payload:
+        st.info("暂无趋势推荐数据，请先完成当日更新。")
+        return
+
+    top_up = pd.DataFrame(payload.get("top_uptrend", []) or [])
+    top_avoid = pd.DataFrame(payload.get("top_avoid", []) or [])
+    trade_date = str(payload.get("trade_date") or "").replace("-", "")
+
+    mf_top = pd.DataFrame()
+    try:
+        from src.moneyflow_fetcher import _get_engine_cached, get_moneyflow_latest_date, query_moneyflow_daily_top
+        _mf_engine = _get_engine_cached()
+        if not trade_date:
+            trade_date = str(get_moneyflow_latest_date(_mf_engine) or "")
+        if trade_date:
+            mf_top = query_moneyflow_daily_top(trade_date, top_n=80, engine=_mf_engine)
+    except Exception as exc:
+        logger.warning(f"render_commercial_mvp_tab moneyflow load failed: {exc}")
+
+    emotion_stage = "-"
+    limitup_cnt = None
+    try:
+        from src.limitup_monitor import get_limitup_latest_date, query_limitup_emotion_daily
+        from src.moneyflow_fetcher import _get_engine_cached as _get_mf_engine_for_limitup
+        _lu_engine = _get_mf_engine_for_limitup()
+        lu_latest = get_limitup_latest_date(_lu_engine)
+        if lu_latest:
+            em_df = query_limitup_emotion_daily(lu_latest, lu_latest, engine=_lu_engine)
+            if em_df is not None and not em_df.empty:
+                row = em_df.iloc[-1]
+                emotion_stage = str(row.get("emotion_stage") or "-")
+                try:
+                    limitup_cnt = int(row.get("up_cnt") or 0)
+                except Exception:
+                    limitup_cnt = None
+    except Exception as exc:
+        logger.warning(f"render_commercial_mvp_tab limitup load failed: {exc}")
+
+    opp_df = build_opportunity_snapshot(top_up, top_avoid, mf_top, emotion_stage=emotion_stage)
+    if opp_df.empty:
+        st.info("当前可用样本不足，稍后再试。")
+        return
+
+    hot_stock_name = "-"
+    try:
+        from src.fund_hot_stocks import get_engine as get_fund_hot_engine, get_latest_agg_period, query_hot_stocks_leaderboard
+        _fh_engine = get_fund_hot_engine()
+        latest_period = get_latest_agg_period(_fh_engine)
+        if latest_period:
+            top_hot_df = query_hot_stocks_leaderboard(
+                period=str(latest_period).replace("-", ""),
+                top_n=1,
+                order_by="heat_score",
+                min_holding_funds=3,
+                fund_type_filter="全部",
+                engine=_fh_engine,
+            )
+            if top_hot_df is not None and not top_hot_df.empty:
+                hot_stock_name = str(top_hot_df.iloc[0].get("ts_name") or "-")
+    except Exception as exc:
+        logger.warning(f"render_commercial_mvp_tab fund hot load failed: {exc}")
+
+    best_row = opp_df.iloc[0]
+    avg_prob5 = opp_df["prob_up_5d_final"].astype(float).mean() if "prob_up_5d_final" in opp_df.columns else (opp_df["prob_up_5d"].astype(float).mean() if "prob_up_5d" in opp_df.columns else np.nan)
+    best_name = str(best_row.get("name") or "-")
+    best_action = str(best_row.get("action") or "观察")
+    best_reason = str(best_row.get("reason") or "").strip()
+
+    pulse_cols = st.columns(5)
+    pulse_cols[0].metric("交易日", payload.get("trade_date") or "-")
+    pulse_cols[1].metric("机会样本", str(len(opp_df)))
+    pulse_cols[2].metric("榜首机会", best_name)
+    pulse_cols[3].metric("平均5日概率", f"{avg_prob5:.0%}" if pd.notna(avg_prob5) else "-")
+    pulse_cols[4].metric("情绪阶段", emotion_stage)
+
+    summary_bits = []
+    if emotion_stage and emotion_stage != "-":
+        summary_bits.append(f"当前市场情绪处于【{emotion_stage}】阶段")
+    if limitup_cnt is not None:
+        summary_bits.append(f"当日涨停数为 {limitup_cnt} 家")
+    if pd.notna(avg_prob5):
+        summary_bits.append(f"机会池平均 5 日上涨概率约为 {avg_prob5:.0%}")
+
+    summary_line_1 = "，".join(summary_bits[:2]) + "。" if summary_bits else "今日机会页已根据最新数据完成刷新。"
+    summary_line_2 = f"当前榜首候选是【{best_name}】，模型动作建议为「{best_action}」。"
+    if best_reason:
+        summary_line_2 += f" 主要原因：{best_reason}"
+    summary_line_3 = f"公募热股代表当前显示为【{hot_stock_name}】；更适合结合趋势、资金与自选池一起看，而不是单看单一信号。"
+
+    st.success(f"📌 今日摘要：{summary_line_1}")
+    st.markdown(f"- {summary_line_2}\n- {summary_line_3}")
+
+    st.markdown("#### 🔍 免费版 vs Pro 版")
+    diff_left, diff_right = st.columns(2)
+    with diff_left:
+        st.info("""**免费版**
+
+- 查看 Top3 精简机会
+- 快速了解今日最值得先看的标的
+- 适合先判断当天是否有研究价值""")
+    with diff_right:
+        st.success("""**Pro 版**
+
+- 查看 Top20 完整候选池
+- 解锁详细理由、风险分与更多字段
+- 更适合做盘前筛选和自选池管理""")
+
+    is_pro = has_pro_access()
+
+    display_df = opp_df.copy()
+    display_df["收盘价"] = pd.to_numeric(display_df.get("close"), errors="coerce").map(lambda x: f"{x:.2f}" if pd.notna(x) else "-")
+    display_df["趋势分"] = pd.to_numeric(display_df.get("trend_score"), errors="coerce").map(lambda x: f"{x:.1f}" if pd.notna(x) else "-")
+    display_df["风险分"] = pd.to_numeric(display_df.get("risk_score"), errors="coerce").map(lambda x: f"{x:.1f}" if pd.notna(x) else "-")
+    display_df["5日概率"] = pd.to_numeric(display_df.get("prob_up_5d_final", display_df.get("prob_up_5d")), errors="coerce").map(lambda x: f"{x:.0%}" if pd.notna(x) else "-")
+    display_df["20日概率"] = pd.to_numeric(display_df.get("prob_up_20d_final", display_df.get("prob_up_20d")), errors="coerce").map(lambda x: f"{x:.0%}" if pd.notna(x) else "-")
+    display_df["主力净流入(万元)"] = pd.to_numeric(display_df.get("net_mf_amount"), errors="coerce").map(lambda x: f"{x:,.0f}" if pd.notna(x) else "-")
+    display_df["机会分"] = pd.to_numeric(display_df.get("opportunity_score"), errors="coerce").map(lambda x: f"{x:.1f}" if pd.notna(x) else "-")
+    display_df["置信度"] = display_df.get("confidence", "-")
+    display_df["模型5日概率"] = pd.to_numeric(display_df.get("model_prob_up_5d"), errors="coerce").map(lambda x: f"{x:.0%}" if pd.notna(x) else "-")
+    display_df["模型一致性"] = pd.to_numeric(display_df.get("model_agreement"), errors="coerce").map(lambda x: f"{x:.0%}" if pd.notna(x) else "-")
+    display_df["融合权重"] = display_df.apply(lambda r: f"规则{_safe_float(r.get('blend_rule_weight'), 0.65):.0%} / 模型{_safe_float(r.get('blend_model_weight'), 0.35):.0%}", axis=1)
+    display_df = display_df.rename(columns={"rank_commercial": "机会排名", "ts_code": "代码", "name": "名称", "industry": "行业", "reason": "原因", "action": "建议动作"})
+
+    st.markdown("#### 🎯 今日机会清单")
+    if is_pro:
+        st.success("你正在查看 Pro 完整版（Top20 + 详细字段）。")
+        cols = ["机会排名", "代码", "名称", "行业", "收盘价", "趋势分", "风险分", "5日概率", "20日概率", "模型5日概率", "模型一致性", "融合权重", "主力净流入(万元)", "机会分", "置信度", "建议动作", "原因"]
+        st.dataframe(display_df[cols].head(20), use_container_width=True, hide_index=True, height=470)
+    else:
+        st.info("免费版仅展示 Top3 精简字段，适合先快速判断今天值不值得深入研究。")
+        cols = ["机会排名", "代码", "名称", "行业", "趋势分", "5日概率", "置信度", "建议动作"]
+        st.dataframe(display_df[cols].head(3), use_container_width=True, hide_index=True, height=220)
+        st.warning("解锁 Pro 可查看 Top20、详细理由、风险分以及更多候选标的。")
+
+    st.markdown("#### ⭐ 自选池体验版")
+    st.caption("把你常看的标的放进来，可以快速判断它今天是落在强势榜、避雷榜，还是只是资金流短期关注。")
+
+    if "mvp_watchlist" not in st.session_state:
+        st.session_state["mvp_watchlist"] = []
+
+    col_in, col_add, col_clear = st.columns([4, 1, 1])
+    with col_in:
+        watch_raw = st.text_input("添加自选（例：600519.SH, 宁德时代, 000001.SZ）", key="mvp_watch_input")
+    with col_add:
+        if st.button("加入", key="btn_mvp_watch_add"):
+            new_tokens = parse_watchlist_input(watch_raw)
+            merged = list(dict.fromkeys((st.session_state.get("mvp_watchlist", []) + new_tokens)))
+            st.session_state["mvp_watchlist"] = merged
+            st.success(f"已加入 {len(new_tokens)} 个标的")
+    with col_clear:
+        if st.button("清空", key="btn_mvp_watch_clear"):
+            st.session_state["mvp_watchlist"] = []
+            st.success("自选池已清空")
+
+    watchlist = st.session_state.get("mvp_watchlist", [])
+    if not watchlist:
+        st.info("自选池为空，先添加几个你常看的标的吧～")
+        return
+
+    search_frames = []
+    up_df = top_up.copy() if top_up is not None else pd.DataFrame()
+    if not up_df.empty:
+        up_df["list_tag"] = "趋势强势榜"
+        search_frames.append(up_df)
+
+    avoid_df = top_avoid.copy() if top_avoid is not None else pd.DataFrame()
+    if not avoid_df.empty:
+        avoid_df["list_tag"] = "趋势避雷榜"
+        search_frames.append(avoid_df)
+
+    mf_df = mf_top.copy() if mf_top is not None else pd.DataFrame()
+    if not mf_df.empty:
+        if "rank" not in mf_df.columns:
+            mf_df = mf_df.reset_index(drop=True)
+            mf_df["rank"] = mf_df.index + 1
+        if "name" not in mf_df.columns:
+            mf_df["name"] = mf_df.get("ts_code", "")
+        if "industry" not in mf_df.columns:
+            mf_df["industry"] = "-"
+        if "prob_up_5d" not in mf_df.columns:
+            mf_df["prob_up_5d"] = np.nan
+        if "risk_score" not in mf_df.columns:
+            mf_df["risk_score"] = np.nan
+        if "trend_score" not in mf_df.columns:
+            mf_df["trend_score"] = np.nan
+        if "reason" not in mf_df.columns:
+            mf_df["reason"] = "当日主力资金净流入关注"
+        mf_df["list_tag"] = "资金流关注榜"
+        search_frames.append(mf_df)
+
+    if not search_frames:
+        st.info("暂无可用于自选匹配的数据。")
+        return
+
+    pool = pd.concat(search_frames, ignore_index=True, sort=False)
+    if "ts_code" not in pool.columns:
+        pool["ts_code"] = ""
+    if "name" not in pool.columns:
+        pool["name"] = ""
+    pool["ts_code"] = pool["ts_code"].astype(str)
+    pool["name"] = pool["name"].astype(str)
+
+    records = []
+    for token in watchlist:
+        key = str(token).strip()
+        if not key:
+            continue
+
+        key_upper = key.upper()
+        key_compact = key_upper.replace(" ", "")
+        key_code = key_compact.split(".")[0]
+        is_code_like = key_code.isdigit() and len(key_code) in (6, 8)
+
+        hit_mask = (
+            (pool["ts_code"].str.upper() == key_upper)
+            | (pool["name"].str.contains(key, case=False, na=False))
+        )
+        if is_code_like:
+            hit_mask = hit_mask | pool["ts_code"].str.upper().str.startswith(f"{key_code}.")
+
+        hit = pool[hit_mask]
+        if hit.empty:
+            resolved_code = key if is_code_like else "-"
+            resolved_name = key if not is_code_like else "-"
+
+            try:
+                fallback_df = load_security_search(key, "stock", limit=10)
+                if fallback_df is not None and not fallback_df.empty:
+                    fallback = fallback_df.iloc[0]
+                    resolved_code = str(
+                        fallback.get("ts_code")
+                        or fallback.get("code")
+                        or fallback.get("symbol")
+                        or resolved_code
+                    )
+                    resolved_name = str(
+                        fallback.get("name")
+                        or fallback.get("ts_name")
+                        or fallback.get("security_name")
+                        or resolved_name
+                    )
+            except Exception:
+                pass
+
+            records.append({
+                "输入": key,
+                "代码": resolved_code,
+                "名称": resolved_name,
+                "来源": "未进入今日机会池",
+                "5日概率": "-",
+                "风险分": "-",
+                "建议": "继续观察",
+            })
+            continue
+
+        first = hit.iloc[0]
+        prob5 = pd.to_numeric(first.get("prob_up_5d"), errors="coerce")
+        risk = pd.to_numeric(first.get("risk_score"), errors="coerce")
+        source = str(first.get("list_tag") or "模型池")
+        advice = "观察"
+        if "避雷" in source:
+            advice = "谨慎回避"
+        elif "强势" in source and (pd.isna(risk) or risk <= 55):
+            advice = "重点跟踪"
+        elif "资金流" in source:
+            advice = "关注资金持续性"
+
+        records.append({
+            "输入": key,
+            "代码": str(first.get("ts_code") or "-"),
+            "名称": str(first.get("name") or "-"),
+            "来源": source,
+            "5日概率": f"{prob5:.0%}" if pd.notna(prob5) else "-",
+            "风险分": f"{risk:.1f}" if pd.notna(risk) else "-",
+            "建议": advice,
+        })
+
+    watch_df = pd.DataFrame(records)
+    st.dataframe(watch_df, use_container_width=True, hide_index=True, height=320)
+
+def render_daily_trend_reco_tab():
+    st.subheader("⭐ 每日趋势推荐")
+    st.caption("基于日更后的最新日线数据，自动筛选 Top10 上涨趋势最强股票 与 Top10 避雷股票。仅供辅助分析，不构成投资建议。")
+
+    payload = load_trend_recommendations()
+    if not payload:
+        st.info("暂无每日趋势推荐结果，请先完成当日数据更新。")
+        return
+
+    meta_cols = st.columns(4)
+    meta_cols[0].metric("交易日", payload.get('trade_date') or '-')
+    meta_cols[1].metric("样本池", f"{int(payload.get('universe_size') or 0):,}")
+    meta_cols[2].metric("强势股数量", str(len(payload.get('top_uptrend', []) or [])))
+    meta_cols[3].metric("避雷股数量", str(len(payload.get('top_avoid', []) or [])))
+
+    generated_at = payload.get('generated_at') or '-'
+    st.caption(f"生成时间：{generated_at}")
+
+    left, right = st.columns(2)
+
+    from urllib.parse import quote
+
+    render_nonce = st.session_state.get('daily_trend_reco_render_nonce', 0) + 1
+    st.session_state['daily_trend_reco_render_nonce'] = render_nonce
+
+    def _format_frame(rows: list[dict], mode: str) -> pd.DataFrame:
+        if not rows:
+            return pd.DataFrame(columns=["查询", "排名", "代码", "名称", "行业", "收盘价", "趋势分", "风险分", "5日概率", "20日概率", "原因"])
+        df = pd.DataFrame(rows).copy()
+        df = df[["rank", "ts_code", "name", "industry", "close", "trend_score", "risk_score", "prob_up_5d", "prob_up_20d", "reason"]]
+        df.columns = ["排名", "代码", "名称", "行业", "收盘价", "趋势分", "风险分", "5日概率", "20日概率", "原因"]
+        query_links = []
+        for _, row in df.iterrows():
+            query = str(row.get('代码') or row.get('名称') or '').strip()
+            if not query:
+                query_links.append('#')
+            else:
+                query_links.append(
+                    f"?security_query={quote(query)}&security_type=stock&open_tab=security&jump_nonce={render_nonce}_{quote(query)}"
+                )
+        df.insert(0, "查询", query_links)
+        df["收盘价"] = pd.to_numeric(df["收盘价"], errors='coerce').map(lambda x: f"{x:.2f}" if pd.notna(x) else '-')
+        df["趋势分"] = pd.to_numeric(df["趋势分"], errors='coerce').map(lambda x: f"{x:.1f}" if pd.notna(x) else '-')
+        df["风险分"] = pd.to_numeric(df["风险分"], errors='coerce').map(lambda x: f"{x:.1f}" if pd.notna(x) else '-')
+        df["5日概率"] = pd.to_numeric(df["5日概率"], errors='coerce').map(lambda x: f"{x:.0%}" if pd.notna(x) else '-')
+        df["20日概率"] = pd.to_numeric(df["20日概率"], errors='coerce').map(lambda x: f"{x:.0%}" if pd.notna(x) else '-')
+        return df
+
+    st.info("💡 点击表格最左侧“🔎 查看”可直接跳到“个股/指数查询”，查看该股票的详细走势分析。")
+
+    with left:
+        st.markdown("#### 📈 十大上涨趋势最强")
+        top_up = payload.get('top_uptrend', []) or []
+        if top_up:
+            best = top_up[0]
+            st.success(
+                f"No.1 {best.get('name', '-') }（{best.get('ts_code', '-') }）｜趋势分 {best.get('trend_score', 0):.1f}｜5日概率 {best.get('prob_up_5d', 0):.0%}"
+            )
+        st.dataframe(
+            _format_frame(top_up, 'up'),
+            use_container_width=True,
+            hide_index=True,
+            height=420,
+            column_config={
+                '查询': st.column_config.LinkColumn(
+                    '查询',
+                    help='点击后跳转到个股/指数查询',
+                    display_text='🔎 查看'
+                )
+            }
+        )
+
+    with right:
+        st.markdown("#### ⚠️ 十大避雷股票")
+        top_avoid = payload.get('top_avoid', []) or []
+        if top_avoid:
+            worst = top_avoid[0]
+            st.warning(
+                f"No.1 {worst.get('name', '-') }（{worst.get('ts_code', '-') }）｜风险分 {worst.get('risk_score', 0):.1f}｜5日概率 {worst.get('prob_up_5d', 0):.0%}"
+            )
+        st.dataframe(
+            _format_frame(top_avoid, 'avoid'),
+            use_container_width=True,
+            hide_index=True,
+            height=420,
+            column_config={
+                '查询': st.column_config.LinkColumn(
+                    '查询',
+                    help='点击后跳转到个股/指数查询',
+                    display_text='🔎 查看'
+                )
+            }
+        )
 
 
 def render_hotmoney_tab():
@@ -1454,9 +3273,9 @@ def render_hotmoney_tab():
             ))
             fig_org.update_layout(
                 title=dict(text="游资关联机构数 Top20", x=0.02, font=dict(size=16, color="#1E293B")),
-                template="plotly_white",
-                paper_bgcolor="white",
-                plot_bgcolor="rgba(248,250,252,0.5)",
+                template="wealthspark_balanced",
+                paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                plot_bgcolor="rgba(241, 245, 249, 0.58)",
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 height=max(360, len(show) * 24),
                 margin=dict(l=120, r=30, t=55, b=20),
@@ -1512,9 +3331,9 @@ def render_hotmoney_tab():
                 ))
                 fig_active.update_layout(
                     title=dict(text="活跃游资 TopN", x=0.02, font=dict(size=16, color="#1E293B")),
-                    template="plotly_white",
-                    paper_bgcolor="white",
-                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    template="wealthspark_balanced",
+                    paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                    plot_bgcolor="rgba(241, 245, 249, 0.58)",
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     height=max(320, len(show) * 24),
                     margin=dict(l=120, r=30, t=55, b=20),
@@ -1557,9 +3376,9 @@ def render_hotmoney_tab():
                 ))
                 fig_stocks.update_layout(
                     title=dict(text="游资关注个股 TopN", x=0.02, font=dict(size=16, color="#1E293B")),
-                    template="plotly_white",
-                    paper_bgcolor="white",
-                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    template="wealthspark_balanced",
+                    paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                    plot_bgcolor="rgba(241, 245, 249, 0.58)",
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     height=max(320, len(show) * 24),
                     margin=dict(l=120, r=30, t=55, b=20),
@@ -1674,9 +3493,9 @@ def render_limitup_monitor_tab():
     ))
     fig_emotion.update_layout(
         title=dict(text="情绪趋势图", x=0.02, font=dict(size=17, color="#1E293B")),
-        template="plotly_white",
-        paper_bgcolor="white",
-        plot_bgcolor="rgba(248,250,252,0.5)",
+        template="wealthspark_balanced",
+        paper_bgcolor="rgba(248, 250, 252, 0.92)",
+        plot_bgcolor="rgba(241, 245, 249, 0.58)",
         font=dict(family="Inter, PingFang SC, sans-serif"),
         height=360,
         margin=dict(l=30, r=30, t=55, b=30),
@@ -1745,9 +3564,9 @@ def render_limitup_monitor_tab():
                 fig_tag.update_layout(
                     barmode="group",
                     title=dict(text="同花顺标签分布", x=0.02, font=dict(size=15, color="#1E293B")),
-                    template="plotly_white",
-                    paper_bgcolor="white",
-                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    template="wealthspark_balanced",
+                    paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                    plot_bgcolor="rgba(241, 245, 249, 0.58)",
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     height=300,
                     margin=dict(l=25, r=25, t=50, b=25),
@@ -1786,9 +3605,9 @@ def render_limitup_monitor_tab():
                 ))
                 fig_reason.update_layout(
                     title=dict(text="涨停原因 Top10", x=0.02, font=dict(size=15, color="#1E293B")),
-                    template="plotly_white",
-                    paper_bgcolor="white",
-                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    template="wealthspark_balanced",
+                    paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                    plot_bgcolor="rgba(241, 245, 249, 0.58)",
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     height=300,
                     margin=dict(l=25, r=25, t=50, b=25),
@@ -1933,22 +3752,23 @@ def render_etf_tab():
     except Exception as e:
         logger.warning(f"无法读取last_update.json，使用所有数据: {e}")
 
+    iphone_mode = get_query_param_value("iphone_mode").strip() == "1"
+
     # 显示数据加载信息
-    st.sidebar.success(f"✅ 已加载 {len(df)} 条数据记录")
+    if iphone_mode:
+        st.success(f"✅ 已加载 {len(df)} 条数据记录")
+    else:
+        st.sidebar.success(f"✅ 已加载 {len(df)} 条数据记录")
+        st.sidebar.header("🔍 数据筛选")
 
-    # 侧边栏 - 数据筛选
-    st.sidebar.header("🔍 数据筛选")
-
-    # 1. 指标选择器 - 使用更直观的单选按钮
+    # 1. 指标选择器
     metric_types = sorted(df['metric_type'].unique())
 
-    # 检查是否有指标
     if len(metric_types) == 0:
         st.error("❌ 未检测到任何指标数据，请检查Excel文件格式")
         st.info("Excel文件应包含section标题行，标题中应包含关键词：市值、份额、变动、申赎、比例、涨跌幅")
         st.stop()
 
-    # 创建指标分类映射
     metric_categories = {
         "市值类": [m for m in metric_types if "市值" in m],
         "份额类": [m for m in metric_types if "份额" in m],
@@ -1957,98 +3777,150 @@ def render_etf_tab():
         "涨跌类": [m for m in metric_types if "涨跌" in m],
         "其他": [m for m in metric_types if not any(keyword in m for keyword in ["市值", "份额", "变动", "申赎", "比例", "涨跌"])]
     }
-
-    # 移除空分类
     metric_categories = {k: v for k, v in metric_categories.items() if v}
 
-    # 如果有多个分类，显示分类选择器
-    if len(metric_categories) > 1:
-        st.sidebar.markdown("**指标分类**")
-        selected_category = st.sidebar.radio(
-            "选择指标类别",
-            options=list(metric_categories.keys()),
-            label_visibility="collapsed"
-        )
-        available_metrics = metric_categories[selected_category]
+    if iphone_mode:
+        with st.expander("🔍 ETF筛选条件", expanded=True):
+            if len(metric_categories) > 1:
+                selected_category = st.radio(
+                    "指标分类",
+                    options=list(metric_categories.keys()),
+                    horizontal=True,
+                    key="iphone_etf_metric_category"
+                )
+                available_metrics = metric_categories[selected_category]
+            else:
+                available_metrics = metric_types
+
+            selected_metric = st.selectbox(
+                "选择具体指标",
+                options=available_metrics,
+                index=0,
+                key="iphone_etf_selected_metric"
+            )
+
+            quick_metrics = {
+                "总市值": [m for m in metric_types if "总市值" in m],
+                "份额": [m for m in metric_types if "份额" in m and "总市值" not in m],
+                "涨跌幅": [m for m in metric_types if "涨跌" in m]
+            }
+            q1, q2, q3 = st.columns(3)
+            if quick_metrics["总市值"] and q1.button("总市值", use_container_width=True, key="iphone_quick_market"):
+                selected_metric = quick_metrics["总市值"][0]
+            if quick_metrics["份额"] and q2.button("份额", use_container_width=True, key="iphone_quick_share"):
+                selected_metric = quick_metrics["份额"][0]
+            if quick_metrics["涨跌幅"] and q3.button("涨跌幅", use_container_width=True, key="iphone_quick_change"):
+                selected_metric = quick_metrics["涨跌幅"][0]
+
+            metric_df = df[df['metric_type'] == selected_metric].copy()
+            has_aggregate = metric_df['is_aggregate'].any()
+            contains_total_market_value = '总市值' in selected_metric if selected_metric else False
+
+            if has_aggregate and contains_total_market_value:
+                st.info("📊 当前显示所有ETF的总和")
+                selected_etfs = None
+            else:
+                etf_names = sorted(metric_df[metric_df['is_aggregate'] == False]['name'].unique())
+                selected_etfs = st.multiselect(
+                    "选择ETF",
+                    options=etf_names,
+                    default=etf_names,
+                    key="iphone_etf_selected_etfs"
+                )
+
+            min_date = metric_df['date'].min().date()
+            max_date = metric_df['date'].max().date()
+            if min_date == max_date:
+                st.info(f"📅 当前数据日期: {min_date}")
+                date_range = (min_date, max_date)
+            else:
+                date_range = st.slider(
+                    "选择日期范围",
+                    min_value=min_date,
+                    max_value=max_date,
+                    value=(min_date, max_date),
+                    format="YYYY-MM-DD",
+                    key="iphone_etf_date_range"
+                )
+
+            chart_type = st.selectbox(
+                "图表类型",
+                options=['line', 'area', 'scatter'],
+                format_func=lambda x: {'line': '📈 平滑曲线', 'area': '📊 面积图', 'scatter': '⚫ 散点图'}[x],
+                index=0,
+                key="iphone_etf_chart_type"
+            )
     else:
-        available_metrics = metric_types
+        if len(metric_categories) > 1:
+            st.sidebar.markdown("**指标分类**")
+            selected_category = st.sidebar.radio(
+                "选择指标类别",
+                options=list(metric_categories.keys()),
+                label_visibility="collapsed"
+            )
+            available_metrics = metric_categories[selected_category]
+        else:
+            available_metrics = metric_types
 
-    selected_metric = st.sidebar.selectbox(
-        "选择具体指标",
-        options=available_metrics,
-        index=0
-    )
-
-    # 筛选当前指标的数据
-    metric_df = df[df['metric_type'] == selected_metric].copy()
-
-    # 2. 智能ETF选择器
-    # 检查是否有汇总数据且指标名称包含"总市值"
-    has_aggregate = metric_df['is_aggregate'].any()
-    contains_total_market_value = '总市值' in selected_metric if selected_metric else False
-
-    selected_etfs = None
-    if has_aggregate and contains_total_market_value:
-        # 显示信息消息，不显示ETF选择器
-        st.sidebar.info("📊 当前显示所有ETF的总和")
-        selected_etfs = None
-    else:
-        # 显示多选框，默认选择所有ETF
-        etf_names = sorted(metric_df[metric_df['is_aggregate'] == False]['name'].unique())
-        default_etfs = etf_names
-
-        selected_etfs = st.sidebar.multiselect(
-            "选择ETF",
-            options=etf_names,
-            default=default_etfs
+        selected_metric = st.sidebar.selectbox(
+            "选择具体指标",
+            options=available_metrics,
+            index=0
         )
 
-    # 3. 日期范围滑块
-    min_date = metric_df['date'].min().date()
-    max_date = metric_df['date'].max().date()
+        metric_df = df[df['metric_type'] == selected_metric].copy()
+        has_aggregate = metric_df['is_aggregate'].any()
+        contains_total_market_value = '总市值' in selected_metric if selected_metric else False
 
-    # 默认结束日期为数据中的最大日期（已根据GitHub Action更新日期过滤）
-    default_end_date = max_date
+        if has_aggregate and contains_total_market_value:
+            st.sidebar.info("📊 当前显示所有ETF的总和")
+            selected_etfs = None
+        else:
+            etf_names = sorted(metric_df[metric_df['is_aggregate'] == False]['name'].unique())
+            selected_etfs = st.sidebar.multiselect(
+                "选择ETF",
+                options=etf_names,
+                default=etf_names
+            )
 
-    # 检查是否只有一个日期
-    if min_date == max_date:
-        st.sidebar.info(f"📅 当前数据日期: {min_date}")
-        date_range = (min_date, max_date)
-    else:
-        date_range = st.sidebar.slider(
-            "选择日期范围",
-            min_value=min_date,
-            max_value=max_date,
-            value=(min_date, default_end_date),
-            format="YYYY-MM-DD"
+        min_date = metric_df['date'].min().date()
+        max_date = metric_df['date'].max().date()
+
+        if min_date == max_date:
+            st.sidebar.info(f"📅 当前数据日期: {min_date}")
+            date_range = (min_date, max_date)
+        else:
+            date_range = st.sidebar.slider(
+                "选择日期范围",
+                min_value=min_date,
+                max_value=max_date,
+                value=(min_date, max_date),
+                format="YYYY-MM-DD"
+            )
+
+        st.sidebar.header("📊 图表设置")
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**快速切换**")
+
+        quick_metrics = {
+            "总市值": [m for m in metric_types if "总市值" in m],
+            "份额": [m for m in metric_types if "份额" in m and "总市值" not in m],
+            "涨跌幅": [m for m in metric_types if "涨跌" in m]
+        }
+
+        quick_cols = st.sidebar.columns(3)
+        for idx, (label, metrics) in enumerate(quick_metrics.items()):
+            if metrics and quick_cols[idx].button(label, use_container_width=True):
+                selected_metric = metrics[0]
+                st.rerun()
+
+        chart_type = st.sidebar.radio(
+            "图表类型",
+            options=['line', 'area', 'scatter'],
+            format_func=lambda x: {'line': '📈 平滑曲线', 'area': '📊 面积图', 'scatter': '⚫ 散点图'}[x],
+            index=0,
+            help="平滑曲线：清晰的线条，适合查看趋势\n面积图：填充区域，适合对比数量\n散点图：仅显示数据点，适合查看离散数据"
         )
-
-    # 4. 图表类型选择
-    st.sidebar.header("📊 图表设置")
-
-    # 快速指标切换（在侧边栏顶部）
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("**快速切换**")
-
-    quick_metrics = {
-        "总市值": [m for m in metric_types if "总市值" in m],
-        "份额": [m for m in metric_types if "份额" in m and "总市值" not in m],
-        "涨跌幅": [m for m in metric_types if "涨跌" in m]
-    }
-
-    quick_cols = st.sidebar.columns(3)
-    for idx, (label, metrics) in enumerate(quick_metrics.items()):
-        if metrics and quick_cols[idx].button(label, use_container_width=True):
-            selected_metric = metrics[0]
-            st.rerun()
-
-    chart_type = st.sidebar.radio(
-        "图表类型",
-        options=['line', 'area', 'scatter'],
-        format_func=lambda x: {'line': '📈 平滑曲线', 'area': '📊 面积图', 'scatter': '⚫ 散点图'}[x],
-        index=0,
-        help="平滑曲线：清晰的线条，适合查看趋势\n面积图：填充区域，适合对比数量\n散点图：仅显示数据点，适合查看离散数据"
-    )
 
     # 主区域 - 图表和统计信息
     # 筛选数据
@@ -2301,7 +4173,7 @@ def render_etf_category_ratio_tab():
             )
             share_fig.update_layout(
                 title=f"{selected_date} ETF总份额分类占比",
-                template="plotly_white",
+                template="wealthspark_balanced",
                 height=500
             )
             st.plotly_chart(share_fig, use_container_width=True)
@@ -2321,7 +4193,7 @@ def render_etf_category_ratio_tab():
             )
             size_fig.update_layout(
                 title=f"{selected_date} ETF总规模分类占比",
-                template="plotly_white",
+                template="wealthspark_balanced",
                 height=500
             )
             st.plotly_chart(size_fig, use_container_width=True)
@@ -2445,7 +4317,7 @@ def create_change_curve_chart(
         height=420,
         template='plotly_white',
         plot_bgcolor='rgba(248, 250, 252, 0.5)',
-        paper_bgcolor='white',
+        paper_bgcolor='rgba(248, 250, 252, 0.92)',
         font=dict(family='Inter, PingFang SC, sans-serif'),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.25,
@@ -2558,7 +4430,7 @@ def create_change_bar_chart(
         height=420,
         template='plotly_white',
         plot_bgcolor='rgba(248, 250, 252, 0.5)',
-        paper_bgcolor='white',
+        paper_bgcolor='rgba(248, 250, 252, 0.92)',
         font=dict(family='Inter, PingFang SC, sans-serif'),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.25,
@@ -2637,9 +4509,9 @@ def create_macro_line_chart(
         yaxis_title=yaxis_title,
         hovermode="x unified",
         height=420,
-        template="plotly_white",
+        template="wealthspark_balanced",
         plot_bgcolor="rgba(248, 250, 252, 0.5)",
-        paper_bgcolor="white",
+        paper_bgcolor="rgba(248, 250, 252, 0.92)",
         font=dict(family="Inter, PingFang SC, sans-serif"),
         legend=dict(
             orientation="h", yanchor="bottom", y=-0.25,
@@ -2677,67 +4549,128 @@ def render_etf_trend_tab():
         st.warning("暂无分类数据，请先运行聚合脚本")
         return
 
-    # 侧边栏筛选器
-    st.sidebar.header("📂 分类趋势筛选")
+    iphone_mode = get_query_param_value("iphone_mode").strip() == "1"
 
     primary_options = ['全部'] + sorted(category_tree.keys())
-    selected_primary = st.sidebar.selectbox(
-        "一级分类",
-        options=primary_options,
-        index=0,
-        key="trend_primary"
-    )
 
-    # 二级分类联动
-    category_key = selected_primary
-    if selected_primary != '全部' and category_tree.get(selected_primary):
-        secondary_list = category_tree[selected_primary]
-        secondary_options = ['全部(小计)'] + secondary_list
-        selected_secondary = st.sidebar.selectbox(
-            "二级分类",
-            options=secondary_options,
-            index=0,
-            key="trend_secondary"
-        )
-        if selected_secondary == '全部(小计)':
+    if iphone_mode:
+        with st.expander("📂 分类趋势筛选", expanded=True):
+            selected_primary = st.selectbox(
+                "一级分类",
+                options=primary_options,
+                index=0,
+                key="iphone_trend_primary"
+            )
+
             category_key = selected_primary
-        else:
-            category_key = f"{selected_primary}-{selected_secondary}"
-    elif selected_primary == '全部':
-        category_key = '全部'
+            if selected_primary != '全部' and category_tree.get(selected_primary):
+                secondary_list = category_tree[selected_primary]
+                secondary_options = ['全部(小计)'] + secondary_list
+                selected_secondary = st.selectbox(
+                    "二级分类",
+                    options=secondary_options,
+                    index=0,
+                    key="iphone_trend_secondary"
+                )
+                if selected_secondary == '全部(小计)':
+                    category_key = selected_primary
+                else:
+                    category_key = f"{selected_primary}-{selected_secondary}"
+            elif selected_primary == '全部':
+                category_key = '全部'
 
-    # 指标选择
-    metric = st.sidebar.radio(
-        "查看指标",
-        options=['总份额(亿份)', '总规模(亿元)'],
-        index=0,
-        key="trend_metric"
-    )
-    metric_col = 'total_share_yi' if '份额' in metric else 'total_size_yi'
+            metric = st.radio(
+                "查看指标",
+                options=['总份额(亿份)', '总规模(亿元)'],
+                index=0,
+                horizontal=True,
+                key="iphone_trend_metric"
+            )
+            metric_col = 'total_share_yi' if '份额' in metric else 'total_size_yi'
 
-    # 日期范围
-    try:
-        available = get_available_dates(limit=1000)
-    except Exception as e:
-        st.error(f"获取可用日期失败: {e}")
-        return
+            try:
+                available = get_available_dates(limit=1000)
+            except Exception as e:
+                st.error(f"获取可用日期失败: {e}")
+                return
 
-    if not available:
-        st.warning("暂无可用交易日数据")
-        return
+            if not available:
+                st.warning("暂无可用交易日数据")
+                return
 
-    from datetime import datetime as dt
-    all_dates = sorted([dt.strptime(d, '%Y-%m-%d').date() for d in available])
-    min_d, max_d = all_dates[0], all_dates[-1]
+            from datetime import datetime as dt
+            all_dates = sorted([dt.strptime(d, '%Y-%m-%d').date() for d in available])
+            min_d, max_d = all_dates[0], all_dates[-1]
 
-    date_range = st.sidebar.slider(
-        "时间范围",
-        min_value=min_d,
-        max_value=max_d,
-        value=(min_d, max_d),
-        format="YYYY-MM-DD",
-        key="trend_date_range"
-    )
+            date_range = st.slider(
+                "时间范围",
+                min_value=min_d,
+                max_value=max_d,
+                value=(min_d, max_d),
+                format="YYYY-MM-DD",
+                key="iphone_trend_date_range"
+            )
+    else:
+        # 侧边栏筛选器
+        st.sidebar.header("📂 分类趋势筛选")
+
+        selected_primary = st.sidebar.selectbox(
+            "一级分类",
+            options=primary_options,
+            index=0,
+            key="trend_primary"
+        )
+
+        # 二级分类联动
+        category_key = selected_primary
+        if selected_primary != '全部' and category_tree.get(selected_primary):
+            secondary_list = category_tree[selected_primary]
+            secondary_options = ['全部(小计)'] + secondary_list
+            selected_secondary = st.sidebar.selectbox(
+                "二级分类",
+                options=secondary_options,
+                index=0,
+                key="trend_secondary"
+            )
+            if selected_secondary == '全部(小计)':
+                category_key = selected_primary
+            else:
+                category_key = f"{selected_primary}-{selected_secondary}"
+        elif selected_primary == '全部':
+            category_key = '全部'
+
+        # 指标选择
+        metric = st.sidebar.radio(
+            "查看指标",
+            options=['总份额(亿份)', '总规模(亿元)'],
+            index=0,
+            key="trend_metric"
+        )
+        metric_col = 'total_share_yi' if '份额' in metric else 'total_size_yi'
+
+        # 日期范围
+        try:
+            available = get_available_dates(limit=1000)
+        except Exception as e:
+            st.error(f"获取可用日期失败: {e}")
+            return
+
+        if not available:
+            st.warning("暂无可用交易日数据")
+            return
+
+        from datetime import datetime as dt
+        all_dates = sorted([dt.strptime(d, '%Y-%m-%d').date() for d in available])
+        min_d, max_d = all_dates[0], all_dates[-1]
+
+        date_range = st.sidebar.slider(
+            "时间范围",
+            min_value=min_d,
+            max_value=max_d,
+            value=(min_d, max_d),
+            format="YYYY-MM-DD",
+            key="trend_date_range"
+        )
 
     # 查询时序数据
     try:
@@ -2857,7 +4790,7 @@ def render_etf_trend_tab():
         height=500,
         template='plotly_white',
         plot_bgcolor='rgba(248, 250, 252, 0.5)',
-        paper_bgcolor='white',
+        paper_bgcolor='rgba(248, 250, 252, 0.92)',
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -3039,6 +4972,7 @@ def render_security_search_tab():
     ts_df = ts_df.copy()
     ts_df['trade_date'] = pd.to_datetime(ts_df['trade_date'])
     ts_df = ts_df.sort_values('trade_date')
+    trend_analysis = build_security_trend_analysis(ts_df, selected_type)
 
     min_date = ts_df['trade_date'].min().date()
     max_date = ts_df['trade_date'].max().date()
@@ -3104,8 +5038,10 @@ def render_security_search_tab():
         metric_cols_bottom[0].metric("ROE(%)", format_optional_number(profile.get('roe')))
         metric_cols_bottom[1].metric("ROA(%)", format_optional_number(profile.get('roa')))
         metric_cols_bottom[2].metric("毛利率(%)", format_optional_number(profile.get('gross_margin')))
-        metric_cols_bottom[3].metric("净利润(亿元)", format_optional_number(profile.get('n_income'), scale=10000.0))
-        metric_cols_bottom[4].metric("经营现金流(亿元)", format_optional_number(profile.get('n_cashflow_act'), scale=10000.0))
+        metric_cols_bottom[3].metric("净利润(亿元)", format_optional_number(profile.get('n_income'), scale=100000000.0))
+        metric_cols_bottom[4].metric("经营现金流(亿元)", format_optional_number(profile.get('n_cashflow_act'), scale=100000000.0))
+
+        render_security_trend_analysis(trend_analysis, selected_type)
 
         info_cols = st.columns(2)
         with info_cols[0]:
@@ -3126,8 +5062,8 @@ def render_security_search_tab():
                     {"字段": "最近财报期", "值": format_optional_date(profile.get('fina_end_date'))},
                     {"字段": "最近利润期", "值": format_optional_date(profile.get('income_end_date'))},
                     {"字段": "最近资产负债表期", "值": format_optional_date(profile.get('balance_end_date'))},
-                    {"字段": "总资产(亿元)", "值": format_optional_number(profile.get('total_assets'), scale=10000.0)},
-                    {"字段": "总负债(亿元)", "值": format_optional_number(profile.get('total_liab'), scale=10000.0)},
+                    {"字段": "总资产(亿元)", "值": format_optional_number(profile.get('total_assets'), scale=100000000.0)},
+                    {"字段": "总负债(亿元)", "值": format_optional_number(profile.get('total_liab'), scale=100000000.0)},
                 ]),
                 use_container_width=True,
                 hide_index=True
@@ -3196,6 +5132,8 @@ def render_security_search_tab():
         metric_cols_bottom[2].metric("总股本(亿股)", format_optional_number(profile.get('total_share'), scale=10000.0))
         metric_cols_bottom[3].metric("流通股本(亿股)", format_optional_number(profile.get('float_share'), scale=10000.0))
 
+        render_security_trend_analysis(trend_analysis, selected_type)
+
     metric_meta = metric_config[metric_label]
     metric_col = metric_meta['column']
     metric_scale = float(metric_meta['scale'])
@@ -3231,7 +5169,7 @@ def render_security_search_tab():
         height=500,
         template='plotly_white',
         plot_bgcolor='rgba(248, 250, 252, 0.5)',
-        paper_bgcolor='white',
+        paper_bgcolor='rgba(248, 250, 252, 0.92)',
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -3270,9 +5208,9 @@ def render_security_search_tab():
         with tab_financial:
             st.caption("财务柱状图按报告期展示，默认与上方时间范围联动")
             financial_metrics = [
-                ('营业总收入柱状图', 'total_revenue', '营业总收入(亿元)', 10000.0, 2, '#2563EB', '#1D4ED8'),
-                ('净利润柱状图', 'net_profit', '净利润(亿元)', 10000.0, 2, '#7C3AED', '#059669'),
-                ('扣非净利润柱状图', 'profit_dedt', '扣非净利润(亿元)', 10000.0, 2, '#F59E0B', '#059669'),
+                ('营业总收入柱状图', 'total_revenue', '营业总收入(亿元)', 100000000.0, 2, '#2563EB', '#1D4ED8'),
+                ('净利润柱状图', 'net_profit', '净利润(亿元)', 100000000.0, 2, '#7C3AED', '#059669'),
+                ('扣非净利润柱状图', 'profit_dedt', '扣非净利润(亿元)', 100000000.0, 2, '#F59E0B', '#059669'),
             ]
             financial_cols = st.columns(3)
             for index, (title, column, yaxis_title, scale, digits, positive_color, negative_color) in enumerate(financial_metrics):
@@ -3587,7 +5525,7 @@ def render_wide_index_tab():
         height=520,
         template='plotly_white',
         plot_bgcolor='rgba(248, 250, 252, 0.5)',
-        paper_bgcolor='white',
+        paper_bgcolor='rgba(248, 250, 252, 0.92)',
         font=dict(family='Inter, PingFang SC, sans-serif'),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.28,
@@ -3673,7 +5611,7 @@ def render_wide_index_tab():
 
 def render_macro_tab():
     st.subheader("🌏 宏观经济总览")
-    st.caption("展示 GDP、CPI、PPI、M2、Shibor、LPR 的最新读数、历史趋势与原始明细")
+    st.caption("展示 GDP、CPI、PPI、M2、Shibor、LPR 的最新读数与历史趋势")
 
     try:
         min_trade_date, max_trade_date = load_macro_date_bounds()
@@ -3728,8 +5666,8 @@ def render_macro_tab():
             if latest_date is not None:
                 st.caption(f"最新日期: {latest_date.strftime('%Y-%m-%d')}")
 
-    tab_overview, tab_growth, tab_liquidity, tab_detail = st.tabs(
-        ["📌 总览图表", "📈 增长与通胀", "💧 流动性与利率", "📋 原始明细"]
+    tab_overview, tab_growth, tab_liquidity = st.tabs(
+        ["📌 总览图表", "📈 增长与通胀", "💧 流动性与利率"]
     )
 
     with tab_overview:
@@ -3840,23 +5778,6 @@ def render_macro_tab():
                 ),
                 use_container_width=True
             )
-
-    with tab_detail:
-        detail_dataset = st.selectbox(
-            "选择数据集",
-            options=list(MACRO_DATASET_META.keys()),
-            format_func=lambda x: MACRO_DATASET_META[x]["label"],
-            key="macro_detail_dataset"
-        )
-        detail_df = datasets.get(detail_dataset, pd.DataFrame())
-        if detail_df is None or detail_df.empty:
-            st.info("当前数据集暂无明细数据")
-        else:
-            display_df = detail_df.sort_values("trade_date", ascending=False).copy()
-            if "trade_date" in display_df.columns:
-                display_df["trade_date"] = display_df["trade_date"].dt.strftime("%Y-%m-%d")
-            st.dataframe(display_df, use_container_width=True, hide_index=True, height=520)
-
 
 def render_fund_hot_stocks_tab():
     """渲染公募基金持仓热股 Tab 页"""
@@ -3993,9 +5914,9 @@ def render_fund_hot_stocks_tab():
                 title=dict(text=f"{selected_sort} Top{min(len(plot_df), int(top_n))}", x=0.02, font=dict(size=18, color="#1E293B")),
                 xaxis_title=xaxis_title,
                 height=max(420, len(plot_df) * 24),
-                template="plotly_white",
-                paper_bgcolor="white",
-                plot_bgcolor="rgba(248,250,252,0.5)",
+                template="wealthspark_balanced",
+                paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                plot_bgcolor="rgba(241, 245, 249, 0.58)",
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=120, r=40, t=60, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -4230,9 +6151,9 @@ def render_fund_hot_stocks_tab():
                 title=dict(text=f"{stock_title} 持仓基金 Top20", x=0.02, font=dict(size=18, color="#1E293B")),
                 xaxis_title="持仓市值（亿元）",
                 height=max(420, len(plot_df) * 24),
-                template="plotly_white",
-                paper_bgcolor="white",
-                plot_bgcolor="rgba(248,250,252,0.5)",
+                template="wealthspark_balanced",
+                paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                plot_bgcolor="rgba(241, 245, 249, 0.58)",
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=120, r=40, t=60, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -4290,9 +6211,9 @@ def render_fund_hot_stocks_tab():
                     title=dict(text="管理人抱团分布 Top15", x=0.02, font=dict(size=17, color="#1E293B")),
                     xaxis_title="总持仓市值（亿元）",
                     height=max(360, len(mgmt_plot) * 26),
-                    template="plotly_white",
-                    paper_bgcolor="white",
-                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    template="wealthspark_balanced",
+                    paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                    plot_bgcolor="rgba(241, 245, 249, 0.58)",
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     margin=dict(l=120, r=40, t=55, b=20),
                     yaxis=dict(autorange="reversed"),
@@ -4351,9 +6272,9 @@ def render_fund_hot_stocks_tab():
                 )
                 fig_trend.update_layout(
                     title=dict(text="近季度持仓趋势", x=0.02, font=dict(size=17, color="#1E293B")),
-                    template="plotly_white",
-                    paper_bgcolor="white",
-                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    template="wealthspark_balanced",
+                    paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                    plot_bgcolor="rgba(241, 245, 249, 0.58)",
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     height=420,
                     margin=dict(l=50, r=50, t=55, b=30),
@@ -4499,9 +6420,9 @@ def render_fund_hot_stocks_tab():
                 title=dict(text="基金偏好持仓 Top15", x=0.02, font=dict(size=17, color="#1E293B")),
                 xaxis_title="持仓市值（亿元）",
                 height=max(380, len(pref_plot) * 26),
-                template="plotly_white",
-                paper_bgcolor="white",
-                plot_bgcolor="rgba(248,250,252,0.5)",
+                template="wealthspark_balanced",
+                paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                plot_bgcolor="rgba(241, 245, 249, 0.58)",
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=120, r=40, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -4522,6 +6443,9 @@ def render_moneyflow_tab():
     from src.moneyflow_fetcher import (
         query_moneyflow_daily_top,
         query_moneyflow_stock_history,
+        query_moneyflow_stock_history_ths,
+        query_moneyflow_stock_history_dc,
+        backfill_moneyflow_stock_sources,
         query_moneyflow_consecutive_inflow,
         query_moneyflow_hsgt_history,
         query_moneyflow_ind_ths_daily,
@@ -4536,7 +6460,7 @@ def render_moneyflow_tab():
     )
 
     st.subheader("💹 资金流向分析")
-    st.caption("数据来源：Tushare | 2026-01-01 起 | 包含个股主力、行业板块（THS+DC）、北向资金")
+    st.caption("数据来源：Tushare | 2025-01-01 起（个股THS/DC按需回补） | 包含个股主力、行业板块（THS+DC）、北向资金")
 
     # 尝试连接数据库
     try:
@@ -4640,9 +6564,9 @@ def render_moneyflow_tab():
                 title=dict(text="主力净流入（万元）", x=0.02, font=dict(size=18, color="#1E293B")),
                 xaxis_title="净流入额（万元）",
                 height=max(400, top_n * 22),
-                template="plotly_white",
-                paper_bgcolor="white",
-                plot_bgcolor="rgba(248,250,252,0.5)",
+                template="wealthspark_balanced",
+                paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                plot_bgcolor="rgba(241, 245, 249, 0.58)",
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=100, r=60, t=60, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -4757,16 +6681,46 @@ def render_moneyflow_tab():
 
                 with st.spinner(f"正在拉取 {name}（{code}）资金流向..."):
                     try:
-                        df_hist = query_moneyflow_stock_history(code, start_date=start_d, engine=_mf_engine)
+                        # 用户要求：THS/DC 从 2025 年开始拉取并分别展示
+                        base_start = "20250101"
+                        if start_d:
+                            base_start = max(base_start, str(start_d).replace("-", ""))
+
+                        backfill_stats = backfill_moneyflow_stock_sources(
+                            ts_code=code,
+                            start_date=base_start,
+                            end_date=None,
+                            engine=_mf_engine,
+                        )
+
+                        df_hist = query_moneyflow_stock_history(code, start_date=base_start, engine=_mf_engine)
+                        df_hist_ths = query_moneyflow_stock_history_ths(code, start_date=base_start, engine=_mf_engine)
+                        df_hist_dc = query_moneyflow_stock_history_dc(code, start_date=base_start, engine=_mf_engine)
+
                         st.session_state["mf_stock_result"] = df_hist
+                        st.session_state["mf_stock_result_ths"] = df_hist_ths
+                        st.session_state["mf_stock_result_dc"] = df_hist_dc
                         st.session_state["mf_stock_code"] = code
                         st.session_state["mf_stock_name"] = name
                         st.session_state["mf_stock_keyword"] = stock_keyword
+                        st.session_state["mf_stock_backfill_stats"] = backfill_stats
                     except Exception as e:
                         st.error(f"查询失败：{e}")
                         st.session_state["mf_stock_result"] = pd.DataFrame()
+                        st.session_state["mf_stock_result_ths"] = pd.DataFrame()
+                        st.session_state["mf_stock_result_dc"] = pd.DataFrame()
 
         df_hist = st.session_state.get("mf_stock_result")
+        df_hist_ths = st.session_state.get("mf_stock_result_ths")
+        df_hist_dc = st.session_state.get("mf_stock_result_dc")
+
+        backfill_stats = st.session_state.get("mf_stock_backfill_stats", {})
+        if backfill_stats:
+            st.caption(
+                f"THS新增/更新：{int(backfill_stats.get('moneyflow_ths', 0))} 条 ｜ "
+                f"DC新增/更新：{int(backfill_stats.get('moneyflow_dc', 0))} 条"
+            )
+
         if df_hist is not None and not df_hist.empty:
             df_hist = df_hist.copy()
             df_hist["trade_date"] = pd.to_datetime(df_hist["trade_date"])
@@ -4810,9 +6764,9 @@ def render_moneyflow_tab():
                 yaxis_title="净流入额（万元）",
                 hovermode="x unified",
                 height=420,
-                template="plotly_white",
-                paper_bgcolor="white",
-                plot_bgcolor="rgba(248,250,252,0.5)",
+                template="wealthspark_balanced",
+                paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                plot_bgcolor="rgba(241, 245, 249, 0.58)",
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=20, r=20, t=60, b=20),
                 legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
@@ -4849,9 +6803,9 @@ def render_moneyflow_tab():
                     barmode="relative",
                     title=dict(text="近20日买卖力量博弈（万元）", x=0.02, font=dict(size=16, color="#1E293B")),
                     height=360,
-                    template="plotly_white",
-                    paper_bgcolor="white",
-                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    template="wealthspark_balanced",
+                    paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                    plot_bgcolor="rgba(241, 245, 249, 0.58)",
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     margin=dict(l=20, r=20, t=60, b=20),
                     hovermode="x unified",
@@ -4860,6 +6814,93 @@ def render_moneyflow_tab():
                 fig_force.update_xaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)")
                 fig_force.update_yaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)", zeroline=True, zerolinecolor="#CBD5E1", zerolinewidth=1.5)
                 st.plotly_chart(fig_force, use_container_width=True)
+
+            # ===== 新增：THS 与 DC 分别展示 =====
+            st.markdown("##### 🧭 THS / DC 个股资金流向（分口径展示）")
+            src_tab_ths, src_tab_dc = st.tabs(["THS（moneyflow_ths）", "DC（moneyflow_dc）"])
+
+            with src_tab_ths:
+                if df_hist_ths is not None and not df_hist_ths.empty:
+                    _ths = df_hist_ths.copy()
+                    _ths["trade_date"] = pd.to_datetime(_ths["trade_date"])
+                    _ths = _ths.sort_values("trade_date")
+
+                    fig_ths = go.Figure()
+                    fig_ths.add_trace(go.Bar(
+                        x=_ths["trade_date"],
+                        y=_ths["net_amount"].astype(float),
+                        name="THS主力净流入",
+                        marker_color=["#EF4444" if v >= 0 else "#10B981" for v in _ths["net_amount"].astype(float)],
+                        hovertemplate="%{x|%Y-%m-%d}<br>THS净流入: %{y:,.0f} 万元<extra></extra>",
+                    ))
+                    if "net_d5_amount" in _ths.columns:
+                        fig_ths.add_trace(go.Scatter(
+                            x=_ths["trade_date"],
+                            y=_ths["net_d5_amount"].astype(float),
+                            mode="lines",
+                            name="THS 5日主力净额",
+                            line=dict(color="#2563EB", width=2),
+                            hovertemplate="%{x|%Y-%m-%d}<br>THS 5日净额: %{y:,.0f} 万元<extra></extra>",
+                        ))
+
+                    fig_ths.update_layout(
+                        title=dict(text="THS 个股资金流向趋势", x=0.02, font=dict(size=16, color="#1E293B")),
+                        xaxis_title="日期",
+                        yaxis_title="净流入额（万元）",
+                        hovermode="x unified",
+                        height=360,
+                        template="wealthspark_balanced",
+                        paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                        plot_bgcolor="rgba(241, 245, 249, 0.58)",
+                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        margin=dict(l=20, r=20, t=60, b=20),
+                    )
+                    st.plotly_chart(fig_ths, use_container_width=True)
+                else:
+                    st.info("THS口径暂无数据（会在查询时按需拉取，拉取起点 2025-01-01）。")
+
+            with src_tab_dc:
+                if df_hist_dc is not None and not df_hist_dc.empty:
+                    _dc = df_hist_dc.copy()
+                    _dc["trade_date"] = pd.to_datetime(_dc["trade_date"])
+                    _dc = _dc.sort_values("trade_date")
+
+                    fig_dc = go.Figure()
+                    fig_dc.add_trace(go.Bar(
+                        x=_dc["trade_date"],
+                        y=_dc["net_amount"].astype(float),
+                        name="DC主力净流入",
+                        marker_color=["#EF4444" if v >= 0 else "#10B981" for v in _dc["net_amount"].astype(float)],
+                        hovertemplate="%{x|%Y-%m-%d}<br>DC净流入: %{y:,.0f} 万元<extra></extra>",
+                    ))
+                    if "net_amount_rate" in _dc.columns:
+                        fig_dc.add_trace(go.Scatter(
+                            x=_dc["trade_date"],
+                            y=_dc["net_amount_rate"].astype(float),
+                            mode="lines",
+                            name="DC净占比(%)",
+                            yaxis="y2",
+                            line=dict(color="#F59E0B", width=2),
+                            hovertemplate="%{x|%Y-%m-%d}<br>DC净占比: %{y:.2f}%<extra></extra>",
+                        ))
+
+                    fig_dc.update_layout(
+                        title=dict(text="DC 个股资金流向趋势", x=0.02, font=dict(size=16, color="#1E293B")),
+                        xaxis_title="日期",
+                        yaxis_title="净流入额（万元）",
+                        yaxis2=dict(title="净占比(%)", overlaying="y", side="right", showgrid=False),
+                        hovermode="x unified",
+                        height=360,
+                        template="wealthspark_balanced",
+                        paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                        plot_bgcolor="rgba(241, 245, 249, 0.58)",
+                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        margin=dict(l=20, r=20, t=60, b=20),
+                    )
+                    st.plotly_chart(fig_dc, use_container_width=True)
+                else:
+                    st.info("DC口径暂无数据（会在查询时按需拉取，拉取起点 2025-01-01）。")
+
         elif df_hist is not None and df_hist.empty:
             st.info("该股票暂无资金流向数据，可能尚未入库。")
 
@@ -4919,9 +6960,9 @@ def render_moneyflow_tab():
                 xaxis_title="连续净流入天数",
                 yaxis_title="累计主力净流入（万元）",
                 height=480,
-                template="plotly_white",
-                paper_bgcolor="white",
-                plot_bgcolor="rgba(248,250,252,0.5)",
+                template="wealthspark_balanced",
+                paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                plot_bgcolor="rgba(241, 245, 249, 0.58)",
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=20, r=20, t=60, b=20),
             )
@@ -5037,9 +7078,9 @@ def render_moneyflow_tab():
                     )
                     fig_anim.update_layout(
                         title=dict(text=f"{sector_anim_source} 资金流向轮动（从 {str(sector_anim_start)} 到 {latest_date}）", x=0.02, font=dict(size=17, color="#1E293B")),
-                        template="plotly_white",
-                        paper_bgcolor="white",
-                        plot_bgcolor="rgba(248,250,252,0.5)",
+                        template="wealthspark_balanced",
+                        paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                        plot_bgcolor="rgba(241, 245, 249, 0.58)",
                         font=dict(family="Inter, PingFang SC, sans-serif"),
                         height=560,
                         margin=dict(l=30, r=30, t=60, b=30),
@@ -5125,9 +7166,9 @@ def render_moneyflow_tab():
                         fig_anim.frames = frames
                         fig_anim.update_layout(
                             title=dict(text=f"{sector_anim_source} 资金曲线动画（从 {str(sector_anim_start)} 到 {latest_date}）", x=0.02, font=dict(size=17, color="#1E293B")),
-                            template="plotly_white",
-                            paper_bgcolor="white",
-                            plot_bgcolor="rgba(248,250,252,0.5)",
+                            template="wealthspark_balanced",
+                            paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                            plot_bgcolor="rgba(241, 245, 249, 0.58)",
                             font=dict(family="Inter, PingFang SC, sans-serif"),
                             height=720,
                             margin=dict(l=30, r=260, t=80, b=30),
@@ -5194,9 +7235,9 @@ def render_moneyflow_tab():
                     fig_ths.update_layout(
                         title=dict(text="THS 行业净流入（亿元）", x=0.02, font=dict(size=15, color="#1E293B")),
                         height=max(380, len(df_ths) * 20),
-                        template="plotly_white",
-                        paper_bgcolor="white",
-                        plot_bgcolor="rgba(248,250,252,0.5)",
+                        template="wealthspark_balanced",
+                        paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                        plot_bgcolor="rgba(241, 245, 249, 0.58)",
                         font=dict(family="Inter, PingFang SC, sans-serif"),
                         margin=dict(l=20, r=20, t=50, b=20),
                         yaxis=dict(autorange="reversed"),
@@ -5237,9 +7278,9 @@ def render_moneyflow_tab():
                     fig_dc.update_layout(
                         title=dict(text="DC 板块净流入（亿元）", x=0.02, font=dict(size=15, color="#1E293B")),
                         height=max(380, len(df_dc) * 20),
-                        template="plotly_white",
-                        paper_bgcolor="white",
-                        plot_bgcolor="rgba(248,250,252,0.5)",
+                        template="wealthspark_balanced",
+                        paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                        plot_bgcolor="rgba(241, 245, 249, 0.58)",
                         font=dict(family="Inter, PingFang SC, sans-serif"),
                         margin=dict(l=20, r=20, t=50, b=20),
                         yaxis=dict(autorange="reversed"),
@@ -5339,9 +7380,9 @@ def render_moneyflow_tab():
                     yaxis_title="净流入额（亿元）",
                     hovermode="x unified",
                     height=420,
-                    template="plotly_white",
-                    paper_bgcolor="white",
-                    plot_bgcolor="rgba(248,250,252,0.5)",
+                    template="wealthspark_balanced",
+                    paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                    plot_bgcolor="rgba(241, 245, 249, 0.58)",
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     margin=dict(l=20, r=20, t=60, b=20),
                     legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
@@ -5375,9 +7416,9 @@ def render_moneyflow_tab():
                     fig_detail.update_layout(
                         title=dict(text="沪股通 / 深股通 净流入分项", x=0.02, font=dict(size=16, color="#1E293B")),
                         height=360,
-                        template="plotly_white",
-                        paper_bgcolor="white",
-                        plot_bgcolor="rgba(248,250,252,0.5)",
+                        template="wealthspark_balanced",
+                        paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                        plot_bgcolor="rgba(241, 245, 249, 0.58)",
                         font=dict(family="Inter, PingFang SC, sans-serif"),
                         margin=dict(l=20, r=20, t=60, b=20),
                         hovermode="x unified",
