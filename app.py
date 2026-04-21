@@ -103,6 +103,18 @@ st.markdown("""
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%);
         padding: 2rem 1rem;
+        min-width: 300px !important;
+    }
+
+    /* 普通模式下强制保持侧边栏可见，避免折叠后刷新无法恢复 */
+    [data-testid="stSidebar"][aria-expanded="false"] {
+        min-width: 300px !important;
+        width: 300px !important;
+        transform: none !important;
+        margin-left: 0 !important;
+    }
+    [data-testid="stSidebar"] > div:first-child {
+        width: 300px !important;
     }
 
     [data-testid="collapsedControl"],
