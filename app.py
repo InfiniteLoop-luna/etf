@@ -2705,14 +2705,16 @@ def main():
         if mobile_group == "决策":
             mobile_page = st.selectbox(
                 "页面",
-                ["💼 今日机会清单", "⭐ 每日趋势推荐"],
+                ["💼 今日机会清单", "⭐ 每日趋势推荐", "🧪 推荐评估"],
                 key="iphone_page_decision",
             )
             st.caption(f"当前位置：决策 / {mobile_page}")
             if mobile_page == "💼 今日机会清单":
                 render_commercial_mvp_tab()
-            else:
+            elif mobile_page == "⭐ 每日趋势推荐":
                 render_daily_trend_reco_tab()
+            else:
+                render_reco_effectiveness_tracking_panel()
 
         elif mobile_group == "ETF":
             mobile_page = st.selectbox(
@@ -2783,14 +2785,16 @@ def main():
     if nav_group == "决策":
         decision_subpage = st.sidebar.radio(
             "决策模块",
-            ["💼 今日机会清单", "⭐ 每日趋势推荐"],
+            ["💼 今日机会清单", "⭐ 每日趋势推荐", "🧪 推荐评估"],
             key="decision_subpage"
         )
         st.caption(f"当前位置：决策 / {decision_subpage}")
         if decision_subpage == "💼 今日机会清单":
             render_commercial_mvp_tab()
-        else:
+        elif decision_subpage == "⭐ 每日趋势推荐":
             render_daily_trend_reco_tab()
+        else:
+            render_reco_effectiveness_tracking_panel()
 
     elif nav_group == "ETF":
         etf_subpage = st.sidebar.radio(
