@@ -1059,6 +1059,66 @@ def query_stock_holding_trend(
     return df
 
 
+def _pick_latest_holder_snapshot(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    out = df.copy()
+    for col in ["ann_date", "end_date"]:
+        if col in out.columns:
+            out[col] = out[col].astype(str).str.replace("-", "", regex=False)
+
+    if "end_date" in out.columns and out["end_date"].notna().any():
+        latest_end = out["end_date"].dropna().max()
+        out = out[out["end_date"] == latest_end]
+    if "ann_date" in out.columns and out["ann_date"].notna().any():
+        latest_ann = out["ann_date"].dropna().max()
+        out = out[out["ann_date"] == latest_ann]
+
+    for col in ["hold_amount", "hold_ratio", "hold_float_ratio", "hold_change"]:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+
+    order_cols = [c for c in ["hold_ratio", "hold_float_ratio", "hold_amount"] if c in out.columns]
+    if order_cols:
+        out = out.sort_values(order_cols, ascending=False, na_position="last")
+    return out.reset_index(drop=True)
+
+
+def query_stock_top10_shareholders(
+    symbol: str,
+    period: Optional[str] = None,
+) -> dict:
+    ts_code = str(symbol or "").strip().upper()
+    if not ts_code:
+        return {"top10_holders": pd.DataFrame(), "top10_floatholders": pd.DataFrame(), "errors": {}}
+
+    pro = _init_tushare()
+    target_period = normalize_period(period) or yyyymmdd(period)
+    kwargs = {"ts_code": ts_code}
+    if target_period:
+        kwargs["period"] = target_period
+
+    errors = {}
+    try:
+        top10_holders = pro.top10_holders(**kwargs)
+    except Exception as exc:
+        errors["top10_holders"] = str(exc)
+        top10_holders = pd.DataFrame()
+
+    try:
+        top10_floatholders = pro.top10_floatholders(**kwargs)
+    except Exception as exc:
+        errors["top10_floatholders"] = str(exc)
+        top10_floatholders = pd.DataFrame()
+
+    return {
+        "top10_holders": _pick_latest_holder_snapshot(top10_holders),
+        "top10_floatholders": _pick_latest_holder_snapshot(top10_floatholders),
+        "errors": errors,
+    }
+
+
 # ---------------------------------------------------------------------------
 # 一键运行
 # ---------------------------------------------------------------------------
