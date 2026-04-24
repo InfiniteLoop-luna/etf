@@ -24,7 +24,7 @@ from src.etf_stats import (
     get_wide_index_available_dates, get_wide_index_timeseries,
     get_macro_date_bounds, get_macro_dataset_timeseries,
     search_security, get_security_profile, get_security_timeseries,
-    get_security_financial_timeseries, get_stock_basic_summary,
+    get_security_financial_timeseries, get_security_kline_timeseries, get_stock_basic_summary,
     export_stock_basic_summary_excel, search_companies, update_stock_custom_info
 )
 
@@ -616,6 +616,11 @@ def load_security_timeseries(ts_code: str, security_type: str) -> pd.DataFrame:
 @st.cache_data(ttl=300)
 def load_security_financial_timeseries(ts_code: str, security_type: str) -> pd.DataFrame:
     return get_security_financial_timeseries(ts_code=ts_code, security_type=security_type)
+
+
+@st.cache_data(ttl=300)
+def load_security_kline_timeseries(ts_code: str, security_type: str) -> pd.DataFrame:
+    return get_security_kline_timeseries(ts_code=ts_code, security_type=security_type)
 
 
 @st.cache_data(ttl=300)
@@ -1904,6 +1909,118 @@ def get_security_metric_config(security_type: str) -> dict[str, dict[str, Union[
         '流通股本(亿股)': {'column': 'float_share', 'scale': 10000.0, 'digits': 2},
         '自由流通股本(亿股)': {'column': 'free_share', 'scale': 10000.0, 'digits': 2},
     }
+
+
+def create_security_kline_chart(df: pd.DataFrame, prefix: str, title: str) -> go.Figure | None:
+    open_col = f"{prefix}_open"
+    high_col = f"{prefix}_high"
+    low_col = f"{prefix}_low"
+    close_col = f"{prefix}_close"
+    amount_col = f"{prefix}_amount"
+    vol_col = f"{prefix}_vol"
+
+    required = ["trade_date", open_col, high_col, low_col, close_col]
+    if df is None or df.empty or any(col not in df.columns for col in required):
+        return None
+
+    chart_df = df[required + [c for c in [amount_col, vol_col] if c in df.columns]].copy()
+    chart_df["trade_date"] = pd.to_datetime(chart_df["trade_date"], errors="coerce")
+    for col in [open_col, high_col, low_col, close_col, amount_col, vol_col]:
+        if col in chart_df.columns:
+            chart_df[col] = pd.to_numeric(chart_df[col], errors="coerce")
+
+    chart_df = chart_df.dropna(subset=["trade_date", open_col, high_col, low_col, close_col]).sort_values("trade_date")
+    if chart_df.empty:
+        return None
+
+    chart_df["ma5"] = chart_df[close_col].rolling(window=5).mean()
+    chart_df["ma10"] = chart_df[close_col].rolling(window=10).mean()
+
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03,
+        row_heights=[0.74, 0.26],
+        subplot_titles=(title, "成交额/成交量")
+    )
+
+    up_mask = chart_df[close_col] >= chart_df[open_col]
+    bar_colors = np.where(up_mask, "#EF4444", "#10B981")
+
+    fig.add_trace(
+        go.Candlestick(
+            x=chart_df["trade_date"],
+            open=chart_df[open_col],
+            high=chart_df[high_col],
+            low=chart_df[low_col],
+            close=chart_df[close_col],
+            increasing_line_color="#EF4444",
+            decreasing_line_color="#10B981",
+            increasing_fillcolor="#FCA5A5",
+            decreasing_fillcolor="#86EFAC",
+            name="K线",
+        ),
+        row=1, col=1
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=chart_df["trade_date"],
+            y=chart_df["ma5"],
+            mode="lines",
+            name="MA5",
+            line=dict(color="#2563EB", width=1.6),
+            hovertemplate="%{x|%Y-%m-%d}<br>MA5: %{y:,.2f}<extra></extra>",
+        ),
+        row=1, col=1
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=chart_df["trade_date"],
+            y=chart_df["ma10"],
+            mode="lines",
+            name="MA10",
+            line=dict(color="#7C3AED", width=1.6),
+            hovertemplate="%{x|%Y-%m-%d}<br>MA10: %{y:,.2f}<extra></extra>",
+        ),
+        row=1, col=1
+    )
+
+    volume_used = None
+    if amount_col in chart_df.columns and chart_df[amount_col].notna().any():
+        volume_used = amount_col
+        y_title = "成交额"
+    elif vol_col in chart_df.columns and chart_df[vol_col].notna().any():
+        volume_used = vol_col
+        y_title = "成交量"
+    else:
+        y_title = "成交额/成交量"
+
+    if volume_used:
+        fig.add_trace(
+            go.Bar(
+                x=chart_df["trade_date"],
+                y=chart_df[volume_used],
+                name=y_title,
+                marker_color=bar_colors,
+                opacity=0.45,
+                hovertemplate="%{x|%Y-%m-%d}<br>值: %{y:,.2f}<extra></extra>",
+            ),
+            row=2, col=1
+        )
+
+    fig.update_layout(
+        template="wealthspark_balanced",
+        height=620,
+        hovermode="x unified",
+        showlegend=True,
+        xaxis_rangeslider_visible=False,
+        margin=dict(l=20, r=20, t=60, b=20),
+    )
+    fig.update_yaxes(title_text="价格", row=1, col=1, fixedrange=True)
+    fig.update_yaxes(title_text=y_title, row=2, col=1, fixedrange=True)
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)')
+
+    return fig
 
 
 def create_metric_line_chart(
@@ -5018,12 +5135,14 @@ def render_security_search_tab():
     selected_type = selected_row['security_type']
     selected_code = selected_row['ts_code']
     financial_df = None
+    kline_df = None
 
     try:
         profile_df = load_security_profile(selected_code, selected_type)
         ts_df = load_security_timeseries(selected_code, selected_type)
         if selected_type == 'stock':
             financial_df = load_security_financial_timeseries(selected_code, selected_type)
+            kline_df = load_security_kline_timeseries(selected_code, selected_type)
     except Exception as e:
         st.error(f"加载证券详情失败: {e}")
         return
@@ -5073,6 +5192,11 @@ def render_security_search_tab():
     if filtered_df.empty:
         st.warning("当前时间范围内没有数据")
         return
+
+    if kline_df is not None and len(kline_df) > 0:
+        kline_df = kline_df.copy()
+        kline_df['trade_date'] = pd.to_datetime(kline_df['trade_date'], errors='coerce')
+        kline_df = kline_df.dropna(subset=['trade_date']).sort_values('trade_date')
 
     filtered_financial_df = None
     if financial_df is not None and len(financial_df) > 0:
@@ -5552,7 +5676,51 @@ def render_security_search_tab():
     st.plotly_chart(fig, use_container_width=True)
 
     if selected_type == 'stock':
-        tab_valuation, tab_financial, tab_capital = st.tabs(["📈 估值", "🧾 财务", "🏦 市值股本"])
+        tab_kline, tab_valuation, tab_financial, tab_capital = st.tabs(["🕯️ K线", "📈 估值", "🧾 财务", "🏦 市值股本"])
+
+        with tab_kline:
+            st.caption("支持周线/月线K线（含 MA5 / MA10），默认联动上方时间范围。")
+            if kline_df is None or kline_df.empty:
+                st.info("暂无可用K线数据（当前依赖周/月复权数据表）。")
+            else:
+                kline_ctl_cols = st.columns([1.2, 1.4, 1.0])
+                with kline_ctl_cols[0]:
+                    kline_freq = st.radio(
+                        "K线周期",
+                        options=["周线", "月线"],
+                        horizontal=True,
+                        key=f"security_kline_freq_{selected_code}",
+                    )
+                with kline_ctl_cols[1]:
+                    kline_bars = st.slider(
+                        "显示最近K线数量",
+                        min_value=30,
+                        max_value=400,
+                        value=160,
+                        step=10,
+                        key=f"security_kline_bars_{selected_code}",
+                    )
+                with kline_ctl_cols[2]:
+                    st.metric("K线样本", f"{len(kline_df):,} 条")
+
+                prefix = 'w' if kline_freq == '周线' else 'm'
+                date_filtered_kline = kline_df[
+                    (kline_df['trade_date'].dt.date >= date_range[0]) &
+                    (kline_df['trade_date'].dt.date <= date_range[1])
+                ].copy()
+                if date_filtered_kline.empty:
+                    date_filtered_kline = kline_df.copy()
+
+                date_filtered_kline = date_filtered_kline.sort_values('trade_date').tail(int(kline_bars))
+                kline_chart = create_security_kline_chart(
+                    date_filtered_kline,
+                    prefix=prefix,
+                    title=f"{title_name} — {kline_freq}K线",
+                )
+                if kline_chart is not None:
+                    st.plotly_chart(kline_chart, use_container_width=True)
+                else:
+                    st.info(f"当前时间范围内暂无{kline_freq}K线数据")
 
         with tab_valuation:
             st.caption("展示静态市盈率、动态市盈率与股息率曲线")

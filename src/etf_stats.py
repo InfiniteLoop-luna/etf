@@ -295,6 +295,7 @@ STOCK_CASHFLOW_VIEW = 'vw_ts_stock_cashflow'
 STOCK_FINA_VIEW = 'vw_ts_stock_fina_indicator'
 STOCK_DAILY_VIEW = 'vw_ts_stock_daily_basic'
 INDEX_DAILY_VIEW = 'vw_ts_index_dailybasic'
+STOCK_WEEK_MONTH_ADJ_VIEW = 'vw_ts_stk_week_month_adj'
 
 STOCK_BASIC_EXPORT_RENAME_MAP = {
     'ts_code': '股票代码',
@@ -1277,6 +1278,41 @@ def get_stock_financial_timeseries(ts_code: str, engine=None) -> pd.DataFrame:
     return pd.read_sql(text(sql), engine, params={'ts_code': ts_code})
 
 
+def get_stock_kline_timeseries(ts_code: str, start_date: str = None, end_date: str = None, engine=None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine()
+
+    conditions = ["ts_code = :ts_code"]
+    params = {'ts_code': ts_code}
+    if start_date:
+        conditions.append("trade_date >= :start_date")
+        params['start_date'] = start_date
+    if end_date:
+        conditions.append("trade_date <= :end_date")
+        params['end_date'] = end_date
+
+    sql = f"""
+        SELECT
+            trade_date,
+            w_open,
+            w_high,
+            w_low,
+            w_close,
+            w_vol,
+            w_amount,
+            m_open,
+            m_high,
+            m_low,
+            m_close,
+            m_vol,
+            m_amount
+        FROM {STOCK_WEEK_MONTH_ADJ_VIEW}
+        WHERE {' AND '.join(conditions)}
+        ORDER BY trade_date
+    """
+    return pd.read_sql(text(sql), engine, params=params)
+
+
 def get_index_profile(ts_code: str, engine=None) -> pd.DataFrame:
     if engine is None:
         engine = _get_engine()
@@ -1363,6 +1399,12 @@ def get_security_financial_timeseries(ts_code: str, security_type: str, engine=N
     if security_type == 'stock':
         return get_stock_financial_timeseries(ts_code, engine=engine)
     return pd.DataFrame(columns=['ts_code', 'end_date', 'ann_date', 'total_revenue', 'net_profit', 'profit_dedt'])
+
+
+def get_security_kline_timeseries(ts_code: str, security_type: str, start_date: str = None, end_date: str = None, engine=None) -> pd.DataFrame:
+    if security_type == 'stock':
+        return get_stock_kline_timeseries(ts_code, start_date=start_date, end_date=end_date, engine=engine)
+    return pd.DataFrame(columns=['trade_date'])
 
 
 # ── 命令行快速验证 ────────────────────────────────────────────────────────────
