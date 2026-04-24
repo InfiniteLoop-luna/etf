@@ -5186,8 +5186,20 @@ def render_security_search_tab():
                                 update_stock_custom_info(selected_code, mb_stripped, pd_stripped)
                                 st.success("更新成功！请重新点击关键字刷新搜索结果。")
 
-        with st.expander("🧱 前十大股东 / 前十大流通股东", expanded=False):
-            st.caption("入口已迁移到个股查询页，可按报告期直接查询股东结构（结果缓存 5 分钟）。")
+        top10_panel_pref_key = "security_top10_panel_expanded"
+        if top10_panel_pref_key not in st.session_state:
+            st.session_state[top10_panel_pref_key] = False
+        st.toggle(
+            "展开股东结构模块",
+            key=top10_panel_pref_key,
+            help="记住当前会话的展开偏好。",
+        )
+
+        with st.expander(
+            "🧱 前十大股东 / 前十大流通股东",
+            expanded=bool(st.session_state.get(top10_panel_pref_key, False)),
+        ):
+            st.caption("入口已迁移到个股查询页，可按报告期直接查询股东结构（缓存 5 分钟，可强制刷新）。")
 
             top10_period_options = load_fund_hot_stock_periods()
             if not top10_period_options:
@@ -5216,15 +5228,23 @@ def render_security_search_tab():
             with top10_ctl_btn:
                 st.caption(" ")
                 query_top10_clicked = st.button(
-                    "查询/刷新前十大股东",
+                    "查询前十大股东",
                     type="primary",
                     key=f"btn_security_top10_{selected_code}",
                 )
+                force_refresh_top10_clicked = st.button(
+                    "强制刷新(忽略缓存)",
+                    key=f"btn_security_top10_force_refresh_{selected_code}",
+                    help="清理 5 分钟缓存并重新请求最新数据。",
+                )
+
+            if force_refresh_top10_clicked:
+                load_security_top10_shareholders.clear()
 
             top10_query_signature = f"{selected_code}|{top10_period}"
             auto_query_needed = st.session_state.get("security_top10_last_signature") != top10_query_signature
 
-            if query_top10_clicked or auto_query_needed:
+            if query_top10_clicked or force_refresh_top10_clicked or auto_query_needed:
                 st.session_state["security_top10_holders"] = pd.DataFrame()
                 st.session_state["security_top10_floatholders"] = pd.DataFrame()
                 st.session_state["security_top10_errors"] = {}
