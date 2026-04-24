@@ -1912,12 +1912,16 @@ def get_security_metric_config(security_type: str) -> dict[str, dict[str, Union[
 
 
 def create_security_kline_chart(df: pd.DataFrame, prefix: str, title: str) -> go.Figure | None:
-    open_col = f"{prefix}_open"
-    high_col = f"{prefix}_high"
-    low_col = f"{prefix}_low"
-    close_col = f"{prefix}_close"
-    amount_col = f"{prefix}_amount"
-    vol_col = f"{prefix}_vol"
+    if prefix == "d":
+        open_col, high_col, low_col, close_col = "open", "high", "low", "close"
+        amount_col, vol_col = "amount", "vol"
+    else:
+        open_col = f"{prefix}_open"
+        high_col = f"{prefix}_high"
+        low_col = f"{prefix}_low"
+        close_col = f"{prefix}_close"
+        amount_col = f"{prefix}_amount"
+        vol_col = f"{prefix}_vol"
 
     required = ["trade_date", open_col, high_col, low_col, close_col]
     if df is None or df.empty or any(col not in df.columns for col in required):
@@ -5687,7 +5691,7 @@ def render_security_search_tab():
                 with kline_ctl_cols[0]:
                     kline_freq = st.radio(
                         "K线周期",
-                        options=["周线", "月线"],
+                        options=["日线", "周线", "月线"],
                         horizontal=True,
                         key=f"security_kline_freq_{selected_code}",
                     )
@@ -5703,7 +5707,7 @@ def render_security_search_tab():
                 with kline_ctl_cols[2]:
                     st.metric("K线样本", f"{len(kline_df):,} 条")
 
-                prefix = 'w' if kline_freq == '周线' else 'm'
+                prefix = 'd' if kline_freq == '日线' else ('w' if kline_freq == '周线' else 'm')
                 date_filtered_kline = kline_df[
                     (kline_df['trade_date'].dt.date >= date_range[0]) &
                     (kline_df['trade_date'].dt.date <= date_range[1])

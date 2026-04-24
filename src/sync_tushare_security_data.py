@@ -53,6 +53,7 @@ DATASET_TABLES = {
     "balancesheet": "ts_stock_balancesheet",
     "cashflow": "ts_stock_cashflow",
     "fina_indicator": "ts_stock_fina_indicator",
+    "daily": "ts_stock_daily",
     "daily_basic": "ts_stock_daily_basic",
     "index_dailybasic": "ts_index_dailybasic",
     "namechange": "ts_stock_namechange",
@@ -214,6 +215,20 @@ NORMALIZED_VIEW_SPECS = {
             ("numeric", "c_cash_equ_beg_period"),
             ("numeric", "c_cash_equ_end_period"),
             ("text", "update_flag"),
+        ],
+    },
+    "daily": {
+        "view_name": "vw_ts_stock_daily",
+        "columns": [
+            ("numeric", "open"),
+            ("numeric", "high"),
+            ("numeric", "low"),
+            ("numeric", "close"),
+            ("numeric", "pre_close"),
+            ("numeric", "change"),
+            ("numeric", "pct_chg"),
+            ("numeric", "vol"),
+            ("numeric", "amount"),
         ],
     },
     "fina_indicator": {
@@ -410,7 +425,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 FINANCIAL_DATASETS = {"income", "balancesheet", "cashflow", "fina_indicator"}
-DAILY_DATASETS = {"daily_basic", "index_dailybasic", "stk_week_month_adj"}
+DAILY_DATASETS = {"daily", "daily_basic", "index_dailybasic", "stk_week_month_adj"}
 MACRO_DATASETS = {"cn_gdp", "cn_cpi", "cn_ppi", "cn_m", "shibor", "shibor_lpr"}
 BACKFILL_SKIP_TS_CODES = {
     "ts_stock_income": {
@@ -789,6 +804,7 @@ def resolve_business_key(dataset_name: str, payload: dict) -> str:
     preferred_keys = {
         "stock_basic": ["ts_code"],
         "stock_company": ["ts_code"],
+        "daily": ["ts_code", "trade_date"],
         "daily_basic": ["ts_code", "trade_date"],
         "index_dailybasic": ["ts_code", "trade_date"],
         "stk_week_month_adj": ["ts_code", "trade_date"],
@@ -1302,6 +1318,25 @@ def fetch_financial_dataset(pro, endpoint_name: str, start_date: str, end_date: 
     raise RuntimeError(f"{endpoint_name} 无法抓取，请确认当前 Tushare 账号权限") from vip_error
 
 
+def fetch_daily(pro, start_date: str, end_date: str) -> pd.DataFrame:
+    trade_dates = get_open_trade_dates(pro, start_date, end_date)
+    frames = []
+    for trade_date in trade_dates:
+        logger.info("抓取 daily trade_date=%s", trade_date)
+        df = pro.daily(trade_date=trade_date)
+        if df is not None and not df.empty:
+            frames.append(df)
+            logger.info("daily trade_date=%s 返回 %s 行", trade_date, len(df))
+        else:
+            logger.info("daily trade_date=%s 无数据", trade_date)
+        time.sleep(DEFAULT_API_SLEEP)
+    return combine_frames(frames)
+
+
+def fetch_daily_missing_history(pro, engine: Engine, table_name: str, run_end_date: str) -> pd.DataFrame:
+    return fetch_daily_dataset_missing_history(pro, engine, "daily", table_name, run_end_date)
+
+
 def fetch_daily_basic(pro, start_date: str, end_date: str) -> pd.DataFrame:
     trade_dates = get_open_trade_dates(pro, start_date, end_date)
     frames = []
@@ -1575,6 +1610,16 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
                 raw_df = pd.DataFrame()
             else:
                 raw_df = fetch_financial_dataset(pro, dataset_name, start_date, end_date)
+        elif dataset_name == "daily":
+            if args.backfill_missing_history:
+                written = fetch_daily_missing_history(pro, engine, table_name, run_end_date)
+                update_job_status(engine, dataset_name, table_name, written, started_at, "success", None)
+                logger.info("%s -> %s 完成，写入 %s 行", dataset_name, table_name, written)
+                return written
+            elif start_date is None or start_date > end_date:
+                raw_df = pd.DataFrame()
+            else:
+                raw_df = fetch_daily(pro, start_date, end_date)
         elif dataset_name == "daily_basic":
             if args.backfill_missing_history:
                 written = fetch_daily_basic_missing_history(pro, engine, table_name, run_end_date)

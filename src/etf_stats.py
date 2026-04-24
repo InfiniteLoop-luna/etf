@@ -294,6 +294,7 @@ STOCK_BALANCE_VIEW = 'vw_ts_stock_balancesheet'
 STOCK_CASHFLOW_VIEW = 'vw_ts_stock_cashflow'
 STOCK_FINA_VIEW = 'vw_ts_stock_fina_indicator'
 STOCK_DAILY_VIEW = 'vw_ts_stock_daily_basic'
+STOCK_PRICE_DAILY_VIEW = 'vw_ts_stock_daily'
 INDEX_DAILY_VIEW = 'vw_ts_index_dailybasic'
 STOCK_WEEK_MONTH_ADJ_VIEW = 'vw_ts_stk_week_month_adj'
 
@@ -1293,22 +1294,31 @@ def get_stock_kline_timeseries(ts_code: str, start_date: str = None, end_date: s
 
     sql = f"""
         SELECT
-            trade_date,
-            w_open,
-            w_high,
-            w_low,
-            w_close,
-            w_vol,
-            w_amount,
-            m_open,
-            m_high,
-            m_low,
-            m_close,
-            m_vol,
-            m_amount
-        FROM {STOCK_WEEK_MONTH_ADJ_VIEW}
-        WHERE {' AND '.join(conditions)}
-        ORDER BY trade_date
+            d.trade_date,
+            d.open,
+            d.high,
+            d.low,
+            d.close,
+            d.vol,
+            d.amount,
+            w.w_open,
+            w.w_high,
+            w.w_low,
+            w.w_close,
+            w.w_vol,
+            w.w_amount,
+            w.m_open,
+            w.m_high,
+            w.m_low,
+            w.m_close,
+            w.m_vol,
+            w.m_amount
+        FROM {STOCK_PRICE_DAILY_VIEW} d
+        LEFT JOIN {STOCK_WEEK_MONTH_ADJ_VIEW} w
+          ON d.ts_code = w.ts_code
+         AND d.trade_date = w.trade_date
+        WHERE {' AND '.join([f'd.{c}' for c in conditions])}
+        ORDER BY d.trade_date
     """
     return pd.read_sql(text(sql), engine, params=params)
 
