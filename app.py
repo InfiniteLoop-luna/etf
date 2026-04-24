@@ -5301,6 +5301,61 @@ def render_security_search_tab():
                 top10_metrics[2].metric("前十流通股东锁仓", _fmt_pct(float_total_ratio))
                 top10_metrics[3].metric("流通股东净变动", _fmt_shares(float_change_total))
 
+                prev_period = None
+                try:
+                    cur_idx = top10_period_options.index(top10_period)
+                    if cur_idx + 1 < len(top10_period_options):
+                        prev_period = top10_period_options[cur_idx + 1]
+                except ValueError:
+                    prev_period = None
+
+                if prev_period:
+                    prev_top10_holders = pd.DataFrame()
+                    prev_top10_floatholders = pd.DataFrame()
+                    prev_error = ""
+                    try:
+                        prev_pack = load_security_top10_shareholders(
+                            symbol=selected_code,
+                            period=str(prev_period).replace("-", ""),
+                        )
+                        prev_top10_holders = prev_pack.get("top10_holders", pd.DataFrame())
+                        prev_top10_floatholders = prev_pack.get("top10_floatholders", pd.DataFrame())
+                    except Exception as prev_exc:
+                        prev_error = str(prev_exc)
+
+                    prev_has_holder = isinstance(prev_top10_holders, pd.DataFrame) and not prev_top10_holders.empty
+                    prev_has_float = isinstance(prev_top10_floatholders, pd.DataFrame) and not prev_top10_floatholders.empty
+
+                    if prev_has_holder or prev_has_float:
+                        prev_holder_total_ratio = pd.to_numeric(prev_top10_holders.get("hold_ratio"), errors="coerce").fillna(0).sum() if prev_has_holder else 0
+                        prev_holder_top3_ratio = pd.to_numeric(prev_top10_holders.get("hold_ratio"), errors="coerce").fillna(0).head(3).sum() if prev_has_holder else 0
+                        prev_float_total_ratio = pd.to_numeric(prev_top10_floatholders.get("hold_float_ratio"), errors="coerce").fillna(0).sum() if prev_has_float else 0
+
+                        def _fmt_delta_pct(v):
+                            if pd.isna(v):
+                                return "-"
+                            sign = "+" if float(v) >= 0 else ""
+                            return f"{sign}{float(v):.2f}%"
+
+                        curr_holder_names = set(str(x).strip() for x in top10_holders.get("holder_name", pd.Series(dtype=str)).dropna().tolist() if str(x).strip())
+                        prev_holder_names = set(str(x).strip() for x in prev_top10_holders.get("holder_name", pd.Series(dtype=str)).dropna().tolist() if str(x).strip())
+                        holder_new_count = len(curr_holder_names - prev_holder_names)
+                        holder_exit_count = len(prev_holder_names - curr_holder_names)
+
+                        st.markdown("##### 📊 与上期对比")
+                        cmp_cols = st.columns(4)
+                        cmp_cols[0].metric("前十合计持股变化", _fmt_pct(holder_total_ratio), _fmt_delta_pct(holder_total_ratio - prev_holder_total_ratio))
+                        cmp_cols[1].metric("前三集中度变化", _fmt_pct(holder_top3_ratio), _fmt_delta_pct(holder_top3_ratio - prev_holder_top3_ratio))
+                        cmp_cols[2].metric("前十流通锁仓变化", _fmt_pct(float_total_ratio), _fmt_delta_pct(float_total_ratio - prev_float_total_ratio))
+                        cmp_cols[3].metric("股东名单变化", f"+{holder_new_count} / -{holder_exit_count}")
+                        st.caption(f"对比基准报告期：{prev_period}（当前：{top10_period}）")
+                    elif prev_error:
+                        st.caption(f"上期对比数据加载失败：{prev_error}")
+                    else:
+                        st.caption(f"上期（{prev_period}）暂无可对比数据。")
+                else:
+                    st.caption("暂无更早报告期，暂不展示上期对比。")
+
                 tab_holder, tab_float = st.tabs(["🏛 前十大股东", "🔓 前十大流通股东"])
                 with tab_holder:
                     if has_top10_holders:
