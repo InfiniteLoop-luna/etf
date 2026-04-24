@@ -1911,7 +1911,7 @@ def get_security_metric_config(security_type: str) -> dict[str, dict[str, Union[
     }
 
 
-def create_security_kline_chart(df: pd.DataFrame, prefix: str, title: str) -> go.Figure | None:
+def create_security_kline_chart(df: pd.DataFrame, prefix: str, title: str, ma_windows: list[int] | None = None) -> go.Figure | None:
     if prefix == "d":
         open_col, high_col, low_col, close_col = "open", "high", "low", "close"
         amount_col, vol_col = "amount", "vol"
@@ -1937,8 +1937,12 @@ def create_security_kline_chart(df: pd.DataFrame, prefix: str, title: str) -> go
     if chart_df.empty:
         return None
 
-    chart_df["ma5"] = chart_df[close_col].rolling(window=5).mean()
-    chart_df["ma10"] = chart_df[close_col].rolling(window=10).mean()
+    ma_windows = ma_windows or [5, 10]
+    ma_windows = sorted({int(w) for w in ma_windows if isinstance(w, (int, float)) and int(w) > 1})
+    if not ma_windows:
+        ma_windows = [5, 10]
+    for w in ma_windows:
+        chart_df[f"ma{w}"] = chart_df[close_col].rolling(window=w).mean()
 
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03,
@@ -1965,29 +1969,22 @@ def create_security_kline_chart(df: pd.DataFrame, prefix: str, title: str) -> go
         row=1, col=1
     )
 
-    fig.add_trace(
-        go.Scatter(
-            x=chart_df["trade_date"],
-            y=chart_df["ma5"],
-            mode="lines",
-            name="MA5",
-            line=dict(color="#2563EB", width=1.6),
-            hovertemplate="%{x|%Y-%m-%d}<br>MA5: %{y:,.2f}<extra></extra>",
-        ),
-        row=1, col=1
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=chart_df["trade_date"],
-            y=chart_df["ma10"],
-            mode="lines",
-            name="MA10",
-            line=dict(color="#7C3AED", width=1.6),
-            hovertemplate="%{x|%Y-%m-%d}<br>MA10: %{y:,.2f}<extra></extra>",
-        ),
-        row=1, col=1
-    )
+    ma_colors = ["#2563EB", "#7C3AED", "#F59E0B", "#10B981", "#EF4444", "#06B6D4"]
+    for idx, w in enumerate(ma_windows):
+        ma_col = f"ma{w}"
+        if ma_col not in chart_df.columns:
+            continue
+        fig.add_trace(
+            go.Scatter(
+                x=chart_df["trade_date"],
+                y=chart_df[ma_col],
+                mode="lines",
+                name=f"MA{w}",
+                line=dict(color=ma_colors[idx % len(ma_colors)], width=1.6),
+                hovertemplate=f"%{{x|%Y-%m-%d}}<br>MA{w}: %{{y:,.2f}}<extra></extra>",
+            ),
+            row=1, col=1
+        )
 
     volume_used = None
     if amount_col in chart_df.columns and chart_df[amount_col].notna().any():
@@ -5683,7 +5680,7 @@ def render_security_search_tab():
         tab_kline, tab_valuation, tab_financial, tab_capital = st.tabs(["🕯️ K线", "📈 估值", "🧾 财务", "🏦 市值股本"])
 
         with tab_kline:
-            st.caption("支持日线/周线/月线K线（含 MA5 / MA10），默认联动上方时间范围。")
+            st.caption("支持日线/周线/月线K线，默认联动上方时间范围。当前价格序列为不复权日线 + 周/月聚合。")
             if kline_df is None or kline_df.empty:
                 st.info("暂无可用K线数据。")
             else:
@@ -5728,6 +5725,23 @@ def render_security_search_tab():
                 with kline_ctl_cols[2]:
                     st.metric("K线样本", f"{len(kline_df):,} 条")
 
+                ma_ctl_cols = st.columns([1.0, 1.0, 1.4])
+                with ma_ctl_cols[0]:
+                    show_ma5 = st.checkbox("MA5", value=True, key=f"security_kline_ma5_{selected_code}")
+                with ma_ctl_cols[1]:
+                    show_ma10 = st.checkbox("MA10", value=True, key=f"security_kline_ma10_{selected_code}")
+                with ma_ctl_cols[2]:
+                    show_ma20 = st.checkbox("MA20", value=False, key=f"security_kline_ma20_{selected_code}")
+                ma_windows = []
+                if show_ma5:
+                    ma_windows.append(5)
+                if show_ma10:
+                    ma_windows.append(10)
+                if show_ma20:
+                    ma_windows.append(20)
+                if not ma_windows:
+                    ma_windows = [5, 10]
+
                 prefix = 'd' if kline_freq == '日线' else ('w' if kline_freq == '周线' else 'm')
                 date_filtered_kline = kline_df[
                     (kline_df['trade_date'].dt.date >= date_range[0]) &
@@ -5741,6 +5755,7 @@ def render_security_search_tab():
                     date_filtered_kline,
                     prefix=prefix,
                     title=f"{title_name} — {kline_freq}K线",
+                    ma_windows=ma_windows,
                 )
                 if kline_chart is not None:
                     st.plotly_chart(kline_chart, use_container_width=True)
