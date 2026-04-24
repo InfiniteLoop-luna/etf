@@ -5186,154 +5186,154 @@ def render_security_search_tab():
                                 update_stock_custom_info(selected_code, mb_stripped, pd_stripped)
                                 st.success("更新成功！请重新点击关键字刷新搜索结果。")
 
-        st.markdown("##### 🧱 前十大股东 / 前十大流通股东")
-        st.caption("入口已迁移到个股查询页，可按报告期直接查询股东结构（结果缓存 5 分钟）。")
+        with st.expander("🧱 前十大股东 / 前十大流通股东", expanded=False):
+            st.caption("入口已迁移到个股查询页，可按报告期直接查询股东结构（结果缓存 5 分钟）。")
 
-        top10_period_options = load_fund_hot_stock_periods()
-        if not top10_period_options:
-            top10_period_options = [datetime.now().strftime("%Y-%m-%d")]
+            top10_period_options = load_fund_hot_stock_periods()
+            if not top10_period_options:
+                top10_period_options = [datetime.now().strftime("%Y-%m-%d")]
 
-        top10_period_key = f"security_top10_period_{selected_code}"
-        if top10_period_key not in st.session_state:
-            st.session_state[top10_period_key] = top10_period_options[0]
-        elif st.session_state[top10_period_key] not in top10_period_options:
-            st.session_state[top10_period_key] = top10_period_options[0]
+            top10_period_key = f"security_top10_period_{selected_code}"
+            if top10_period_key not in st.session_state:
+                st.session_state[top10_period_key] = top10_period_options[0]
+            elif st.session_state[top10_period_key] not in top10_period_options:
+                st.session_state[top10_period_key] = top10_period_options[0]
 
-        if st.session_state.get("security_top10_last_code") != selected_code:
-            st.session_state["security_top10_holders"] = pd.DataFrame()
-            st.session_state["security_top10_floatholders"] = pd.DataFrame()
-            st.session_state["security_top10_errors"] = {}
-            st.session_state["security_top10_status"] = "待查询"
-            st.session_state["security_top10_last_code"] = selected_code
-
-        top10_ctl_period, top10_ctl_btn = st.columns([1.6, 1.0])
-        with top10_ctl_period:
-            top10_period = st.selectbox(
-                "股东结构报告期",
-                options=top10_period_options,
-                key=top10_period_key,
-            )
-        with top10_ctl_btn:
-            st.caption(" ")
-            query_top10_clicked = st.button(
-                "查询/刷新前十大股东",
-                type="primary",
-                key=f"btn_security_top10_{selected_code}",
-            )
-
-        top10_query_signature = f"{selected_code}|{top10_period}"
-        auto_query_needed = st.session_state.get("security_top10_last_signature") != top10_query_signature
-
-        if query_top10_clicked or auto_query_needed:
-            st.session_state["security_top10_holders"] = pd.DataFrame()
-            st.session_state["security_top10_floatholders"] = pd.DataFrame()
-            st.session_state["security_top10_errors"] = {}
-            st.session_state["security_top10_status"] = "查询中"
-            try:
-                top10_pack = load_security_top10_shareholders(
-                    symbol=selected_code,
-                    period=str(top10_period).replace("-", ""),
-                )
-                st.session_state["security_top10_holders"] = top10_pack.get("top10_holders", pd.DataFrame())
-                st.session_state["security_top10_floatholders"] = top10_pack.get("top10_floatholders", pd.DataFrame())
-                st.session_state["security_top10_errors"] = top10_pack.get("errors", {}) or {}
-
-                has_holder = isinstance(st.session_state["security_top10_holders"], pd.DataFrame) and not st.session_state["security_top10_holders"].empty
-                has_float = isinstance(st.session_state["security_top10_floatholders"], pd.DataFrame) and not st.session_state["security_top10_floatholders"].empty
-                st.session_state["security_top10_status"] = "查询成功" if (has_holder or has_float) else "该报告期暂无数据"
-            except Exception as top10_exc:
-                logger.warning(f"security_search query_stock_top10_shareholders failed: {top10_exc}", exc_info=True)
+            if st.session_state.get("security_top10_last_code") != selected_code:
                 st.session_state["security_top10_holders"] = pd.DataFrame()
                 st.session_state["security_top10_floatholders"] = pd.DataFrame()
-                st.session_state["security_top10_errors"] = {"query": str(top10_exc)}
-                st.session_state["security_top10_status"] = "查询异常"
-            finally:
-                st.session_state["security_top10_last_signature"] = top10_query_signature
+                st.session_state["security_top10_errors"] = {}
+                st.session_state["security_top10_status"] = "待查询"
+                st.session_state["security_top10_last_code"] = selected_code
 
-        top10_holders = st.session_state.get("security_top10_holders")
-        top10_floatholders = st.session_state.get("security_top10_floatholders")
-        top10_errors = st.session_state.get("security_top10_errors", {}) or {}
-        top10_status = st.session_state.get("security_top10_status", "待查询")
+            top10_ctl_period, top10_ctl_btn = st.columns([1.6, 1.0])
+            with top10_ctl_period:
+                top10_period = st.selectbox(
+                    "股东结构报告期",
+                    options=top10_period_options,
+                    key=top10_period_key,
+                )
+            with top10_ctl_btn:
+                st.caption(" ")
+                query_top10_clicked = st.button(
+                    "查询/刷新前十大股东",
+                    type="primary",
+                    key=f"btn_security_top10_{selected_code}",
+                )
 
-        has_top10_holders = isinstance(top10_holders, pd.DataFrame) and not top10_holders.empty
-        has_top10_float = isinstance(top10_floatholders, pd.DataFrame) and not top10_floatholders.empty
+            top10_query_signature = f"{selected_code}|{top10_period}"
+            auto_query_needed = st.session_state.get("security_top10_last_signature") != top10_query_signature
 
-        st.info(f"📌 当前个股：{title_name}（{selected_code}）｜报告期：{top10_period}｜状态：{top10_status}")
+            if query_top10_clicked or auto_query_needed:
+                st.session_state["security_top10_holders"] = pd.DataFrame()
+                st.session_state["security_top10_floatholders"] = pd.DataFrame()
+                st.session_state["security_top10_errors"] = {}
+                st.session_state["security_top10_status"] = "查询中"
+                try:
+                    top10_pack = load_security_top10_shareholders(
+                        symbol=selected_code,
+                        period=str(top10_period).replace("-", ""),
+                    )
+                    st.session_state["security_top10_holders"] = top10_pack.get("top10_holders", pd.DataFrame())
+                    st.session_state["security_top10_floatholders"] = top10_pack.get("top10_floatholders", pd.DataFrame())
+                    st.session_state["security_top10_errors"] = top10_pack.get("errors", {}) or {}
 
-        if has_top10_holders or has_top10_float:
-            def _fmt_pct(v):
-                return f"{float(v):.2f}%" if pd.notna(v) else "-"
+                    has_holder = isinstance(st.session_state["security_top10_holders"], pd.DataFrame) and not st.session_state["security_top10_holders"].empty
+                    has_float = isinstance(st.session_state["security_top10_floatholders"], pd.DataFrame) and not st.session_state["security_top10_floatholders"].empty
+                    st.session_state["security_top10_status"] = "查询成功" if (has_holder or has_float) else "该报告期暂无数据"
+                except Exception as top10_exc:
+                    logger.warning(f"security_search query_stock_top10_shareholders failed: {top10_exc}", exc_info=True)
+                    st.session_state["security_top10_holders"] = pd.DataFrame()
+                    st.session_state["security_top10_floatholders"] = pd.DataFrame()
+                    st.session_state["security_top10_errors"] = {"query": str(top10_exc)}
+                    st.session_state["security_top10_status"] = "查询异常"
+                finally:
+                    st.session_state["security_top10_last_signature"] = top10_query_signature
 
-            def _fmt_shares(v):
-                if pd.isna(v):
-                    return "-"
-                val = float(v)
-                return f"{val / 1e8:,.2f} 亿股" if abs(val) >= 1e8 else f"{val:,.0f} 股"
+            top10_holders = st.session_state.get("security_top10_holders")
+            top10_floatholders = st.session_state.get("security_top10_floatholders")
+            top10_errors = st.session_state.get("security_top10_errors", {}) or {}
+            top10_status = st.session_state.get("security_top10_status", "待查询")
 
-            holder_total_ratio = pd.to_numeric(top10_holders.get("hold_ratio"), errors="coerce").fillna(0).sum() if has_top10_holders else 0
-            holder_top3_ratio = pd.to_numeric(top10_holders.get("hold_ratio"), errors="coerce").fillna(0).head(3).sum() if has_top10_holders else 0
-            float_total_ratio = pd.to_numeric(top10_floatholders.get("hold_float_ratio"), errors="coerce").fillna(0).sum() if has_top10_float else 0
-            float_change_total = pd.to_numeric(top10_floatholders.get("hold_change"), errors="coerce").fillna(0).sum() if has_top10_float else 0
+            has_top10_holders = isinstance(top10_holders, pd.DataFrame) and not top10_holders.empty
+            has_top10_float = isinstance(top10_floatholders, pd.DataFrame) and not top10_floatholders.empty
 
-            top10_metrics = st.columns(4)
-            top10_metrics[0].metric("前十股东合计持股", _fmt_pct(holder_total_ratio))
-            top10_metrics[1].metric("前三股东集中度", _fmt_pct(holder_top3_ratio))
-            top10_metrics[2].metric("前十流通股东锁仓", _fmt_pct(float_total_ratio))
-            top10_metrics[3].metric("流通股东净变动", _fmt_shares(float_change_total))
+            st.info(f"📌 当前个股：{title_name}（{selected_code}）｜报告期：{top10_period}｜状态：{top10_status}")
 
-            tab_holder, tab_float = st.tabs(["🏛 前十大股东", "🔓 前十大流通股东"])
-            with tab_holder:
-                if has_top10_holders:
-                    holder_show = top10_holders.copy()
-                    for col in ["hold_amount", "hold_ratio", "hold_float_ratio", "hold_change"]:
-                        if col in holder_show.columns:
-                            holder_show[col] = pd.to_numeric(holder_show[col], errors="coerce")
-                    holder_show = holder_show.rename(columns={
-                        "holder_name": "股东名称",
-                        "hold_amount": "持股数量",
-                        "hold_ratio": "占总股本比(%)",
-                        "hold_float_ratio": "占流通股比(%)",
-                        "hold_change": "持股变动",
-                        "holder_type": "股东类型",
-                    })
-                    for col in ["占总股本比(%)", "占流通股比(%)"]:
-                        if col in holder_show.columns:
-                            holder_show[col] = holder_show[col].map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
-                    for col in ["持股数量", "持股变动"]:
-                        if col in holder_show.columns:
-                            holder_show[col] = holder_show[col].map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
-                    show_cols = [c for c in ["股东名称", "持股数量", "占总股本比(%)", "占流通股比(%)", "持股变动", "股东类型"] if c in holder_show.columns]
-                    st.dataframe(holder_show[show_cols], use_container_width=True, hide_index=True)
-                else:
-                    st.info("当前报告期暂无前十大股东数据。")
+            if has_top10_holders or has_top10_float:
+                def _fmt_pct(v):
+                    return f"{float(v):.2f}%" if pd.notna(v) else "-"
 
-            with tab_float:
-                if has_top10_float:
-                    float_show = top10_floatholders.copy()
-                    for col in ["hold_amount", "hold_ratio", "hold_float_ratio", "hold_change"]:
-                        if col in float_show.columns:
-                            float_show[col] = pd.to_numeric(float_show[col], errors="coerce")
-                    float_show = float_show.rename(columns={
-                        "holder_name": "股东名称",
-                        "hold_amount": "持股数量",
-                        "hold_ratio": "占总股本比(%)",
-                        "hold_float_ratio": "占流通股比(%)",
-                        "hold_change": "持股变动",
-                        "holder_type": "股东类型",
-                    })
-                    for col in ["占总股本比(%)", "占流通股比(%)"]:
-                        if col in float_show.columns:
-                            float_show[col] = float_show[col].map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
-                    for col in ["持股数量", "持股变动"]:
-                        if col in float_show.columns:
-                            float_show[col] = float_show[col].map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
-                    show_cols = [c for c in ["股东名称", "持股数量", "占总股本比(%)", "占流通股比(%)", "持股变动", "股东类型"] if c in float_show.columns]
-                    st.dataframe(float_show[show_cols], use_container_width=True, hide_index=True)
-                else:
-                    st.info("当前报告期暂无前十大流通股东数据。")
-        elif top10_errors:
-            err_text = "；".join([str(v) for v in top10_errors.values() if str(v).strip()])
-            st.info(f"前十大股东数据暂不可用：{err_text or '接口暂无返回'}")
+                def _fmt_shares(v):
+                    if pd.isna(v):
+                        return "-"
+                    val = float(v)
+                    return f"{val / 1e8:,.2f} 亿股" if abs(val) >= 1e8 else f"{val:,.0f} 股"
+
+                holder_total_ratio = pd.to_numeric(top10_holders.get("hold_ratio"), errors="coerce").fillna(0).sum() if has_top10_holders else 0
+                holder_top3_ratio = pd.to_numeric(top10_holders.get("hold_ratio"), errors="coerce").fillna(0).head(3).sum() if has_top10_holders else 0
+                float_total_ratio = pd.to_numeric(top10_floatholders.get("hold_float_ratio"), errors="coerce").fillna(0).sum() if has_top10_float else 0
+                float_change_total = pd.to_numeric(top10_floatholders.get("hold_change"), errors="coerce").fillna(0).sum() if has_top10_float else 0
+
+                top10_metrics = st.columns(4)
+                top10_metrics[0].metric("前十股东合计持股", _fmt_pct(holder_total_ratio))
+                top10_metrics[1].metric("前三股东集中度", _fmt_pct(holder_top3_ratio))
+                top10_metrics[2].metric("前十流通股东锁仓", _fmt_pct(float_total_ratio))
+                top10_metrics[3].metric("流通股东净变动", _fmt_shares(float_change_total))
+
+                tab_holder, tab_float = st.tabs(["🏛 前十大股东", "🔓 前十大流通股东"])
+                with tab_holder:
+                    if has_top10_holders:
+                        holder_show = top10_holders.copy()
+                        for col in ["hold_amount", "hold_ratio", "hold_float_ratio", "hold_change"]:
+                            if col in holder_show.columns:
+                                holder_show[col] = pd.to_numeric(holder_show[col], errors="coerce")
+                        holder_show = holder_show.rename(columns={
+                            "holder_name": "股东名称",
+                            "hold_amount": "持股数量",
+                            "hold_ratio": "占总股本比(%)",
+                            "hold_float_ratio": "占流通股比(%)",
+                            "hold_change": "持股变动",
+                            "holder_type": "股东类型",
+                        })
+                        for col in ["占总股本比(%)", "占流通股比(%)"]:
+                            if col in holder_show.columns:
+                                holder_show[col] = holder_show[col].map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+                        for col in ["持股数量", "持股变动"]:
+                            if col in holder_show.columns:
+                                holder_show[col] = holder_show[col].map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
+                        show_cols = [c for c in ["股东名称", "持股数量", "占总股本比(%)", "占流通股比(%)", "持股变动", "股东类型"] if c in holder_show.columns]
+                        st.dataframe(holder_show[show_cols], use_container_width=True, hide_index=True)
+                    else:
+                        st.info("当前报告期暂无前十大股东数据。")
+
+                with tab_float:
+                    if has_top10_float:
+                        float_show = top10_floatholders.copy()
+                        for col in ["hold_amount", "hold_ratio", "hold_float_ratio", "hold_change"]:
+                            if col in float_show.columns:
+                                float_show[col] = pd.to_numeric(float_show[col], errors="coerce")
+                        float_show = float_show.rename(columns={
+                            "holder_name": "股东名称",
+                            "hold_amount": "持股数量",
+                            "hold_ratio": "占总股本比(%)",
+                            "hold_float_ratio": "占流通股比(%)",
+                            "hold_change": "持股变动",
+                            "holder_type": "股东类型",
+                        })
+                        for col in ["占总股本比(%)", "占流通股比(%)"]:
+                            if col in float_show.columns:
+                                float_show[col] = float_show[col].map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+                        for col in ["持股数量", "持股变动"]:
+                            if col in float_show.columns:
+                                float_show[col] = float_show[col].map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
+                        show_cols = [c for c in ["股东名称", "持股数量", "占总股本比(%)", "占流通股比(%)", "持股变动", "股东类型"] if c in float_show.columns]
+                        st.dataframe(float_show[show_cols], use_container_width=True, hide_index=True)
+                    else:
+                        st.info("当前报告期暂无前十大流通股东数据。")
+            elif top10_errors:
+                err_text = "；".join([str(v) for v in top10_errors.values() if str(v).strip()])
+                st.info(f"前十大股东数据暂不可用：{err_text or '接口暂无返回'}")
 
     else:
         metric_cols_top = st.columns(5)
