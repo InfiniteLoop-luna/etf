@@ -5683,9 +5683,9 @@ def render_security_search_tab():
         tab_kline, tab_valuation, tab_financial, tab_capital = st.tabs(["🕯️ K线", "📈 估值", "🧾 财务", "🏦 市值股本"])
 
         with tab_kline:
-            st.caption("支持周线/月线K线（含 MA5 / MA10），默认联动上方时间范围。")
+            st.caption("支持日线/周线/月线K线（含 MA5 / MA10），默认联动上方时间范围。")
             if kline_df is None or kline_df.empty:
-                st.info("暂无可用K线数据（当前依赖周/月复权数据表）。")
+                st.info("暂无可用K线数据。")
             else:
                 kline_ctl_cols = st.columns([1.2, 1.4, 1.0])
                 with kline_ctl_cols[0]:
@@ -5696,14 +5696,35 @@ def render_security_search_tab():
                         key=f"security_kline_freq_{selected_code}",
                     )
                 with kline_ctl_cols[1]:
-                    kline_bars = st.slider(
-                        "显示最近K线数量",
-                        min_value=30,
-                        max_value=400,
-                        value=160,
-                        step=10,
-                        key=f"security_kline_bars_{selected_code}",
-                    )
+                    if kline_freq == "日线":
+                        kline_quick = st.radio(
+                            "日线快捷区间",
+                            options=["60日", "120日", "250日", "自定义"],
+                            horizontal=True,
+                            key=f"security_kline_quick_{selected_code}",
+                        )
+                        if kline_quick == "自定义":
+                            kline_bars = st.slider(
+                                "显示最近K线数量",
+                                min_value=30,
+                                max_value=400,
+                                value=160,
+                                step=10,
+                                key=f"security_kline_bars_{selected_code}",
+                            )
+                        else:
+                            quick_map = {"60日": 60, "120日": 120, "250日": 250}
+                            kline_bars = quick_map.get(kline_quick, 120)
+                            st.caption(f"快捷显示最近 {kline_bars} 根日K")
+                    else:
+                        kline_bars = st.slider(
+                            "显示最近K线数量",
+                            min_value=30,
+                            max_value=400,
+                            value=160,
+                            step=10,
+                            key=f"security_kline_bars_{selected_code}",
+                        )
                 with kline_ctl_cols[2]:
                     st.metric("K线样本", f"{len(kline_df):,} 条")
 
