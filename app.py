@@ -1917,6 +1917,7 @@ def create_security_kline_chart(
     title: str,
     ma_windows: list[int] | None = None,
     volume_ma_windows: list[int] | None = None,
+    show_macd: bool = False,
 ) -> go.Figure | None:
     if prefix == "d":
         open_col, high_col, low_col, close_col = "open", "high", "low", "close"
@@ -1950,10 +1951,12 @@ def create_security_kline_chart(
     for w in ma_windows:
         chart_df[f"ma{w}"] = chart_df[close_col].rolling(window=w).mean()
 
+    row_heights = [0.62, 0.2, 0.18] if show_macd else [0.74, 0.26]
+    subplot_titles = (title, "成交额/成交量", "MACD") if show_macd else (title, "成交额/成交量")
     fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03,
-        row_heights=[0.74, 0.26],
-        subplot_titles=(title, "成交额/成交量")
+        rows=3 if show_macd else 2, cols=1, shared_xaxes=True, vertical_spacing=0.03,
+        row_heights=row_heights,
+        subplot_titles=subplot_titles
     )
 
     up_mask = chart_df[close_col] >= chart_df[open_col]
@@ -2036,6 +2039,49 @@ def create_security_kline_chart(
                 row=2, col=1
             )
 
+    if show_macd:
+        close_series = pd.to_numeric(chart_df[close_col], errors="coerce")
+        ema12 = close_series.ewm(span=12, adjust=False).mean()
+        ema26 = close_series.ewm(span=26, adjust=False).mean()
+        chart_df["dif"] = ema12 - ema26
+        chart_df["dea"] = chart_df["dif"].ewm(span=9, adjust=False).mean()
+        chart_df["macd_hist"] = (chart_df["dif"] - chart_df["dea"]) * 2
+
+        macd_colors = np.where(chart_df["macd_hist"] >= 0, "#EF4444", "#10B981")
+        fig.add_trace(
+            go.Bar(
+                x=chart_df["trade_date"],
+                y=chart_df["macd_hist"],
+                name="MACD",
+                marker_color=macd_colors,
+                opacity=0.55,
+                hovertemplate="%{x|%Y-%m-%d}<br>MACD: %{y:,.3f}<extra></extra>",
+            ),
+            row=3, col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=chart_df["trade_date"],
+                y=chart_df["dif"],
+                mode="lines",
+                name="DIF",
+                line=dict(color="#2563EB", width=1.5),
+                hovertemplate="%{x|%Y-%m-%d}<br>DIF: %{y:,.3f}<extra></extra>",
+            ),
+            row=3, col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=chart_df["trade_date"],
+                y=chart_df["dea"],
+                mode="lines",
+                name="DEA",
+                line=dict(color="#7C3AED", width=1.5),
+                hovertemplate="%{x|%Y-%m-%d}<br>DEA: %{y:,.3f}<extra></extra>",
+            ),
+            row=3, col=1,
+        )
+
     fig.update_layout(
         template="wealthspark_balanced",
         height=620,
@@ -2046,6 +2092,8 @@ def create_security_kline_chart(
     )
     fig.update_yaxes(title_text="价格", row=1, col=1, fixedrange=True)
     fig.update_yaxes(title_text=y_title, row=2, col=1, fixedrange=True)
+    if show_macd:
+        fig.update_yaxes(title_text="MACD", row=3, col=1, fixedrange=True)
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)')
 
     return fig
@@ -5776,6 +5824,13 @@ def render_security_search_tab():
                     show_vol_ma10 = st.checkbox("VOL_MA10", value=True, key=f"security_kline_vol_ma10_{selected_code}")
                 with vol_ma_ctl_cols[2]:
                     show_vol_ma20 = st.checkbox("VOL_MA20", value=False, key=f"security_kline_vol_ma20_{selected_code}")
+
+                macd_cols = st.columns([1.0, 2.0])
+                with macd_cols[0]:
+                    show_macd = st.checkbox("显示MACD", value=True, key=f"security_kline_macd_{selected_code}")
+                with macd_cols[1]:
+                    if show_macd:
+                        st.caption("MACD 参数：12,26,9（DIF/DEA）")
                 volume_ma_windows = []
                 if show_vol_ma5:
                     volume_ma_windows.append(5)
@@ -5801,6 +5856,7 @@ def render_security_search_tab():
                     title=f"{title_name} — {kline_freq}K线",
                     ma_windows=ma_windows,
                     volume_ma_windows=volume_ma_windows,
+                    show_macd=show_macd,
                 )
                 if kline_chart is not None:
                     st.plotly_chart(kline_chart, use_container_width=True)
