@@ -5349,6 +5349,88 @@ def render_security_search_tab():
                         cmp_cols[2].metric("前十流通锁仓变化", _fmt_pct(float_total_ratio), _fmt_delta_pct(float_total_ratio - prev_float_total_ratio))
                         cmp_cols[3].metric("股东名单变化", f"+{holder_new_count} / -{holder_exit_count}")
                         st.caption(f"对比基准报告期：{prev_period}（当前：{top10_period}）")
+
+                        with st.expander("🧾 新增/退出股东名单", expanded=False):
+                            holder_name_col = "holder_name"
+                            curr_holder_df = top10_holders.copy() if has_top10_holders else pd.DataFrame()
+                            prev_holder_df = prev_top10_holders.copy() if prev_has_holder else pd.DataFrame()
+
+                            if holder_name_col in curr_holder_df.columns:
+                                curr_holder_df[holder_name_col] = curr_holder_df[holder_name_col].astype(str).str.strip()
+                                curr_holder_df = curr_holder_df[curr_holder_df[holder_name_col] != ""]
+                            else:
+                                curr_holder_df = pd.DataFrame(columns=[holder_name_col])
+
+                            if holder_name_col in prev_holder_df.columns:
+                                prev_holder_df[holder_name_col] = prev_holder_df[holder_name_col].astype(str).str.strip()
+                                prev_holder_df = prev_holder_df[prev_holder_df[holder_name_col] != ""]
+                            else:
+                                prev_holder_df = pd.DataFrame(columns=[holder_name_col])
+
+                            new_holder_names = sorted(curr_holder_names - prev_holder_names)
+                            exit_holder_names = sorted(prev_holder_names - curr_holder_names)
+
+                            list_col_new, list_col_exit = st.columns(2)
+
+                            with list_col_new:
+                                st.markdown(f"**🆕 新增股东（{len(new_holder_names)}）**")
+                                if new_holder_names:
+                                    show_new = curr_holder_df[curr_holder_df[holder_name_col].isin(new_holder_names)].copy()
+                                    if not show_new.empty:
+                                        for col in ["hold_ratio", "hold_float_ratio", "hold_amount", "hold_change"]:
+                                            if col in show_new.columns:
+                                                show_new[col] = pd.to_numeric(show_new[col], errors="coerce")
+                                        show_new = show_new.rename(columns={
+                                            "holder_name": "股东名称",
+                                            "hold_ratio": "占总股本比(%)",
+                                            "hold_float_ratio": "占流通股比(%)",
+                                            "hold_amount": "持股数量",
+                                            "hold_change": "持股变动",
+                                        })
+                                        if "占总股本比(%)" in show_new.columns:
+                                            show_new["占总股本比(%)"] = show_new["占总股本比(%)"].map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+                                        if "占流通股比(%)" in show_new.columns:
+                                            show_new["占流通股比(%)"] = show_new["占流通股比(%)"].map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+                                        if "持股数量" in show_new.columns:
+                                            show_new["持股数量"] = show_new["持股数量"].map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
+                                        if "持股变动" in show_new.columns:
+                                            show_new["持股变动"] = show_new["持股变动"].map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
+                                        keep_cols = [c for c in ["股东名称", "占总股本比(%)", "占流通股比(%)", "持股数量", "持股变动"] if c in show_new.columns]
+                                        st.dataframe(show_new[keep_cols], use_container_width=True, hide_index=True)
+                                    else:
+                                        st.write("- " + "\n- ".join(new_holder_names))
+                                else:
+                                    st.info("本期无新增股东")
+
+                            with list_col_exit:
+                                st.markdown(f"**📤 退出股东（{len(exit_holder_names)}）**")
+                                if exit_holder_names:
+                                    show_exit = prev_holder_df[prev_holder_df[holder_name_col].isin(exit_holder_names)].copy()
+                                    if not show_exit.empty:
+                                        for col in ["hold_ratio", "hold_float_ratio", "hold_amount", "hold_change"]:
+                                            if col in show_exit.columns:
+                                                show_exit[col] = pd.to_numeric(show_exit[col], errors="coerce")
+                                        show_exit = show_exit.rename(columns={
+                                            "holder_name": "股东名称",
+                                            "hold_ratio": "占总股本比(%)",
+                                            "hold_float_ratio": "占流通股比(%)",
+                                            "hold_amount": "持股数量",
+                                            "hold_change": "持股变动",
+                                        })
+                                        if "占总股本比(%)" in show_exit.columns:
+                                            show_exit["占总股本比(%)"] = show_exit["占总股本比(%)"].map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+                                        if "占流通股比(%)" in show_exit.columns:
+                                            show_exit["占流通股比(%)"] = show_exit["占流通股比(%)"].map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+                                        if "持股数量" in show_exit.columns:
+                                            show_exit["持股数量"] = show_exit["持股数量"].map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
+                                        if "持股变动" in show_exit.columns:
+                                            show_exit["持股变动"] = show_exit["持股变动"].map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
+                                        keep_cols = [c for c in ["股东名称", "占总股本比(%)", "占流通股比(%)", "持股数量", "持股变动"] if c in show_exit.columns]
+                                        st.dataframe(show_exit[keep_cols], use_container_width=True, hide_index=True)
+                                    else:
+                                        st.write("- " + "\n- ".join(exit_holder_names))
+                                else:
+                                    st.info("本期无退出股东")
                     elif prev_error:
                         st.caption(f"上期对比数据加载失败：{prev_error}")
                     else:
