@@ -1911,7 +1911,13 @@ def get_security_metric_config(security_type: str) -> dict[str, dict[str, Union[
     }
 
 
-def create_security_kline_chart(df: pd.DataFrame, prefix: str, title: str, ma_windows: list[int] | None = None) -> go.Figure | None:
+def create_security_kline_chart(
+    df: pd.DataFrame,
+    prefix: str,
+    title: str,
+    ma_windows: list[int] | None = None,
+    volume_ma_windows: list[int] | None = None,
+) -> go.Figure | None:
     if prefix == "d":
         open_col, high_col, low_col, close_col = "open", "high", "low", "close"
         amount_col, vol_col = "amount", "vol"
@@ -2008,6 +2014,27 @@ def create_security_kline_chart(df: pd.DataFrame, prefix: str, title: str, ma_wi
             ),
             row=2, col=1
         )
+
+        volume_ma_windows = volume_ma_windows or [5, 10]
+        volume_ma_windows = sorted({int(w) for w in volume_ma_windows if isinstance(w, (int, float)) and int(w) > 1})
+        if not volume_ma_windows:
+            volume_ma_windows = [5, 10]
+
+        vol_ma_colors = ["#1D4ED8", "#9333EA", "#EA580C", "#0F766E"]
+        for idx, w in enumerate(volume_ma_windows):
+            vol_ma_col = f"vol_ma{w}"
+            chart_df[vol_ma_col] = pd.to_numeric(chart_df[volume_used], errors="coerce").rolling(window=w).mean()
+            fig.add_trace(
+                go.Scatter(
+                    x=chart_df["trade_date"],
+                    y=chart_df[vol_ma_col],
+                    mode="lines",
+                    name=f"VOL_MA{w}",
+                    line=dict(color=vol_ma_colors[idx % len(vol_ma_colors)], width=1.4),
+                    hovertemplate=f"%{{x|%Y-%m-%d}}<br>VOL_MA{w}: %{{y:,.2f}}<extra></extra>",
+                ),
+                row=2, col=1
+            )
 
     fig.update_layout(
         template="wealthspark_balanced",
@@ -5742,6 +5769,23 @@ def render_security_search_tab():
                 if not ma_windows:
                     ma_windows = [5, 10]
 
+                vol_ma_ctl_cols = st.columns([1.0, 1.0, 1.4])
+                with vol_ma_ctl_cols[0]:
+                    show_vol_ma5 = st.checkbox("VOL_MA5", value=True, key=f"security_kline_vol_ma5_{selected_code}")
+                with vol_ma_ctl_cols[1]:
+                    show_vol_ma10 = st.checkbox("VOL_MA10", value=True, key=f"security_kline_vol_ma10_{selected_code}")
+                with vol_ma_ctl_cols[2]:
+                    show_vol_ma20 = st.checkbox("VOL_MA20", value=False, key=f"security_kline_vol_ma20_{selected_code}")
+                volume_ma_windows = []
+                if show_vol_ma5:
+                    volume_ma_windows.append(5)
+                if show_vol_ma10:
+                    volume_ma_windows.append(10)
+                if show_vol_ma20:
+                    volume_ma_windows.append(20)
+                if not volume_ma_windows:
+                    volume_ma_windows = [5, 10]
+
                 prefix = 'd' if kline_freq == '日线' else ('w' if kline_freq == '周线' else 'm')
                 date_filtered_kline = kline_df[
                     (kline_df['trade_date'].dt.date >= date_range[0]) &
@@ -5756,6 +5800,7 @@ def render_security_search_tab():
                     prefix=prefix,
                     title=f"{title_name} — {kline_freq}K线",
                     ma_windows=ma_windows,
+                    volume_ma_windows=volume_ma_windows,
                 )
                 if kline_chart is not None:
                     st.plotly_chart(kline_chart, use_container_width=True)
