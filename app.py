@@ -708,6 +708,26 @@ def load_fund_hot_stock_meta() -> dict:
         }
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_security_top10_shareholders(symbol: str, period: str) -> dict:
+    from src.fund_hot_stocks import query_stock_top10_shareholders
+
+    ts_code = str(symbol or "").strip().upper()
+    period_norm = str(period or "").replace("-", "").strip()
+    if not ts_code:
+        return {"top10_holders": pd.DataFrame(), "top10_floatholders": pd.DataFrame(), "errors": {}}
+
+    top10_pack = query_stock_top10_shareholders(
+        symbol=ts_code,
+        period=period_norm or None,
+    )
+    return {
+        "top10_holders": top10_pack.get("top10_holders", pd.DataFrame()),
+        "top10_floatholders": top10_pack.get("top10_floatholders", pd.DataFrame()),
+        "errors": top10_pack.get("errors", {}) or {},
+    }
+
+
 @st.cache_data(ttl=300)
 def load_trend_recommendations() -> dict:
     try:
@@ -5167,7 +5187,7 @@ def render_security_search_tab():
                                 st.success("更新成功！请重新点击关键字刷新搜索结果。")
 
         st.markdown("##### 🧱 前十大股东 / 前十大流通股东")
-        st.caption("入口已迁移到个股查询页，可按报告期直接查询股东结构。")
+        st.caption("入口已迁移到个股查询页，可按报告期直接查询股东结构（结果缓存 5 分钟）。")
 
         top10_period_options = load_fund_hot_stock_periods()
         if not top10_period_options:
@@ -5196,7 +5216,7 @@ def render_security_search_tab():
         with top10_ctl_btn:
             st.caption(" ")
             query_top10_clicked = st.button(
-                "查询前十大股东",
+                "查询/刷新前十大股东",
                 type="primary",
                 key=f"btn_security_top10_{selected_code}",
             )
@@ -5210,9 +5230,7 @@ def render_security_search_tab():
             st.session_state["security_top10_errors"] = {}
             st.session_state["security_top10_status"] = "查询中"
             try:
-                from src.fund_hot_stocks import query_stock_top10_shareholders
-
-                top10_pack = query_stock_top10_shareholders(
+                top10_pack = load_security_top10_shareholders(
                     symbol=selected_code,
                     period=str(top10_period).replace("-", ""),
                 )
