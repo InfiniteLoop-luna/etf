@@ -182,11 +182,22 @@ def get_max_trade_date(engine: Engine, table_name: str) -> Optional[str]:
 def resolve_start_date(engine: Engine, table_name: str, default_start: str, force_start: Optional[str] = None, lookback_days: int = 0) -> str:
     if force_start:
         return force_start
+
     existing_max = get_max_trade_date(engine, table_name)
     if not existing_max:
         return default_start
-    start_day = (datetime.strptime(existing_max, "%Y%m%d") - timedelta(days=max(0, int(lookback_days or 0)))).strftime("%Y%m%d")
+
+    lookback_days = max(0, int(lookback_days or 0))
+    max_dt = datetime.strptime(existing_max, '%Y%m%d')
+
+    # 增量默认从 最新已入库日期的下一天开始，避免每天重复只拉取同一日。
+    if lookback_days == 0:
+        start_day = (max_dt + timedelta(days=1)).strftime('%Y%m%d')
+    else:
+        start_day = (max_dt - timedelta(days=lookback_days)).strftime('%Y%m%d')
+
     return max(default_start, start_day)
+
 
 
 def upsert_rows(
