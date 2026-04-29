@@ -734,15 +734,68 @@ def load_security_top10_shareholders(symbol: str, period: str) -> dict:
 
 
 @st.cache_data(ttl=300)
-def load_trend_recommendations() -> dict:
+def load_trend_recommendations_from_path(file_path: str) -> dict:
     try:
-        if not os.path.exists(TREND_RECO_FILE):
+        if not file_path or not os.path.exists(file_path):
             return {}
-        with open(TREND_RECO_FILE, 'r', encoding='utf-8') as f:
+        with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception as exc:
-        logger.warning(f"load_trend_recommendations failed: {exc}")
+        logger.warning(f"load_trend_recommendations_from_path failed for {file_path}: {exc}")
         return {}
+
+
+@st.cache_data(ttl=300)
+def load_trend_recommendations() -> dict:
+    return load_trend_recommendations_from_path(TREND_RECO_FILE)
+
+
+@st.cache_data(ttl=300)
+def list_trend_recommendation_snapshots() -> list[dict]:
+    entries_by_date = {}
+    latest_payload = load_trend_recommendations()
+    latest_trade_date = str(latest_payload.get("trade_date") or "").strip()
+    if latest_payload:
+        latest_key = latest_trade_date or "latest"
+        entries_by_date[latest_key] = {
+            "trade_date": latest_trade_date or "最新",
+            "path": TREND_RECO_FILE,
+            "source": "latest",
+        }
+
+    base_dir = os.path.dirname(TREND_RECO_FILE) or "."
+    if os.path.isdir(base_dir):
+        try:
+            for name in os.listdir(base_dir):
+                if not str(name).endswith("_trend_recommendations.json"):
+                    continue
+                file_path = os.path.join(base_dir, name)
+                parsed_date = _parse_reco_date_from_filename(name)
+                payload = load_trend_recommendations_from_path(file_path)
+                trade_date = str(payload.get("trade_date") or "").strip()
+                if not trade_date and parsed_date is not None:
+                    trade_date = parsed_date.strftime("%Y-%m-%d")
+                if not trade_date:
+                    continue
+                if trade_date not in entries_by_date:
+                    entries_by_date[trade_date] = {
+                        "trade_date": trade_date,
+                        "path": file_path,
+                        "source": "archive",
+                    }
+        except Exception as exc:
+            logger.warning(f"list_trend_recommendation_snapshots failed: {exc}")
+
+    entries = list(entries_by_date.values())
+
+    def _sort_key(item: dict):
+        td = pd.to_datetime(item.get("trade_date"), errors="coerce")
+        if pd.notna(td):
+            return td
+        return pd.Timestamp.min
+
+    entries.sort(key=_sort_key, reverse=True)
+    return entries
 
 
 
@@ -3379,19 +3432,40 @@ def render_daily_trend_reco_tab():
     st.subheader("⭐ 每日趋势推荐")
     st.caption("基于日更后的最新日线数据，自动筛选 Top10 上涨趋势最强股票 与 Top10 避雷股票。仅供辅助分析，不构成投资建议。")
 
-    payload = load_trend_recommendations()
-    if not payload:
+    snapshots = list_trend_recommendation_snapshots()
+    if not snapshots:
         st.info("暂无每日趋势推荐结果，请先完成当日数据更新。")
         return
 
+    snapshot_labels = [f"{item.get('trade_date', '-')}{'（最新）' if item.get('source') == 'latest' else ''}" for item in snapshots]
+    default_index = next((idx for idx, item in enumerate(snapshots) if item.get('source') == 'latest'), 0)
+
+    selector_cols = st.columns([1.4, 3])
+    with selector_cols[0]:
+        selected_label = st.selectbox(
+            "查看交易日",
+            options=snapshot_labels,
+            index=default_index,
+            key="daily_trend_reco_selected_snapshot",
+        )
+    selected_snapshot = snapshots[snapshot_labels.index(selected_label)]
+    payload = load_trend_recommendations_from_path(selected_snapshot.get("path") or "")
+    if not payload:
+        st.warning("所选交易日的推荐文件读取失败，请稍后重试。")
+        return
+
+    selected_trade_date = str(payload.get('trade_date') or selected_snapshot.get('trade_date') or '-')
+    is_latest = selected_snapshot.get('source') == 'latest'
+
     meta_cols = st.columns(4)
-    meta_cols[0].metric("交易日", payload.get('trade_date') or '-')
+    meta_cols[0].metric("交易日", selected_trade_date)
     meta_cols[1].metric("样本池", f"{int(payload.get('universe_size') or 0):,}")
     meta_cols[2].metric("强势股数量", str(len(payload.get('top_uptrend', []) or [])))
     meta_cols[3].metric("避雷股数量", str(len(payload.get('top_avoid', []) or [])))
 
     generated_at = payload.get('generated_at') or '-'
-    st.caption(f"生成时间：{generated_at}")
+    latest_hint = "（当前最新）" if is_latest else "（历史快照）"
+    st.caption(f"生成时间：{generated_at} {latest_hint}")
 
     left, right = st.columns(2)
 
@@ -5150,6 +5224,158 @@ def render_etf_trend_tab():
         st.warning(f"加载汇总数据失败: {e}")
 
 
+def _render_top10_shareholder_panel(top10_holders, top10_floatholders, stock_title_for_top10="", top10_errors=None, *, expanded=False):
+    top10_errors = top10_errors or {}
+    has_top10_holders = isinstance(top10_holders, pd.DataFrame) and not top10_holders.empty
+    has_top10_float = isinstance(top10_floatholders, pd.DataFrame) and not top10_floatholders.empty
+
+    if not (has_top10_holders or has_top10_float):
+        if top10_errors:
+            err_text = "；".join([str(v) for v in top10_errors.values() if str(v).strip()])
+            st.info(f"前十大股东数据暂不可用：{err_text or '接口暂无返回'}")
+        return
+
+    st.markdown("##### 🧱 股东情况")
+
+    def _fmt_pct(v):
+        return f"{float(v):.2f}%" if pd.notna(v) else "-"
+
+    def _fmt_shares(v):
+        if pd.isna(v):
+            return "-"
+        val = float(v)
+        return f"{val / 1e8:,.2f} 亿股" if abs(val) >= 1e8 else f"{val:,.0f} 股"
+
+    snapshot_end = "-"
+    snapshot_ann = "-"
+    for _df in [top10_holders, top10_floatholders]:
+        if isinstance(_df, pd.DataFrame) and not _df.empty:
+            if "end_date" in _df.columns and _df["end_date"].notna().any():
+                snapshot_end = str(_df["end_date"].iloc[0])
+            if "ann_date" in _df.columns and _df["ann_date"].notna().any():
+                snapshot_ann = str(_df["ann_date"].iloc[0])
+            if snapshot_end != "-" or snapshot_ann != "-":
+                break
+    st.caption(f"{stock_title_for_top10 or '当前股票'}｜报告期：{snapshot_end}｜公告日：{snapshot_ann}")
+
+    holder_total_ratio = pd.to_numeric(top10_holders.get("hold_ratio"), errors="coerce").fillna(0).sum() if has_top10_holders else 0
+    holder_top3_ratio = pd.to_numeric(top10_holders.get("hold_ratio"), errors="coerce").fillna(0).head(3).sum() if has_top10_holders else 0
+    float_total_ratio = pd.to_numeric(top10_floatholders.get("hold_float_ratio"), errors="coerce").fillna(0).sum() if has_top10_float else 0
+    float_change_total = pd.to_numeric(top10_floatholders.get("hold_change"), errors="coerce").fillna(0).sum() if has_top10_float else 0
+
+    top10_metrics = st.columns(4)
+    top10_metrics[0].metric("前十股东合计持股", _fmt_pct(holder_total_ratio))
+    top10_metrics[1].metric("前三股东集中度", _fmt_pct(holder_top3_ratio))
+    top10_metrics[2].metric("前十流通股东锁仓", _fmt_pct(float_total_ratio))
+    top10_metrics[3].metric("流通股东净变动", _fmt_shares(float_change_total))
+
+    with st.expander("展开股东情况", expanded=expanded):
+        st.caption("展开后会同时显示前十大股东与前十大流通股东。")
+
+        st.markdown("##### 🏛 前十大股东")
+        if has_top10_holders:
+            holder_plot = top10_holders.head(10).copy()
+            holder_plot["plot_ratio"] = pd.to_numeric(holder_plot.get("hold_ratio"), errors="coerce").fillna(0)
+            holder_plot["display_name"] = holder_plot["holder_name"].astype(str)
+            fig_holder = go.Figure(go.Bar(
+                x=holder_plot["plot_ratio"],
+                y=holder_plot["display_name"],
+                orientation="h",
+                marker=dict(color=holder_plot["plot_ratio"], colorscale="Blues", showscale=False),
+                text=holder_plot["plot_ratio"].map(lambda v: f"{v:,.2f}%"),
+                textposition="outside",
+                hovertemplate="%{y}<br>占总股本：%{x:,.2f}%<extra></extra>",
+            ))
+            fig_holder.update_layout(
+                title=dict(text=f"{stock_title_for_top10} 前十大股东持股柱状图", x=0.02, font=dict(size=17, color="#1E293B")),
+                xaxis_title="占总股本比例（%）",
+                height=max(360, len(holder_plot) * 26),
+                template="wealthspark_balanced",
+                paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                plot_bgcolor="rgba(241, 245, 249, 0.58)",
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                margin=dict(l=140, r=40, t=55, b=20),
+                yaxis=dict(autorange="reversed"),
+            )
+            st.plotly_chart(fig_holder, use_container_width=True)
+
+            holder_show = top10_holders.copy()
+            for col in ["hold_amount", "hold_ratio", "hold_float_ratio", "hold_change"]:
+                if col in holder_show.columns:
+                    holder_show[col] = pd.to_numeric(holder_show[col], errors="coerce")
+            holder_show = holder_show.rename(columns={
+                "holder_name": "股东名称",
+                "hold_amount": "持股数量",
+                "hold_ratio": "占总股本比(%)",
+                "hold_float_ratio": "占流通股比(%)",
+                "hold_change": "持股变动",
+                "holder_type": "股东类型",
+            })
+            for col in ["占总股本比(%)", "占流通股比(%)"]:
+                if col in holder_show.columns:
+                    holder_show[col] = holder_show[col].map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+            for col in ["持股数量", "持股变动"]:
+                if col in holder_show.columns:
+                    holder_show[col] = holder_show[col].map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
+            display_cols = [c for c in ["股东名称", "持股数量", "占总股本比(%)", "占流通股比(%)", "持股变动", "股东类型"] if c in holder_show.columns]
+            st.dataframe(holder_show[display_cols], use_container_width=True, hide_index=True)
+        else:
+            st.info("当前报告期暂无前十大股东数据。")
+
+        st.divider()
+        st.markdown("##### 🔓 前十大流通股东")
+        if has_top10_float:
+            float_plot = top10_floatholders.head(10).copy()
+            metric_col = "hold_float_ratio" if "hold_float_ratio" in float_plot.columns else "hold_ratio"
+            float_plot["plot_ratio"] = pd.to_numeric(float_plot.get(metric_col), errors="coerce").fillna(0)
+            float_plot["display_name"] = float_plot["holder_name"].astype(str)
+            fig_float = go.Figure(go.Bar(
+                x=float_plot["plot_ratio"],
+                y=float_plot["display_name"],
+                orientation="h",
+                marker=dict(color=float_plot["plot_ratio"], colorscale="Tealgrn", showscale=False),
+                text=float_plot["plot_ratio"].map(lambda v: f"{v:,.2f}%"),
+                textposition="outside",
+                hovertemplate="%{y}<br>占流通股比例：%{x:,.2f}%<extra></extra>",
+            ))
+            fig_float.update_layout(
+                title=dict(text=f"{stock_title_for_top10} 前十大流通股东持股柱状图", x=0.02, font=dict(size=17, color="#1E293B")),
+                xaxis_title="占流通股比例（%）",
+                height=max(360, len(float_plot) * 26),
+                template="wealthspark_balanced",
+                paper_bgcolor="rgba(248, 250, 252, 0.92)",
+                plot_bgcolor="rgba(241, 245, 249, 0.58)",
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                margin=dict(l=140, r=40, t=55, b=20),
+                yaxis=dict(autorange="reversed"),
+            )
+            st.plotly_chart(fig_float, use_container_width=True)
+
+            float_show = top10_floatholders.copy()
+            for col in ["hold_amount", "hold_ratio", "hold_float_ratio", "hold_change"]:
+                if col in float_show.columns:
+                    float_show[col] = pd.to_numeric(float_show[col], errors="coerce")
+            float_show = float_show.rename(columns={
+                "holder_name": "股东名称",
+                "hold_amount": "持股数量",
+                "hold_ratio": "占总股本比(%)",
+                "hold_float_ratio": "占流通股比(%)",
+                "hold_change": "持股变动",
+                "holder_type": "股东类型",
+            })
+            for col in ["占总股本比(%)", "占流通股比(%)"]:
+                if col in float_show.columns:
+                    float_show[col] = float_show[col].map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+            for col in ["持股数量", "持股变动"]:
+                if col in float_show.columns:
+                    float_show[col] = float_show[col].map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
+            display_cols = [c for c in ["股东名称", "持股数量", "占总股本比(%)", "占流通股比(%)", "持股变动", "股东类型"] if c in float_show.columns]
+            st.dataframe(float_show[display_cols], use_container_width=True, hide_index=True)
+        else:
+            st.info("当前报告期暂无前十大流通股东数据。")
+
+
+
 def render_security_search_tab():
     st.subheader("🔎 个股 / 指数查询")
     st.caption("支持按代码、简称、拼音检索个股或指数，查看最新快照与历史趋势")
@@ -5339,6 +5565,30 @@ def render_security_search_tab():
         st.markdown("##### 📜 主营与产品")
         st.info(f"**主要业务**：{profile.get('main_business') or '-'}")
         st.info(f"**产品及业务范围**：{profile.get('business_scope') or '-'}")
+
+        top10_cache = st.session_state.setdefault("security_top10_cache", {})
+        top10_pack = top10_cache.get(selected_code)
+        if not isinstance(top10_pack, dict):
+            try:
+                from src.fund_hot_stocks import query_stock_top10_shareholders
+                with st.spinner("加载股东情况..."):
+                    top10_pack = query_stock_top10_shareholders(symbol=selected_code)
+            except Exception as top10_exc:
+                logger.warning(f"query_stock_top10_shareholders failed in security search: {top10_exc}", exc_info=True)
+                top10_pack = {
+                    "top10_holders": pd.DataFrame(),
+                    "top10_floatholders": pd.DataFrame(),
+                    "errors": {"query": str(top10_exc)},
+                }
+            top10_cache[selected_code] = top10_pack
+
+        _render_top10_shareholder_panel(
+            top10_pack.get("top10_holders", pd.DataFrame()),
+            top10_pack.get("top10_floatholders", pd.DataFrame()),
+            stock_title_for_top10=f"{title_name}（{selected_code}）",
+            top10_errors=top10_pack.get("errors", {}) or {},
+            expanded=False,
+        )
         
         with st.expander("📝 订正主营与产品信息"):
             configured_password = get_stock_info_edit_password()
