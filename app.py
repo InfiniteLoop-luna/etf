@@ -761,34 +761,77 @@ def get_security_intraday_engine_cached():
         return None
 
 
-def extract_trade_date_from_plotly_event(event) -> str:
+def _event_payload_get(obj, key: str, default=None):
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    try:
+        value = getattr(obj, key)
+        return default if value is None else value
+    except Exception:
+        pass
+    try:
+        return obj[key]
+    except Exception:
+        return default
+
+
+
+def extract_trade_date_from_plotly_event(event, fallback_dates: list[str] | None = None) -> str:
     if event is None:
         return ""
 
-    try:
-        selection = event.selection
-    except Exception:
-        selection = event.get("selection", {}) if isinstance(event, dict) else {}
+    selection = _event_payload_get(event, "selection")
+    payload = selection if selection is not None else event
 
-    points = []
-    if selection is not None:
-        try:
-            points = selection.points or []
-        except Exception:
-            points = selection.get("points", []) if isinstance(selection, dict) else []
+    points = _event_payload_get(payload, "points", []) or []
+    point_indices = _event_payload_get(payload, "point_indices", []) or []
+    fallback_dates = [str(item).strip() for item in (fallback_dates or []) if str(item).strip()]
 
-    for point in reversed(points):
-        customdata = point.get("customdata")
-        if isinstance(customdata, (list, tuple)) and customdata:
-            candidate = str(customdata[0]).strip()
-            parsed = pd.to_datetime(candidate, errors="coerce")
-            if pd.notna(parsed):
-                return parsed.strftime("%Y-%m-%d")
-
-        candidate = point.get("x")
+    def _parse_candidate(candidate) -> str:
+        if candidate is None:
+            return ""
         parsed = pd.to_datetime(candidate, errors="coerce")
         if pd.notna(parsed):
             return parsed.strftime("%Y-%m-%d")
+        return ""
+
+    for point in reversed(list(points)):
+        customdata = _event_payload_get(point, "customdata")
+        if customdata is not None and not isinstance(customdata, (list, tuple, np.ndarray, pd.Series)):
+            customdata = [customdata]
+        if customdata is not None:
+            for candidate in list(customdata):
+                parsed = _parse_candidate(candidate)
+                if parsed:
+                    return parsed
+
+        for key in ("x", "label", "value", "text"):
+            parsed = _parse_candidate(_event_payload_get(point, key))
+            if parsed:
+                return parsed
+
+        for key in ("point_index", "point_number", "pointIndex", "pointNumber"):
+            point_idx = _event_payload_get(point, key)
+            try:
+                point_idx = int(point_idx)
+            except Exception:
+                continue
+            if 0 <= point_idx < len(fallback_dates):
+                parsed = _parse_candidate(fallback_dates[point_idx])
+                if parsed:
+                    return parsed
+
+    for point_idx in reversed(list(point_indices)):
+        try:
+            point_idx = int(point_idx)
+        except Exception:
+            continue
+        if 0 <= point_idx < len(fallback_dates):
+            parsed = _parse_candidate(fallback_dates[point_idx])
+            if parsed:
+                return parsed
 
     return ""
 
@@ -2312,6 +2355,7 @@ def create_security_kline_chart(
         template="wealthspark_balanced",
         height=620,
         hovermode="x unified",
+        clickmode="event+select",
         showlegend=True,
         xaxis_rangeslider_visible=False,
         margin=dict(l=20, r=20, t=60, b=20),
@@ -6375,15 +6419,25 @@ def render_security_search_tab():
                 if kline_chart is not None:
                     if enable_intraday_click:
                         st.caption("💡 直接点击某根日K蜡烛，可按需拉取该交易日 1 分钟分时图；下载后会自动写入 PostgreSQL 缓存。")
+                        chart_key = f"security_kline_chart_{selected_code}"
+                        trade_date_candidates = date_filtered_kline["trade_date"].dt.strftime("%Y-%m-%d").tolist()
                         kline_event = st.plotly_chart(
                             kline_chart,
                             use_container_width=True,
-                            key=f"security_kline_chart_{selected_code}",
+                            key=chart_key,
                             on_select="rerun",
                             selection_mode=["points"],
                             config={"scrollZoom": False},
                         )
-                        selected_trade_date = extract_trade_date_from_plotly_event(kline_event)
+                        selected_trade_date = extract_trade_date_from_plotly_event(
+                            kline_event,
+                            fallback_dates=trade_date_candidates,
+                        )
+                        if not selected_trade_date:
+                            selected_trade_date = extract_trade_date_from_plotly_event(
+                                st.session_state.get(chart_key),
+                                fallback_dates=trade_date_candidates,
+                            )
                         if selected_trade_date:
                             st.session_state[f"security_intraday_selected_date_{selected_code}"] = selected_trade_date
                     else:
@@ -6394,6 +6448,8 @@ def render_security_search_tab():
                 if enable_intraday_click:
                     selected_intraday_date = str(st.session_state.get(f"security_intraday_selected_date_{selected_code}", "")).strip()
                     st.markdown("#### ⏱️ 当日分时")
+                    if selected_intraday_date:
+                        st.caption(f"当前已选交易日：{selected_intraday_date}")
                     if not selected_intraday_date:
                         st.info("请先点击上方某根日K蜡烛，再加载对应交易日的分时图。")
                     else:
