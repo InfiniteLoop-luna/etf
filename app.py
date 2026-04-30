@@ -27,6 +27,10 @@ from src.etf_stats import (
     get_security_financial_timeseries, get_security_kline_timeseries, get_stock_basic_summary,
     export_stock_basic_summary_excel, search_companies, update_stock_custom_info
 )
+from src.security_intraday_store import (
+    get_engine as get_security_intraday_engine,
+    load_or_fetch_stock_intraday_timeseries,
+)
 from src.trend_reco_store import (
     fetch_trend_reco_payload,
     get_engine as get_trend_reco_engine,
@@ -746,6 +750,65 @@ def get_trend_reco_engine_cached():
     except Exception as exc:
         logger.warning(f"get_trend_reco_engine_cached failed: {exc}")
         return None
+
+
+@st.cache_resource
+def get_security_intraday_engine_cached():
+    try:
+        return get_security_intraday_engine()
+    except Exception as exc:
+        logger.warning(f"get_security_intraday_engine_cached failed: {exc}")
+        return None
+
+
+def extract_trade_date_from_plotly_event(event) -> str:
+    if event is None:
+        return ""
+
+    try:
+        selection = event.selection
+    except Exception:
+        selection = event.get("selection", {}) if isinstance(event, dict) else {}
+
+    points = []
+    if selection is not None:
+        try:
+            points = selection.points or []
+        except Exception:
+            points = selection.get("points", []) if isinstance(selection, dict) else []
+
+    for point in reversed(points):
+        customdata = point.get("customdata")
+        if isinstance(customdata, (list, tuple)) and customdata:
+            candidate = str(customdata[0]).strip()
+            parsed = pd.to_datetime(candidate, errors="coerce")
+            if pd.notna(parsed):
+                return parsed.strftime("%Y-%m-%d")
+
+        candidate = point.get("x")
+        parsed = pd.to_datetime(candidate, errors="coerce")
+        if pd.notna(parsed):
+            return parsed.strftime("%Y-%m-%d")
+
+    return ""
+
+
+def load_security_intraday_timeseries(ts_code: str, trade_date: str, freq: str = "1min") -> tuple[pd.DataFrame, str, str]:
+    empty_df = pd.DataFrame(columns=["trade_time", "open", "high", "low", "close", "vol", "amount"])
+    try:
+        engine = get_security_intraday_engine_cached()
+        if engine is None:
+            return empty_df, "error", "数据库引擎不可用"
+        df, source = load_or_fetch_stock_intraday_timeseries(
+            ts_code=ts_code,
+            trade_date=trade_date,
+            freq=freq,
+            engine=engine,
+        )
+        return df, source, ""
+    except Exception as exc:
+        logger.warning(f"load_security_intraday_timeseries failed for {ts_code} {trade_date}: {exc}")
+        return empty_df, "error", str(exc)
 
 
 @st.cache_data(ttl=300)
@@ -2060,6 +2123,7 @@ def create_security_kline_chart(
     ma_windows: list[int] | None = None,
     volume_ma_windows: list[int] | None = None,
     show_macd: bool = False,
+    enable_select_points: bool = False,
 ) -> go.Figure | None:
     if prefix == "d":
         open_col, high_col, low_col, close_col = "open", "high", "low", "close"
@@ -2119,6 +2183,26 @@ def create_security_kline_chart(
         ),
         row=1, col=1
     )
+
+    if enable_select_points:
+        select_customdata = np.array(chart_df["trade_date"].dt.strftime("%Y-%m-%d")).reshape(-1, 1)
+        select_heights = (chart_df[high_col] - chart_df[low_col]).abs()
+        select_heights = select_heights.where(select_heights > 0, 0.01)
+        fig.add_trace(
+            go.Bar(
+                x=chart_df["trade_date"],
+                y=select_heights,
+                base=chart_df[low_col],
+                name="点击查看分时",
+                customdata=select_customdata,
+                marker=dict(color="rgba(59, 130, 246, 0.01)", line=dict(width=0)),
+                opacity=0.08,
+                hovertemplate="点击加载 %{customdata[0]} 分时图<extra></extra>",
+                showlegend=False,
+            ),
+            row=1,
+            col=1,
+        )
 
     ma_colors = ["#2563EB", "#7C3AED", "#F59E0B", "#10B981", "#EF4444", "#06B6D4"]
     for idx, w in enumerate(ma_windows):
@@ -2238,6 +2322,95 @@ def create_security_kline_chart(
         fig.update_yaxes(title_text="MACD", row=3, col=1, fixedrange=True)
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)')
 
+    return fig
+
+
+def create_security_intraday_chart(
+    df: pd.DataFrame,
+    title: str,
+) -> go.Figure | None:
+    required = ["trade_time", "open", "high", "low", "close"]
+    if df is None or df.empty or any(col not in df.columns for col in required):
+        return None
+
+    chart_df = df.copy()
+    chart_df["trade_time"] = pd.to_datetime(chart_df["trade_time"], errors="coerce")
+    for col in ["open", "high", "low", "close", "vol", "amount"]:
+        if col in chart_df.columns:
+            chart_df[col] = pd.to_numeric(chart_df[col], errors="coerce")
+    chart_df = chart_df.dropna(subset=["trade_time", "open", "high", "low", "close"]).sort_values("trade_time")
+    if chart_df.empty:
+        return None
+
+    row_heights = [0.72, 0.28]
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.03,
+        row_heights=row_heights,
+        subplot_titles=(title, "成交额/成交量"),
+    )
+
+    up_mask = chart_df["close"] >= chart_df["open"]
+    bar_colors = np.where(up_mask, "#EF4444", "#10B981")
+
+    fig.add_trace(
+        go.Candlestick(
+            x=chart_df["trade_time"],
+            open=chart_df["open"],
+            high=chart_df["high"],
+            low=chart_df["low"],
+            close=chart_df["close"],
+            increasing_line_color="#EF4444",
+            decreasing_line_color="#10B981",
+            increasing_fillcolor="#FCA5A5",
+            decreasing_fillcolor="#86EFAC",
+            name="1分钟K线",
+        ),
+        row=1,
+        col=1,
+    )
+
+    volume_used = None
+    y_title = "成交额/成交量"
+    if "amount" in chart_df.columns and chart_df["amount"].notna().any():
+        volume_used = "amount"
+        y_title = "成交额"
+    elif "vol" in chart_df.columns and chart_df["vol"].notna().any():
+        volume_used = "vol"
+        y_title = "成交量"
+
+    if volume_used:
+        fig.add_trace(
+            go.Bar(
+                x=chart_df["trade_time"],
+                y=chart_df[volume_used],
+                name=y_title,
+                marker_color=bar_colors,
+                opacity=0.45,
+                hovertemplate="%{x|%H:%M}<br>值: %{y:,.2f}<extra></extra>",
+            ),
+            row=2,
+            col=1,
+        )
+
+    fig.update_layout(
+        template="wealthspark_balanced",
+        height=520,
+        hovermode="x unified",
+        showlegend=True,
+        xaxis_rangeslider_visible=False,
+        margin=dict(l=20, r=20, t=60, b=20),
+    )
+    fig.update_yaxes(title_text="价格", row=1, col=1, fixedrange=True)
+    fig.update_yaxes(title_text=y_title, row=2, col=1, fixedrange=True)
+    fig.update_xaxes(
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(226,232,240,0.5)',
+        tickformat="%H:%M",
+    )
     return fig
 
 
@@ -6189,6 +6362,7 @@ def render_security_search_tab():
                     date_filtered_kline = kline_df.copy()
 
                 date_filtered_kline = date_filtered_kline.sort_values('trade_date').tail(int(kline_bars))
+                enable_intraday_click = kline_freq == "日线"
                 kline_chart = create_security_kline_chart(
                     date_filtered_kline,
                     prefix=prefix,
@@ -6196,11 +6370,62 @@ def render_security_search_tab():
                     ma_windows=ma_windows,
                     volume_ma_windows=volume_ma_windows,
                     show_macd=show_macd,
+                    enable_select_points=enable_intraday_click,
                 )
                 if kline_chart is not None:
-                    st.plotly_chart(kline_chart, use_container_width=True)
+                    if enable_intraday_click:
+                        st.caption("💡 直接点击某根日K蜡烛，可按需拉取该交易日 1 分钟分时图；下载后会自动写入 PostgreSQL 缓存。")
+                        kline_event = st.plotly_chart(
+                            kline_chart,
+                            use_container_width=True,
+                            key=f"security_kline_chart_{selected_code}",
+                            on_select="rerun",
+                            selection_mode=["points"],
+                            config={"scrollZoom": False},
+                        )
+                        selected_trade_date = extract_trade_date_from_plotly_event(kline_event)
+                        if selected_trade_date:
+                            st.session_state[f"security_intraday_selected_date_{selected_code}"] = selected_trade_date
+                    else:
+                        st.plotly_chart(kline_chart, use_container_width=True)
                 else:
                     st.info(f"当前时间范围内暂无{kline_freq}K线数据")
+
+                if enable_intraday_click:
+                    selected_intraday_date = str(st.session_state.get(f"security_intraday_selected_date_{selected_code}", "")).strip()
+                    st.markdown("#### ⏱️ 当日分时")
+                    if not selected_intraday_date:
+                        st.info("请先点击上方某根日K蜡烛，再加载对应交易日的分时图。")
+                    else:
+                        intraday_df, intraday_source, intraday_error = load_security_intraday_timeseries(
+                            ts_code=selected_code,
+                            trade_date=selected_intraday_date,
+                            freq="1min",
+                        )
+                        source_label_map = {
+                            "db": "数据库缓存",
+                            "tushare": "Tushare 实时拉取并已入库",
+                            "tushare-empty": "Tushare 无返回数据",
+                            "error": "加载失败",
+                        }
+                        source_label = source_label_map.get(intraday_source, intraday_source or "未知")
+                        st.caption(f"交易日：{selected_intraday_date} ｜ 数据来源：{source_label}")
+                        if intraday_error:
+                            st.warning(f"分时数据加载失败：{intraday_error}")
+                        elif intraday_df is None or intraday_df.empty:
+                            st.info("该交易日暂无可展示的分时数据。")
+                        else:
+                            intraday_chart = create_security_intraday_chart(
+                                intraday_df,
+                                title=f"{title_name} — {selected_intraday_date} 分时图",
+                            )
+                            if intraday_chart is not None:
+                                st.plotly_chart(intraday_chart, use_container_width=True)
+                            metric_intraday_cols = st.columns(4)
+                            metric_intraday_cols[0].metric("分钟数", f"{len(intraday_df):,}")
+                            metric_intraday_cols[1].metric("日内开盘", format_optional_number(intraday_df['open'].iloc[0]))
+                            metric_intraday_cols[2].metric("日内收盘", format_optional_number(intraday_df['close'].iloc[-1]))
+                            metric_intraday_cols[3].metric("日内振幅", format_optional_number(intraday_df['high'].max() - intraday_df['low'].min()))
 
         with tab_valuation:
             st.caption("展示静态市盈率、动态市盈率与股息率曲线")
