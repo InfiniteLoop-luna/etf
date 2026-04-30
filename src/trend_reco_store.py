@@ -461,3 +461,48 @@ def list_trend_reco_runs(engine: Engine, limit: Optional[int] = None) -> list[di
             }
         )
     return results
+
+
+
+def list_trend_reco_payloads(engine: Engine, limit: Optional[int] = None) -> list[dict]:
+    sql = f"""
+    SELECT trade_date, generated_at, universe_size, source_file, payload
+    FROM {TREND_RECO_RUNS_TABLE}
+    ORDER BY trade_date DESC
+    """
+    params = {}
+    if limit and int(limit) > 0:
+        sql += " LIMIT :limit"
+        params["limit"] = int(limit)
+
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text(sql), params).mappings().all()
+    except Exception as exc:
+        logger.warning("list_trend_reco_payloads failed: %s", exc)
+        return []
+
+    payloads: list[dict] = []
+    for row in rows:
+        payload = _coerce_payload_dict(row.get("payload"))
+        if not payload:
+            payload = {}
+
+        trade_date_value = row.get("trade_date")
+        if trade_date_value and not payload.get("trade_date"):
+            payload["trade_date"] = trade_date_value.isoformat() if hasattr(trade_date_value, "isoformat") else str(trade_date_value)
+
+        generated_at_value = row.get("generated_at")
+        if generated_at_value and not payload.get("generated_at"):
+            payload["generated_at"] = generated_at_value.strftime("%Y-%m-%d %H:%M:%S") if hasattr(generated_at_value, "strftime") else str(generated_at_value)
+
+        if payload.get("universe_size") in (None, ""):
+            payload["universe_size"] = to_int(row.get("universe_size")) or 0
+
+        source_file = str(row.get("source_file") or "").strip()
+        if source_file and not payload.get("source_file"):
+            payload["source_file"] = source_file
+
+        payloads.append(payload)
+
+    return payloads

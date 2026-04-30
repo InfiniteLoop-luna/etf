@@ -27,7 +27,12 @@ from src.etf_stats import (
     get_security_financial_timeseries, get_security_kline_timeseries, get_stock_basic_summary,
     export_stock_basic_summary_excel, search_companies, update_stock_custom_info
 )
-from src.trend_reco_store import fetch_trend_reco_payload, get_engine as get_trend_reco_engine, list_trend_reco_runs
+from src.trend_reco_store import (
+    fetch_trend_reco_payload,
+    get_engine as get_trend_reco_engine,
+    list_trend_reco_payloads,
+    list_trend_reco_runs,
+)
 
 try:
     from src.security_trend_model import (
@@ -868,6 +873,59 @@ def list_trend_recommendation_snapshots() -> list[dict]:
 
 
 
+@st.cache_data(ttl=900)
+def load_trend_reco_history_payloads(max_files: int = 30) -> list[dict]:
+    payloads: list[dict] = []
+    limit = int(max_files) if max_files else None
+
+    try:
+        engine = get_trend_reco_engine_cached()
+        if engine is not None:
+            payloads = list_trend_reco_payloads(engine, limit=limit)
+    except Exception as exc:
+        logger.warning(f"load_trend_reco_history_payloads db load failed: {exc}")
+        payloads = []
+
+    if not payloads:
+        base_dir = os.path.dirname(TREND_RECO_FILE) or "."
+        if not os.path.isdir(base_dir):
+            return []
+
+        entries = []
+        try:
+            for name in os.listdir(base_dir):
+                if not str(name).endswith("_trend_recommendations.json"):
+                    continue
+                d = _parse_reco_date_from_filename(name)
+                if d is None:
+                    continue
+                entries.append((d, os.path.join(base_dir, name)))
+        except Exception as exc:
+            logger.warning(f"load_trend_reco_history_payloads file scan failed: {exc}")
+            return []
+
+        if not entries:
+            return []
+
+        entries.sort(key=lambda x: x[0])
+        if limit and len(entries) > limit:
+            entries = entries[-limit:]
+
+        for _, fp in entries:
+            try:
+                with open(fp, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                if payload:
+                    payloads.append(payload)
+            except Exception as exc:
+                logger.warning(f"load_trend_reco_history_payloads skip {fp}: {exc}")
+
+    payloads = [p for p in payloads if isinstance(p, dict) and str(p.get("trade_date") or "").strip()]
+    payloads.sort(key=lambda p: pd.to_datetime(p.get("trade_date"), errors="coerce"))
+    return payloads
+
+
+
 def _parse_reco_date_from_filename(filename: str):
     try:
         prefix = str(filename).split("_")[0]
@@ -991,38 +1049,17 @@ def _evaluate_reco_payload(payload: dict, symbol_cache: dict, topn_limit: int = 
 
 @st.cache_data(ttl=900)
 def load_reco_effectiveness_history(max_files: int = 30, topn_limit: int = 10) -> pd.DataFrame:
-    base_dir = os.path.dirname(TREND_RECO_FILE) or "."
-    if not os.path.isdir(base_dir):
+    payloads = load_trend_reco_history_payloads(max_files=max_files)
+    if not payloads:
         return pd.DataFrame()
-
-    entries = []
-    try:
-        for name in os.listdir(base_dir):
-            if not str(name).endswith("_trend_recommendations.json"):
-                continue
-            d = _parse_reco_date_from_filename(name)
-            if d is None:
-                continue
-            entries.append((d, os.path.join(base_dir, name)))
-    except Exception:
-        return pd.DataFrame()
-
-    if not entries:
-        return pd.DataFrame()
-
-    entries.sort(key=lambda x: x[0])
-    if max_files and len(entries) > int(max_files):
-        entries = entries[-int(max_files):]
 
     rows = []
     symbol_cache = {}
-    for _, fp in entries:
+    for payload in payloads:
         try:
-            with open(fp, "r", encoding="utf-8") as f:
-                payload = json.load(f)
             rows.append(_evaluate_reco_payload(payload, symbol_cache, topn_limit=topn_limit))
         except Exception as exc:
-            logger.warning(f"load_reco_effectiveness_history skip {fp}: {exc}")
+            logger.warning(f"load_reco_effectiveness_history skip {payload.get('trade_date')}: {exc}")
 
     if not rows:
         return pd.DataFrame()
@@ -1170,33 +1207,17 @@ def _evaluate_strategy_compare(payload: dict, symbol_cache: dict, topn_limit: in
 
 @st.cache_data(ttl=900)
 def load_reco_strategy_comparison(max_files: int = 20, topn_limit: int = 10) -> pd.DataFrame:
-    base_dir = os.path.dirname(TREND_RECO_FILE) or "."
-    if not os.path.isdir(base_dir):
+    payloads = load_trend_reco_history_payloads(max_files=max_files)
+    if not payloads:
         return pd.DataFrame()
-
-    entries = []
-    for name in os.listdir(base_dir):
-        if not str(name).endswith("_trend_recommendations.json"):
-            continue
-        d = _parse_reco_date_from_filename(name)
-        if d is None:
-            continue
-        entries.append((d, os.path.join(base_dir, name)))
-
-    if not entries:
-        return pd.DataFrame()
-    entries.sort(key=lambda x: x[0])
-    entries = entries[-int(max_files):]
 
     rows = []
     symbol_cache = {}
-    for _, fp in entries:
+    for payload in payloads:
         try:
-            with open(fp, "r", encoding="utf-8") as f:
-                payload = json.load(f)
             rows.append(_evaluate_strategy_compare(payload, symbol_cache, topn_limit=topn_limit))
         except Exception as exc:
-            logger.warning(f"load_reco_strategy_comparison skip {fp}: {exc}")
+            logger.warning(f"load_reco_strategy_comparison skip {payload.get('trade_date')}: {exc}")
 
     if not rows:
         return pd.DataFrame()
