@@ -27,6 +27,7 @@ from src.etf_stats import (
     get_security_financial_timeseries, get_security_kline_timeseries, get_stock_basic_summary,
     export_stock_basic_summary_excel, search_companies, update_stock_custom_info
 )
+from src.trend_reco_store import fetch_trend_reco_payload, get_engine as get_trend_reco_engine, list_trend_reco_runs
 
 try:
     from src.security_trend_model import (
@@ -733,6 +734,15 @@ def load_security_top10_shareholders(symbol: str, period: str) -> dict:
     }
 
 
+@st.cache_resource
+def get_trend_reco_engine_cached():
+    try:
+        return get_trend_reco_engine()
+    except Exception as exc:
+        logger.warning(f"get_trend_reco_engine_cached failed: {exc}")
+        return None
+
+
 @st.cache_data(ttl=300)
 def load_trend_recommendations_from_path(file_path: str) -> dict:
     try:
@@ -746,21 +756,75 @@ def load_trend_recommendations_from_path(file_path: str) -> dict:
 
 
 @st.cache_data(ttl=300)
+def load_trend_recommendations_from_db(trade_date: str = "") -> dict:
+    try:
+        engine = get_trend_reco_engine_cached()
+        if engine is None:
+            return {}
+        return fetch_trend_reco_payload(engine, trade_date=trade_date or None) or {}
+    except Exception as exc:
+        logger.warning(f"load_trend_recommendations_from_db failed for {trade_date or 'latest'}: {exc}")
+        return {}
+
+
+@st.cache_data(ttl=300)
+def load_trend_recommendations_snapshot(snapshot: dict | None) -> dict:
+    snapshot = snapshot or {}
+    trade_date = str(snapshot.get("trade_date") or "").strip()
+    source = str(snapshot.get("source") or "").strip().lower()
+    path = str(snapshot.get("path") or "").strip()
+
+    if source in {"db", "latest"} or trade_date:
+        payload = load_trend_recommendations_from_db(trade_date)
+        if payload:
+            return payload
+
+    if path:
+        return load_trend_recommendations_from_path(path)
+    return {}
+
+
+@st.cache_data(ttl=300)
 def load_trend_recommendations() -> dict:
+    payload = load_trend_recommendations_from_db("")
+    if payload:
+        return payload
     return load_trend_recommendations_from_path(TREND_RECO_FILE)
 
 
 @st.cache_data(ttl=300)
 def list_trend_recommendation_snapshots() -> list[dict]:
     entries_by_date = {}
+
+    try:
+        engine = get_trend_reco_engine_cached()
+        if engine is not None:
+            db_entries = list_trend_reco_runs(engine, limit=180)
+            for idx, item in enumerate(db_entries):
+                trade_date = str(item.get("trade_date") or "").strip()
+                if not trade_date:
+                    continue
+                entries_by_date[trade_date] = {
+                    "trade_date": trade_date,
+                    "path": str(item.get("source_file") or "").strip(),
+                    "source": "latest" if idx == 0 else "db",
+                    "generated_at": str(item.get("generated_at") or "").strip(),
+                    "universe_size": int(item.get("universe_size") or 0),
+                }
+    except Exception as exc:
+        logger.warning(f"list_trend_recommendation_snapshots db load failed: {exc}")
+
     latest_payload = load_trend_recommendations()
     latest_trade_date = str(latest_payload.get("trade_date") or "").strip()
     if latest_payload:
         latest_key = latest_trade_date or "latest"
+        existing = entries_by_date.get(latest_key, {})
         entries_by_date[latest_key] = {
-            "trade_date": latest_trade_date or "最新",
-            "path": TREND_RECO_FILE,
+            "trade_date": latest_trade_date or existing.get("trade_date") or "最新",
+            "path": existing.get("path") or TREND_RECO_FILE,
             "source": "latest",
+            "generated_at": str(latest_payload.get("generated_at") or existing.get("generated_at") or "").strip(),
+            "universe_size": int(latest_payload.get("universe_size") or existing.get("universe_size") or 0),
         }
 
     base_dir = os.path.dirname(TREND_RECO_FILE) or "."
@@ -782,7 +846,11 @@ def list_trend_recommendation_snapshots() -> list[dict]:
                         "trade_date": trade_date,
                         "path": file_path,
                         "source": "archive",
+                        "generated_at": str(payload.get("generated_at") or "").strip(),
+                        "universe_size": int(payload.get("universe_size") or 0),
                     }
+                elif not entries_by_date[trade_date].get("path"):
+                    entries_by_date[trade_date]["path"] = file_path
         except Exception as exc:
             logger.warning(f"list_trend_recommendation_snapshots failed: {exc}")
 
@@ -3449,9 +3517,9 @@ def render_daily_trend_reco_tab():
             key="daily_trend_reco_selected_snapshot",
         )
     selected_snapshot = snapshots[snapshot_labels.index(selected_label)]
-    payload = load_trend_recommendations_from_path(selected_snapshot.get("path") or "")
+    payload = load_trend_recommendations_snapshot(selected_snapshot)
     if not payload:
-        st.warning("所选交易日的推荐文件读取失败，请稍后重试。")
+        st.warning("所选交易日的推荐数据读取失败，请稍后重试。")
         return
 
     selected_trade_date = str(payload.get('trade_date') or selected_snapshot.get('trade_date') or '-')

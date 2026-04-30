@@ -41,8 +41,9 @@ echo "[$(date -Is)] etf-data-update: run update_hotmoney.py (safe incremental)"
 python update_hotmoney.py --datasets hm_list
 python update_hotmoney.py --datasets hm_detail --detail-batch-days 1 --detail-sleep 35 --detail-lookback-days 0
 
+
 echo "[$(date -Is)] etf-data-update: run generate_daily_trend_reco_from_pyc.py"
-TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" python scripts/generate_daily_trend_reco_from_pyc.py
+TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/generate_daily_trend_reco_from_pyc.py
 
 echo "[$(date -Is)] etf-data-update: restart streamlit"
 systemctl restart etf-streamlit
