@@ -6407,6 +6407,11 @@ def render_security_search_tab():
 
                 date_filtered_kline = date_filtered_kline.sort_values('trade_date').tail(int(kline_bars))
                 enable_intraday_click = kline_freq == "日线"
+                trade_date_candidates = (
+                    date_filtered_kline["trade_date"].dt.strftime("%Y-%m-%d").tolist()
+                    if enable_intraday_click else []
+                )
+                selected_intraday_key = f"security_intraday_selected_date_{selected_code}" if enable_intraday_click else ""
                 kline_chart = create_security_kline_chart(
                     date_filtered_kline,
                     prefix=prefix,
@@ -6420,7 +6425,6 @@ def render_security_search_tab():
                     if enable_intraday_click:
                         st.caption("💡 直接点击某根日K蜡烛，可按需拉取该交易日 1 分钟分时图；下载后会自动写入 PostgreSQL 缓存。")
                         chart_key = f"security_kline_chart_{selected_code}"
-                        trade_date_candidates = date_filtered_kline["trade_date"].dt.strftime("%Y-%m-%d").tolist()
                         kline_event = st.plotly_chart(
                             kline_chart,
                             use_container_width=True,
@@ -6439,19 +6443,34 @@ def render_security_search_tab():
                                 fallback_dates=trade_date_candidates,
                             )
                         if selected_trade_date:
-                            st.session_state[f"security_intraday_selected_date_{selected_code}"] = selected_trade_date
+                            st.session_state[selected_intraday_key] = selected_trade_date
                     else:
                         st.plotly_chart(kline_chart, use_container_width=True)
                 else:
                     st.info(f"当前时间范围内暂无{kline_freq}K线数据")
 
                 if enable_intraday_click:
-                    selected_intraday_date = str(st.session_state.get(f"security_intraday_selected_date_{selected_code}", "")).strip()
                     st.markdown("#### ⏱️ 当日分时")
-                    if selected_intraday_date:
-                        st.caption(f"当前已选交易日：{selected_intraday_date}")
+                    if trade_date_candidates:
+                        latest_trade_date = trade_date_candidates[-1]
+                        current_selected_trade_date = str(st.session_state.get(selected_intraday_key, "")).strip()
+                        if current_selected_trade_date not in trade_date_candidates:
+                            st.session_state[selected_intraday_key] = latest_trade_date
+                        st.caption("可点击上方日K自动切换；如果浏览器里点击不稳定，也可以直接在这里选交易日。")
+                        selected_intraday_date = st.selectbox(
+                            "选择要查看分时的交易日",
+                            options=list(reversed(trade_date_candidates)),
+                            key=selected_intraday_key,
+                            help="上方日K点击成功后，这里会自动同步到对应交易日。",
+                        )
+                        if selected_intraday_date:
+                            st.caption(f"当前已选交易日：{selected_intraday_date}")
+                    else:
+                        selected_intraday_date = ""
+                        st.info("当前时间范围内暂无可选交易日，暂时无法展示分时图。")
+
                     if not selected_intraday_date:
-                        st.info("请先点击上方某根日K蜡烛，再加载对应交易日的分时图。")
+                        st.info("请先选择一个交易日，再加载对应交易日的分时图。")
                     else:
                         intraday_df, intraday_source, intraday_error = load_security_intraday_timeseries(
                             ts_code=selected_code,
