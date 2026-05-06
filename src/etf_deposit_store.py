@@ -14,6 +14,22 @@ BALANCE_LABELS = {
     "fx_deposit_balance": "外币存款余额",
     "total_deposit_balance": "本外币存款余额",
 }
+DISPLAY_COLUMN_LABELS = {
+    "month": "月份",
+    "rmb_deposit_balance": "人民币存款余额",
+    "fx_deposit_balance": "外币存款余额",
+    "total_deposit_balance": "本外币存款余额",
+    "household_deposit_increase": "住户存款增加额",
+    "corp_deposit_increase": "非金融企业存款增加额",
+    "fiscal_deposit_increase": "财政性存款增加额",
+    "nonbank_deposit_increase": "非银行业金融机构存款增加额",
+    "total_deposit_increase": "存款合计增加额",
+    "household_long_loan_increase": "居民长期贷款增加额",
+    "source_type": "数据来源",
+    "source_file": "来源文件",
+    "created_at": "创建时间",
+    "updated_at": "更新时间",
+}
 NUMERIC_FIELDS = [
     "rmb_deposit_balance",
     "fx_deposit_balance",
@@ -207,6 +223,28 @@ def classify_import_rows(incoming_df: pd.DataFrame, existing_df: pd.DataFrame) -
     to_insert = incoming[~incoming["month"].isin(existing_months)].reset_index(drop=True)
     to_overwrite = incoming[incoming["month"].isin(existing_months)].reset_index(drop=True)
     return {"to_insert": to_insert, "to_overwrite": to_overwrite}
+
+
+def to_deposit_display_df(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None:
+        return pd.DataFrame()
+
+    display_df = df.copy()
+    if display_df.empty:
+        return display_df.rename(columns=DISPLAY_COLUMN_LABELS)
+
+    if "month" in display_df.columns:
+        display_df["month"] = pd.to_datetime(display_df["month"]).dt.strftime("%Y-%m-%d")
+
+    for column in ("created_at", "updated_at"):
+        if column in display_df.columns:
+            display_df[column] = pd.to_datetime(display_df[column]).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    ordered_columns = [column for column in DISPLAY_COLUMN_LABELS if column in display_df.columns]
+    if ordered_columns:
+        display_df = display_df[ordered_columns]
+
+    return display_df.rename(columns=DISPLAY_COLUMN_LABELS)
 
 
 def upsert_deposit_rows(engine: Engine, rows: list[dict]) -> int:

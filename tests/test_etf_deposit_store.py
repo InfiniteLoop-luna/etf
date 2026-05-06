@@ -8,6 +8,7 @@ from src.etf_deposit_store import (
     build_upsert_rows,
     classify_import_rows,
     normalize_month,
+    to_deposit_display_df,
 )
 
 
@@ -96,6 +97,28 @@ class EtfDepositStoreTests(unittest.TestCase):
 
         self.assertEqual(preview["to_insert"]["month"].tolist(), ["2026-04-01"])
         self.assertEqual(preview["to_overwrite"]["month"].tolist(), ["2026-03-01"])
+
+    def test_to_deposit_display_df_uses_chinese_column_labels(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "month": "2026-03-01",
+                    "rmb_deposit_balance": 342.41,
+                    "fx_deposit_balance": 1.13,
+                    "total_deposit_balance": 350.23,
+                    "source_type": "import",
+                    "updated_at": "2026-05-06 07:24:00",
+                }
+            ]
+        )
+
+        display_df = to_deposit_display_df(df)
+
+        self.assertEqual(
+            display_df.columns.tolist(),
+            ["月份", "人民币存款余额", "外币存款余额", "本外币存款余额", "数据来源", "更新时间"],
+        )
+        self.assertEqual(display_df.iloc[0]["月份"], "2026-03-01")
 
 
 if __name__ == "__main__":

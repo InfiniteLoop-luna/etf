@@ -44,6 +44,7 @@ from src.etf_deposit_store import (
     classify_import_rows,
     get_engine as get_deposit_engine,
     load_deposit_monthly_df,
+    to_deposit_display_df,
     upsert_deposit_rows,
 )
 from src.etf_deposit_importer import parse_deposit_workbook
@@ -7274,8 +7275,7 @@ def render_etf_deposit_tab():
             st.session_state["deposit_manual_open"] = True
             st.session_state["deposit_edit_month"] = edit_month
 
-        display_df = detail_df.copy()
-        display_df["month"] = pd.to_datetime(display_df["month"]).dt.strftime("%Y-%m-%d")
+        display_df = to_deposit_display_df(detail_df)
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     if st.session_state.get("deposit_manual_open", False):
@@ -7392,9 +7392,17 @@ def render_etf_deposit_tab():
                     key="deposit_overwrite_mode",
                 )
                 st.write("新增月份")
-                st.dataframe(preview["to_insert"], use_container_width=True, hide_index=True)
+                st.dataframe(
+                    to_deposit_display_df(preview["to_insert"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
                 st.write("覆盖月份")
-                st.dataframe(preview["to_overwrite"], use_container_width=True, hide_index=True)
+                st.dataframe(
+                    to_deposit_display_df(preview["to_overwrite"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
                 if st.button("确认写入", key="deposit_confirm_import"):
                     write_df = imported_df.copy()
                     if st.session_state["deposit_overwrite_mode"] == "跳过已存在月份":
