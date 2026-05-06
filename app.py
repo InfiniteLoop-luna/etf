@@ -37,6 +37,16 @@ from src.trend_reco_store import (
     list_trend_reco_payloads,
     list_trend_reco_runs,
 )
+from src.etf_deposit_store import (
+    build_balance_trend_df,
+    build_deposit_summary,
+    build_upsert_rows,
+    classify_import_rows,
+    get_engine as get_deposit_engine,
+    load_deposit_monthly_df,
+    upsert_deposit_rows,
+)
+from src.etf_deposit_importer import parse_deposit_workbook
 
 try:
     from src.security_trend_model import (
@@ -3291,7 +3301,7 @@ def main():
         elif mobile_group == "ETF":
             mobile_page = st.selectbox(
                 "页面",
-                ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF"],
+                ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🏦 本外币存款"],
                 key="iphone_page_etf",
             )
             st.caption(f"当前位置：ETF / {mobile_page}")
@@ -3303,6 +3313,8 @@ def main():
                 render_etf_category_ratio_tab()
             elif mobile_page == "📈 ETF分类趋势":
                 render_etf_trend_tab()
+            elif mobile_page == "🏦 本外币存款":
+                render_etf_deposit_tab()
             else:
                 render_wide_index_tab()
 
@@ -3371,7 +3383,7 @@ def main():
     elif nav_group == "ETF":
         etf_subpage = st.sidebar.radio(
             "ETF模块",
-            ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF"],
+            ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🏦 本外币存款"],
             key="etf_subpage"
         )
         st.caption(f"当前位置：ETF / {etf_subpage}")
@@ -3383,6 +3395,8 @@ def main():
             render_etf_category_ratio_tab()
         elif etf_subpage == "📈 ETF分类趋势":
             render_etf_trend_tab()
+        elif etf_subpage == "🏦 本外币存款":
+            render_etf_deposit_tab()
         else:
             render_wide_index_tab()
 
@@ -7100,6 +7114,294 @@ def render_macro_tab():
                 ),
                 use_container_width=True
             )
+
+
+def render_etf_deposit_tab():
+    st.subheader("🏦 本外币存款")
+    st.caption("展示本外币存款月度余额与增量变化，支持手工录入与 Excel 批量导入。")
+
+    for state_key, default_value in (
+        ("deposit_manual_open", False),
+        ("deposit_import_open", False),
+        ("deposit_edit_month", ""),
+        ("deposit_history_limit", "最近12个月"),
+        ("deposit_detail_window", "最近12个月"),
+        ("deposit_overwrite_mode", "跳过已存在月份"),
+    ):
+        if state_key not in st.session_state:
+            st.session_state[state_key] = default_value
+
+    try:
+        engine = get_deposit_engine()
+        df = load_deposit_monthly_df(engine)
+    except Exception as exc:
+        st.error(f"加载本外币存款数据失败: {exc}")
+        st.info("请确认 PostgreSQL 连接配置可用后重试。")
+        return
+
+    action_col, status_col = st.columns([1, 3])
+    with action_col:
+        if st.button("新增月份", key="deposit_add_month"):
+            st.session_state["deposit_manual_open"] = True
+            st.session_state["deposit_edit_month"] = ""
+        if st.button("批量导入", key="deposit_import_file"):
+            st.session_state["deposit_import_open"] = True
+
+    with status_col:
+        if df.empty:
+            st.caption("最新数据月份：- | 数据来源：- | 最近更新时间：-")
+        else:
+            latest_row = df.sort_values("month").iloc[-1]
+            latest_month = pd.to_datetime(latest_row["month"]).strftime("%Y-%m")
+            source_type = latest_row.get("source_type") or "-"
+            updated_at_raw = latest_row.get("updated_at")
+            updated_at = (
+                pd.to_datetime(updated_at_raw).strftime("%Y-%m-%d %H:%M")
+                if pd.notna(updated_at_raw)
+                else "-"
+            )
+            st.caption(
+                f"最新数据月份：{latest_month} | 数据来源：{source_type} | 最近更新时间：{updated_at}"
+            )
+
+    if df.empty:
+        st.info("暂无本外币存款数据，请先新增月份或批量导入。")
+    else:
+        summary = build_deposit_summary(df)
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("最新月份", summary["latest_month"] or "-")
+        metric_cols[1].metric(
+            "本外币存款余额",
+            f'{summary["latest_value"]:.2f}' if summary["latest_value"] is not None else "-",
+        )
+        metric_cols[2].metric(
+            "环比变动",
+            f'{summary["mom_delta"]:.2f}' if summary["mom_delta"] is not None else "-",
+        )
+        metric_cols[3].metric(
+            "同比变动",
+            f'{summary["yoy_delta"]:.2f}' if summary["yoy_delta"] is not None else "-",
+        )
+
+        trend_df = build_balance_trend_df(df)
+        window = st.radio(
+            "时间范围",
+            ["最近12个月", "最近24个月", "全部"],
+            horizontal=True,
+            key="deposit_history_limit",
+        )
+        if not trend_df.empty and window != "全部":
+            cutoff = trend_df["month"].max() - pd.DateOffset(
+                months=11 if window == "最近12个月" else 23
+            )
+            trend_df = trend_df[trend_df["month"] >= cutoff]
+
+        st.plotly_chart(
+            px.line(
+                trend_df,
+                x="month",
+                y="value",
+                color="metric",
+                markers=True,
+                title="余额趋势",
+            ),
+            use_container_width=True,
+        )
+
+        increment_cols = [
+            "household_deposit_increase",
+            "corp_deposit_increase",
+            "fiscal_deposit_increase",
+            "nonbank_deposit_increase",
+            "total_deposit_increase",
+        ]
+        increment_label_map = {
+            "household_deposit_increase": "住户存款增加额",
+            "corp_deposit_increase": "非金融企业存款增加额",
+            "fiscal_deposit_increase": "财政性存款增加额",
+            "nonbank_deposit_increase": "非银行业金融机构存款增加额",
+            "total_deposit_increase": "存款合计增加额",
+        }
+        increment_df = (
+            df.copy()
+            .assign(month=pd.to_datetime(df["month"]))
+            .melt(id_vars=["month"], value_vars=increment_cols, var_name="metric", value_name="value")
+        )
+        increment_df["metric"] = increment_df["metric"].map(increment_label_map)
+        st.plotly_chart(
+            px.bar(
+                increment_df,
+                x="month",
+                y="value",
+                color="metric",
+                barmode="group",
+                title="增量结构",
+            ),
+            use_container_width=True,
+        )
+
+        detail_df = df.sort_values("month", ascending=False).copy()
+        history_choice = st.radio(
+            "明细范围",
+            ["最近12个月", "全部历史"],
+            horizontal=True,
+            key="deposit_detail_window",
+        )
+        if history_choice == "最近12个月":
+            detail_df = detail_df.head(12)
+
+        edit_options = detail_df["month"].apply(lambda x: pd.to_datetime(x).strftime("%Y-%m-%d")).tolist()
+        edit_month = st.selectbox(
+            "编辑已有月份",
+            options=[""] + edit_options,
+            index=0,
+            key="deposit_edit_select",
+        )
+        if edit_month and st.button("编辑选中月份", key="deposit_edit_button"):
+            st.session_state["deposit_manual_open"] = True
+            st.session_state["deposit_edit_month"] = edit_month
+
+        display_df = detail_df.copy()
+        display_df["month"] = pd.to_datetime(display_df["month"]).dt.strftime("%Y-%m-%d")
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    if st.session_state.get("deposit_manual_open", False):
+        edit_row = None
+        if st.session_state.get("deposit_edit_month") and not df.empty:
+            mask = pd.to_datetime(df["month"]).dt.strftime("%Y-%m-%d") == st.session_state["deposit_edit_month"]
+            if mask.any():
+                edit_row = df.loc[mask].iloc[-1].to_dict()
+
+        with st.form("deposit_manual_form", clear_on_submit=False):
+            month = st.text_input(
+                "月份",
+                value=pd.to_datetime(edit_row["month"]).strftime("%Y-%m") if edit_row else "",
+            )
+            rmb = st.number_input(
+                "人民币存款余额",
+                value=float(edit_row["rmb_deposit_balance"]) if edit_row else 0.0,
+                format="%.4f",
+            )
+            fx = st.number_input(
+                "外币存款余额",
+                value=float(edit_row["fx_deposit_balance"]) if edit_row else 0.0,
+                format="%.4f",
+            )
+            total = st.number_input(
+                "本外币存款余额",
+                value=float(edit_row["total_deposit_balance"]) if edit_row else 0.0,
+                format="%.4f",
+            )
+            household = st.number_input(
+                "住户存款增加额",
+                value=float(edit_row["household_deposit_increase"]) if edit_row else 0.0,
+                format="%.4f",
+            )
+            corp = st.number_input(
+                "非金融企业存款增加额",
+                value=float(edit_row["corp_deposit_increase"]) if edit_row else 0.0,
+                format="%.4f",
+            )
+            fiscal = st.number_input(
+                "财政性存款增加额",
+                value=float(edit_row["fiscal_deposit_increase"]) if edit_row else 0.0,
+                format="%.4f",
+            )
+            nonbank = st.number_input(
+                "非银行业金融机构存款增加额",
+                value=float(edit_row["nonbank_deposit_increase"]) if edit_row else 0.0,
+                format="%.4f",
+            )
+            total_increase = st.number_input(
+                "存款合计增加额",
+                value=float(edit_row["total_deposit_increase"]) if edit_row else 0.0,
+                format="%.4f",
+            )
+            household_loan = st.number_input(
+                "居民长期贷款增加额",
+                value=float(edit_row["household_long_loan_increase"]) if edit_row else 0.0,
+                format="%.4f",
+            )
+            submitted = st.form_submit_button("保存本月数据")
+            canceled = st.form_submit_button("取消")
+
+        if canceled:
+            st.session_state["deposit_manual_open"] = False
+            st.session_state["deposit_edit_month"] = ""
+            st.rerun()
+
+        if submitted:
+            try:
+                rows = build_upsert_rows(
+                    [
+                        {
+                            "month": month,
+                            "rmb_deposit_balance": rmb,
+                            "fx_deposit_balance": fx,
+                            "total_deposit_balance": total,
+                            "household_deposit_increase": household,
+                            "corp_deposit_increase": corp,
+                            "fiscal_deposit_increase": fiscal,
+                            "nonbank_deposit_increase": nonbank,
+                            "total_deposit_increase": total_increase,
+                            "household_long_loan_increase": household_loan,
+                        }
+                    ],
+                    source_type="manual",
+                    source_file=None,
+                )
+                upsert_deposit_rows(engine, rows)
+            except Exception as exc:
+                st.error(f"保存失败: {exc}")
+            else:
+                st.session_state["deposit_manual_open"] = False
+                st.session_state["deposit_edit_month"] = ""
+                st.success("保存成功")
+                st.rerun()
+
+    if st.session_state.get("deposit_import_open", False):
+        upload = st.file_uploader(
+            "上传本外币存款 Excel",
+            type=["xlsx"],
+            key="deposit_uploader",
+        )
+        if upload is not None:
+            try:
+                imported_df = parse_deposit_workbook(upload)
+                preview = classify_import_rows(imported_df, df)
+            except Exception as exc:
+                st.error(f"导入预览失败: {exc}")
+            else:
+                st.radio(
+                    "重复月份处理",
+                    ["跳过已存在月份", "覆盖已存在月份"],
+                    horizontal=True,
+                    key="deposit_overwrite_mode",
+                )
+                st.write("新增月份")
+                st.dataframe(preview["to_insert"], use_container_width=True, hide_index=True)
+                st.write("覆盖月份")
+                st.dataframe(preview["to_overwrite"], use_container_width=True, hide_index=True)
+                if st.button("确认写入", key="deposit_confirm_import"):
+                    write_df = imported_df.copy()
+                    if st.session_state["deposit_overwrite_mode"] == "跳过已存在月份":
+                        write_df = preview["to_insert"].copy()
+                    if write_df.empty:
+                        st.warning("没有需要写入的月份。")
+                    else:
+                        try:
+                            rows = build_upsert_rows(
+                                write_df.to_dict(orient="records"),
+                                source_type="import",
+                                source_file=getattr(upload, "name", None),
+                            )
+                            upsert_deposit_rows(engine, rows)
+                        except Exception as exc:
+                            st.error(f"导入写入失败: {exc}")
+                        else:
+                            st.session_state["deposit_import_open"] = False
+                            st.success(f"已写入 {len(rows)} 个月份")
+                            st.rerun()
 
 def render_fund_hot_stocks_tab():
     """渲染公募基金持仓热股 Tab 页"""
