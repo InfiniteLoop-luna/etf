@@ -47,6 +47,7 @@ from src.etf_deposit_store import (
     upsert_deposit_rows,
 )
 from src.etf_deposit_importer import parse_deposit_workbook
+from src.navigation_config import ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS
 
 try:
     from src.security_trend_model import (
@@ -3301,7 +3302,7 @@ def main():
         elif mobile_group == "ETF":
             mobile_page = st.selectbox(
                 "页面",
-                ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🏦 本外币存款"],
+                ETF_PAGE_OPTIONS,
                 key="iphone_page_etf",
             )
             st.caption(f"当前位置：ETF / {mobile_page}")
@@ -3313,8 +3314,6 @@ def main():
                 render_etf_category_ratio_tab()
             elif mobile_page == "📈 ETF分类趋势":
                 render_etf_trend_tab()
-            elif mobile_page == "🏦 本外币存款":
-                render_etf_deposit_tab()
             else:
                 render_wide_index_tab()
 
@@ -3349,8 +3348,16 @@ def main():
                 render_hotmoney_tab()
 
         else:
-            st.caption("当前位置：宏观 / 🌏 宏观经济")
-            render_macro_tab()
+            mobile_page = st.selectbox(
+                "页面",
+                MACRO_PAGE_OPTIONS,
+                key="iphone_page_macro",
+            )
+            st.caption(f"当前位置：宏观 / {mobile_page}")
+            if mobile_page == "🌏 宏观经济":
+                render_macro_tab()
+            else:
+                render_etf_deposit_tab()
 
         st.stop()
 
@@ -3383,7 +3390,7 @@ def main():
     elif nav_group == "ETF":
         etf_subpage = st.sidebar.radio(
             "ETF模块",
-            ["📈 ETF份额变动", "📊 每日成交量", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🏦 本外币存款"],
+            ETF_PAGE_OPTIONS,
             key="etf_subpage"
         )
         st.caption(f"当前位置：ETF / {etf_subpage}")
@@ -3395,8 +3402,6 @@ def main():
             render_etf_category_ratio_tab()
         elif etf_subpage == "📈 ETF分类趋势":
             render_etf_trend_tab()
-        elif etf_subpage == "🏦 本外币存款":
-            render_etf_deposit_tab()
         else:
             render_wide_index_tab()
 
@@ -3431,8 +3436,16 @@ def main():
             render_hotmoney_tab()
 
     else:
-        st.caption("当前位置：宏观 / 🌏 宏观经济")
-        render_macro_tab()
+        macro_subpage = st.sidebar.radio(
+            "宏观模块",
+            MACRO_PAGE_OPTIONS,
+            key="macro_subpage"
+        )
+        st.caption(f"当前位置：宏观 / {macro_subpage}")
+        if macro_subpage == "🌏 宏观经济":
+            render_macro_tab()
+        else:
+            render_etf_deposit_tab()
 
 
 
