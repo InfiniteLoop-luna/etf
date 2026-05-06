@@ -39,6 +39,7 @@ from src.trend_reco_store import (
 )
 from src.etf_deposit_store import (
     build_balance_trend_df,
+    build_change_trend_df,
     build_deposit_summary,
     build_upsert_rows,
     classify_import_rows,
@@ -7198,6 +7199,7 @@ def render_etf_deposit_tab():
         )
 
         trend_df = build_balance_trend_df(df)
+        change_trend_df = build_change_trend_df(df)
         window = st.radio(
             "时间范围",
             ["最近12个月", "最近24个月", "全部"],
@@ -7209,6 +7211,7 @@ def render_etf_deposit_tab():
                 months=11 if window == "最近12个月" else 23
             )
             trend_df = trend_df[trend_df["month"] >= cutoff]
+            change_trend_df = change_trend_df[change_trend_df["month"] >= cutoff]
 
         st.plotly_chart(
             px.line(
@@ -7218,6 +7221,17 @@ def render_etf_deposit_tab():
                 color="metric",
                 markers=True,
                 title="余额趋势",
+            ),
+            use_container_width=True,
+        )
+        st.plotly_chart(
+            px.line(
+                change_trend_df,
+                x="month",
+                y="value",
+                color="metric",
+                markers=True,
+                title="同比 / 环比变动额趋势",
             ),
             use_container_width=True,
         )

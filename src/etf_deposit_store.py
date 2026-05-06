@@ -14,6 +14,10 @@ BALANCE_LABELS = {
     "fx_deposit_balance": "外币存款余额",
     "total_deposit_balance": "本外币存款余额",
 }
+CHANGE_LABELS = {
+    "mom_delta": "环比变动额",
+    "yoy_delta": "同比变动额",
+}
 DISPLAY_COLUMN_LABELS = {
     "month": "月份",
     "rmb_deposit_balance": "人民币存款余额",
@@ -165,6 +169,35 @@ def build_balance_trend_df(df: pd.DataFrame) -> pd.DataFrame:
     melted["metric"] = melted["metric_key"].map(BALANCE_LABELS)
     melted["metric_order"] = melted["metric_key"].map(
         {key: idx for idx, key in enumerate(BALANCE_LABELS.keys())}
+    )
+    return melted.sort_values(["month", "metric_order"]).reset_index(drop=True)
+
+
+def build_change_trend_df(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["month", "metric", "value"])
+
+    data = df.copy()
+    data["month"] = pd.to_datetime(data["month"])
+    data = data.sort_values("month").reset_index(drop=True)
+    data["total_deposit_balance"] = data["total_deposit_balance"].astype(float)
+    data["mom_delta"] = data["total_deposit_balance"].diff()
+    yoy_lookup = data[["month", "total_deposit_balance"]].rename(
+        columns={"month": "yoy_month", "total_deposit_balance": "yoy_value"}
+    )
+    data["yoy_month"] = data["month"] - pd.DateOffset(years=1)
+    data = data.merge(yoy_lookup, on="yoy_month", how="left")
+    data["yoy_delta"] = data["total_deposit_balance"] - data["yoy_value"]
+
+    melted = data.melt(
+        id_vars=["month"],
+        value_vars=list(CHANGE_LABELS.keys()),
+        var_name="metric_key",
+        value_name="value",
+    )
+    melted["metric"] = melted["metric_key"].map(CHANGE_LABELS)
+    melted["metric_order"] = melted["metric_key"].map(
+        {key: idx for idx, key in enumerate(CHANGE_LABELS.keys())}
     )
     return melted.sort_values(["month", "metric_order"]).reset_index(drop=True)
 

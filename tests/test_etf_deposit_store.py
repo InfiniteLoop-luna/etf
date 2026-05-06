@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.etf_deposit_store import (
     build_balance_trend_df,
+    build_change_trend_df,
     build_deposit_summary,
     build_upsert_rows,
     classify_import_rows,
@@ -59,6 +60,22 @@ class EtfDepositStoreTests(unittest.TestCase):
             ["人民币存款余额", "外币存款余额", "本外币存款余额"] * 2,
         )
         self.assertEqual(trend_df.iloc[0]["month"].strftime("%Y-%m-%d"), "2026-02-01")
+
+    def test_build_change_trend_df_computes_mom_and_yoy_amounts(self):
+        df = pd.DataFrame(
+            [
+                {"month": "2025-03-01", "total_deposit_balance": 327.12},
+                {"month": "2026-02-01", "total_deposit_balance": 345.72},
+                {"month": "2026-03-01", "total_deposit_balance": 350.23},
+            ]
+        )
+
+        change_df = build_change_trend_df(df)
+
+        latest_rows = change_df[change_df["month"] == pd.Timestamp("2026-03-01")]
+        latest_map = dict(zip(latest_rows["metric"], latest_rows["value"]))
+        self.assertAlmostEqual(latest_map["环比变动额"], 4.51, places=2)
+        self.assertAlmostEqual(latest_map["同比变动额"], 23.11, places=2)
 
     def test_build_upsert_rows_normalizes_month_and_source_fields(self):
         rows = build_upsert_rows(
