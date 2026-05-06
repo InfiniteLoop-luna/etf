@@ -134,15 +134,68 @@ Key design decisions:
 
 ## Storage Approach
 
-This design does not force a single persistence implementation, but it should use a normalized local data source consistent with the rest of the app.
+This dataset should be stored in PostgreSQL.
 
-Recommended order of preference:
+Reasoning:
 
-1. a local structured file already used by the app for app-managed datasets
-2. a lightweight table in the existing project data layer
-3. an Excel-backed normalized sheet only if no better local store exists
+- the current project already uses PostgreSQL and SQLAlchemy for several data modules
+- a month-row normalized table fits the existing app direction much better than keeping this feature Excel-native
+- database storage makes create, update, import preview, overwrite handling, and future querying much simpler and more reliable
 
-Regardless of storage implementation, the read shape exposed to the UI should always be the normalized month-row dataframe above.
+This is no longer an abstract persistence choice for the feature. The first version should write to and read from PostgreSQL directly, while Excel remains an import source rather than the system of record.
+
+### Existing project fit
+
+The repo already has PostgreSQL access patterns in multiple modules, including:
+
+- `src/etf_stats.py`
+- `src/fund_hot_stocks.py`
+- `src/security_intraday_store.py`
+- `src/trend_reco_store.py`
+
+The deposit feature should reuse the same environment-variable-based connection pattern rather than inventing a separate connection style.
+
+### Connection configuration
+
+Use environment variables or Streamlit secrets, not hardcoded credentials in source code.
+
+Recommended variables:
+
+- `ETF_PG_HOST`
+- `ETF_PG_PORT`
+- `ETF_PG_DATABASE`
+- `ETF_PG_USER`
+- `ETF_PG_PASSWORD`
+- `ETF_PG_SSLMODE`
+
+For this feature, the requested runtime connection target is:
+
+- host: `67.216.207.73`
+- port: `5432`
+- database: `postgres`
+- user: `postgres`
+- sslmode: `disable`
+
+The password should be injected through environment variables or secrets at runtime and should not be written into committed source files or design docs.
+
+### Recommended table
+
+Use a dedicated table, for example:
+
+- `macro_fx_rmb_deposits_monthly`
+
+Recommended primary constraint:
+
+- unique key on `month`
+
+Recommended audit columns:
+
+- `source_type`
+- `source_file`
+- `created_at`
+- `updated_at`
+
+Regardless of table naming details, the UI read shape should still be the normalized one-row-per-month dataframe defined above.
 
 ## Import Parsing Rules
 
@@ -175,6 +228,7 @@ Conflict behavior:
 
 - if imported `month` does not exist: insert
 - if imported `month` exists: allow `跳过` or `覆盖`
+- database write behavior should use upsert semantics after explicit user confirmation
 
 ## Entry Form Design
 
@@ -336,10 +390,18 @@ This feature should follow the current single-file Streamlit app pattern in `app
 Expected implementation units:
 
 - a new ETF page renderer for deposit data
-- a data loading layer that returns the normalized dataframe
+- a PostgreSQL-backed data access layer that returns the normalized dataframe
 - form handling for create/update
 - import parsing logic for the workbook layout
 - chart builders for balance and increment views
+
+Recommended database operations:
+
+- create table if not exists for the first migration path
+- select monthly rows ordered by `month`
+- insert new month
+- update existing month
+- batch upsert imported months
 
 Keep the write path scoped to this dataset and avoid unrelated refactors to the ETF or macro modules.
 
