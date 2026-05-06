@@ -3,6 +3,7 @@ import unittest
 import pandas as pd
 
 from src.index_monitor_store import (
+    build_index_change_trend_df,
     build_index_monitor_summary,
     build_price_trend_df,
     build_valuation_trend_df,
@@ -71,6 +72,30 @@ class IndexMonitorStoreTests(unittest.TestCase):
             trend_df["metric"].tolist(),
             ["期末静态市盈率", "期末动态市盈率"],
         )
+
+    def test_build_index_change_trend_df_shapes_mom_and_yoy_series(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "month": "2026-04-01",
+                    "index_name": "上证指数",
+                    "mom_change_pct": 0.8,
+                    "yoy_change_pct": 6.2,
+                },
+                {
+                    "month": "2026-05-01",
+                    "index_name": "上证指数",
+                    "mom_change_pct": -0.3,
+                    "yoy_change_pct": 4.7,
+                },
+            ]
+        )
+
+        trend_df = build_index_change_trend_df(df, metric_key="change_pct")
+
+        self.assertEqual(trend_df["change_type"].tolist(), ["环比", "同比", "环比", "同比"])
+        self.assertEqual(trend_df["metric"].unique().tolist(), ["涨幅"])
+        self.assertAlmostEqual(trend_df.iloc[-1]["value"], 4.7, places=2)
 
     def test_classify_index_import_rows_splits_insert_and_overwrite(self):
         incoming = pd.DataFrame(

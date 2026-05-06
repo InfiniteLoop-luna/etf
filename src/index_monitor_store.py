@@ -19,14 +19,41 @@ DISPLAY_COLUMN_LABELS = {
     "static_pe": "期末静态市盈率",
     "dynamic_pe": "期末动态市盈率",
     "mom_change_pct": "环比涨幅变化",
+    "mom_open_price": "环比开盘价格变化",
+    "mom_close_price": "环比收盘价格变化",
+    "mom_low_price": "环比最低点变化",
+    "mom_high_price": "环比最高点变化",
+    "mom_static_pe": "环比静态市盈率变化",
+    "mom_dynamic_pe": "环比动态市盈率变化",
     "yoy_change_pct": "同比涨幅变化",
+    "yoy_open_price": "同比开盘价格变化",
+    "yoy_close_price": "同比收盘价格变化",
+    "yoy_low_price": "同比最低点变化",
+    "yoy_high_price": "同比最高点变化",
+    "yoy_static_pe": "同比静态市盈率变化",
+    "yoy_dynamic_pe": "同比动态市盈率变化",
     "mom_static_pe_change_rate": "静态市盈率变化率",
     "mom_dynamic_pe_change_rate": "动态市盈率变化率",
     "source_type": "数据来源",
+    "source_file": "来源文件",
     "updated_at": "更新时间",
 }
 PRICE_FIELDS = ["open_price", "close_price", "low_price", "high_price"]
 VALUATION_FIELDS = ["static_pe", "dynamic_pe"]
+CHANGE_TREND_FIELDS = {
+    "change_pct": {"label": "涨幅", "mom": "mom_change_pct", "yoy": "yoy_change_pct"},
+    "open_price": {"label": "开盘价格", "mom": "mom_open_price", "yoy": "yoy_open_price"},
+    "close_price": {"label": "收盘价格", "mom": "mom_close_price", "yoy": "yoy_close_price"},
+    "low_price": {"label": "最低点", "mom": "mom_low_price", "yoy": "yoy_low_price"},
+    "high_price": {"label": "最高点", "mom": "mom_high_price", "yoy": "yoy_high_price"},
+    "static_pe": {"label": "静态市盈率", "mom": "mom_static_pe", "yoy": "yoy_static_pe"},
+    "dynamic_pe": {"label": "动态市盈率", "mom": "mom_dynamic_pe", "yoy": "yoy_dynamic_pe"},
+    "static_pe_change_rate": {"label": "静态市盈率变化率", "mom": "mom_static_pe_change_rate"},
+    "dynamic_pe_change_rate": {"label": "动态市盈率变化率", "mom": "mom_dynamic_pe_change_rate"},
+}
+CHANGE_TREND_FIELD_LABELS = {
+    key: config["label"] for key, config in CHANGE_TREND_FIELDS.items()
+}
 NUMERIC_FIELDS = [
     "monthly_change_pct",
     "open_price",
@@ -185,6 +212,35 @@ def build_valuation_trend_df(df: pd.DataFrame) -> pd.DataFrame:
         {"static_pe": 0, "dynamic_pe": 1}
     )
     return melted.sort_values(["index_name", "month", "metric_order"]).reset_index(drop=True)
+
+
+def build_index_change_trend_df(df: pd.DataFrame, metric_key: str = "change_pct") -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["month", "index_name", "change_type", "metric", "value"])
+
+    if metric_key not in CHANGE_TREND_FIELDS:
+        raise KeyError(f"Unsupported metric key: {metric_key}")
+
+    config = CHANGE_TREND_FIELDS[metric_key]
+    data = df.copy()
+    data["month"] = pd.to_datetime(data["month"])
+
+    frames = []
+    for change_type, field_name in (("环比", config.get("mom")), ("同比", config.get("yoy"))):
+        if not field_name or field_name not in data.columns:
+            continue
+        trend_df = data[["month", "index_name", field_name]].copy()
+        trend_df["value"] = pd.to_numeric(trend_df[field_name], errors="coerce")
+        trend_df["change_type"] = change_type
+        trend_df["metric"] = config["label"]
+        frames.append(trend_df.drop(columns=[field_name]))
+
+    if not frames:
+        return pd.DataFrame(columns=["month", "index_name", "change_type", "metric", "value"])
+
+    result = pd.concat(frames, ignore_index=True)
+    result["change_order"] = result["change_type"].map({"环比": 0, "同比": 1}).fillna(9)
+    return result.sort_values(["index_name", "month", "change_order"]).drop(columns=["change_order"]).reset_index(drop=True)
 
 
 def classify_index_import_rows(incoming_df: pd.DataFrame, existing_df: pd.DataFrame) -> dict:

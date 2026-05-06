@@ -49,6 +49,20 @@ from src.etf_deposit_store import (
     upsert_deposit_rows,
 )
 from src.etf_deposit_importer import parse_deposit_workbook
+from src.index_monitor_importer import parse_index_monitor_workbook
+from src.index_monitor_store import (
+    CHANGE_TREND_FIELD_LABELS,
+    build_index_change_trend_df,
+    build_index_monitor_summary,
+    build_index_upsert_rows,
+    build_price_trend_df,
+    build_valuation_trend_df,
+    classify_index_import_rows,
+    get_engine as get_index_monitor_engine,
+    load_index_monitor_df,
+    to_index_monitor_display_df,
+    upsert_index_monitor_rows,
+)
 from src.navigation_config import ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS
 
 try:
@@ -3358,8 +3372,10 @@ def main():
             st.caption(f"当前位置：宏观 / {mobile_page}")
             if mobile_page == "🌏 宏观经济":
                 render_macro_tab()
-            else:
+            elif mobile_page == "🏦 本外币存款":
                 render_etf_deposit_tab()
+            else:
+                render_index_monitor_tab()
 
         st.stop()
 
@@ -3446,8 +3462,10 @@ def main():
         st.caption(f"当前位置：宏观 / {macro_subpage}")
         if macro_subpage == "🌏 宏观经济":
             render_macro_tab()
-        else:
+        elif macro_subpage == "🏦 本外币存款":
             render_etf_deposit_tab()
+        else:
+            render_index_monitor_tab()
 
 
 
@@ -7436,6 +7454,368 @@ def render_etf_deposit_tab():
                         else:
                             st.session_state["deposit_import_open"] = False
                             st.success(f"已写入 {len(rows)} 个月份")
+                            st.rerun()
+
+INDEX_MONITOR_DEFAULT_NAMES = [
+    "上证指数",
+    "深证成指",
+    "沪深300指数",
+    "上证50指数",
+    "中证500指数",
+    "中证1000指数",
+    "中证2000指数",
+    "中证全指",
+    "中小100指数",
+]
+
+INDEX_MONITOR_FIELD_LABELS = {
+    "monthly_change_pct": "当月涨幅",
+    "open_price": "开盘价格",
+    "close_price": "收盘价格",
+    "low_price": "最低点",
+    "high_price": "最高点",
+    "static_pe": "期末静态市盈率",
+    "dynamic_pe": "期末动态市盈率",
+    "mom_change_pct": "环比涨幅变化",
+    "mom_open_price": "环比开盘价格变化",
+    "mom_close_price": "环比收盘价格变化",
+    "mom_low_price": "环比最低点变化",
+    "mom_high_price": "环比最高点变化",
+    "mom_static_pe": "环比静态市盈率变化",
+    "mom_dynamic_pe": "环比动态市盈率变化",
+    "mom_static_pe_change_rate": "静态市盈率变化率",
+    "mom_dynamic_pe_change_rate": "动态市盈率变化率",
+    "yoy_change_pct": "同比涨幅变化",
+    "yoy_open_price": "同比开盘价格变化",
+    "yoy_close_price": "同比收盘价格变化",
+    "yoy_low_price": "同比最低点变化",
+    "yoy_high_price": "同比最高点变化",
+    "yoy_static_pe": "同比静态市盈率变化",
+    "yoy_dynamic_pe": "同比动态市盈率变化",
+}
+
+
+def _to_optional_float(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)) or pd.isna(value):
+        return None
+    return float(value)
+
+
+def _build_index_batch_editor_df(existing_df: pd.DataFrame, month_text: str) -> pd.DataFrame:
+    columns = ["index_name"] + list(INDEX_MONITOR_FIELD_LABELS.keys())
+    base_names = list(dict.fromkeys(INDEX_MONITOR_DEFAULT_NAMES))
+
+    if existing_df is not None and not existing_df.empty:
+        base_names = list(dict.fromkeys(base_names + existing_df["index_name"].dropna().astype(str).tolist()))
+
+    if month_text and existing_df is not None and not existing_df.empty:
+        month_mask = pd.to_datetime(existing_df["month"]).dt.strftime("%Y-%m") == month_text
+        month_df = existing_df.loc[month_mask].copy()
+        if not month_df.empty:
+            for column in columns:
+                if column not in month_df.columns:
+                    month_df[column] = None
+            return month_df[columns].reset_index(drop=True)
+
+    return pd.DataFrame([{"index_name": name} for name in base_names], columns=columns)
+
+
+def _collect_index_batch_rows(editor_df: pd.DataFrame, month_text: str) -> list[dict]:
+    payload_rows = []
+    for row in editor_df.to_dict(orient="records"):
+        index_name = str(row.get("index_name") or "").strip()
+        if not index_name:
+            continue
+        payload = {"month": month_text, "index_name": index_name}
+        has_value = False
+        for field in INDEX_MONITOR_FIELD_LABELS:
+            numeric_value = _to_optional_float(row.get(field))
+            payload[field] = numeric_value
+            if numeric_value is not None:
+                has_value = True
+        if has_value:
+            payload_rows.append(payload)
+    return payload_rows
+
+
+def render_index_monitor_tab():
+    st.subheader("📊 指数监测")
+    st.caption("展示股票指数月度表现、估值趋势与同比环比变化，支持手工录入与 Excel 批量导入。")
+
+    for state_key, default_value in (
+        ("index_manual_month_open", False),
+        ("index_single_edit_open", False),
+        ("index_import_open", False),
+        ("index_history_limit", "最近12个月"),
+        ("index_overwrite_mode", "跳过已存在记录"),
+    ):
+        if state_key not in st.session_state:
+            st.session_state[state_key] = default_value
+
+    try:
+        engine = get_index_monitor_engine()
+        df = load_index_monitor_df(engine)
+    except Exception as exc:
+        st.error(f"加载指数监测数据失败: {exc}")
+        st.info("请确认 PostgreSQL 连接配置可用后重试。")
+        return
+
+    action_col, status_col = st.columns([1, 3])
+    with action_col:
+        if st.button("新增月份", key="index_add_month"):
+            st.session_state["index_manual_month_open"] = True
+        if st.button("单指数补录/修改", key="index_edit_single"):
+            st.session_state["index_single_edit_open"] = True
+        if st.button("批量导入 Excel", key="index_import_file"):
+            st.session_state["index_import_open"] = True
+
+    with status_col:
+        if df.empty:
+            st.caption("最新数据月份：- | 记录数：0 | 最近更新时间：-")
+        else:
+            latest_month = pd.to_datetime(df["month"]).max().strftime("%Y-%m")
+            updated_at = pd.to_datetime(df["updated_at"]).max().strftime("%Y-%m-%d %H:%M")
+            st.caption(f"最新数据月份：{latest_month} | 记录数：{len(df)} | 最近更新时间：{updated_at}")
+
+    if df.empty:
+        st.info("暂无指数监测数据，请先新增月份或批量导入。")
+        all_index_names = INDEX_MONITOR_DEFAULT_NAMES.copy()
+        month_options = []
+        selected_snapshot = ""
+        filtered_df = pd.DataFrame()
+    else:
+        all_index_names = sorted(df["index_name"].dropna().astype(str).unique().tolist())
+        month_options = sorted(pd.to_datetime(df["month"]).dt.strftime("%Y-%m").unique().tolist(), reverse=True)
+        selected_snapshot = st.selectbox("月份", options=month_options, index=0, key="index_snapshot_month")
+        selected_indices = st.multiselect(
+            "指数筛选",
+            options=all_index_names,
+            default=all_index_names[: min(4, len(all_index_names))],
+            key="index_monitor_names",
+        )
+        filtered_df = df[df["index_name"].isin(selected_indices)].copy() if selected_indices else df.copy()
+        filtered_df["month"] = pd.to_datetime(filtered_df["month"])
+
+        summary_df = filtered_df[
+            filtered_df["month"].dt.strftime("%Y-%m") == selected_snapshot
+        ].copy()
+        summary = build_index_monitor_summary(summary_df if not summary_df.empty else filtered_df)
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        c1.metric("最新月份", summary["latest_month"] or "-")
+        c2.metric(
+            "指数平均涨幅",
+            f'{summary["avg_change_pct"]:.2f}%' if summary["avg_change_pct"] is not None else "-",
+        )
+        c3.metric("当月最强指数", summary["strongest_index"] or "-")
+        c4.metric("当月最弱指数", summary["weakest_index"] or "-")
+        c5.metric("平均静态PE", f'{summary["avg_static_pe"]:.2f}' if summary["avg_static_pe"] is not None else "-")
+        c6.metric("平均动态PE", f'{summary["avg_dynamic_pe"]:.2f}' if summary["avg_dynamic_pe"] is not None else "-")
+
+        window = st.radio(
+            "时间范围",
+            ["最近12个月", "最近24个月", "全部"],
+            horizontal=True,
+            key="index_history_limit",
+        )
+        if window != "全部" and not filtered_df.empty:
+            cutoff = filtered_df["month"].max() - pd.DateOffset(months=11 if window == "最近12个月" else 23)
+            filtered_df = filtered_df[filtered_df["month"] >= cutoff]
+
+        price_trend_df = build_price_trend_df(filtered_df, value_field="close_price")
+        st.plotly_chart(
+            px.line(
+                price_trend_df,
+                x="month",
+                y="value",
+                color="index_name",
+                markers=True,
+                title="价格趋势（收盘价）",
+            ),
+            use_container_width=True,
+        )
+
+        valuation_trend_df = build_valuation_trend_df(filtered_df)
+        valuation_trend_df["series"] = valuation_trend_df["index_name"] + " / " + valuation_trend_df["metric"]
+        st.plotly_chart(
+            px.line(
+                valuation_trend_df,
+                x="month",
+                y="value",
+                color="series",
+                markers=True,
+                title="估值趋势",
+            ),
+            use_container_width=True,
+        )
+
+        change_metric_options = list(CHANGE_TREND_FIELD_LABELS.items())
+        change_metric_key = st.selectbox(
+            "同比 / 环比曲线指标",
+            options=[item[0] for item in change_metric_options],
+            format_func=lambda value: CHANGE_TREND_FIELD_LABELS.get(value, value),
+            index=0,
+            key="index_change_metric_key",
+        )
+        change_trend_df = build_index_change_trend_df(filtered_df, metric_key=change_metric_key)
+        if change_trend_df.empty:
+            st.info("当前筛选范围内暂无可展示的同比 / 环比曲线。")
+        else:
+            st.plotly_chart(
+                px.line(
+                    change_trend_df,
+                    x="month",
+                    y="value",
+                    color="index_name",
+                    line_dash="change_type",
+                    markers=True,
+                    title=f'{CHANGE_TREND_FIELD_LABELS[change_metric_key]}同比 / 环比曲线',
+                ),
+                use_container_width=True,
+            )
+
+        snapshot_df = filtered_df[
+            filtered_df["month"].dt.strftime("%Y-%m") == selected_snapshot
+        ].copy()
+        st.markdown("#### 最新月度快照")
+        st.dataframe(
+            to_index_monitor_display_df(snapshot_df.sort_values("index_name")),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    if st.session_state.get("index_manual_month_open", False):
+        st.markdown("#### 新增月份")
+        manual_month = st.text_input("录入月份", value=month_options[0] if month_options else "", key="index_manual_month_value")
+        editor_seed_df = _build_index_batch_editor_df(df, manual_month)
+        editor_df = st.data_editor(
+            editor_seed_df,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="dynamic",
+            key="index_month_editor",
+        )
+        save_col, cancel_col = st.columns(2)
+        if save_col.button("保存本月指数数据", key="index_month_save"):
+            if not manual_month:
+                st.error("请先填写录入月份")
+            else:
+                rows = _collect_index_batch_rows(editor_df, manual_month)
+                if not rows:
+                    st.warning("没有可写入的指数记录。")
+                else:
+                    try:
+                        payload_rows = build_index_upsert_rows(
+                            rows,
+                            source_type="manual",
+                            source_file=None,
+                        )
+                        upsert_index_monitor_rows(engine, payload_rows)
+                    except Exception as exc:
+                        st.error(f"保存失败: {exc}")
+                    else:
+                        st.session_state["index_manual_month_open"] = False
+                        st.success(f"已写入 {len(payload_rows)} 条指数记录")
+                        st.rerun()
+        if cancel_col.button("取消新增月份", key="index_month_cancel"):
+            st.session_state["index_manual_month_open"] = False
+            st.rerun()
+
+    if st.session_state.get("index_single_edit_open", False):
+        st.markdown("#### 单指数补录 / 修改")
+        if df.empty:
+            st.info("当前暂无历史记录，请先新增月份或导入数据。")
+        else:
+            edit_month = st.selectbox("选择月份", options=month_options, key="index_edit_month")
+            month_df = df[pd.to_datetime(df["month"]).dt.strftime("%Y-%m") == edit_month].copy()
+            month_names = sorted(month_df["index_name"].dropna().astype(str).unique().tolist())
+            edit_name = st.selectbox("选择指数", options=month_names, key="index_edit_name")
+            edit_row = month_df[month_df["index_name"] == edit_name].iloc[0].to_dict() if edit_name else {}
+            with st.form("index_single_edit_form", clear_on_submit=False):
+                edit_values = {}
+                for field, label in INDEX_MONITOR_FIELD_LABELS.items():
+                    edit_values[field] = st.number_input(
+                        label,
+                        value=float(edit_row[field]) if edit_row.get(field) is not None and not pd.isna(edit_row.get(field)) else 0.0,
+                        format="%.4f",
+                    )
+                submitted = st.form_submit_button("保存单指数数据")
+                canceled = st.form_submit_button("取消")
+
+            if canceled:
+                st.session_state["index_single_edit_open"] = False
+                st.rerun()
+
+            if submitted:
+                try:
+                    rows = build_index_upsert_rows(
+                        [
+                            {
+                                "month": edit_month,
+                                "index_name": edit_name,
+                                **edit_values,
+                            }
+                        ],
+                        source_type="manual",
+                        source_file=None,
+                    )
+                    upsert_index_monitor_rows(engine, rows)
+                except Exception as exc:
+                    st.error(f"保存失败: {exc}")
+                else:
+                    st.session_state["index_single_edit_open"] = False
+                    st.success("保存成功")
+                    st.rerun()
+
+    if st.session_state.get("index_import_open", False):
+        upload = st.file_uploader(
+            "上传股票指数 Excel",
+            type=["xlsx"],
+            key="index_monitor_uploader",
+        )
+        if upload is not None:
+            try:
+                imported_df = parse_index_monitor_workbook(upload)
+                preview = classify_index_import_rows(imported_df, df)
+            except Exception as exc:
+                st.error(f"导入预览失败: {exc}")
+            else:
+                st.radio(
+                    "重复记录处理",
+                    ["跳过已存在记录", "覆盖已存在记录"],
+                    horizontal=True,
+                    key="index_overwrite_mode",
+                )
+                st.write("新增记录")
+                st.dataframe(
+                    to_index_monitor_display_df(preview["to_insert"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                st.write("覆盖记录")
+                st.dataframe(
+                    to_index_monitor_display_df(preview["to_overwrite"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                if st.button("确认写入指数数据", key="index_confirm_import"):
+                    write_df = imported_df.copy()
+                    if st.session_state["index_overwrite_mode"] == "跳过已存在记录":
+                        write_df = preview["to_insert"].copy()
+                    if write_df.empty:
+                        st.warning("没有需要写入的记录。")
+                    else:
+                        try:
+                            rows = build_index_upsert_rows(
+                                write_df.to_dict(orient="records"),
+                                source_type="import",
+                                source_file=getattr(upload, "name", None),
+                            )
+                            upsert_index_monitor_rows(engine, rows)
+                        except Exception as exc:
+                            st.error(f"导入写入失败: {exc}")
+                        else:
+                            st.session_state["index_import_open"] = False
+                            st.success(f"已写入 {len(rows)} 条指数记录")
                             st.rerun()
 
 def render_fund_hot_stocks_tab():
