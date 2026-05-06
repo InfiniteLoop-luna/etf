@@ -9,4 +9,5 @@ ETF_PAGE_OPTIONS = [
 MACRO_PAGE_OPTIONS = [
     "🌏 宏观经济",
     "🏦 本外币存款",
+    "📊 指数监测",
 ]
