@@ -59,6 +59,40 @@ class IndexMonitorImporterTests(unittest.TestCase):
         self.assertAlmostEqual(df.iloc[0]["mom_change_pct"], 5.13)
         self.assertAlmostEqual(df.iloc[0]["yoy_close_price"], 221.8)
 
+    def test_parse_index_monitor_workbook_reads_repeated_month_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "index-monitor-multi.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "股票指数"
+            ws["C3"] = "指数名称"
+            ws["D2"] = "当月情况"
+            ws["D3"] = "开盘价格"
+            ws["E3"] = "收盘价格"
+            ws["F3"] = "最低点"
+            ws["G3"] = "最高点"
+            ws["M3"] = "涨幅"
+
+            ws["B4"] = "2026-05-01"
+            ws["C4"] = "上证指数"
+            ws["D4"] = 3340.12
+            ws["E4"] = 3367.46
+            ws["M4"] = 0.82
+
+            ws["B6"] = "2026-04-01"
+            ws["C6"] = "上证指数"
+            ws["D6"] = 3300.00
+            ws["E6"] = 3321.00
+            ws["M6"] = -1.23
+            wb.save(path)
+
+            df = parse_index_monitor_workbook(path)
+
+        self.assertEqual(df["month"].tolist(), ["2026-04-01", "2026-05-01"])
+        self.assertEqual(df["index_name"].tolist(), ["上证指数", "上证指数"])
+        self.assertAlmostEqual(df.iloc[0]["close_price"], 3321.00)
+        self.assertAlmostEqual(df.iloc[1]["monthly_change_pct"], 0.82)
+
     def test_parse_index_monitor_workbook_raises_when_sheet_missing(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "wrong.xlsx"
