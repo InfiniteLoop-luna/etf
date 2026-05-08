@@ -796,6 +796,72 @@ def update_stock_custom_info(ts_code: str, custom_main_business: str, custom_pro
             'custom_product': custom_product or None
         })
 
+
+def validate_stock_custom_info_inputs(
+    main_business: str,
+    product: str,
+    current_main_business: str | None = None,
+    current_product: str | None = None,
+    check_unchanged: bool = False,
+) -> dict[str, str]:
+    trimmed_main_business = (main_business or '').strip()
+    trimmed_product = (product or '').strip()
+
+    if not trimmed_main_business and not trimmed_product:
+        return {
+            'action': 'clear',
+            'main_business': '',
+            'product': '',
+            'message': 'clear',
+        }
+
+    if len(trimmed_main_business) < 2 and len(trimmed_product) < 2:
+        return {
+            'action': 'invalid',
+            'main_business': trimmed_main_business,
+            'product': trimmed_product,
+            'message': 'too_short',
+        }
+
+    if check_unchanged:
+        current_main_business_value = (current_main_business or '').strip()
+        current_product_value = (current_product or '').strip()
+        if (
+            trimmed_main_business == current_main_business_value
+            and trimmed_product == current_product_value
+        ):
+            return {
+                'action': 'unchanged',
+                'main_business': trimmed_main_business,
+                'product': trimmed_product,
+                'message': 'unchanged',
+            }
+
+    return {
+        'action': 'save',
+        'main_business': trimmed_main_business,
+        'product': trimmed_product,
+        'message': 'save',
+    }
+
+
+def update_stock_custom_info_batch(
+    ts_codes,
+    custom_main_business: str,
+    custom_product: str,
+    engine=None,
+    update_func=None,
+) -> int:
+    if update_func is None:
+        update_func = update_stock_custom_info
+
+    ordered_codes = list(dict.fromkeys(
+        ts_code for ts_code in (ts_codes or []) if str(ts_code or '').strip()
+    ))
+    for ts_code in ordered_codes:
+        update_func(ts_code, custom_main_business, custom_product, engine=engine)
+    return len(ordered_codes)
+
 def _clean_export_text(value) -> str:
     if value is None or pd.isna(value):
         return ''
