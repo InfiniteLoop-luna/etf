@@ -4,6 +4,7 @@ import unittest
 DEPOSIT_PAGE = "🏦 本外币存款"
 INDEX_MONITOR_PAGE = "📊 指数监测"
 FUND_MONITOR_PAGE = "📈 基金监测"
+VOLUME_PAGE = "📊 每日成交量"
 
 
 class NavigationConfigTests(unittest.TestCase):
@@ -19,11 +20,17 @@ class NavigationConfigTests(unittest.TestCase):
         self.assertNotIn(INDEX_MONITOR_PAGE, ETF_PAGE_OPTIONS)
         self.assertIn(INDEX_MONITOR_PAGE, MACRO_PAGE_OPTIONS)
 
-    def test_fund_monitor_page_belongs_to_macro(self):
+    def test_fund_monitor_page_belongs_to_fund_not_macro(self):
         from src.navigation_config import ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS
 
-        self.assertNotIn(FUND_MONITOR_PAGE, ETF_PAGE_OPTIONS)
-        self.assertIn(FUND_MONITOR_PAGE, MACRO_PAGE_OPTIONS)
+        self.assertIn(FUND_MONITOR_PAGE, ETF_PAGE_OPTIONS)
+        self.assertNotIn(FUND_MONITOR_PAGE, MACRO_PAGE_OPTIONS)
+
+    def test_volume_page_belongs_to_money_not_fund(self):
+        from src.navigation_config import ETF_PAGE_OPTIONS, MONEY_PAGE_OPTIONS
+
+        self.assertNotIn(VOLUME_PAGE, ETF_PAGE_OPTIONS)
+        self.assertIn(VOLUME_PAGE, MONEY_PAGE_OPTIONS)
 
 
 if __name__ == "__main__":

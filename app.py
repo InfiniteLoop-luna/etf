@@ -76,7 +76,7 @@ from src.index_monitor_store import (
     to_index_monitor_display_df,
     upsert_index_monitor_rows,
 )
-from src.navigation_config import ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS
+from src.navigation_config import ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS, MONEY_PAGE_OPTIONS
 
 try:
     from src.security_trend_model import (
@@ -3309,7 +3309,7 @@ def main():
 
         mobile_group = st.radio(
             "模块",
-            ["决策", "ETF", "个股", "资金", "宏观"],
+            ["决策", "基金", "个股", "资金", "宏观"],
             horizontal=True,
             key="iphone_group_radio",
         )
@@ -3328,21 +3328,21 @@ def main():
             else:
                 render_reco_effectiveness_tracking_panel()
 
-        elif mobile_group == "ETF":
+        elif mobile_group == "基金":
             mobile_page = st.selectbox(
                 "页面",
                 ETF_PAGE_OPTIONS,
                 key="iphone_page_etf",
             )
-            st.caption(f"当前位置：ETF / {mobile_page}")
-            if mobile_page == "📈 ETF份额变动":
+            st.caption(f"当前位置：基金 / {mobile_page}")
+            if mobile_page == "📈 主要宽基ETF份额":
                 render_etf_tab()
-            elif mobile_page == "📊 每日成交量":
-                render_volume_tab()
             elif mobile_page == "🥧 ETF分类占比":
                 render_etf_category_ratio_tab()
             elif mobile_page == "📈 ETF分类趋势":
                 render_etf_trend_tab()
+            elif mobile_page == "📈 基金监测":
+                render_fund_monitor_tab()
             else:
                 render_wide_index_tab()
 
@@ -3363,12 +3363,14 @@ def main():
         elif mobile_group == "资金":
             mobile_page = st.selectbox(
                 "页面",
-                ["💹 资金流向", "🏦 公募持仓热股", "🔥 打板情绪", "🧨 游资名录"],
+                MONEY_PAGE_OPTIONS,
                 key="iphone_page_money",
             )
             st.caption(f"当前位置：资金 / {mobile_page}")
             if mobile_page == "💹 资金流向":
                 render_moneyflow_tab()
+            elif mobile_page == "📊 每日成交量":
+                render_volume_tab()
             elif mobile_page == "🏦 公募持仓热股":
                 render_fund_hot_stocks_tab()
             elif mobile_page == "🔥 打板情绪":
@@ -3400,7 +3402,7 @@ def main():
 
     nav_group = st.sidebar.radio(
         "选择模块",
-        ["决策", "ETF", "个股", "资金", "宏观"],
+        ["决策", "基金", "个股", "资金", "宏观"],
         key="sidebar_nav_group"
     )
 
@@ -3420,21 +3422,21 @@ def main():
         else:
             render_reco_effectiveness_tracking_panel()
 
-    elif nav_group == "ETF":
+    elif nav_group == "基金":
         etf_subpage = st.sidebar.radio(
-            "ETF模块",
+            "基金模块",
             ETF_PAGE_OPTIONS,
             key="etf_subpage"
         )
-        st.caption(f"当前位置：ETF / {etf_subpage}")
-        if etf_subpage == "📈 ETF份额变动":
+        st.caption(f"当前位置：基金 / {etf_subpage}")
+        if etf_subpage == "📈 主要宽基ETF份额":
             render_etf_tab()
-        elif etf_subpage == "📊 每日成交量":
-            render_volume_tab()
         elif etf_subpage == "🥧 ETF分类占比":
             render_etf_category_ratio_tab()
         elif etf_subpage == "📈 ETF分类趋势":
             render_etf_trend_tab()
+        elif etf_subpage == "📈 基金监测":
+            render_fund_monitor_tab()
         else:
             render_wide_index_tab()
 
@@ -3455,12 +3457,14 @@ def main():
     elif nav_group == "资金":
         money_subpage = st.sidebar.radio(
             "资金模块",
-            ["💹 资金流向", "🏦 公募持仓热股", "🔥 打板情绪", "🧨 游资名录"],
+            MONEY_PAGE_OPTIONS,
             key="money_subpage"
         )
         st.caption(f"当前位置：资金 / {money_subpage}")
         if money_subpage == "💹 资金流向":
             render_moneyflow_tab()
+        elif money_subpage == "📊 每日成交量":
+            render_volume_tab()
         elif money_subpage == "🏦 公募持仓热股":
             render_fund_hot_stocks_tab()
         elif money_subpage == "🔥 打板情绪":
