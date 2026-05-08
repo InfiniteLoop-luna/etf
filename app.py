@@ -2234,6 +2234,14 @@ def create_security_kline_chart(
     if chart_df.empty:
         return None
 
+    rangebreaks = []
+    normalized_dates = chart_df["trade_date"].dt.normalize().drop_duplicates().sort_values()
+    if len(normalized_dates) >= 2:
+        full_dates = pd.date_range(normalized_dates.iloc[0], normalized_dates.iloc[-1], freq="D")
+        missing_dates = full_dates.difference(pd.DatetimeIndex(normalized_dates))
+        if len(missing_dates) > 0:
+            rangebreaks = [dict(values=missing_dates.strftime("%Y-%m-%d").tolist())]
+
     ma_windows = ma_windows or [5, 10]
     ma_windows = sorted({int(w) for w in ma_windows if isinstance(w, (int, float)) and int(w) > 1})
     if not ma_windows:
@@ -2405,7 +2413,13 @@ def create_security_kline_chart(
     fig.update_yaxes(title_text=y_title, row=2, col=1, fixedrange=True)
     if show_macd:
         fig.update_yaxes(title_text="MACD", row=3, col=1, fixedrange=True)
-    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)')
+    fig.update_xaxes(
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(226,232,240,0.5)',
+        type="date",
+        rangebreaks=rangebreaks,
+    )
 
     return fig
 
