@@ -26,7 +26,7 @@ from src.etf_stats import (
     search_security, get_security_profile, get_security_timeseries,
     get_security_financial_timeseries, get_security_kline_timeseries, get_stock_basic_summary,
     export_stock_basic_summary_excel, search_companies, update_stock_custom_info,
-    update_stock_custom_info_batch, validate_stock_custom_info_inputs
+    validate_stock_custom_info_inputs
 )
 from src.security_intraday_store import (
     get_engine as get_security_intraday_engine,
@@ -4407,36 +4407,7 @@ def render_tech_picker_tab():
 
 def render_company_screener_tab():
     st.subheader("🏢 公司主营与产品筛选")
-    st.caption("按照行业、产品和主营业务服务筛选公司")
-    
-    col1, col2, col3 = st.columns([1.5, 1.5, 1.5])
-    with col1:
-        raw_industries = get_stock_basic_summary()['所属行业'].dropna().unique().tolist()
-        industries = [i for i in raw_industries if str(i).strip()]
-        selected_industries = st.multiselect("所属行业", options=['全部'] + sorted(industries), default=['全部'])
-    with col2:
-        product_kw = st.text_input("核心产品关键字", placeholder="例如: 芯片, 新能源...")
-    with col3:
-        business_kw = st.text_input("服务/主营业务关键字", placeholder="例如: 研发, 制造...")
-        
-    if st.button("开始筛选", type="primary"):
-        with st.spinner("正在检索符合条件的公司..."):
-            df = search_companies(industries=selected_industries, product_kw=product_kw, business_kw=business_kw)
-            if df.empty:
-                st.warning("没有检索到符合条件的公司，请尝试更改关键词")
-            else:
-                st.success(f"共为您检索到 {len(df)} 家企业")
-                st.dataframe(
-                    df.rename(columns={
-                        'ts_code': '代码', 'name': '简称', 'industry': '行业',
-                        'main_business': '主要业务', 'product': '产品及服务'
-                    }),
-                    use_container_width=True, hide_index=True
-                )
-
-def render_company_screener_tab():
-    st.subheader("🏢 公司主营与产品筛选")
-    st.caption("按照行业、产品和主营业务关键词筛选公司，并可对当前筛选结果批量订正主营与产品信息。")
+    st.caption("按照行业、产品和主营业务关键词筛选公司，并可对当前筛选结果逐只订正主营与产品信息。")
 
     result_state_key = "company_screener_results"
     filter_state_key = "company_screener_filters"
@@ -4504,95 +4475,118 @@ def render_company_screener_tab():
         return
 
     st.success(f"共为您检索到 {len(results_df)} 家企业。")
-    st.dataframe(
-        results_df.rename(columns={
-            "ts_code": "代码",
-            "name": "简称",
-            "industry": "行业",
-            "main_business": "主要业务",
-            "product": "产品及服务",
-        }),
-        use_container_width=True,
-        hide_index=True,
-    )
+    display_df = results_df.rename(columns={
+        "ts_code": "代码",
+        "name": "简称",
+        "industry": "行业",
+        "main_business": "主要业务",
+        "product": "产品及服务",
+    }).copy()
+    display_df.insert(0, "序号", range(1, len(display_df) + 1))
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-    with st.expander("📝 批量订正主营与产品信息"):
-        configured_password = get_stock_info_edit_password()
-        if not configured_password:
-            st.warning("当前未配置编辑权限密码，修改功能已禁用。请设置 ETF_STOCK_INFO_EDIT_PASSWORD 或 ETF_EDIT_PASSWORD 后重启应用。")
-            return
+    st.markdown("#### ✏️ 逐只订正主营与产品信息")
+    st.caption("筛选结果中的每只股票都可以单独展开编辑；每次只会保存当前这一只。")
 
-        status_cols = st.columns([4, 1.2])
-        if has_stock_info_edit_permission():
-            status_cols[0].success("当前会话已获得个股信息修改权限。")
-            if status_cols[1].button("退出权限", key="revoke_stock_edit_permission_company_screener"):
-                st.session_state["stock_info_edit_authorized"] = False
+    configured_password = get_stock_info_edit_password()
+    if not configured_password:
+        st.warning("当前未配置编辑权限密码，修改功能已禁用。请设置 ETF_STOCK_INFO_EDIT_PASSWORD 或 ETF_EDIT_PASSWORD 后重启应用。")
+        return
+
+    status_cols = st.columns([4, 1.2])
+    if has_stock_info_edit_permission():
+        status_cols[0].success("当前会话已获得个股信息修改权限。")
+        if status_cols[1].button("退出权限", key="revoke_stock_edit_permission_company_screener"):
+            st.session_state["stock_info_edit_authorized"] = False
+            st.rerun()
+    else:
+        access_password = status_cols[0].text_input(
+            "编辑权限密码",
+            type="password",
+            key="stock_edit_password_company_screener",
+        )
+        if status_cols[1].button("权限验证", key="grant_stock_edit_permission_company_screener"):
+            if grant_stock_info_edit_permission(access_password):
+                st.success("权限验证成功，请继续逐只提交修订内容。")
                 st.rerun()
-        else:
-            access_password = status_cols[0].text_input(
-                "编辑权限密码",
-                type="password",
-                key="stock_edit_password_company_screener",
-            )
-            if status_cols[1].button("权限验证", key="grant_stock_edit_permission_company_screener"):
-                if grant_stock_info_edit_permission(access_password):
-                    st.success("权限验证成功，请继续提交修订内容。")
-                    st.rerun()
-                st.error("权限验证失败，请检查密码。")
-            st.info("仅通过权限验证的会话可以修改个股主营与产品信息。")
+            st.error("权限验证失败，请检查密码。")
+        st.info("仅通过权限验证的会话可以修改个股主营与产品信息。")
 
-        if not has_stock_info_edit_permission():
-            return
+    if not has_stock_info_edit_permission():
+        return
 
-        preview_items = [
-            f"{row['name']}({row['ts_code']})"
-            for _, row in results_df.head(8)[["name", "ts_code"]].iterrows()
-        ]
-        st.caption(f"本次将统一更新当前筛选结果中的 {len(results_df)} 家公司。")
-        if preview_items:
-            suffix = " 等" if len(results_df) > len(preview_items) else ""
-            st.caption(f"影响范围预览：{'、'.join(preview_items)}{suffix}")
+    st.caption(f"当前筛选结果共 {len(results_df)} 家公司，可逐只展开编辑。")
 
-        with st.form(key="company_screener_bulk_edit_form"):
-            custom_mb = st.text_area(
-                "新的主要业务",
-                placeholder="留空并与下方一起留空时，将清空当前筛选结果的自定义主营信息。",
-            )
-            custom_pd = st.text_area(
-                "新的产品及业务范围",
-                placeholder="支持统一写入一段新的产品或业务范围描述。",
-            )
-            if st.form_submit_button("批量保存修订，统一应用到当前筛选结果"):
-                if not has_stock_info_edit_permission():
-                    st.error("当前会话没有修改权限，请重新完成权限验证。")
-                else:
-                    validation = validate_stock_custom_info_inputs(custom_mb, custom_pd)
-                    if validation["action"] == "invalid":
-                        st.error("保存失败：修订内容过短。若要清空请完全留白，否则请填写有效的业务信息。")
+    for row_index, row in results_df.reset_index(drop=True).iterrows():
+        ts_code = str(row.get("ts_code") or "").strip()
+        if not ts_code:
+            continue
+
+        name = str(row.get("name") or ts_code).strip() or ts_code
+        industry = str(row.get("industry") or "-").strip() or "-"
+        current_mb = row.get("main_business") or ""
+        current_pd = row.get("product") or ""
+        form_key = f"company_screener_single_edit_form_{ts_code}"
+        mb_key = f"company_screener_edit_mb_{ts_code}"
+        pd_key = f"company_screener_edit_pd_{ts_code}"
+
+        with st.expander(f"{row_index + 1}. {name}（{ts_code}）｜{industry}", expanded=False):
+            info_cols = st.columns(2)
+            with info_cols[0]:
+                st.info(f"**当前主要业务**：{current_mb or '-'}")
+            with info_cols[1]:
+                st.info(f"**当前产品及业务范围**：{current_pd or '-'}")
+
+            with st.form(key=form_key):
+                custom_mb = st.text_area(
+                    "新的主要业务",
+                    value=current_mb,
+                    key=mb_key,
+                )
+                custom_pd = st.text_area(
+                    "新的产品及业务范围",
+                    value=current_pd,
+                    key=pd_key,
+                )
+                if st.form_submit_button("保存当前股票修订"):
+                    if not has_stock_info_edit_permission():
+                        st.error("当前会话没有修改权限，请重新完成权限验证。")
                     else:
-                        updated_count = update_stock_custom_info_batch(
-                            results_df["ts_code"].tolist(),
-                            validation["main_business"],
-                            validation["product"],
+                        validation = validate_stock_custom_info_inputs(
+                            custom_mb,
+                            custom_pd,
+                            current_main_business=current_mb,
+                            current_product=current_pd,
+                            check_unchanged=True,
                         )
-                        latest_filters = st.session_state.get(filter_state_key, {})
-                        refreshed_df = search_companies(
-                            industries=latest_filters.get("industries"),
-                            product_kw=latest_filters.get("product_kw"),
-                            business_kw=latest_filters.get("business_kw"),
-                        )
-                        st.session_state[result_state_key] = refreshed_df
-                        if validation["action"] == "clear":
-                            st.session_state[flash_state_key] = {
-                                "level": "success",
-                                "message": f"已清空当前筛选结果中 {updated_count} 家公司的自定义主营与产品信息。",
-                            }
+                        if validation["action"] == "invalid":
+                            st.error("保存失败：修订内容过短。若要清空请完全留白，否则请填写有效的业务信息。")
+                        elif validation["action"] == "unchanged":
+                            st.warning("您未做任何实质性修改。")
                         else:
+                            update_stock_custom_info(
+                                ts_code,
+                                validation["main_business"],
+                                validation["product"],
+                            )
+                            latest_filters = st.session_state.get(filter_state_key, {})
+                            refreshed_df = search_companies(
+                                industries=latest_filters.get("industries"),
+                                product_kw=latest_filters.get("product_kw"),
+                                business_kw=latest_filters.get("business_kw"),
+                            )
+                            st.session_state[result_state_key] = refreshed_df
+                            st.session_state.pop(mb_key, None)
+                            st.session_state.pop(pd_key, None)
+                            if validation["action"] == "clear":
+                                message = f"已清空 {name}（{ts_code}） 的自定义主营与产品信息。"
+                            else:
+                                message = f"已更新 {name}（{ts_code}） 的主营与产品信息。"
                             st.session_state[flash_state_key] = {
                                 "level": "success",
-                                "message": f"已为当前筛选结果中的 {updated_count} 家公司批量更新主营与产品信息。",
+                                "message": message,
                             }
-                        st.rerun()
+                            st.rerun()
 
 
 def render_etf_tab():
