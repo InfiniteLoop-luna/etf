@@ -54,6 +54,7 @@ Thumbs.db
 # Test and debug scripts
 check_*.py
 test_*.py
+!tests/test_security_intraday_store.py
 verify_*.py
 compare_*.py
 fix_*.py

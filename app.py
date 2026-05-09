@@ -29,6 +29,7 @@ from src.etf_stats import (
     validate_stock_custom_info_inputs
 )
 from src.security_intraday_store import (
+    fetch_stock_realtime_snapshot_from_mootdx,
     get_engine as get_security_intraday_engine,
     load_or_fetch_stock_intraday_timeseries,
 )
@@ -657,6 +658,11 @@ def load_security_search(keyword: str, security_type: str, limit: int = 20) -> p
 @st.cache_data(ttl=300)
 def load_security_profile(ts_code: str, security_type: str) -> pd.DataFrame:
     return get_security_profile(ts_code=ts_code, security_type=security_type)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def load_security_realtime_snapshot(ts_code: str) -> dict:
+    return fetch_stock_realtime_snapshot_from_mootdx(ts_code=ts_code)
 
 
 @st.cache_data(ttl=300)
@@ -1767,6 +1773,12 @@ def format_optional_number(value, digits: int = 2, scale: float = 1.0, suffix: s
     if value is None or pd.isna(value):
         return "-"
     return f"{float(value) / scale:,.{digits}f}{suffix}"
+
+
+def format_signed_number(value, digits: int = 2, scale: float = 1.0, suffix: str = "") -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    return f"{float(value) / scale:+,.{digits}f}{suffix}"
 
 
 def format_optional_date(value) -> str:
@@ -6078,6 +6090,41 @@ def render_security_search_tab():
         metric_cols_bottom[3].metric("净利润(亿元)", format_optional_number(profile.get('n_income'), scale=100000000.0))
         metric_cols_bottom[4].metric("经营现金流(亿元)", format_optional_number(profile.get('n_cashflow_act'), scale=100000000.0))
 
+        realtime_snapshot = load_security_realtime_snapshot(selected_code)
+        if isinstance(realtime_snapshot, dict):
+            realtime_status = str(realtime_snapshot.get("status") or "").strip().lower()
+            if realtime_status == "ok":
+                st.markdown("##### ⚡ mootdx 实时快照")
+                st.caption(
+                    f"数据源：mootdx ｜ 市场：{(realtime_snapshot.get('market_name') or '-').upper()}"
+                    + (f" ｜ 服务端时间：{realtime_snapshot.get('servertime')}" if realtime_snapshot.get("servertime") else "")
+                )
+                realtime_cols_top = st.columns(5)
+                realtime_cols_top[0].metric("最新价", format_optional_number(realtime_snapshot.get("price")))
+                realtime_cols_top[1].metric("涨跌额", format_signed_number(realtime_snapshot.get("change")))
+                realtime_cols_top[2].metric("涨跌幅", format_signed_number(realtime_snapshot.get("pct_change"), suffix="%"))
+                realtime_cols_top[3].metric("今开", format_optional_number(realtime_snapshot.get("open")))
+                realtime_cols_top[4].metric("昨收", format_optional_number(realtime_snapshot.get("last_close")))
+
+                realtime_cols_bottom = st.columns(6)
+                realtime_cols_bottom[0].metric("最高", format_optional_number(realtime_snapshot.get("high")))
+                realtime_cols_bottom[1].metric("最低", format_optional_number(realtime_snapshot.get("low")))
+                realtime_cols_bottom[2].metric("总量", format_optional_number(realtime_snapshot.get("vol"), digits=0))
+                realtime_cols_bottom[3].metric("现量", format_optional_number(realtime_snapshot.get("cur_vol"), digits=0))
+                realtime_cols_bottom[4].metric("总额", format_optional_number(realtime_snapshot.get("amount"), scale=100000000.0, suffix="亿"))
+                realtime_cols_bottom[5].metric(
+                    "内外盘",
+                    f"{format_optional_number(realtime_snapshot.get('b_vol'), digits=0)} / {format_optional_number(realtime_snapshot.get('s_vol'), digits=0)}"
+                )
+
+                orderbook_cols = st.columns(4)
+                orderbook_cols[0].metric("买一", format_optional_number(realtime_snapshot.get("bid1")))
+                orderbook_cols[1].metric("买一量", format_optional_number(realtime_snapshot.get("bid_vol1"), digits=0))
+                orderbook_cols[2].metric("卖一", format_optional_number(realtime_snapshot.get("ask1")))
+                orderbook_cols[3].metric("卖一量", format_optional_number(realtime_snapshot.get("ask_vol1"), digits=0))
+            elif realtime_status not in {"", "empty", "unavailable", "unsupported"}:
+                st.caption(f"⚠️ mootdx 实时快照暂不可用：{realtime_snapshot.get('error') or realtime_status}")
+
         render_security_trend_analysis(trend_analysis, selected_type)
 
         info_cols = st.columns(2)
@@ -6717,8 +6764,11 @@ def render_security_search_tab():
                         )
                         source_label_map = {
                             "db": "数据库缓存",
-                            "tushare": "Tushare 实时拉取并已入库",
-                            "tushare-empty": "Tushare 无返回数据",
+                            "db:mootdx.minutes": "数据库缓存（原始来源：mootdx）",
+                            "db:tushare.stk_mins": "数据库缓存（原始来源：Tushare）",
+                            "mootdx": "mootdx 实时拉取并已入库",
+                            "tushare": "Tushare 拉取并已入库",
+                            "fallback-empty": "mootdx/Tushare 均无返回数据",
                             "error": "加载失败",
                         }
                         source_label = source_label_map.get(intraday_source, intraday_source or "未知")
