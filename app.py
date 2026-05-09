@@ -2301,11 +2301,13 @@ def create_security_kline_chart(
         select_customdata = [[trade_date] for trade_date in trade_dates]
         select_heights = (chart_df[high_col] - chart_df[low_col]).abs()
         select_heights = _series_to_plotly_list(select_heights.where(select_heights > 0, 0.01))
+        click_width_ms = 0.58 * 24 * 60 * 60 * 1000
         fig.add_trace(
             go.Bar(
                 x=trade_dates,
                 y=select_heights,
                 base=low_values,
+                width=[click_width_ms] * len(trade_dates),
                 name="点击查看分时",
                 customdata=select_customdata,
                 marker=dict(color="rgba(59, 130, 246, 0.001)", line=dict(width=0)),
@@ -2318,26 +2320,47 @@ def create_security_kline_chart(
         )
 
     if selected_trade_idx >= 0:
-        selected_low = low_values[selected_trade_idx]
-        selected_high = high_values[selected_trade_idx]
-        selected_open = open_values[selected_trade_idx]
-        selected_close = close_values[selected_trade_idx]
-        selected_top = max(v for v in [selected_high, selected_open, selected_close] if v is not None)
-        selected_bottom = min(v for v in [selected_low, selected_open, selected_close] if v is not None)
-        highlight_height = max(float(selected_top) - float(selected_bottom), 0.01)
+        selected_low = float(low_values[selected_trade_idx])
+        selected_high = float(high_values[selected_trade_idx])
+        selected_open = float(open_values[selected_trade_idx])
+        selected_close = float(close_values[selected_trade_idx])
+        selected_body_bottom = min(selected_open, selected_close)
+        selected_body_top = max(selected_open, selected_close)
+        selected_range = max(selected_high - selected_low, 0.01)
+        min_body_height = max(selected_range * 0.08, 0.01)
+        if (selected_body_top - selected_body_bottom) < min_body_height:
+            body_mid = (selected_open + selected_close) / 2
+            selected_body_bottom = body_mid - min_body_height / 2
+            selected_body_top = body_mid + min_body_height / 2
+        highlight_body_height = max(selected_body_top - selected_body_bottom, 0.01)
+        selected_body_width_ms = 0.68 * 24 * 60 * 60 * 1000
+        selected_date = trade_dates[selected_trade_idx]
         fig.add_trace(
             go.Bar(
-                x=[trade_dates[selected_trade_idx]],
-                y=[highlight_height],
-                base=[selected_bottom],
-                width=[0.78 * 24 * 60 * 60 * 1000],
+                x=[selected_date],
+                y=[highlight_body_height],
+                base=[selected_body_bottom],
+                width=[selected_body_width_ms],
                 marker=dict(
-                    color="rgba(59, 130, 246, 0.12)",
-                    line=dict(color="rgba(37, 99, 235, 0.95)", width=2),
+                    color="rgba(59, 130, 246, 0.22)",
+                    line=dict(color="rgba(37, 99, 235, 0.98)", width=2.4),
                 ),
                 hoverinfo="skip",
                 showlegend=False,
                 name="当前选中日K",
+            ),
+            row=1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[selected_date, selected_date],
+                y=[selected_low, selected_high],
+                mode="lines",
+                line=dict(color="rgba(37, 99, 235, 0.98)", width=1.8),
+                hoverinfo="skip",
+                showlegend=False,
+                name="当前选中日K影线",
             ),
             row=1,
             col=1,
