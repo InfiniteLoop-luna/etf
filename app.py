@@ -11,6 +11,10 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 import plotly.io as pio
+try:
+    from streamlit_plotly_events import plotly_events
+except Exception:
+    plotly_events = None
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import logging
@@ -823,12 +827,16 @@ def extract_trade_date_from_plotly_event(event, fallback_dates: list[str] | None
     if event is None:
         return ""
 
-    selection = _event_payload_get(event, "selection")
-    payload = selection if selection is not None else event
-
-    points = _event_payload_get(payload, "points", []) or []
-    point_indices = _event_payload_get(payload, "point_indices", []) or []
     fallback_dates = [str(item).strip() for item in (fallback_dates or []) if str(item).strip()]
+
+    if isinstance(event, list):
+        points = event or []
+        point_indices = []
+    else:
+        selection = _event_payload_get(event, "selection")
+        payload = selection if selection is not None else event
+        points = _event_payload_get(payload, "points", []) or []
+        point_indices = _event_payload_get(payload, "point_indices", []) or []
 
     def _parse_candidate(candidate) -> str:
         if candidate is None:
@@ -6656,6 +6664,7 @@ def render_security_search_tab():
                 )
                 selected_intraday_key = f"security_intraday_selected_date_{selected_code}" if enable_intraday_click else ""
                 clicked_intraday_date = ""
+                click_signature_key = f"security_intraday_click_signature_{selected_code}" if enable_intraday_click else ""
                 kline_chart = create_security_kline_chart(
                     date_filtered_kline,
                     prefix=prefix,
@@ -6669,23 +6678,43 @@ def render_security_search_tab():
                     if enable_intraday_click:
                         st.caption("💡 直接点击某根日K蜡烛，可按需拉取该交易日 1 分钟分时图；下载后会自动写入 PostgreSQL 缓存。")
                         chart_key = f"security_kline_chart_{selected_code}"
-                        kline_event = st.plotly_chart(
-                            kline_chart,
-                            use_container_width=True,
-                            key=chart_key,
-                            on_select="rerun",
-                            selection_mode=["points"],
-                            config={"scrollZoom": False},
-                        )
-                        selected_trade_date = extract_trade_date_from_plotly_event(
-                            kline_event,
-                            fallback_dates=trade_date_candidates,
-                        )
-                        if not selected_trade_date:
+                        if plotly_events is not None:
+                            click_points = plotly_events(
+                                kline_chart,
+                                click_event=True,
+                                select_event=False,
+                                hover_event=False,
+                                override_height=620,
+                                override_width="100%",
+                                key=chart_key,
+                            )
+                            click_signature = json.dumps(click_points or [], ensure_ascii=False, sort_keys=True, default=str)
+                            previous_signature = str(st.session_state.get(click_signature_key, "") or "")
+                            selected_trade_date = ""
+                            if click_points and click_signature != previous_signature:
+                                st.session_state[click_signature_key] = click_signature
+                                selected_trade_date = extract_trade_date_from_plotly_event(
+                                    click_points,
+                                    fallback_dates=trade_date_candidates,
+                                )
+                        else:
+                            kline_event = st.plotly_chart(
+                                kline_chart,
+                                use_container_width=True,
+                                key=chart_key,
+                                on_select="rerun",
+                                selection_mode=["points"],
+                                config={"scrollZoom": False},
+                            )
                             selected_trade_date = extract_trade_date_from_plotly_event(
-                                st.session_state.get(chart_key),
+                                kline_event,
                                 fallback_dates=trade_date_candidates,
                             )
+                            if not selected_trade_date:
+                                selected_trade_date = extract_trade_date_from_plotly_event(
+                                    st.session_state.get(chart_key),
+                                    fallback_dates=trade_date_candidates,
+                                )
                         if selected_trade_date:
                             clicked_intraday_date = selected_trade_date
                             st.session_state[selected_intraday_key] = selected_trade_date
