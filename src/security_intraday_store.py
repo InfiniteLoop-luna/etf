@@ -602,8 +602,11 @@ def load_or_fetch_stock_intraday_timeseries(
         engine = get_engine()
 
     cached_df = get_stock_intraday_timeseries(ts_code, trade_date, freq=freq, engine=engine)
+    cached_source = ""
     if cached_df is not None and not cached_df.empty:
-        return cached_df, _format_cached_intraday_source(cached_df)
+        cached_source = _format_cached_intraday_source(cached_df)
+        if cached_source.startswith("db:mootdx"):
+            return cached_df, cached_source
 
     ts_code_text = normalize_ts_code_text(ts_code)
     mootdx_error = None
@@ -620,6 +623,9 @@ def load_or_fetch_stock_intraday_timeseries(
         if refreshed_df is not None and not refreshed_df.empty:
             return refreshed_df, "mootdx"
         return fetched_df, "mootdx"
+
+    if cached_df is not None and not cached_df.empty:
+        return cached_df, cached_source or "db"
 
     try:
         fetched_df = fetch_stock_intraday_from_tushare(ts_code_text, trade_date, freq=freq, pro=pro)

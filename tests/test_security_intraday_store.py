@@ -153,6 +153,65 @@ class SecurityIntradayStoreTests(unittest.TestCase):
     @patch("src.security_intraday_store.upsert_stock_intraday_timeseries")
     @patch("src.security_intraday_store.fetch_stock_intraday_from_tushare")
     @patch("src.security_intraday_store.fetch_stock_intraday_from_mootdx")
+    def test_load_or_fetch_stock_intraday_timeseries_prefers_mootdx_over_existing_tushare_cache(
+        self,
+        mock_fetch_mootdx,
+        mock_fetch_tushare,
+        mock_upsert,
+        mock_get_cached,
+    ):
+        cached_tushare_df = pd.DataFrame([
+            {
+                "ts_code": "600036.SH",
+                "trade_date": pd.Timestamp("2026-05-08"),
+                "trade_time": pd.Timestamp("2026-05-08 09:30:00"),
+                "freq": "1min",
+                "open": 9.9,
+                "high": 10.1,
+                "low": 9.8,
+                "close": 10.0,
+                "vol": 100,
+                "amount": 1000,
+                "source": "tushare.stk_mins",
+                "ingested_at": pd.NaT,
+                "updated_at": pd.NaT,
+            }
+        ])
+        mootdx_df = pd.DataFrame([
+            {
+                "ts_code": "600036.SH",
+                "trade_date": date(2026, 5, 8),
+                "trade_time": pd.Timestamp("2026-05-08 09:30:00"),
+                "freq": "1min",
+                "open": 10.0,
+                "high": 10.0,
+                "low": 10.0,
+                "close": 10.0,
+                "vol": 100,
+                "amount": None,
+            }
+        ])
+        cached_after_upsert = mootdx_df.assign(source="mootdx.minutes", ingested_at=pd.NaT, updated_at=pd.NaT)
+        mock_get_cached.side_effect = [cached_tushare_df, cached_after_upsert]
+        mock_fetch_mootdx.return_value = mootdx_df
+
+        df, source = load_or_fetch_stock_intraday_timeseries(
+            ts_code="600036.SH",
+            trade_date="2026-05-08",
+            freq="1min",
+            engine=Mock(),
+        )
+
+        self.assertEqual(source, "mootdx")
+        self.assertEqual(len(df), 1)
+        mock_fetch_mootdx.assert_called_once()
+        mock_fetch_tushare.assert_not_called()
+        mock_upsert.assert_called_once()
+
+    @patch("src.security_intraday_store.get_stock_intraday_timeseries")
+    @patch("src.security_intraday_store.upsert_stock_intraday_timeseries")
+    @patch("src.security_intraday_store.fetch_stock_intraday_from_tushare")
+    @patch("src.security_intraday_store.fetch_stock_intraday_from_mootdx")
     def test_load_or_fetch_stock_intraday_timeseries_falls_back_to_tushare(
         self,
         mock_fetch_mootdx,
