@@ -2453,6 +2453,9 @@ def create_security_intraday_chart(
     if chart_df.empty:
         return None
 
+    # A股午休（11:30-13:00）不应在分时图里显示为空白时间段。
+    intraday_rangebreaks = [dict(bounds=[11.5, 13], pattern="hour")]
+
     row_heights = [0.72, 0.28]
     fig = make_subplots(
         rows=2,
@@ -2520,7 +2523,9 @@ def create_security_intraday_chart(
         showgrid=True,
         gridwidth=1,
         gridcolor='rgba(226,232,240,0.5)',
+        type="date",
         tickformat="%H:%M",
+        rangebreaks=intraday_rangebreaks,
     )
     return fig
 

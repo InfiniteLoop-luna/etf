@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 import pandas as pd
 
+from app import create_security_intraday_chart
 from src.security_intraday_store import (
     empty_intraday_frame,
     fetch_stock_realtime_snapshot_from_mootdx,
@@ -38,6 +39,42 @@ class SecurityIntradayStoreTests(unittest.TestCase):
         self.assertAlmostEqual(float(df.iloc[1]["close"]), 10.2)
         self.assertAlmostEqual(float(df.iloc[1]["high"]), 10.2)
         self.assertAlmostEqual(float(df.iloc[2]["low"]), 10.1)
+
+    def test_create_security_intraday_chart_compresses_lunch_break(self):
+        df = pd.DataFrame([
+            {
+                "ts_code": "600036.SH",
+                "trade_date": date(2026, 5, 8),
+                "trade_time": pd.Timestamp("2026-05-08 11:29:00"),
+                "freq": "1min",
+                "open": 10.0,
+                "high": 10.1,
+                "low": 9.9,
+                "close": 10.0,
+                "vol": 100,
+                "amount": None,
+            },
+            {
+                "ts_code": "600036.SH",
+                "trade_date": date(2026, 5, 8),
+                "trade_time": pd.Timestamp("2026-05-08 13:00:00"),
+                "freq": "1min",
+                "open": 10.0,
+                "high": 10.2,
+                "low": 10.0,
+                "close": 10.1,
+                "vol": 120,
+                "amount": None,
+            },
+        ])
+
+        fig = create_security_intraday_chart(df, title="test")
+
+        self.assertIsNotNone(fig)
+        self.assertEqual(fig.layout.xaxis.type, "date")
+        self.assertTrue(fig.layout.xaxis.rangebreaks)
+        self.assertEqual(fig.layout.xaxis.rangebreaks[0]["pattern"], "hour")
+        self.assertEqual(list(fig.layout.xaxis.rangebreaks[0]["bounds"]), [11.5, 13])
 
     def test_fetch_stock_realtime_snapshot_from_mootdx_builds_change_fields(self):
         client = Mock()
