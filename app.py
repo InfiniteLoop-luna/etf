@@ -6655,6 +6655,7 @@ def render_security_search_tab():
                     if enable_intraday_click else []
                 )
                 selected_intraday_key = f"security_intraday_selected_date_{selected_code}" if enable_intraday_click else ""
+                clicked_intraday_date = ""
                 kline_chart = create_security_kline_chart(
                     date_filtered_kline,
                     prefix=prefix,
@@ -6686,6 +6687,7 @@ def render_security_search_tab():
                                 fallback_dates=trade_date_candidates,
                             )
                         if selected_trade_date:
+                            clicked_intraday_date = selected_trade_date
                             st.session_state[selected_intraday_key] = selected_trade_date
                     else:
                         st.plotly_chart(kline_chart, use_container_width=True)
@@ -6715,9 +6717,11 @@ def render_security_search_tab():
                     if not selected_intraday_date:
                         st.info("请先选择一个交易日，再加载对应交易日的分时图。")
                     else:
+                        effective_intraday_date = clicked_intraday_date or selected_intraday_date
+                        intraday_trigger = "点击日K" if clicked_intraday_date else "下拉选择"
                         intraday_df, intraday_source, intraday_error = load_security_intraday_timeseries(
                             ts_code=selected_code,
-                            trade_date=selected_intraday_date,
+                            trade_date=effective_intraday_date,
                             freq="1min",
                         )
                         source_label_map = {
@@ -6730,7 +6734,7 @@ def render_security_search_tab():
                             "error": "加载失败",
                         }
                         source_label = source_label_map.get(intraday_source, intraday_source or "未知")
-                        st.caption(f"交易日：{selected_intraday_date} ｜ 数据来源：{source_label}")
+                        st.caption(f"交易日：{effective_intraday_date} ｜ 触发方式：{intraday_trigger} ｜ 数据来源：{source_label}")
                         if intraday_error:
                             st.warning(f"分时数据加载失败：{intraday_error}")
                         elif intraday_df is None or intraday_df.empty:
@@ -6738,7 +6742,7 @@ def render_security_search_tab():
                         else:
                             intraday_chart = create_security_intraday_chart(
                                 intraday_df,
-                                title=f"{title_name} — {selected_intraday_date} 分时图",
+                                title=f"{title_name} — {effective_intraday_date} 分时图",
                             )
                             if intraday_chart is not None:
                                 st.plotly_chart(intraday_chart, use_container_width=True)
