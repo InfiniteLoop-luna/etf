@@ -6,6 +6,7 @@ import pandas as pd
 
 from app import create_security_intraday_chart
 from src.security_intraday_store import (
+    _create_mootdx_client,
     empty_intraday_frame,
     fetch_stock_realtime_snapshot_from_mootdx,
     load_or_fetch_stock_intraday_timeseries,
@@ -75,6 +76,20 @@ class SecurityIntradayStoreTests(unittest.TestCase):
         self.assertTrue(fig.layout.xaxis.rangebreaks)
         self.assertEqual(fig.layout.xaxis.rangebreaks[0]["pattern"], "hour")
         self.assertEqual(list(fig.layout.xaxis.rangebreaks[0]["bounds"]), [11.5, 13])
+
+    @patch("src.security_intraday_store._get_mootdx_default_server")
+    @patch("src.security_intraday_store._get_mootdx_quotes_class")
+    def test_create_mootdx_client_retries_with_explicit_server(self, mock_get_quotes_class, mock_get_default_server):
+        quotes_cls = Mock()
+        quotes_cls.factory.side_effect = [ValueError("not enough values to unpack"), Mock(name="client")]
+        mock_get_quotes_class.return_value = quotes_cls
+        mock_get_default_server.return_value = ("110.41.147.114", 7709)
+
+        client = _create_mootdx_client(timeout=8)
+
+        self.assertIsNotNone(client)
+        self.assertEqual(quotes_cls.factory.call_count, 2)
+        self.assertEqual(quotes_cls.factory.call_args_list[1].kwargs["server"], ("110.41.147.114", 7709))
 
     def test_fetch_stock_realtime_snapshot_from_mootdx_builds_change_fields(self):
         client = Mock()

@@ -160,16 +160,65 @@ def _get_mootdx_quotes_class():
         return None
 
 
+def _get_mootdx_default_server() -> Optional[tuple[str, int]]:
+    try:
+        from mootdx import config as mootdx_config
+
+        setup_func = getattr(mootdx_config, "setup", None)
+        if callable(setup_func):
+            setup_func()
+
+        server_group = mootdx_config.get("SERVER") or {}
+        hq_servers = server_group.get("HQ") or []
+        if not hq_servers:
+            return None
+
+        first = hq_servers[0]
+        if isinstance(first, (list, tuple)) and len(first) >= 3:
+            return str(first[1]), int(first[2])
+        if isinstance(first, (list, tuple)) and len(first) >= 2:
+            return str(first[0]), int(first[1])
+    except Exception as exc:
+        logger.info("get_mootdx_default_server failed: %s", exc)
+    return None
+
+
+
 def _create_mootdx_client(timeout: int = 8):
     quotes_cls = _get_mootdx_quotes_class()
     if quotes_cls is None:
         return None
 
+    factory_kwargs = {
+        "market": "std",
+        "timeout": int(timeout),
+        "heartbeat": True,
+        "auto_retry": True,
+    }
+
     try:
-        return quotes_cls.factory(market="std", timeout=int(timeout), heartbeat=True, auto_retry=True)
+        return quotes_cls.factory(**factory_kwargs)
     except Exception as exc:
-        logger.warning("create_mootdx_client failed: %s", exc)
-        return None
+        default_server = _get_mootdx_default_server()
+        if not default_server:
+            logger.warning("create_mootdx_client failed: %s", exc)
+            return None
+
+        try:
+            logger.info(
+                "create_mootdx_client retry with explicit server %s:%s",
+                default_server[0],
+                default_server[1],
+            )
+            return quotes_cls.factory(server=default_server, **factory_kwargs)
+        except Exception as retry_exc:
+            logger.warning(
+                "create_mootdx_client failed: %s; retry with explicit server %s failed: %s",
+                exc,
+                default_server,
+                retry_exc,
+            )
+            return None
 
 
 def _close_mootdx_client(client) -> None:
