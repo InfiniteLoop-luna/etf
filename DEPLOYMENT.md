@@ -75,7 +75,6 @@ ssh bw-kind-hats "curl -I -k -sS https://wealthspark.club/ | sed -n '1,8p'"
 
 本项目已集成：
 
-- 个股实时快照：`mootdx`
 - 股票 `1min` 分时优先级：`mootdx -> Tushare -> 数据库缓存/空结果`
 
 部署注意事项：
