@@ -2452,6 +2452,7 @@ def create_security_kline_chart(
         height=620,
         hovermode="x unified",
         clickmode="event+select",
+        dragmode=False,
         showlegend=True,
         xaxis_rangeslider_visible=False,
         margin=dict(l=20, r=20, t=60, b=20),
@@ -6730,6 +6731,11 @@ def render_security_search_tab():
                                 override_height=620,
                                 override_width="100%",
                                 key=chart_key,
+                                config={
+                                    "scrollZoom": False,
+                                    "displayModeBar": False,
+                                    "staticPlot": False,
+                                },
                             )
                             click_signature = json.dumps(click_points or [], ensure_ascii=False, sort_keys=True, default=str)
                             previous_signature = str(st.session_state.get(click_signature_key, "") or "")
@@ -6747,7 +6753,7 @@ def render_security_search_tab():
                                 key=chart_key,
                                 on_select="rerun",
                                 selection_mode=["points"],
-                                config={"scrollZoom": False},
+                                config={"scrollZoom": False, "displayModeBar": False, "staticPlot": False},
                             )
                             selected_trade_date = extract_trade_date_from_plotly_event(
                                 kline_event,
