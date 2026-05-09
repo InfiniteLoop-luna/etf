@@ -2220,6 +2220,7 @@ def create_security_kline_chart(
     volume_ma_windows: list[int] | None = None,
     show_macd: bool = False,
     enable_select_points: bool = False,
+    selected_trade_date: str = "",
 ) -> go.Figure | None:
     if prefix == "d":
         open_col, high_col, low_col, close_col = "open", "high", "low", "close"
@@ -2247,6 +2248,8 @@ def create_security_kline_chart(
         return None
 
     trade_dates = chart_df["trade_date"].dt.strftime("%Y-%m-%d").tolist()
+    selected_trade_date = str(selected_trade_date or "").strip()
+    selected_trade_idx = trade_dates.index(selected_trade_date) if selected_trade_date in trade_dates else -1
     open_values = _series_to_plotly_list(chart_df[open_col])
     high_values = _series_to_plotly_list(chart_df[high_col])
     low_values = _series_to_plotly_list(chart_df[low_col])
@@ -2305,10 +2308,36 @@ def create_security_kline_chart(
                 base=low_values,
                 name="点击查看分时",
                 customdata=select_customdata,
-                marker=dict(color="rgba(59, 130, 246, 0.01)", line=dict(width=0)),
-                opacity=0.08,
+                marker=dict(color="rgba(59, 130, 246, 0.001)", line=dict(width=0)),
+                opacity=0.001,
                 hovertemplate="点击加载 %{customdata[0]} 分时图<extra></extra>",
                 showlegend=False,
+            ),
+            row=1,
+            col=1,
+        )
+
+    if selected_trade_idx >= 0:
+        selected_low = low_values[selected_trade_idx]
+        selected_high = high_values[selected_trade_idx]
+        selected_open = open_values[selected_trade_idx]
+        selected_close = close_values[selected_trade_idx]
+        selected_top = max(v for v in [selected_high, selected_open, selected_close] if v is not None)
+        selected_bottom = min(v for v in [selected_low, selected_open, selected_close] if v is not None)
+        highlight_height = max(float(selected_top) - float(selected_bottom), 0.01)
+        fig.add_trace(
+            go.Bar(
+                x=[trade_dates[selected_trade_idx]],
+                y=[highlight_height],
+                base=[selected_bottom],
+                width=[0.78 * 24 * 60 * 60 * 1000],
+                marker=dict(
+                    color="rgba(59, 130, 246, 0.12)",
+                    line=dict(color="rgba(37, 99, 235, 0.95)", width=2),
+                ),
+                hoverinfo="skip",
+                showlegend=False,
+                name="当前选中日K",
             ),
             row=1,
             col=1,
@@ -6675,6 +6704,9 @@ def render_security_search_tab():
                 selected_intraday_key = f"security_intraday_selected_date_{selected_code}" if enable_intraday_click else ""
                 clicked_intraday_date = ""
                 click_signature_key = f"security_intraday_click_signature_{selected_code}" if enable_intraday_click else ""
+                current_selected_trade_date = str(st.session_state.get(selected_intraday_key, "")).strip() if enable_intraday_click else ""
+                if current_selected_trade_date not in trade_date_candidates and trade_date_candidates:
+                    current_selected_trade_date = trade_date_candidates[-1]
                 kline_chart = create_security_kline_chart(
                     date_filtered_kline,
                     prefix=prefix,
@@ -6683,6 +6715,7 @@ def render_security_search_tab():
                     volume_ma_windows=volume_ma_windows,
                     show_macd=show_macd,
                     enable_select_points=enable_intraday_click,
+                    selected_trade_date=current_selected_trade_date,
                 )
                 if kline_chart is not None:
                     if enable_intraday_click:
