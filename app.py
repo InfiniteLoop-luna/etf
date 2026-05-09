@@ -847,6 +847,10 @@ def extract_trade_date_from_plotly_event(event, fallback_dates: list[str] | None
         return ""
 
     for point in reversed(list(points)):
+        trace_name = str(_event_payload_get(point, "dataName") or _event_payload_get(point, "fullDataName") or _event_payload_get(point, "curveName") or "").strip()
+        if trace_name and trace_name not in {"K线", "点击查看分时", "当前选中日K", "当前选中日K影线"}:
+            continue
+
         customdata = _event_payload_get(point, "customdata")
         if customdata is not None and not isinstance(customdata, (list, tuple, np.ndarray, pd.Series)):
             customdata = [customdata]
@@ -2296,28 +2300,6 @@ def create_security_kline_chart(
         ),
         row=1, col=1
     )
-
-    if enable_select_points:
-        select_customdata = [[trade_date] for trade_date in trade_dates]
-        select_heights = (chart_df[high_col] - chart_df[low_col]).abs()
-        select_heights = _series_to_plotly_list(select_heights.where(select_heights > 0, 0.01))
-        click_width_ms = 0.58 * 24 * 60 * 60 * 1000
-        fig.add_trace(
-            go.Bar(
-                x=trade_dates,
-                y=select_heights,
-                base=low_values,
-                width=[click_width_ms] * len(trade_dates),
-                name="点击查看分时",
-                customdata=select_customdata,
-                marker=dict(color="rgba(59, 130, 246, 0.001)", line=dict(width=0)),
-                opacity=0.001,
-                hovertemplate="点击加载 %{customdata[0]} 分时图<extra></extra>",
-                showlegend=False,
-            ),
-            row=1,
-            col=1,
-        )
 
     if selected_trade_idx >= 0:
         selected_low = float(low_values[selected_trade_idx])
