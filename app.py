@@ -2208,6 +2208,10 @@ def get_security_metric_config(security_type: str) -> dict[str, dict[str, Union[
     }
 
 
+def _series_to_plotly_list(series: pd.Series) -> list:
+    return pd.Series(series).astype(object).where(pd.notna(series), None).tolist()
+
+
 def create_security_kline_chart(
     df: pd.DataFrame,
     prefix: str,
@@ -2242,6 +2246,12 @@ def create_security_kline_chart(
     if chart_df.empty:
         return None
 
+    trade_dates = chart_df["trade_date"].dt.strftime("%Y-%m-%d").tolist()
+    open_values = _series_to_plotly_list(chart_df[open_col])
+    high_values = _series_to_plotly_list(chart_df[high_col])
+    low_values = _series_to_plotly_list(chart_df[low_col])
+    close_values = _series_to_plotly_list(chart_df[close_col])
+
     rangebreaks = []
     normalized_dates = chart_df["trade_date"].dt.normalize().drop_duplicates().sort_values()
     if len(normalized_dates) >= 2:
@@ -2270,11 +2280,11 @@ def create_security_kline_chart(
 
     fig.add_trace(
         go.Candlestick(
-            x=chart_df["trade_date"],
-            open=chart_df[open_col],
-            high=chart_df[high_col],
-            low=chart_df[low_col],
-            close=chart_df[close_col],
+            x=trade_dates,
+            open=open_values,
+            high=high_values,
+            low=low_values,
+            close=close_values,
             increasing_line_color="#EF4444",
             decreasing_line_color="#10B981",
             increasing_fillcolor="#FCA5A5",
@@ -2285,14 +2295,14 @@ def create_security_kline_chart(
     )
 
     if enable_select_points:
-        select_customdata = np.array(chart_df["trade_date"].dt.strftime("%Y-%m-%d")).reshape(-1, 1)
+        select_customdata = [[trade_date] for trade_date in trade_dates]
         select_heights = (chart_df[high_col] - chart_df[low_col]).abs()
-        select_heights = select_heights.where(select_heights > 0, 0.01)
+        select_heights = _series_to_plotly_list(select_heights.where(select_heights > 0, 0.01))
         fig.add_trace(
             go.Bar(
-                x=chart_df["trade_date"],
+                x=trade_dates,
                 y=select_heights,
-                base=chart_df[low_col],
+                base=low_values,
                 name="点击查看分时",
                 customdata=select_customdata,
                 marker=dict(color="rgba(59, 130, 246, 0.01)", line=dict(width=0)),
@@ -2311,8 +2321,8 @@ def create_security_kline_chart(
             continue
         fig.add_trace(
             go.Scatter(
-                x=chart_df["trade_date"],
-                y=chart_df[ma_col],
+                x=trade_dates,
+                y=_series_to_plotly_list(chart_df[ma_col]),
                 mode="lines",
                 name=f"MA{w}",
                 line=dict(color=ma_colors[idx % len(ma_colors)], width=1.6),
@@ -2334,8 +2344,8 @@ def create_security_kline_chart(
     if volume_used:
         fig.add_trace(
             go.Bar(
-                x=chart_df["trade_date"],
-                y=chart_df[volume_used],
+                x=trade_dates,
+                y=_series_to_plotly_list(chart_df[volume_used]),
                 name=y_title,
                 marker_color=bar_colors,
                 opacity=0.45,
@@ -2355,8 +2365,8 @@ def create_security_kline_chart(
             chart_df[vol_ma_col] = pd.to_numeric(chart_df[volume_used], errors="coerce").rolling(window=w).mean()
             fig.add_trace(
                 go.Scatter(
-                    x=chart_df["trade_date"],
-                    y=chart_df[vol_ma_col],
+                    x=trade_dates,
+                    y=_series_to_plotly_list(chart_df[vol_ma_col]),
                     mode="lines",
                     name=f"VOL_MA{w}",
                     line=dict(color=vol_ma_colors[idx % len(vol_ma_colors)], width=1.4),
@@ -2376,8 +2386,8 @@ def create_security_kline_chart(
         macd_colors = np.where(chart_df["macd_hist"] >= 0, "#EF4444", "#10B981")
         fig.add_trace(
             go.Bar(
-                x=chart_df["trade_date"],
-                y=chart_df["macd_hist"],
+                x=trade_dates,
+                y=_series_to_plotly_list(chart_df["macd_hist"]),
                 name="MACD",
                 marker_color=macd_colors,
                 opacity=0.55,
@@ -2387,8 +2397,8 @@ def create_security_kline_chart(
         )
         fig.add_trace(
             go.Scatter(
-                x=chart_df["trade_date"],
-                y=chart_df["dif"],
+                x=trade_dates,
+                y=_series_to_plotly_list(chart_df["dif"]),
                 mode="lines",
                 name="DIF",
                 line=dict(color="#2563EB", width=1.5),
@@ -2398,8 +2408,8 @@ def create_security_kline_chart(
         )
         fig.add_trace(
             go.Scatter(
-                x=chart_df["trade_date"],
-                y=chart_df["dea"],
+                x=trade_dates,
+                y=_series_to_plotly_list(chart_df["dea"]),
                 mode="lines",
                 name="DEA",
                 line=dict(color="#7C3AED", width=1.5),
