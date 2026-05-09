@@ -15,7 +15,7 @@ GitHub Actions (每天自动运行 main.py)
     ↓
 更新 Excel 文件并提交
     ↓
-Streamlit Cloud (自动重新部署)
+VPS 上的 Streamlit 服务 / GitHub Actions 持续更新
     ↓
 用户通过浏览器访问
 ```
@@ -48,38 +48,43 @@ Streamlit Cloud (自动重新部署)
 ### 1. 推送代码到 GitHub
 
 ```bash
-cd "d:\Code\etf\.worktrees\etf-visualization"
-
-# 如果遇到代理问题，先清除代理设置
-git config --global --unset http.proxy
-git config --global --unset https.proxy
-
-# 推送分支
-git push -u origin feature/etf-visualization
-
-# 合并到主分支
-cd "d:\Code\etf"
-git checkout main
-git merge feature/etf-visualization
+cd D:\sourcecode\etf
 git push origin main
 ```
 
-### 2. 配置 GitHub Actions
+### 2. VPS 部署（当前生产路径）
 
-GitHub Actions 工作流已经创建在 `.github/workflows/update-data.yml`
+当前线上部署路径为 VPS：
 
-**工作流说明：**
-- **触发时间**: 每天北京时间 18:00 (UTC 10:00)
-- **执行内容**: 运行 `python main.py` 更新数据
-- **自动提交**: 如果数据有变化，自动提交并推送到 GitHub
-- **手动触发**: 可以在 GitHub Actions 页面手动运行
+- Host: `bw-kind-hats`
+- App dir: `/opt/etf-app`
+- Service: `etf-streamlit`
+- Site: `https://wealthspark.club/`
 
-**首次启用：**
-1. 推送代码到 GitHub 后，Actions 会自动启用
-2. 访问 `https://github.com/InfiniteLoop-luna/etf/actions`
-3. 查看工作流运行状态
+标准部署流程：
 
-### 3. 部署到 Streamlit Community Cloud
+```bash
+ssh bw-kind-hats "cd /opt/etf-app && git fetch origin && git pull --ff-only"
+ssh bw-kind-hats "cd /opt/etf-app && /opt/etf-app/.venv/bin/pip install -r requirements.txt"
+ssh bw-kind-hats "systemctl restart etf-streamlit"
+ssh bw-kind-hats "curl -fsS http://127.0.0.1:8501/_stcore/health && echo"
+ssh bw-kind-hats "curl -I -k -sS https://wealthspark.club/ | sed -n '1,8p'"
+```
+
+### 3. `mootdx` 部署说明
+
+本项目已集成：
+
+- 个股实时快照：`mootdx`
+- 股票 `1min` 分时优先级：`mootdx -> Tushare -> 数据库缓存/空结果`
+
+部署注意事项：
+
+1. 线上环境需执行 `pip install -r requirements.txt` 以安装 `mootdx`
+2. 若 `mootdx` 暂时不可用，页面不会整体报错，股票分时会自动回退到 `Tushare`
+3. 北交所/非沪深分钟数据当前不会强行走 `mootdx minutes()`，会优雅降级
+
+### 4. 可选：Streamlit Community Cloud
 
 1. **访问** [share.streamlit.io](https://share.streamlit.io)
 
@@ -127,11 +132,11 @@ GitHub Actions 工作流已经创建在 `.github/workflows/update-data.yml`
 
 1. **每天 18:00** GitHub Actions 自动运行
 2. **检查交易日** 如果不是交易日，跳过更新
-3. **获取数据** 从 AkShare 获取最新 ETF 数据
-4. **更新 Excel** 更新 `主要ETF基金份额变动情况.xlsx`
+3. **获取数据** 从 AkShare / Tushare 获取最新数据
+4. **更新数据文件/数据库**
 5. **提交推送** 自动提交更改到 GitHub
-6. **触发部署** Streamlit Cloud 检测到文件变化，自动重新部署
-7. **用户访问** 用户刷新页面即可看到最新数据
+6. **VPS 拉取新代码并提供页面服务**
+7. **用户刷新页面即可看到最新数据**
 
 ## 手动更新
 
