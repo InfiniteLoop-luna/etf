@@ -2467,6 +2467,7 @@ def create_security_kline_chart(
         gridcolor='rgba(226,232,240,0.5)',
         type="date",
         rangebreaks=rangebreaks,
+        fixedrange=True,
     )
 
     return fig
@@ -6731,11 +6732,6 @@ def render_security_search_tab():
                                 override_height=620,
                                 override_width="100%",
                                 key=chart_key,
-                                config={
-                                    "scrollZoom": False,
-                                    "displayModeBar": False,
-                                    "staticPlot": False,
-                                },
                             )
                             click_signature = json.dumps(click_points or [], ensure_ascii=False, sort_keys=True, default=str)
                             previous_signature = str(st.session_state.get(click_signature_key, "") or "")
