@@ -1213,8 +1213,8 @@ def get_stock_profile(ts_code: str, engine=None) -> pd.DataFrame:
 
     sql = f"""
         WITH basic AS (
-            SELECT * FROM {STOCK_BASIC_VIEW}
-            WHERE ts_code = :ts_code
+            SELECT * FROM {STOCK_BASIC_VIEW} AS basic
+            WHERE basic.ts_code = :ts_code
               AND {ACTIVE_STOCK_FILTER_SQL_BASIC}
             LIMIT 1
         ),
