@@ -302,6 +302,25 @@ STOCK_WEEK_MONTH_ADJ_VIEW = 'vw_ts_stk_week_month_adj'
 ACTIVE_STOCK_FILTER_SQL = build_active_stock_sql_clause('b')
 ACTIVE_STOCK_FILTER_SQL_BASIC = build_active_stock_sql_clause('basic')
 
+
+def build_current_non_st_stock_sql_clause(alias: str = 'b') -> str:
+    alias = str(alias or '').strip() or 'b'
+    return f"""
+(
+    COALESCE({alias}.name, '') = ''
+    OR (
+        COALESCE({alias}.name, '') NOT LIKE 'ST%'
+        AND COALESCE({alias}.name, '') NOT LIKE '*ST%'
+        AND COALESCE({alias}.name, '') NOT LIKE 'S*ST%'
+        AND COALESCE({alias}.name, '') NOT LIKE 'SST%'
+    )
+)
+""".strip()
+
+
+NON_STOCK_FILTER_SQL = build_current_non_st_stock_sql_clause('b')
+NON_STOCK_FILTER_SQL_BASIC = build_current_non_st_stock_sql_clause('basic')
+
 INDEX_FALLBACK_NAME_MAP = {
     '000001.SH': '上证指数',
     '399001.SZ': '深证成指',
@@ -683,9 +702,7 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
                 OR COALESCE(b.fullname, '') ILIKE :like_kw
                 OR COALESCE(b.cnspell, '') ILIKE :like_kw)
                 AND {ACTIVE_STOCK_FILTER_SQL}
-                AND b.ts_code NOT IN (
-                    SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%'
-                )
+                AND {NON_STOCK_FILTER_SQL}
         """)
 
     if security_type in {'all', 'index'}:
@@ -737,7 +754,7 @@ def search_companies(industries: list = None, product_kw: str = None, business_k
 
     conditions = [
         ACTIVE_STOCK_FILTER_SQL,
-        "b.ts_code NOT IN (SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%')",
+        NON_STOCK_FILTER_SQL,
     ]
     params = {}
 
@@ -778,7 +795,7 @@ def search_stocks_by_technical_signals(use_weekly: bool, use_monthly: bool, engi
         
     conditions = [
         ACTIVE_STOCK_FILTER_SQL,
-        "b.ts_code NOT IN (SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%')",
+        NON_STOCK_FILTER_SQL,
     ]
     params = {}
     
@@ -1188,9 +1205,7 @@ def get_stock_basic_summary(engine=None) -> pd.DataFrame:
             )
         )
         AND COALESCE(basic.delist_date::text, '') = ''
-        AND basic.ts_code NOT IN (
-            SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%'
-        )
+        AND {NON_STOCK_FILTER_SQL_BASIC}
         ORDER BY basic.industry NULLS LAST, basic.ts_code
     """
     merged_df = pd.read_sql(text(sql), engine)

@@ -5,12 +5,38 @@ import pandas as pd
 
 from src.etf_stats import (
     get_stock_profile,
+    search_security,
     update_stock_custom_info_batch,
     validate_stock_custom_info_inputs,
 )
 
 
 class StockInfoEditTests(unittest.TestCase):
+    def test_search_security_filters_current_st_name_not_historical_namechange(self):
+        captured = {}
+
+        def fake_read_sql(query, engine, params=None):
+            captured["sql"] = str(query)
+            captured["params"] = params
+            return pd.DataFrame([
+                {
+                    "security_type": "stock",
+                    "ts_code": "600230.SH",
+                    "symbol": "600230",
+                    "name": "沧州大化",
+                    "industry": "基础化工",
+                    "market": "主板",
+                    "latest_date": None,
+                }
+            ])
+
+        with patch("src.etf_stats.pd.read_sql", side_effect=fake_read_sql):
+            df = search_security("沧州大化", "stock", limit=20, engine=object())
+
+        self.assertEqual(df.iloc[0]["ts_code"], "600230.SH")
+        self.assertIn("COALESCE(b.name, '') NOT LIKE '*ST%'", captured["sql"])
+        self.assertNotIn("vw_ts_stock_namechange WHERE name LIKE '%ST%'", captured["sql"])
+
     def test_get_stock_profile_uses_basic_alias_inside_cte(self):
         captured = {}
 
