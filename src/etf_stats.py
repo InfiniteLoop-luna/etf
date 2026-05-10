@@ -298,6 +298,32 @@ STOCK_PRICE_DAILY_VIEW = 'vw_ts_stock_daily'
 INDEX_DAILY_VIEW = 'vw_ts_index_dailybasic'
 STOCK_WEEK_MONTH_ADJ_VIEW = 'vw_ts_stk_week_month_adj'
 
+INDEX_FALLBACK_NAME_MAP = {
+    '000001.SH': '上证指数',
+    '399001.SZ': '深证成指',
+    '000016.SH': '上证50指数',
+    '000300.SH': '沪深300指数',
+    '000905.SH': '中证500指数',
+    '000906.SH': '中证800指数',
+    '000852.SH': '中证1000指数',
+    '000985.CSI': '中证全指',
+    '932000.CSI': '中证2000指数',
+    '399005.SZ': '中小100指数',
+    '399006.SZ': '创业板指',
+    '399673.SZ': '创业板50',
+    '000680.SH': '科创综指',
+    '000688.SH': '科创50',
+}
+
+
+def _build_index_name_fallback_sql(code_expr: str = 'ts_code') -> str:
+    cases = ' '.join(
+        f"WHEN {code_expr} = '{code}' THEN '{name}'"
+        for code, name in INDEX_FALLBACK_NAME_MAP.items()
+    )
+    return f"CASE {cases} ELSE {code_expr} END"
+
+
 STOCK_BASIC_EXPORT_RENAME_MAP = {
     'ts_code': '股票代码',
     'symbol': '股票代码简写',
@@ -620,6 +646,7 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
 
     like_kw = f'%{keyword}%'
     prefix_kw = f'{keyword}%'
+    index_name_sql = f"COALESCE(NULLIF(payload->>'name', ''), NULLIF(payload->>'ts_name', ''), {_build_index_name_fallback_sql('ts_code')})"
     queries = []
     params = {
         'like_kw': like_kw,
@@ -675,7 +702,7 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
                 SELECT DISTINCT ON (ts_code)
                     ts_code,
                     trade_date,
-                    COALESCE(NULLIF(payload->>'name', ''), NULLIF(payload->>'ts_name', ''), ts_code) AS name
+                    {index_name_sql} AS name
                 FROM {INDEX_DAILY_VIEW}
                 ORDER BY ts_code, trade_date DESC NULLS LAST
             ) latest_index
@@ -1393,6 +1420,7 @@ def get_index_profile(ts_code: str, engine=None) -> pd.DataFrame:
     if engine is None:
         engine = _get_engine()
 
+    index_name_sql = f"COALESCE(NULLIF(payload->>'name', ''), NULLIF(payload->>'ts_name', ''), {_build_index_name_fallback_sql('ts_code')})"
     sql = f"""
         WITH latest_index AS (
             SELECT *
@@ -1403,7 +1431,7 @@ def get_index_profile(ts_code: str, engine=None) -> pd.DataFrame:
         )
         SELECT
             ts_code,
-            COALESCE(NULLIF(payload->>'name', ''), NULLIF(payload->>'ts_name', ''), ts_code) AS name,
+            {index_name_sql} AS name,
             trade_date AS latest_trade_date,
             close,
             turnover_rate,
