@@ -1764,6 +1764,33 @@ def build_security_jump_links(df: pd.DataFrame, code_col: str = '代码', fallba
     return query_links
 
 
+HISTORICAL_ST_BADGE_TEXT = '曾经ST'
+
+
+def format_historical_st_badge(value) -> str:
+    return HISTORICAL_ST_BADGE_TEXT if bool(value) else ''
+
+
+def style_historical_st_badge_column(column: pd.Series) -> list[str]:
+    badge_style = (
+        'background-color: #FEF3C7; '
+        'color: #92400E; '
+        'font-weight: 700; '
+        'border: 1px solid #F59E0B; '
+        'border-radius: 999px; '
+        'text-align: center; '
+        'white-space: nowrap;'
+    )
+    return [badge_style if str(value or '').strip() == HISTORICAL_ST_BADGE_TEXT else '' for value in column]
+
+
+def build_security_jump_table_styler(render_df: pd.DataFrame) -> pd.io.formats.style.Styler:
+    styler = render_df.style
+    if '标签' in render_df.columns:
+        styler = styler.apply(style_historical_st_badge_column, subset=['标签'])
+    return styler
+
+
 def render_security_jump_table(display_df: pd.DataFrame, help_text: str, code_col: str = '代码', fallback_col: str = '简称', nonce_key: str = 'security_jump_render_nonce') -> None:
     if display_df is None or display_df.empty:
         return
@@ -1771,10 +1798,11 @@ def render_security_jump_table(display_df: pd.DataFrame, help_text: str, code_co
     render_df = display_df.copy()
     query_links = build_security_jump_links(render_df, code_col=code_col, fallback_col=fallback_col, nonce_key=nonce_key)
     render_df.insert(0, '查询', query_links)
+    styled_df = build_security_jump_table_styler(render_df)
 
     st.info(help_text)
     st.dataframe(
-        render_df,
+        styled_df,
         use_container_width=True,
         hide_index=True,
         column_config={
@@ -1782,6 +1810,11 @@ def render_security_jump_table(display_df: pd.DataFrame, help_text: str, code_co
                 '查询',
                 help='点击后跳转到个股/指数查询',
                 display_text='🔎 查询'
+            ),
+            '标签': st.column_config.TextColumn(
+                '标签',
+                width='small',
+                help='黄色 badge 表示该股票历史上曾被 ST 处理，但当前不一定处于 ST 状态。'
             )
         }
     )

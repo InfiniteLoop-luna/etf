@@ -3,7 +3,13 @@ import unittest
 import pandas as pd
 import streamlit as st
 
-from app import build_security_jump_links, render_tech_picker_jump_table
+from app import (
+    HISTORICAL_ST_BADGE_TEXT,
+    build_security_jump_links,
+    build_security_jump_table_styler,
+    render_tech_picker_jump_table,
+    style_historical_st_badge_column,
+)
 
 
 class NavigationConfigTests(unittest.TestCase):
@@ -37,6 +43,22 @@ class NavigationConfigTests(unittest.TestCase):
         self.assertEqual(len(links), 1)
         self.assertIn("security_query=%E6%B2%A7%E5%B7%9E%E5%A4%A7%E5%8C%96", links[0])
 
+    def test_style_historical_st_badge_column_only_styles_badge_rows(self):
+        styles = style_historical_st_badge_column(pd.Series([HISTORICAL_ST_BADGE_TEXT, "", None]))
+
+        self.assertIn("background-color: #FEF3C7", styles[0])
+        self.assertEqual(styles[1], "")
+        self.assertEqual(styles[2], "")
+
+    def test_build_security_jump_table_styler_keeps_badge_text(self):
+        df = pd.DataFrame([
+            {"查询": "?security_query=600230.SH", "标签": HISTORICAL_ST_BADGE_TEXT, "代码": "600230.SH"}
+        ])
+
+        styler = build_security_jump_table_styler(df)
+
+        self.assertEqual(styler.data.iloc[0]["标签"], HISTORICAL_ST_BADGE_TEXT)
+
     def test_render_tech_picker_jump_table_adds_historical_st_label_column(self):
         df = pd.DataFrame([
             {
@@ -67,7 +89,7 @@ class NavigationConfigTests(unittest.TestCase):
             render_tech_picker_jump_table(df)
 
         self.assertIn('标签', captured['display_df'].columns)
-        self.assertEqual(captured['display_df'].iloc[0]['标签'], '曾经ST')
+        self.assertEqual(captured['display_df'].iloc[0]['标签'], HISTORICAL_ST_BADGE_TEXT)
         self.assertNotIn('has_ever_st', captured['display_df'].columns)
         self.assertEqual(captured['nonce_key'], 'tech_picker_render_nonce')
 
