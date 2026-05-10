@@ -1708,8 +1708,6 @@ def trigger_security_tab_jump_if_needed() -> None:
     st.session_state["jump_to_security_tab"] = False
 
 def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
-    from urllib.parse import quote
-
     if df is None or df.empty:
         return
 
@@ -1720,6 +1718,10 @@ def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
         'm_ema5': '月线EMA5', 'm_ema30': '月线EMA30',
         'main_business': '主要业务'
     }).copy()
+
+    if 'has_ever_st' in display_df.columns:
+        display_df['标签'] = display_df['has_ever_st'].map(lambda x: '曾经ST' if bool(x) else '')
+        display_df = display_df.drop(columns=['has_ever_st'])
 
     for col in ['周线EMA5', '周线EMA30', '月线EMA5', '月线EMA30']:
         if col in display_df.columns:
@@ -1732,35 +1734,12 @@ def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
 
     display_df = display_df.fillna('-')
 
-    render_nonce = st.session_state.get('tech_picker_render_nonce', 0) + 1
-    st.session_state['tech_picker_render_nonce'] = render_nonce
-
-    query_links = []
-    for _, row in display_df.iterrows():
-        query = str(row.get('代码') or row.get('简称') or '').strip()
-        if not query:
-            query_links.append('#')
-            continue
-        query_links.append(
-            f"?security_query={quote(query)}&security_type=stock&open_tab=security&jump_nonce={render_nonce}_{quote(query)}"
-        )
-
-    render_df = display_df.copy()
-    render_df.insert(0, '查询', query_links)
-
-    st.info("💡 直接点击每行最左侧“🔎 查询”即可跳到“个股/指数查询”，并自动带入该股票代码。")
-
-    st.dataframe(
-        render_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            '查询': st.column_config.LinkColumn(
-                '查询',
-                help='点击后跳转到个股/指数查询',
-                display_text='🔎 查询'
-            )
-        }
+    render_security_jump_table(
+        display_df,
+        help_text="💡 直接点击每行最左侧“🔎 查询”即可跳到“个股/指数查询”，并自动带入该股票代码。",
+        code_col='代码',
+        fallback_col='简称',
+        nonce_key='tech_picker_render_nonce',
     )
 
 
@@ -4601,6 +4580,9 @@ def render_company_screener_tab():
         "main_business": "主要业务",
         "product": "产品及服务",
     }).copy()
+    if 'has_ever_st' in display_df.columns:
+        display_df['标签'] = display_df['has_ever_st'].map(lambda x: '曾经ST' if bool(x) else '')
+        display_df = display_df.drop(columns=['has_ever_st'])
     display_df.insert(0, "序号", range(1, len(display_df) + 1))
     render_security_jump_table(
         display_df,

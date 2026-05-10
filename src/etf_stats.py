@@ -805,6 +805,7 @@ def search_companies(industries: list = None, product_kw: str = None, business_k
             b.ts_code,
             b.name,
             b.industry,
+            {HAS_EVER_ST_SQL} AS has_ever_st,
             c.main_business,
             c.business_scope AS product
         FROM {STOCK_BASIC_VIEW} b
@@ -842,6 +843,7 @@ def search_stocks_by_technical_signals(use_weekly: bool, use_monthly: bool, engi
             b.ts_code,
             b.name,
             b.industry,
+            {HAS_EVER_ST_SQL} AS has_ever_st,
             s.trade_date,
             s.w_ema5,
             s.w_ema30,
