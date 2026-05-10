@@ -1784,7 +1784,7 @@ def style_historical_st_badge_column(column: pd.Series) -> list[str]:
     return [badge_style if str(value or '').strip() == HISTORICAL_ST_BADGE_TEXT else '' for value in column]
 
 
-def build_security_jump_table_styler(render_df: pd.DataFrame) -> pd.io.formats.style.Styler:
+def build_security_jump_table_styler(render_df: pd.DataFrame):
     styler = render_df.style
     if '标签' in render_df.columns:
         styler = styler.apply(style_historical_st_badge_column, subset=['标签'])
