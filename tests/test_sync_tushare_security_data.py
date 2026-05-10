@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pandas as pd
@@ -117,6 +118,41 @@ class StockSyncChangeLogTests(unittest.TestCase):
         self.assertEqual(str(summary["delisted"][0]["delist_date"]), "2026-05-10")
 
     @patch("src.sync_tushare_security_data.load_existing_stock_basic_snapshot")
+    def test_build_stock_basic_change_summary_bootstrap_skips_initial_full_snapshot(self, mock_load_snapshot):
+        mock_load_snapshot.return_value = pd.DataFrame(
+            columns=["ts_code", "symbol", "name", "list_status", "list_date", "delist_date", "payload"]
+        )
+
+        latest_df = pd.DataFrame(
+            [
+                {
+                    "ts_code": "000001.SZ",
+                    "symbol": "000001",
+                    "name": "平安银行",
+                    "list_status": "L",
+                    "list_date": "19910403",
+                    "delist_date": None,
+                },
+                {
+                    "ts_code": "000003.SZ",
+                    "symbol": "000003",
+                    "name": "PT金田A(退)",
+                    "list_status": "D",
+                    "list_date": "19910703",
+                    "delist_date": "20020614",
+                },
+            ]
+        )
+
+        summary = build_stock_basic_change_summary(engine=object(), latest_df=latest_df)
+
+        self.assertTrue(summary["bootstrap"])
+        self.assertEqual(summary["previous_count"], 0)
+        self.assertEqual(summary["latest_count"], 2)
+        self.assertEqual(summary["added"], [])
+        self.assertEqual(summary["delisted"], [])
+
+    @patch("src.sync_tushare_security_data.load_existing_stock_basic_snapshot")
     def test_build_stock_basic_change_summary_ignores_existing_delisted_stock(self, mock_load_snapshot):
         mock_load_snapshot.return_value = pd.DataFrame(
             [
@@ -147,6 +183,7 @@ class StockSyncChangeLogTests(unittest.TestCase):
 
         summary = build_stock_basic_change_summary(engine=object(), latest_df=latest_df)
 
+        self.assertFalse(summary["bootstrap"])
         self.assertEqual(summary["added"], [])
         self.assertEqual(summary["delisted"], [])
 
@@ -228,6 +265,91 @@ class StockSyncChangeLogTests(unittest.TestCase):
             row["deleted_tables"],
             '[{"deleted_rows": 8, "matched_rows": 8, "table_name": "ts_stock_daily"}]',
         )
+
+
+class RunSyncOnceTests(unittest.TestCase):
+    def _make_args(self):
+        return SimpleNamespace(
+            end_date="20260510",
+            datasets=["stock_basic"],
+            backfill_missing_history=False,
+            daily_start="20250101",
+            financial_start="20240101",
+            index_codes=[],
+            schedule=False,
+            interval_minutes=60,
+            daily_lookback_days=1,
+            financial_lookback_days=30,
+            daily_min_coverage_ratio=0.9,
+            daily_publish_cutoff_hour=20,
+            index_publish_cutoff_hour=20,
+        )
+
+    @patch("src.sync_tushare_security_data.logger")
+    @patch("src.sync_tushare_security_data.record_stock_change_log")
+    @patch("src.sync_tushare_security_data.purge_delisted_stock_history")
+    @patch("src.sync_tushare_security_data.sync_dataset")
+    def test_run_sync_once_bootstrap_purges_all_delisted_but_skips_event_logs(
+        self,
+        mock_sync_dataset,
+        mock_purge,
+        mock_record_log,
+        _mock_logger,
+    ):
+        mock_sync_dataset.return_value = (
+            10,
+            {
+                "added": [],
+                "delisted": [],
+                "bootstrap": True,
+                "previous_count": 0,
+                "latest_count": 10,
+            },
+        )
+        mock_purge.return_value = {
+            "delisted_count": 325,
+            "table_results": [{"table_name": "ts_stock_daily", "deleted_rows": 8}],
+            "code_table_results": {},
+        }
+
+        from src.sync_tushare_security_data import run_sync_once
+
+        engine = object()
+        total = run_sync_once(engine=engine, pro=object(), args=self._make_args())
+
+        self.assertEqual(total, 10)
+        mock_purge.assert_called_once_with(engine, dry_run=False, target_codes=None)
+        mock_record_log.assert_not_called()
+
+    @patch("src.sync_tushare_security_data.logger")
+    @patch("src.sync_tushare_security_data.record_stock_change_log")
+    @patch("src.sync_tushare_security_data.purge_delisted_stock_history")
+    @patch("src.sync_tushare_security_data.sync_dataset")
+    def test_run_sync_once_skips_purge_when_no_new_delist(
+        self,
+        mock_sync_dataset,
+        mock_purge,
+        mock_record_log,
+        _mock_logger,
+    ):
+        mock_sync_dataset.return_value = (
+            5,
+            {
+                "added": [{"ts_code": "920999.BJ"}],
+                "delisted": [],
+                "bootstrap": False,
+                "previous_count": 10,
+                "latest_count": 11,
+            },
+        )
+
+        from src.sync_tushare_security_data import run_sync_once
+
+        total = run_sync_once(engine=object(), pro=object(), args=self._make_args())
+
+        self.assertEqual(total, 5)
+        mock_purge.assert_not_called()
+        self.assertEqual(mock_record_log.call_count, 2)
 
 
 if __name__ == "__main__":

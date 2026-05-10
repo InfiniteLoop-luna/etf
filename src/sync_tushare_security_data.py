@@ -962,6 +962,15 @@ def build_stock_basic_change_summary(engine: Engine, latest_df: pd.DataFrame) ->
             if str(record.get("ts_code")).strip() and str(record.get("ts_code")).strip().lower() != "nan"
         }
 
+    if not previous_map:
+        return {
+            "added": [],
+            "delisted": [],
+            "bootstrap": True,
+            "previous_count": 0,
+            "latest_count": len(latest_map),
+        }
+
     added = []
     delisted = []
     for ts_code, record in latest_map.items():
@@ -1000,6 +1009,9 @@ def build_stock_basic_change_summary(engine: Engine, latest_df: pd.DataFrame) ->
     return {
         "added": sorted(added, key=lambda item: item["ts_code"]),
         "delisted": sorted(delisted, key=lambda item: item["ts_code"]),
+        "bootstrap": False,
+        "previous_count": len(previous_map),
+        "latest_count": len(latest_map),
     }
 
 
@@ -2146,36 +2158,51 @@ def run_sync_once(engine: Engine, pro, args) -> int:
 
     purge_summary = None
     if any(dataset_name in {"stock_basic", "stock_company", "namechange"} for dataset_name in args.datasets):
+        bootstrap_mode = bool((stock_basic_change_summary or {}).get("bootstrap"))
         delisted_targets = (stock_basic_change_summary or {}).get("delisted", [])
         delisted_codes = [item.get("ts_code") for item in delisted_targets]
-        purge_summary = purge_delisted_stock_history(engine, dry_run=False, target_codes=delisted_codes or None)
-        deleted_total = sum(item.get("deleted_rows", 0) for item in purge_summary.get("table_results", []))
-        logger.info(
-            "退市股票历史清理完成：退市代码=%s，删除行数=%s",
-            purge_summary.get("delisted_count", 0),
-            deleted_total,
-        )
+
+        if bootstrap_mode:
+            purge_summary = purge_delisted_stock_history(engine, dry_run=False, target_codes=None)
+        elif delisted_codes:
+            purge_summary = purge_delisted_stock_history(engine, dry_run=False, target_codes=delisted_codes)
+        else:
+            logger.info("本轮未发现新退市股票，跳过退市历史清理")
+
+        if purge_summary:
+            deleted_total = sum(item.get("deleted_rows", 0) for item in purge_summary.get("table_results", []))
+            logger.info(
+                "退市股票历史清理完成：退市代码=%s，删除行数=%s",
+                purge_summary.get("delisted_count", 0),
+                deleted_total,
+            )
 
         run_id = datetime.now().strftime("%Y%m%d%H%M%S")
         if stock_basic_change_summary:
-            added_rows = stock_basic_change_summary.get("added", [])
-            delisted_rows = stock_basic_change_summary.get("delisted", [])
-            deleted_tables_map = {}
-            if delisted_rows and purge_summary:
-                code_table_results = purge_summary.get("code_table_results", {}) or {}
-                for stock in delisted_rows:
-                    ts_code = str(stock.get("ts_code") or "").strip()
-                    if not ts_code:
-                        continue
-                    deleted_tables_map[ts_code] = code_table_results.get(ts_code, [])
-            record_stock_change_log(engine, run_id, "add", added_rows)
-            record_stock_change_log(engine, run_id, "delist", delisted_rows, deleted_tables_map=deleted_tables_map)
-            logger.info(
-                "股票名录变更日志已记录：新增=%s，退市=%s，run_id=%s",
-                len(added_rows),
-                len(delisted_rows),
-                run_id,
-            )
+            if stock_basic_change_summary.get("bootstrap"):
+                logger.info(
+                    "stock_basic 初次建立基线：历史快照为空，本轮已加载 %s 条股票名录，跳过新增/退市事件日志",
+                    stock_basic_change_summary.get("latest_count", 0),
+                )
+            else:
+                added_rows = stock_basic_change_summary.get("added", [])
+                delisted_rows = stock_basic_change_summary.get("delisted", [])
+                deleted_tables_map = {}
+                if delisted_rows and purge_summary:
+                    code_table_results = purge_summary.get("code_table_results", {}) or {}
+                    for stock in delisted_rows:
+                        ts_code = str(stock.get("ts_code") or "").strip()
+                        if not ts_code:
+                            continue
+                        deleted_tables_map[ts_code] = code_table_results.get(ts_code, [])
+                record_stock_change_log(engine, run_id, "add", added_rows)
+                record_stock_change_log(engine, run_id, "delist", delisted_rows, deleted_tables_map=deleted_tables_map)
+                logger.info(
+                    "股票名录变更日志已记录：新增=%s，退市=%s，run_id=%s",
+                    len(added_rows),
+                    len(delisted_rows),
+                    run_id,
+                )
 
     logger.info("本轮同步完成，累计写入 %s 行", total_rows)
     
