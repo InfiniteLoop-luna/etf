@@ -26,7 +26,7 @@ if [[ -z "${TUSHARE_TOKEN:-}" ]]; then
 fi
 
 echo "[$(date -Is)] etf-data-update: run sync_tushare_security_data.py"
-python src/sync_tushare_security_data.py --datasets stock_basic stock_company namechange daily daily_basic index_dailybasic
+python src/sync_tushare_security_data.py --datasets stock_basic stock_company namechange daily daily_basic index_dailybasic stk_week_month_adj
 
 echo "[$(date -Is)] etf-data-update: run fetch_etf_share_size.py"
 python src/fetch_etf_share_size.py
