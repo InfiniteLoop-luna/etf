@@ -45,6 +45,34 @@ DEFAULT_INDEX_CODES = [
 ]
 STOCK_CODES_CACHE: list[str] | None = None
 STOCK_BASIC_CACHE: pd.DataFrame | None = None
+STOCK_CHANGE_LOG_TABLE = "tushare_stock_sync_change_log"
+DELISTED_PURGE_TARGETS = [
+    {"table_name": "ts_stock_company", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stock_namechange", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stock_custom_info", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stock_daily", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stock_daily_basic", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stk_week_month_adj", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stock_income", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stock_balancesheet", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stock_cashflow", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stock_fina_indicator", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stock_intraday_mins", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stock_technical_signals", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_moneyflow", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_moneyflow_ths", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_moneyflow_dc", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_limit_list_d", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_limit_step", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_limit_list_ths", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_hm_detail", "join_expr": "t.ts_code = d.ts_code"},
+    {
+        "table_name": "ts_fund_portfolio",
+        "join_expr": "COALESCE(NULLIF(t.payload->>'symbol', ''), NULLIF(t.payload->>'stk_code', '')) = d.ts_code",
+    },
+    {"table_name": "agg_fund_holding_stock_quarterly", "join_expr": "t.symbol = d.ts_code"},
+    {"table_name": "trend_reco_items", "join_expr": "t.ts_code = d.ts_code"},
+]
 
 DATASET_TABLES = {
     "stock_basic": "ts_stock_basic",
@@ -647,6 +675,7 @@ def ensure_normalized_views(engine: Engine):
 
 def ensure_storage_objects(engine: Engine):
     ensure_job_table(engine)
+    ensure_stock_change_log_table(engine)
     for table_name in DATASET_TABLES.values():
         ensure_landing_table(engine, table_name)
     ensure_normalized_views(engine)
@@ -690,6 +719,31 @@ def ensure_job_table(engine: Engine):
     """
     with engine.begin() as conn:
         conn.execute(text(sql))
+
+
+def ensure_stock_change_log_table(engine: Engine):
+    sql = f"""
+    CREATE TABLE IF NOT EXISTS {STOCK_CHANGE_LOG_TABLE} (
+        id BIGSERIAL PRIMARY KEY,
+        run_id VARCHAR(64) NOT NULL,
+        action VARCHAR(16) NOT NULL,
+        ts_code VARCHAR(20) NOT NULL,
+        symbol VARCHAR(20),
+        name TEXT,
+        list_status VARCHAR(8),
+        list_date DATE,
+        delist_date DATE,
+        raw_payload JSONB,
+        deleted_tables JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_{STOCK_CHANGE_LOG_TABLE}_run_id ON {STOCK_CHANGE_LOG_TABLE}(run_id);
+    CREATE INDEX IF NOT EXISTS idx_{STOCK_CHANGE_LOG_TABLE}_action ON {STOCK_CHANGE_LOG_TABLE}(action);
+    CREATE INDEX IF NOT EXISTS idx_{STOCK_CHANGE_LOG_TABLE}_ts_code ON {STOCK_CHANGE_LOG_TABLE}(ts_code);
+    """
+    with engine.begin() as conn:
+        for statement in [s.strip() for s in sql.split(";") if s.strip()]:
+            conn.execute(text(statement))
 
 
 def update_job_status(
@@ -863,6 +917,92 @@ def prepare_records(dataset_name: str, df: pd.DataFrame) -> pd.DataFrame:
     return prepared
 
 
+def load_existing_stock_basic_snapshot(engine: Engine) -> pd.DataFrame:
+    sql = f"""
+        SELECT
+            ts_code,
+            symbol,
+            name,
+            list_status,
+            list_date,
+            delist_date,
+            payload
+        FROM {NORMALIZED_VIEW_SPECS['stock_basic']['view_name']}
+    """
+    try:
+        existing = pd.read_sql(text(sql), engine)
+    except Exception:
+        return pd.DataFrame(columns=["ts_code", "symbol", "name", "list_status", "list_date", "delist_date", "payload"])
+
+    if existing.empty:
+        return pd.DataFrame(columns=["ts_code", "symbol", "name", "list_status", "list_date", "delist_date", "payload"])
+
+    existing["ts_code"] = existing["ts_code"].astype(str).str.strip()
+    existing = existing.loc[existing["ts_code"] != ""].copy()
+    existing = existing.drop_duplicates(subset=["ts_code"], keep="last")
+    return existing
+
+
+def build_stock_basic_change_summary(engine: Engine, latest_df: pd.DataFrame) -> dict:
+    previous_df = load_existing_stock_basic_snapshot(engine)
+    previous_map = {}
+    if previous_df is not None and not previous_df.empty:
+        previous_map = {
+            str(record.get("ts_code")).strip(): record
+            for record in previous_df.to_dict(orient="records")
+            if str(record.get("ts_code")).strip() and str(record.get("ts_code")).strip().lower() != "nan"
+        }
+
+    latest_records = prepare_records("stock_basic", latest_df)
+    latest_map = {}
+    if latest_records is not None and not latest_records.empty:
+        latest_map = {
+            str(record.get("ts_code")).strip(): record
+            for record in latest_records.to_dict(orient="records")
+            if str(record.get("ts_code")).strip() and str(record.get("ts_code")).strip().lower() != "nan"
+        }
+
+    added = []
+    delisted = []
+    for ts_code, record in latest_map.items():
+        payload = json.loads(record.get("payload") or "{}")
+        previous = previous_map.get(ts_code)
+        prev_status = str(previous.get("list_status") or "").strip().upper() if previous else ""
+        prev_delist = normalize_date_string(previous.get("delist_date")) if previous else None
+        curr_status = str(payload.get("list_status") or "").strip().upper()
+        curr_delist = normalize_date_string(payload.get("delist_date"))
+        if (previous is None or prev_status != "L") and curr_status == "L":
+            added.append(
+                {
+                    "ts_code": ts_code,
+                    "symbol": payload.get("symbol"),
+                    "name": payload.get("name"),
+                    "list_status": curr_status or None,
+                    "list_date": to_date_value(payload.get("list_date")),
+                    "delist_date": to_date_value(payload.get("delist_date")),
+                    "raw_payload": payload,
+                }
+            )
+        if curr_status == "D" or curr_delist:
+            if previous is None or (prev_status != "D" and not prev_delist):
+                delisted.append(
+                    {
+                        "ts_code": ts_code,
+                        "symbol": payload.get("symbol"),
+                        "name": payload.get("name"),
+                        "list_status": curr_status or None,
+                        "list_date": to_date_value(payload.get("list_date")),
+                        "delist_date": to_date_value(payload.get("delist_date")),
+                        "raw_payload": payload,
+                    }
+                )
+
+    return {
+        "added": sorted(added, key=lambda item: item["ts_code"]),
+        "delisted": sorted(delisted, key=lambda item: item["ts_code"]),
+    }
+
+
 def upsert_records(engine: Engine, table_name: str, records: pd.DataFrame) -> int:
     if records.empty:
         return 0
@@ -907,6 +1047,12 @@ def upsert_records(engine: Engine, table_name: str, records: pd.DataFrame) -> in
 def write_dataset_records(engine: Engine, dataset_name: str, table_name: str, df: pd.DataFrame) -> int:
     prepared = prepare_records(dataset_name, df)
     return upsert_records(engine, table_name, prepared)
+
+
+def refresh_stock_caches():
+    global STOCK_CODES_CACHE, STOCK_BASIC_CACHE
+    STOCK_CODES_CACHE = None
+    STOCK_BASIC_CACHE = None
 
 
 def ensure_custom_table_and_view(engine: Engine):
@@ -1010,7 +1156,7 @@ def fetch_stock_basic(pro) -> pd.DataFrame:
         return STOCK_BASIC_CACHE.copy()
 
     frames = []
-    for status in ["L", "D", "P"]:
+    for status in ["L", "D", "P", "G"]:
         df = pro.stock_basic(list_status=status, fields=STOCK_BASIC_FIELDS)
         if df is not None and not df.empty:
             frames.append(df)
@@ -1094,6 +1240,215 @@ def filter_active_stock_basic(stock_basic_df: pd.DataFrame) -> pd.DataFrame:
         filtered = filtered.loc[delist_series == ""].copy()
 
     return filtered
+
+
+ACTIVE_STOCK_SQL_CLAUSE = """
+(
+    COALESCE({alias}.list_status, '') = 'L'
+    OR (
+        COALESCE({alias}.list_status, '') = ''
+        AND COALESCE({alias}.delist_date::text, '') = ''
+    )
+)
+""".strip()
+
+
+def build_active_stock_sql_clause(alias: str = "b") -> str:
+    alias = str(alias or "").strip() or "b"
+    return ACTIVE_STOCK_SQL_CLAUSE.format(alias=alias)
+
+
+def get_delisted_stock_basic_df(engine: Engine) -> pd.DataFrame:
+    sql = f"""
+        SELECT DISTINCT
+            ts_code,
+            symbol,
+            name,
+            list_status,
+            list_date,
+            delist_date
+        FROM {NORMALIZED_VIEW_SPECS['stock_basic']['view_name']}
+        WHERE COALESCE(list_status, '') = 'D'
+           OR COALESCE(delist_date::text, '') <> ''
+        ORDER BY ts_code
+    """
+    return pd.read_sql(text(sql), engine)
+
+
+def table_exists(conn, table_name: str) -> bool:
+    return bool(
+        conn.execute(
+            text("SELECT to_regclass(:table_name) IS NOT NULL"),
+            {"table_name": str(table_name).strip()},
+        ).scalar()
+    )
+
+
+def purge_delisted_stock_history(engine: Engine, dry_run: bool = False, target_codes: list[str] | None = None) -> dict:
+    delisted_df = get_delisted_stock_basic_df(engine)
+    delisted_codes = sorted(
+        {
+            str(value).strip()
+            for value in delisted_df.get("ts_code", pd.Series(dtype=str)).tolist()
+            if str(value).strip() and str(value).strip().lower() != "nan"
+        }
+    )
+    if target_codes is not None:
+        target_code_set = {
+            str(value).strip()
+            for value in target_codes
+            if str(value).strip() and str(value).strip().lower() != "nan"
+        }
+        delisted_codes = [ts_code for ts_code in delisted_codes if ts_code in target_code_set]
+
+    result = {
+        "delisted_count": len(delisted_codes),
+        "ts_codes": delisted_codes,
+        "table_results": [],
+        "code_table_results": {},
+    }
+    if not delisted_codes:
+        logger.info("未发现退市股票，跳过历史数据清理")
+        return result
+
+    with engine.begin() as conn:
+        for target in DELISTED_PURGE_TARGETS:
+            table_name = target["table_name"]
+            join_expr = target["join_expr"]
+            if not table_exists(conn, table_name):
+                result["table_results"].append(
+                    {
+                        "table_name": table_name,
+                        "matched_rows": 0,
+                        "deleted_rows": 0,
+                        "skipped": "missing_table",
+                    }
+                )
+                continue
+            detail_sql = text(
+                f"""
+                WITH delisted AS (
+                    SELECT DISTINCT ts_code
+                    FROM {DATASET_TABLES['stock_basic']}
+                    WHERE ts_code IS NOT NULL
+                      AND ts_code = ANY(:target_codes)
+                      AND (
+                          COALESCE(payload->>'list_status', '') = 'D'
+                          OR COALESCE(payload->>'delist_date', '') <> ''
+                      )
+                )
+                SELECT d.ts_code, COUNT(*) AS matched_rows
+                FROM {table_name} t
+                JOIN delisted d ON {join_expr}
+                GROUP BY d.ts_code
+                ORDER BY d.ts_code
+                """
+            )
+            count_sql = text(
+                f"""
+                WITH delisted AS (
+                    SELECT DISTINCT ts_code
+                    FROM {DATASET_TABLES['stock_basic']}
+                    WHERE ts_code IS NOT NULL
+                      AND ts_code = ANY(:target_codes)
+                      AND (
+                          COALESCE(payload->>'list_status', '') = 'D'
+                          OR COALESCE(payload->>'delist_date', '') <> ''
+                      )
+                )
+                SELECT COUNT(*)
+                FROM {table_name} t
+                JOIN delisted d ON {join_expr}
+                """
+            )
+            delete_sql = text(
+                f"""
+                WITH delisted AS (
+                    SELECT DISTINCT ts_code
+                    FROM {DATASET_TABLES['stock_basic']}
+                    WHERE ts_code IS NOT NULL
+                      AND ts_code = ANY(:target_codes)
+                      AND (
+                          COALESCE(payload->>'list_status', '') = 'D'
+                          OR COALESCE(payload->>'delist_date', '') <> ''
+                      )
+                )
+                DELETE FROM {table_name} t
+                USING delisted d
+                WHERE {join_expr}
+                """
+            )
+
+            detail_rows = conn.execute(detail_sql, {"target_codes": delisted_codes}).fetchall()
+            detail_map = {str(ts_code).strip(): int(matched_rows or 0) for ts_code, matched_rows in detail_rows}
+            for ts_code, matched_rows in detail_map.items():
+                result["code_table_results"].setdefault(ts_code, []).append(
+                    {
+                        "table_name": table_name,
+                        "matched_rows": matched_rows,
+                        "deleted_rows": 0 if dry_run else matched_rows,
+                    }
+                )
+
+            matched = int(conn.execute(count_sql, {"target_codes": delisted_codes}).scalar() or 0)
+            deleted = 0
+            if matched > 0 and not dry_run:
+                deleted = int(conn.execute(delete_sql, {"target_codes": delisted_codes}).rowcount or 0)
+            result["table_results"].append(
+                {
+                    "table_name": table_name,
+                    "matched_rows": matched,
+                    "deleted_rows": deleted,
+                }
+            )
+
+    logger.info(
+        "退市股票历史清理完成：退市代码=%s，涉及表=%s",
+        len(delisted_codes),
+        len(result["table_results"]),
+    )
+    return result
+
+
+def record_stock_change_log(engine: Engine, run_id: str, action: str, stock_rows: list[dict], deleted_tables_map: dict[str, list[dict]] | None = None):
+    if not stock_rows:
+        return
+
+    deleted_tables_map = deleted_tables_map or {}
+    rows = []
+    for item in stock_rows:
+        ts_code = str(item.get("ts_code") or "").strip()
+        if not ts_code:
+            continue
+        rows.append(
+            {
+                "run_id": run_id,
+                "action": action,
+                "ts_code": ts_code,
+                "symbol": item.get("symbol"),
+                "name": item.get("name"),
+                "list_status": item.get("list_status"),
+                "list_date": item.get("list_date"),
+                "delist_date": item.get("delist_date"),
+                "raw_payload": json.dumps(item.get("raw_payload") or {}, ensure_ascii=False, sort_keys=True, default=str),
+                "deleted_tables": json.dumps(deleted_tables_map.get(ts_code) or [], ensure_ascii=False, sort_keys=True, default=str),
+            }
+        )
+
+    if not rows:
+        return
+
+    sql = text(
+        f"""
+        INSERT INTO {STOCK_CHANGE_LOG_TABLE} (
+            run_id, action, ts_code, symbol, name, list_status, list_date, delist_date, raw_payload, deleted_tables
+        ) VALUES (
+            :run_id, :action, :ts_code, :symbol, :name, :list_status, :list_date, :delist_date, CAST(:raw_payload AS JSONB), CAST(:deleted_tables AS JSONB)
+        )
+        """
+    )
+    with engine.begin() as conn:
+        conn.execute(sql, rows)
 
 
 def get_stock_codes(pro) -> list[str]:
@@ -1587,15 +1942,17 @@ def resolve_sync_window(engine: Engine, dataset_name: str, table_name: str, args
     return None, run_end_date
 
 
-def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str) -> int:
+def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str) -> tuple[int, dict | None]:
     table_name = DATASET_TABLES[dataset_name]
     ensure_landing_table(engine, table_name)
     start_date, end_date = resolve_sync_window(engine, dataset_name, table_name, args, run_end_date)
 
     started_at = datetime.now()
     try:
+        change_summary = None
         if dataset_name == "stock_basic":
             raw_df = fetch_stock_basic(pro)
+            change_summary = build_stock_basic_change_summary(engine, raw_df)
         elif dataset_name == "stock_company":
             raw_df = fetch_stock_company(pro)
         elif dataset_name == "namechange":
@@ -1605,7 +1962,7 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
                 written = fetch_financial_dataset_missing_history(pro, engine, dataset_name, table_name, run_end_date)
                 update_job_status(engine, dataset_name, table_name, written, started_at, "success", None)
                 logger.info("%s -> %s 完成，写入 %s 行", dataset_name, table_name, written)
-                return written
+                return written, None
             elif start_date is None or start_date > end_date:
                 raw_df = pd.DataFrame()
             else:
@@ -1615,7 +1972,7 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
                 written = fetch_daily_missing_history(pro, engine, table_name, run_end_date)
                 update_job_status(engine, dataset_name, table_name, written, started_at, "success", None)
                 logger.info("%s -> %s 完成，写入 %s 行", dataset_name, table_name, written)
-                return written
+                return written, None
             elif start_date is None or start_date > end_date:
                 raw_df = pd.DataFrame()
             else:
@@ -1625,7 +1982,7 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
                 written = fetch_daily_basic_missing_history(pro, engine, table_name, run_end_date)
                 update_job_status(engine, dataset_name, table_name, written, started_at, "success", None)
                 logger.info("%s -> %s 完成，写入 %s 行", dataset_name, table_name, written)
-                return written
+                return written, None
             elif start_date is None or start_date > end_date:
                 raw_df = pd.DataFrame()
             else:
@@ -1641,7 +1998,7 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
                 written = fetch_stk_week_month_adj_missing_history(pro, engine, table_name, run_end_date)
                 update_job_status(engine, dataset_name, table_name, written, started_at, "success", None)
                 logger.info("%s -> %s 完成，写入 %s 行", dataset_name, table_name, written)
-                return written
+                return written, None
             elif start_date is None or start_date > end_date:
                 raw_df = pd.DataFrame()
             else:
@@ -1672,9 +2029,11 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
             raise ValueError(f"不支持的数据集: {dataset_name}")
 
         written = write_dataset_records(engine, dataset_name, table_name, raw_df)
+        if dataset_name in {"stock_basic", "stock_company", "namechange"}:
+            refresh_stock_caches()
         update_job_status(engine, dataset_name, table_name, written, started_at, "success", None)
         logger.info("%s -> %s 完成，写入 %s 行", dataset_name, table_name, written)
-        return written
+        return written, change_summary
     except Exception as exc:
         update_job_status(engine, dataset_name, table_name, 0, started_at, "failed", str(exc))
         raise
@@ -1778,8 +2137,45 @@ def run_sync_once(engine: Engine, pro, args) -> int:
     )
 
     total_rows = 0
+    stock_basic_change_summary = None
     for dataset_name in args.datasets:
-        total_rows += sync_dataset(engine, pro, dataset_name, args, run_end_date)
+        written, change_summary = sync_dataset(engine, pro, dataset_name, args, run_end_date)
+        total_rows += written
+        if dataset_name == "stock_basic":
+            stock_basic_change_summary = change_summary
+
+    purge_summary = None
+    if any(dataset_name in {"stock_basic", "stock_company", "namechange"} for dataset_name in args.datasets):
+        delisted_targets = (stock_basic_change_summary or {}).get("delisted", [])
+        delisted_codes = [item.get("ts_code") for item in delisted_targets]
+        purge_summary = purge_delisted_stock_history(engine, dry_run=False, target_codes=delisted_codes or None)
+        deleted_total = sum(item.get("deleted_rows", 0) for item in purge_summary.get("table_results", []))
+        logger.info(
+            "退市股票历史清理完成：退市代码=%s，删除行数=%s",
+            purge_summary.get("delisted_count", 0),
+            deleted_total,
+        )
+
+        run_id = datetime.now().strftime("%Y%m%d%H%M%S")
+        if stock_basic_change_summary:
+            added_rows = stock_basic_change_summary.get("added", [])
+            delisted_rows = stock_basic_change_summary.get("delisted", [])
+            deleted_tables_map = {}
+            if delisted_rows and purge_summary:
+                code_table_results = purge_summary.get("code_table_results", {}) or {}
+                for stock in delisted_rows:
+                    ts_code = str(stock.get("ts_code") or "").strip()
+                    if not ts_code:
+                        continue
+                    deleted_tables_map[ts_code] = code_table_results.get(ts_code, [])
+            record_stock_change_log(engine, run_id, "add", added_rows)
+            record_stock_change_log(engine, run_id, "delist", delisted_rows, deleted_tables_map=deleted_tables_map)
+            logger.info(
+                "股票名录变更日志已记录：新增=%s，退市=%s，run_id=%s",
+                len(added_rows),
+                len(delisted_rows),
+                run_id,
+            )
 
     logger.info("本轮同步完成，累计写入 %s 行", total_rows)
     

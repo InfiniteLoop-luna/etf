@@ -13,6 +13,8 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 
+from src.sync_tushare_security_data import build_active_stock_sql_clause
+
 DEFAULT_DB_HOST = '67.216.207.73'
 DEFAULT_DB_PORT = 5432
 DEFAULT_DB_NAME = 'postgres'
@@ -297,6 +299,8 @@ STOCK_DAILY_VIEW = 'vw_ts_stock_daily_basic'
 STOCK_PRICE_DAILY_VIEW = 'vw_ts_stock_daily'
 INDEX_DAILY_VIEW = 'vw_ts_index_dailybasic'
 STOCK_WEEK_MONTH_ADJ_VIEW = 'vw_ts_stk_week_month_adj'
+ACTIVE_STOCK_FILTER_SQL = build_active_stock_sql_clause('b')
+ACTIVE_STOCK_FILTER_SQL_BASIC = build_active_stock_sql_clause('basic')
 
 INDEX_FALLBACK_NAME_MAP = {
     '000001.SH': '上证指数',
@@ -659,26 +663,27 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
         queries.append(f"""
             SELECT
                 'stock' AS security_type,
-                ts_code,
-                symbol,
-                name,
-                industry,
-                market,
+                b.ts_code,
+                b.symbol,
+                b.name,
+                b.industry,
+                b.market,
                 NULL::date AS latest_date,
                 CASE
-                    WHEN ts_code ILIKE :exact_kw OR COALESCE(symbol, '') ILIKE :exact_kw OR COALESCE(name, '') ILIKE :exact_kw THEN 0
-                    WHEN ts_code ILIKE :prefix_kw OR COALESCE(symbol, '') ILIKE :prefix_kw OR COALESCE(name, '') ILIKE :prefix_kw THEN 1
-                    WHEN COALESCE(cnspell, '') ILIKE :prefix_kw OR COALESCE(fullname, '') ILIKE :prefix_kw THEN 2
+                    WHEN b.ts_code ILIKE :exact_kw OR COALESCE(b.symbol, '') ILIKE :exact_kw OR COALESCE(b.name, '') ILIKE :exact_kw THEN 0
+                    WHEN b.ts_code ILIKE :prefix_kw OR COALESCE(b.symbol, '') ILIKE :prefix_kw OR COALESCE(b.name, '') ILIKE :prefix_kw THEN 1
+                    WHEN COALESCE(b.cnspell, '') ILIKE :prefix_kw OR COALESCE(b.fullname, '') ILIKE :prefix_kw THEN 2
                     ELSE 3
                 END AS match_rank
-            FROM {STOCK_BASIC_VIEW}
+            FROM {STOCK_BASIC_VIEW} b
             WHERE
-                (ts_code ILIKE :like_kw
-                OR COALESCE(symbol, '') ILIKE :like_kw
-                OR COALESCE(name, '') ILIKE :like_kw
-                OR COALESCE(fullname, '') ILIKE :like_kw
-                OR COALESCE(cnspell, '') ILIKE :like_kw)
-                AND ts_code NOT IN (
+                (b.ts_code ILIKE :like_kw
+                OR COALESCE(b.symbol, '') ILIKE :like_kw
+                OR COALESCE(b.name, '') ILIKE :like_kw
+                OR COALESCE(b.fullname, '') ILIKE :like_kw
+                OR COALESCE(b.cnspell, '') ILIKE :like_kw)
+                AND {ACTIVE_STOCK_FILTER_SQL}
+                AND b.ts_code NOT IN (
                     SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%'
                 )
         """)
@@ -730,7 +735,10 @@ def search_companies(industries: list = None, product_kw: str = None, business_k
     if engine is None:
         engine = _get_engine()
 
-    conditions = ["b.ts_code NOT IN (SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%')"]
+    conditions = [
+        ACTIVE_STOCK_FILTER_SQL,
+        "b.ts_code NOT IN (SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%')",
+    ]
     params = {}
 
     if industries and isinstance(industries, list) and len(industries) > 0 and '全部' not in industries:
@@ -768,7 +776,10 @@ def search_stocks_by_technical_signals(use_weekly: bool, use_monthly: bool, engi
     if engine is None:
         engine = _get_engine()
         
-    conditions = ["b.ts_code NOT IN (SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%')"]
+    conditions = [
+        ACTIVE_STOCK_FILTER_SQL,
+        "b.ts_code NOT IN (SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%')",
+    ]
     params = {}
     
     if use_weekly:
@@ -1176,6 +1187,7 @@ def get_stock_basic_summary(engine=None) -> pd.DataFrame:
                 AND active_codes.ts_code IS NOT NULL
             )
         )
+        AND COALESCE(basic.delist_date::text, '') = ''
         AND basic.ts_code NOT IN (
             SELECT ts_code FROM vw_ts_stock_namechange WHERE name LIKE '%ST%'
         )
@@ -1203,6 +1215,7 @@ def get_stock_profile(ts_code: str, engine=None) -> pd.DataFrame:
         WITH basic AS (
             SELECT * FROM {STOCK_BASIC_VIEW}
             WHERE ts_code = :ts_code
+              AND {ACTIVE_STOCK_FILTER_SQL_BASIC}
             LIMIT 1
         ),
         company AS (
@@ -1286,6 +1299,7 @@ def get_stock_profile(ts_code: str, engine=None) -> pd.DataFrame:
         LEFT JOIN income ON TRUE
         LEFT JOIN balance ON TRUE
         LEFT JOIN cashflow ON TRUE
+        WHERE basic.ts_code IS NOT NULL
     """
     return pd.read_sql(text(sql), engine, params={'ts_code': ts_code})
 
@@ -1324,6 +1338,12 @@ def get_stock_timeseries(ts_code: str, start_date: str = None, end_date: str = N
             circ_mv
         FROM {STOCK_DAILY_VIEW}
         WHERE {' AND '.join(conditions)}
+          AND EXISTS (
+              SELECT 1
+              FROM {STOCK_BASIC_VIEW} b
+              WHERE b.ts_code = {STOCK_DAILY_VIEW}.ts_code
+                AND {ACTIVE_STOCK_FILTER_SQL}
+          )
         ORDER BY trade_date
     """
     return pd.read_sql(text(sql), engine, params=params)
@@ -1343,6 +1363,12 @@ def get_stock_financial_timeseries(ts_code: str, engine=None) -> pd.DataFrame:
                 COALESCE(n_income_attr_p, n_income) AS net_profit
             FROM {STOCK_INCOME_VIEW}
             WHERE ts_code = :ts_code
+              AND EXISTS (
+                  SELECT 1
+                  FROM {STOCK_BASIC_VIEW} b
+                  WHERE b.ts_code = {STOCK_INCOME_VIEW}.ts_code
+                    AND {ACTIVE_STOCK_FILTER_SQL}
+              )
             ORDER BY end_date DESC NULLS LAST, ann_date DESC NULLS LAST
         ),
         fina AS (
@@ -1353,6 +1379,12 @@ def get_stock_financial_timeseries(ts_code: str, engine=None) -> pd.DataFrame:
                 profit_dedt
             FROM {STOCK_FINA_VIEW}
             WHERE ts_code = :ts_code
+              AND EXISTS (
+                  SELECT 1
+                  FROM {STOCK_BASIC_VIEW} b
+                  WHERE b.ts_code = {STOCK_FINA_VIEW}.ts_code
+                    AND {ACTIVE_STOCK_FILTER_SQL}
+              )
             ORDER BY end_date DESC NULLS LAST, ann_date DESC NULLS LAST
         )
         SELECT
@@ -1411,6 +1443,12 @@ def get_stock_kline_timeseries(ts_code: str, start_date: str = None, end_date: s
           ON d.ts_code = w.ts_code
          AND d.trade_date = w.trade_date
         WHERE {' AND '.join([f'd.{c}' for c in conditions])}
+          AND EXISTS (
+              SELECT 1
+              FROM {STOCK_BASIC_VIEW} b
+              WHERE b.ts_code = d.ts_code
+                AND {ACTIVE_STOCK_FILTER_SQL}
+          )
         ORDER BY d.trade_date
     """
     return pd.read_sql(text(sql), engine, params=params)

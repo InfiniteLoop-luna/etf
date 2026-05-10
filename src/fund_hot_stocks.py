@@ -30,6 +30,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from src.volume_fetcher import _init_tushare
+from src.sync_tushare_security_data import build_active_stock_sql_clause
 
 DEFAULT_DB_HOST = "67.216.207.73"
 DEFAULT_DB_PORT = 5432
@@ -46,6 +47,8 @@ DATASET_TABLES = {
 }
 
 AGG_TABLE = "agg_fund_holding_stock_quarterly"
+ACTIVE_STOCK_FILTER_SQL_SB = build_active_stock_sql_clause("sb")
+ACTIVE_STOCK_FILTER_SQL_SB_FILTER = build_active_stock_sql_clause("sb_filter")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -609,6 +612,7 @@ def rebuild_hot_stock_aggregate(
     FROM vw_fund_portfolio p
     LEFT JOIN vw_ts_stock_basic sb ON sb.ts_code = p.symbol
     WHERE {' AND '.join(where)}
+      AND {ACTIVE_STOCK_FILTER_SQL_SB}
     """
 
     base = pd.read_sql(text(sql), engine, params=params)
@@ -793,7 +797,7 @@ def query_hot_stocks_leaderboard(
         return pd.DataFrame()
 
     if fund_type_filter and fund_type_filter != "全部":
-        sql = """
+        sql = f"""
         WITH funds AS (
             SELECT DISTINCT fund_code
             FROM vw_fund_basic
@@ -813,6 +817,7 @@ def query_hot_stocks_leaderboard(
             JOIN funds f ON f.fund_code = p.fund_code
             LEFT JOIN vw_ts_stock_basic sb ON sb.ts_code = p.symbol
             WHERE p.end_date = :end_date
+              AND {ACTIVE_STOCK_FILTER_SQL_SB}
             GROUP BY p.end_date, p.symbol, COALESCE(sb.name, p.symbol)
         ),
         prev_date AS (
@@ -914,7 +919,7 @@ def query_stock_fund_holding_detail(
     if not target_period:
         return pd.DataFrame()
 
-    sql = """
+    sql = f"""
     WITH target AS (
         SELECT CAST(:symbol AS varchar) AS symbol, CAST(:end_date AS date) AS end_date
     ),
@@ -935,6 +940,9 @@ def query_stock_fund_holding_detail(
         JOIN target t
           ON p.end_date = t.end_date
          AND p.symbol = t.symbol
+        JOIN vw_ts_stock_basic sb_filter
+          ON sb_filter.ts_code = p.symbol
+         AND {ACTIVE_STOCK_FILTER_SQL_SB_FILTER}
         LEFT JOIN vw_fund_basic fb_filter
           ON fb_filter.fund_code = p.fund_code
         WHERE (:fund_type_filter IS NULL OR :fund_type_filter = '全部' OR fb_filter.fund_type = :fund_type_filter OR fb_filter.invest_type = :fund_type_filter)
@@ -980,6 +988,7 @@ def query_stock_fund_holding_detail(
       ON fb.fund_code = c.fund_code
     LEFT JOIN vw_ts_stock_basic sb
       ON sb.ts_code = c.symbol
+     AND {ACTIVE_STOCK_FILTER_SQL_SB}
     ORDER BY c.mkv DESC NULLS LAST
     LIMIT :top_n
     """
@@ -1004,7 +1013,7 @@ def query_stock_holding_trend(
         return pd.DataFrame()
 
     if fund_type_filter and fund_type_filter != "全部":
-        sql = """
+        sql = f"""
         SELECT
             p.end_date,
             p.symbol,
@@ -1018,6 +1027,7 @@ def query_stock_holding_trend(
         LEFT JOIN vw_ts_stock_basic sb ON sb.ts_code = p.symbol
         WHERE p.symbol = :symbol
           AND (fb.fund_type = :fund_type_filter OR fb.invest_type = :fund_type_filter)
+          AND {ACTIVE_STOCK_FILTER_SQL_SB}
         GROUP BY p.end_date, p.symbol, COALESCE(sb.name, p.symbol)
         ORDER BY p.end_date DESC
         LIMIT :periods
@@ -1187,7 +1197,7 @@ def query_fund_preference_snapshot(
         return pd.DataFrame()
     target_period = str(target_period).replace("-", "")
 
-    sql = """
+    sql = f"""
     WITH target AS (
         SELECT CAST(:fund_code AS varchar) AS fund_code, CAST(:end_date AS date) AS end_date
     ), prev_period AS (
@@ -1205,7 +1215,10 @@ def query_fund_preference_snapshot(
             p.stk_float_ratio
         FROM vw_fund_portfolio p
         JOIN target t ON p.fund_code = t.fund_code AND p.end_date = t.end_date
-        LEFT JOIN vw_ts_stock_basic sb ON sb.ts_code = p.symbol
+        JOIN vw_ts_stock_basic sb_filter
+          ON sb_filter.ts_code = p.symbol
+         AND {ACTIVE_STOCK_FILTER_SQL_SB_FILTER}
+        LEFT JOIN vw_ts_stock_basic sb ON sb.ts_code = p.symbol AND {ACTIVE_STOCK_FILTER_SQL_SB}
     ), prev AS (
         SELECT
             p.fund_code,

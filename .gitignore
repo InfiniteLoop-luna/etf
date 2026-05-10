@@ -55,6 +55,7 @@ Thumbs.db
 check_*.py
 test_*.py
 !tests/test_security_intraday_store.py
+!tests/test_sync_tushare_security_data.py
 verify_*.py
 compare_*.py
 fix_*.py
