@@ -1763,6 +1763,50 @@ def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
         }
     )
 
+
+def build_security_jump_links(df: pd.DataFrame, code_col: str = '代码', fallback_col: str = '简称', nonce_key: str = 'security_jump_render_nonce') -> list[str]:
+    from urllib.parse import quote
+
+    if df is None or df.empty:
+        return []
+
+    render_nonce = st.session_state.get(nonce_key, 0) + 1
+    st.session_state[nonce_key] = render_nonce
+
+    query_links: list[str] = []
+    for _, row in df.iterrows():
+        query = str(row.get(code_col) or row.get(fallback_col) or '').strip()
+        if not query:
+            query_links.append('#')
+            continue
+        query_links.append(
+            f"?security_query={quote(query)}&security_type=stock&open_tab=security&jump_nonce={render_nonce}_{quote(query)}"
+        )
+    return query_links
+
+
+def render_security_jump_table(display_df: pd.DataFrame, help_text: str, code_col: str = '代码', fallback_col: str = '简称', nonce_key: str = 'security_jump_render_nonce') -> None:
+    if display_df is None or display_df.empty:
+        return
+
+    render_df = display_df.copy()
+    query_links = build_security_jump_links(render_df, code_col=code_col, fallback_col=fallback_col, nonce_key=nonce_key)
+    render_df.insert(0, '查询', query_links)
+
+    st.info(help_text)
+    st.dataframe(
+        render_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            '查询': st.column_config.LinkColumn(
+                '查询',
+                help='点击后跳转到个股/指数查询',
+                display_text='🔎 查询'
+            )
+        }
+    )
+
 def format_security_option(row: pd.Series) -> str:
     security_type_label = "股票" if row.get('security_type') == 'stock' else "指数"
     name = row.get('name') or row.get('ts_code') or '-'
@@ -4558,7 +4602,13 @@ def render_company_screener_tab():
         "product": "产品及服务",
     }).copy()
     display_df.insert(0, "序号", range(1, len(display_df) + 1))
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    render_security_jump_table(
+        display_df,
+        help_text="💡 点击每行最左侧“🔎 查询”即可跳到“个股/指数查询”，直接查看这只股票的详情。",
+        code_col="代码",
+        fallback_col="简称",
+        nonce_key="company_screener_jump_render_nonce",
+    )
 
     st.markdown("#### ✏️ 逐只订正主营与产品信息")
     st.caption("筛选结果中的每只股票都可以单独展开编辑；每次只会保存当前这一只。")

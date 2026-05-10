@@ -1,36 +1,42 @@
 import unittest
+from unittest.mock import patch
 
+import pandas as pd
+import streamlit as st
 
-DEPOSIT_PAGE = "🏦 本外币存款"
-INDEX_MONITOR_PAGE = "📊 指数监测"
-FUND_MONITOR_PAGE = "📈 基金监测"
-VOLUME_PAGE = "📊 每日成交量"
+from app import build_security_jump_links
 
 
 class NavigationConfigTests(unittest.TestCase):
-    def test_deposit_page_belongs_to_macro_not_etf(self):
-        from src.navigation_config import ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS
+    def setUp(self):
+        st.session_state.clear()
 
-        self.assertNotIn(DEPOSIT_PAGE, ETF_PAGE_OPTIONS)
-        self.assertIn(DEPOSIT_PAGE, MACRO_PAGE_OPTIONS)
+    def tearDown(self):
+        st.session_state.clear()
 
-    def test_index_monitor_page_belongs_to_macro(self):
-        from src.navigation_config import ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS
+    def test_build_security_jump_links_uses_code_and_updates_nonce(self):
+        df = pd.DataFrame([
+            {"代码": "600230.SH", "简称": "沧州大化"},
+            {"代码": "000001.SZ", "简称": "平安银行"},
+        ])
 
-        self.assertNotIn(INDEX_MONITOR_PAGE, ETF_PAGE_OPTIONS)
-        self.assertIn(INDEX_MONITOR_PAGE, MACRO_PAGE_OPTIONS)
+        links = build_security_jump_links(df, code_col="代码", fallback_col="简称", nonce_key="company_screener_jump_render_nonce")
 
-    def test_fund_monitor_page_belongs_to_fund_not_macro(self):
-        from src.navigation_config import ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS
+        self.assertEqual(len(links), 2)
+        self.assertIn("security_query=600230.SH", links[0])
+        self.assertIn("security_type=stock", links[0])
+        self.assertIn("open_tab=security", links[0])
+        self.assertEqual(st.session_state.get("company_screener_jump_render_nonce"), 1)
 
-        self.assertIn(FUND_MONITOR_PAGE, ETF_PAGE_OPTIONS)
-        self.assertNotIn(FUND_MONITOR_PAGE, MACRO_PAGE_OPTIONS)
+    def test_build_security_jump_links_falls_back_to_name_when_code_missing(self):
+        df = pd.DataFrame([
+            {"代码": "", "简称": "沧州大化"},
+        ])
 
-    def test_volume_page_belongs_to_money_not_fund(self):
-        from src.navigation_config import ETF_PAGE_OPTIONS, MONEY_PAGE_OPTIONS
+        links = build_security_jump_links(df, code_col="代码", fallback_col="简称", nonce_key="company_screener_jump_render_nonce")
 
-        self.assertNotIn(VOLUME_PAGE, ETF_PAGE_OPTIONS)
-        self.assertIn(VOLUME_PAGE, MONEY_PAGE_OPTIONS)
+        self.assertEqual(len(links), 1)
+        self.assertIn("security_query=%E6%B2%A7%E5%B7%9E%E5%A4%A7%E5%8C%96", links[0])
 
 
 if __name__ == "__main__":
