@@ -321,6 +321,30 @@ def build_current_non_st_stock_sql_clause(alias: str = 'b') -> str:
 NON_STOCK_FILTER_SQL = build_current_non_st_stock_sql_clause('b')
 NON_STOCK_FILTER_SQL_BASIC = build_current_non_st_stock_sql_clause('basic')
 
+
+HISTORICAL_ST_EXISTS_SQL_TEMPLATE = """
+EXISTS (
+    SELECT 1
+    FROM vw_ts_stock_namechange nc
+    WHERE nc.ts_code = {alias}.ts_code
+      AND (
+          COALESCE(nc.name, '') LIKE 'ST%'
+          OR COALESCE(nc.name, '') LIKE '*ST%'
+          OR COALESCE(nc.name, '') LIKE 'S*ST%'
+          OR COALESCE(nc.name, '') LIKE 'SST%'
+      )
+)
+""".strip()
+
+
+def build_historical_st_exists_sql(alias: str = 'b') -> str:
+    alias = str(alias or '').strip() or 'b'
+    return HISTORICAL_ST_EXISTS_SQL_TEMPLATE.format(alias=alias)
+
+
+HAS_EVER_ST_SQL = build_historical_st_exists_sql('b')
+HAS_EVER_ST_SQL_BASIC = build_historical_st_exists_sql('basic')
+
 INDEX_FALLBACK_NAME_MAP = {
     '000001.SH': '上证指数',
     '399001.SZ': '深证成指',
@@ -659,7 +683,7 @@ def get_macro_dataset_timeseries(
 def search_security(keyword: str, security_type: str = 'all', limit: int = 20, engine=None) -> pd.DataFrame:
     keyword = (keyword or '').strip()
     if not keyword:
-        return pd.DataFrame(columns=['security_type', 'ts_code', 'symbol', 'name', 'industry', 'market', 'latest_date'])
+        return pd.DataFrame(columns=['security_type', 'ts_code', 'symbol', 'name', 'industry', 'market', 'latest_date', 'has_ever_st'])
 
     if security_type not in {'all', 'stock', 'index'}:
         raise ValueError(f'不支持的 security_type: {security_type}')
@@ -688,6 +712,7 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
                 b.industry,
                 b.market,
                 NULL::date AS latest_date,
+                {HAS_EVER_ST_SQL} AS has_ever_st,
                 CASE
                     WHEN b.ts_code ILIKE :exact_kw OR COALESCE(b.symbol, '') ILIKE :exact_kw OR COALESCE(b.name, '') ILIKE :exact_kw THEN 0
                     WHEN b.ts_code ILIKE :prefix_kw OR COALESCE(b.symbol, '') ILIKE :prefix_kw OR COALESCE(b.name, '') ILIKE :prefix_kw THEN 1
@@ -715,6 +740,7 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
                 NULL::text AS industry,
                 NULL::text AS market,
                 trade_date AS latest_date,
+                FALSE AS has_ever_st,
                 CASE
                     WHEN ts_code ILIKE :exact_kw OR COALESCE(name, '') ILIKE :exact_kw THEN 0
                     WHEN ts_code ILIKE :prefix_kw OR COALESCE(name, '') ILIKE :prefix_kw THEN 1
@@ -735,7 +761,7 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
 
     union_sql = "\nUNION ALL\n".join(queries)
     sql = f"""
-        SELECT security_type, ts_code, symbol, name, industry, market, latest_date
+        SELECT security_type, ts_code, symbol, name, industry, market, latest_date, has_ever_st
         FROM (
             {union_sql}
         ) s
@@ -1278,6 +1304,7 @@ def get_stock_profile(ts_code: str, engine=None) -> pd.DataFrame:
             basic.list_status,
             basic.list_date,
             basic.act_name,
+            {HAS_EVER_ST_SQL_BASIC} AS has_ever_st,
             company.province,
             company.city,
             company.main_business,

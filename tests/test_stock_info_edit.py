@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 
 import pandas as pd
 
+from app import format_security_option
 from src.etf_stats import (
     get_stock_profile,
     search_security,
@@ -12,6 +13,48 @@ from src.etf_stats import (
 
 
 class StockInfoEditTests(unittest.TestCase):
+    def test_format_security_option_appends_historical_st_tag(self):
+        row = pd.Series({
+            "security_type": "stock",
+            "name": "沧州大化",
+            "ts_code": "600230.SH",
+            "symbol": "600230",
+            "industry": "化工原料",
+            "market": "主板",
+            "has_ever_st": True,
+        })
+
+        label = format_security_option(row)
+
+        self.assertIn("曾经ST", label)
+        self.assertIn("沧州大化", label)
+
+    def test_search_security_exposes_historical_st_flag(self):
+        captured = {}
+
+        def fake_read_sql(query, engine, params=None):
+            captured["sql"] = str(query)
+            captured["params"] = params
+            return pd.DataFrame([
+                {
+                    "security_type": "stock",
+                    "ts_code": "600230.SH",
+                    "symbol": "600230",
+                    "name": "沧州大化",
+                    "industry": "基础化工",
+                    "market": "主板",
+                    "latest_date": None,
+                    "has_ever_st": True,
+                }
+            ])
+
+        with patch("src.etf_stats.pd.read_sql", side_effect=fake_read_sql):
+            df = search_security("沧州大化", "stock", limit=20, engine=object())
+
+        self.assertTrue(bool(df.iloc[0]["has_ever_st"]))
+        self.assertIn("AS has_ever_st", captured["sql"])
+        self.assertIn("FROM vw_ts_stock_namechange nc", captured["sql"])
+
     def test_search_security_filters_current_st_name_not_historical_namechange(self):
         captured = {}
 
@@ -27,6 +70,7 @@ class StockInfoEditTests(unittest.TestCase):
                     "industry": "基础化工",
                     "market": "主板",
                     "latest_date": None,
+                    "has_ever_st": True,
                 }
             ])
 

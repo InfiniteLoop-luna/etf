@@ -1771,6 +1771,8 @@ def format_security_option(row: pd.Series) -> str:
     industry = row.get('industry')
     market = row.get('market')
     extras = [item for item in [symbol, industry, market] if item and str(item).strip() and str(item) != ts_code]
+    if bool(row.get('has_ever_st')):
+        extras.append('曾经ST')
     extra_text = f" | {' / '.join(extras)}" if extras else ""
     return f"{security_type_label} | {name} | {ts_code}{extra_text}"
 
@@ -6120,6 +6122,8 @@ def render_security_search_tab():
         subtitle_parts.extend([value for value in [profile.get('industry'), profile.get('market')] if value and not pd.isna(value)])
     st.markdown(f"### {title_name}")
     st.caption(" | ".join(subtitle_parts))
+    if selected_type == 'stock' and bool(profile.get('has_ever_st')):
+        st.warning("🏷️ 标签：曾经ST")
 
     latest_trade_date = format_optional_date(profile.get('latest_trade_date'))
     if selected_type == 'stock':
