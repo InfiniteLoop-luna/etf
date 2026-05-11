@@ -3,6 +3,7 @@ import unittest
 import pandas as pd
 import streamlit as st
 
+from src.navigation_config import STOCK_PAGE_OPTIONS
 from app import (
     HISTORICAL_ST_BADGE_TEXT,
     build_security_jump_links,
@@ -92,6 +93,9 @@ class NavigationConfigTests(unittest.TestCase):
         self.assertEqual(captured['display_df'].iloc[0]['标签'], HISTORICAL_ST_BADGE_TEXT)
         self.assertNotIn('has_ever_st', captured['display_df'].columns)
         self.assertEqual(captured['nonce_key'], 'tech_picker_render_nonce')
+
+    def test_stock_page_options_include_author_tracking(self):
+        self.assertIn("🧭 观点跟踪", STOCK_PAGE_OPTIONS)
 
 
 if __name__ == "__main__":
