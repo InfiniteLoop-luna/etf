@@ -1,6 +1,10 @@
 # Worktrees
 .worktrees/
 
+# Agent / tool artifacts
+.superpowers/
+.learnings/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -56,6 +60,7 @@ check_*.py
 test_*.py
 !tests/test_security_intraday_store.py
 !tests/test_sync_tushare_security_data.py
+!tests/test_ml_stock_dataset.py
 verify_*.py
 compare_*.py
 fix_*.py

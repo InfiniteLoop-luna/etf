@@ -81,7 +81,15 @@ from src.index_monitor_store import (
     to_index_monitor_display_df,
     upsert_index_monitor_rows,
 )
-from src.navigation_config import ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS, MONEY_PAGE_OPTIONS
+from src.navigation_config import DECISION_PAGE_OPTIONS, ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS, MONEY_PAGE_OPTIONS
+
+from src.ml_stock_train_v1 import (
+    DEFAULT_CLASSIFICATION_TARGET,
+    DEFAULT_REGRESSION_TARGET,
+    SUPPORTED_CLASSIFIERS,
+    SUPPORTED_MODEL_KINDS,
+    SUPPORTED_REGRESSORS,
+)
 
 try:
     from src.security_trend_model import (
@@ -3449,7 +3457,7 @@ def main():
         if mobile_group == "决策":
             mobile_page = st.selectbox(
                 "页面",
-                ["💼 今日机会清单", "⭐ 每日趋势推荐", "🧪 推荐评估"],
+                DECISION_PAGE_OPTIONS,
                 key="iphone_page_decision",
             )
             st.caption(f"当前位置：决策 / {mobile_page}")
@@ -3457,8 +3465,10 @@ def main():
                 render_commercial_mvp_tab()
             elif mobile_page == "⭐ 每日趋势推荐":
                 render_daily_trend_reco_tab()
-            else:
+            elif mobile_page == "🧪 推荐评估":
                 render_reco_effectiveness_tracking_panel()
+            else:
+                render_ml_prediction_upgrade_tab()
 
         elif mobile_group == "基金":
             mobile_page = st.selectbox(
@@ -3543,7 +3553,7 @@ def main():
     if nav_group == "决策":
         decision_subpage = st.sidebar.radio(
             "决策模块",
-            ["💼 今日机会清单", "⭐ 每日趋势推荐", "🧪 推荐评估"],
+            DECISION_PAGE_OPTIONS,
             key="decision_subpage"
         )
         st.caption(f"当前位置：决策 / {decision_subpage}")
@@ -3551,8 +3561,10 @@ def main():
             render_commercial_mvp_tab()
         elif decision_subpage == "⭐ 每日趋势推荐":
             render_daily_trend_reco_tab()
-        else:
+        elif decision_subpage == "🧪 推荐评估":
             render_reco_effectiveness_tracking_panel()
+        else:
+            render_ml_prediction_upgrade_tab()
 
     elif nav_group == "基金":
         etf_subpage = st.sidebar.radio(
@@ -3621,6 +3633,77 @@ def main():
             render_fund_monitor_tab()
 
 
+
+
+# ===== ML预测升级 Tab =====
+def render_ml_prediction_upgrade_tab():
+    st.subheader("🤖 ML 预测升级（最小可见版）")
+    st.caption("先把 ETF 预测升级的训练/评估进展挂到页面里。当前版本只做本地只读展示，不触发数据库写入，也不依赖 live DB 凭据。")
+
+    st.info("当前页面是最小可见版入口：用于确认 ML 训练链路已经接入应用导航，并集中展示 walk-forward 与 strategy metrics 的当前能力。")
+
+    capability_cols = st.columns(4)
+    capability_cols[0].metric("评估模式", "Single / Walk-forward")
+    capability_cols[1].metric("模型后端", "Baseline / Sklearn")
+    capability_cols[2].metric("策略指标", "Top1 / Top3 / Top5")
+    capability_cols[3].metric("默认分类目标", DEFAULT_CLASSIFICATION_TARGET)
+
+    with st.expander("✅ 当前已落地能力", expanded=True):
+        st.markdown(
+            "\n".join([
+                "- 数据层：`ml_stock_universe_daily / feature / label / sample` 已有保守脚手架",
+                "- 训练层：支持 `baseline` 与 `sklearn` 两条路径",
+                "- sklearn：当前支持 `LogisticRegression`、`Ridge`、`LinearRegression`",
+                "- 评估层：支持单次切分（single）与滚动评估（walk-forward）",
+                "- 策略层：walk-forward 已输出按交易日聚合的 Top1 / Top3 / Top5 指标",
+                "- 校验方式：当前只做 `pytest`、`py_compile`、`--help` 等轻量验证",
+            ])
+        )
+
+    with st.expander("🧪 walk-forward 策略指标口径", expanded=True):
+        st.markdown(
+            "\n".join([
+                "- 训练集使用 `trade_date < cutoff`，测试集使用 `trade_date >= cutoff`",
+                "- 每个窗口只用训练集拟合缺失值填充，再应用到测试集",
+                "- 分类优先使用 `test_scores` 排序；baseline 分类回退到 `score_feature`；其余回退到 prediction",
+                "- 当前策略指标保持 V1 简化版：按日分组后统计 Top1 / Top3 / Top5 的平均收益与命中率",
+                "- 暂未引入完整回测、仓位管理、交易成本或调参流程",
+            ])
+        )
+
+    st.markdown("#### 🖥️ CLI 用法示例")
+    st.code(
+        "python scripts/train_ml_stock_v1.py --eval-mode walk-forward --model-kind sklearn --task-type classification --classifier logistic --min-train-rows 200 --min-test-rows 50 --max-windows 5 --json\n"
+        "python scripts/train_ml_stock_v1.py --eval-mode walk-forward --model-kind sklearn --task-type regression --regressor ridge --target-column ret_fwd_5d --min-train-rows 200 --min-test-rows 50 --max-windows 5 --json",
+        language="bash",
+    )
+
+    st.markdown("#### 🧭 当前代码配置")
+    config_cols = st.columns(3)
+    config_cols[0].write({
+        "model_kinds": list(SUPPORTED_MODEL_KINDS),
+        "classifiers": list(SUPPORTED_CLASSIFIERS),
+        "regressors": list(SUPPORTED_REGRESSORS),
+    })
+    config_cols[1].write({
+        "classification_target": DEFAULT_CLASSIFICATION_TARGET,
+        "regression_target": DEFAULT_REGRESSION_TARGET,
+        "topn_levels": [1, 3, 5],
+    })
+    config_cols[2].write({
+        "status": "local scaffold ready",
+        "live_db_smoke": "blocked / intentionally skipped",
+        "page_mode": "read-only mvp",
+    })
+
+    st.markdown("#### 📌 下一步")
+    st.markdown(
+        "\n".join([
+            "1. 把 walk-forward 输出进一步整理成更适合落盘/汇报的结果结构",
+            "2. 明确 classification / regression 目标与策略指标解释口径",
+            "3. 后续如需要，再接入真实样本查询或结果快照展示",
+        ])
+    )
 
 
 # ===== 商业化MVP Tab =====

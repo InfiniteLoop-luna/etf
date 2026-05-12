@@ -1,0 +1,112 @@
+You are continuing work in the ETF project at D:\sourcecode\etf.
+
+Current state already implemented:
+- src/ml_stock_dataset.py contains ml_stock_universe_daily and ml_stock_label_daily builders
+- scripts/build_ml_stock_universe.py
+- scripts/build_ml_stock_labels.py
+- tests/test_ml_stock_dataset.py
+- .gitignore was adjusted to allow tests/test_ml_stock_dataset.py
+
+Important constraint:
+- Do NOT attempt a live DB smoke test that requires credentials; local runtime may not have ETF_PG_PASSWORD / PGPASSWORD.
+- Focus on code + tests + lightweight CLI verification only.
+
+Goal now: implement the conservative V1 feature layer.
+
+Please read and inspect the current codebase as needed, especially:
+- src/ml_stock_dataset.py
+- src/calculate_ema_factors.py
+- src/etf_stats.py
+- tasks/etf-prediction-upgrade/notes/2026-05-11_etf个股预测特征工程设计.md
+- tasks/etf-prediction-upgrade/notes/2026-05-11_etf个股预测训练样本表设计与标签方案.md
+
+Then implement the following in the real project code:
+
+1) Extend src/ml_stock_dataset.py with a new feature table foundation:
+- add FEATURE_TABLE = "ml_stock_feature_daily"
+- add ensure_feature_table(engine)
+- add data loading + build + upsert functions for features
+- add build_feature_dataset(engine, ...)
+- keep everything conservative and leakage-safe
+
+2) Feature row granularity:
+- one row per trade_date + ts_code
+- use ml_stock_universe_daily as the target key set (same pattern as labels)
+
+3) Implement a pragmatic V1 feature set using current project views/tables only.
+Use same-day or past-only information. Include as many of these as are realistically available now:
+
+A. base columns
+- trade_date, ts_code
+- close, open, high, low
+- vol, amount
+- created_at, updated_at
+
+B. price trend / rolling features from daily prices
+- ret_1d, ret_3d, ret_5d, ret_10d, ret_20d, ret_60d
+- close_over_ma5, close_over_ma20, close_over_ma60
+- ma5_over_ma20, ma20_over_ma60
+- volatility_5d, volatility_20d
+- distance_to_20d_high, distance_to_20d_low
+- distance_to_60d_high, distance_to_60d_low
+
+C. turnover / activity from vw_ts_stock_daily_basic or daily bars
+- turnover_rate
+- turnover_rate_f
+- volume_ratio
+- vol_ma5_ratio
+- amount_ma5_ratio
+
+D. valuation / size from vw_ts_stock_daily_basic
+- pe, pe_ttm, pb, ps, ps_ttm, dv_ratio, dv_ttm
+- total_mv, circ_mv
+- log_total_mv, log_circ_mv
+
+E. week/month trend from existing tables
+- w_ema5, w_ema30, m_ema5, m_ema30
+- is_weekly_ema_bearish
+- is_monthly_ema_bearish
+- w_ema5_over_30
+- m_ema5_over_30
+
+F. quality / completeness markers
+- has_price_feature
+- has_daily_basic_feature
+- has_technical_signal_feature
+- feature_complete_ratio
+- quality_flag
+
+4) Data source guidance:
+- Prefer existing project sources only:
+  - vw_ts_stock_daily
+  - vw_ts_stock_daily_basic
+  - vw_ts_stk_week_month_adj (if helpful)
+  - ts_stock_technical_signals (already materialized EMA table)
+  - ml_stock_universe_daily
+- If some source field is not reliably available, keep the output column and fill conservatively with NULL rather than inventing values.
+- Avoid future leakage: rolling features for T may only use rows <= T.
+
+5) Add a CLI script:
+- scripts/build_ml_stock_features.py
+with sensible args like --start-date, --end-date, --rebuild, --json
+
+6) Add/extend tests for pure logic.
+Preferred: extend tests/test_ml_stock_dataset.py to avoid gitignore surprises.
+Add tests for at least:
+- rolling return / MA ratio calculations on a tiny synthetic frame
+- volatility / distance-to-high-low behavior
+- completeness / quality flag behavior if practical
+
+7) Verification to run:
+- python -m pytest tests/test_ml_stock_dataset.py -q
+- python -m py_compile src/ml_stock_dataset.py scripts/build_ml_stock_universe.py scripts/build_ml_stock_labels.py scripts/build_ml_stock_features.py tests/test_ml_stock_dataset.py
+- python scripts/build_ml_stock_features.py --help
+
+8) Output expectations:
+- Keep implementation aligned with existing code style and dependencies
+- Don’t over-engineer
+- At the end, summarize exactly:
+  - what files changed
+  - what features were implemented now
+  - what remains placeholder/conservative
+  - any assumptions or follow-up items

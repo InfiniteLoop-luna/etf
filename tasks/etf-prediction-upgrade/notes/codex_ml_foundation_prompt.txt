@@ -1,0 +1,62 @@
+You are working in the ETF project at D:\sourcecode\etf.
+
+Goal: implement the first foundation for the new stock-ML dataset described in the docs under tasks/etf-prediction-upgrade/notes.
+
+Read these docs first:
+- tasks/etf-prediction-upgrade/notes/2026-05-11_etf个股未来走势预测方案设计.md
+- tasks/etf-prediction-upgrade/notes/2026-05-11_etf个股预测特征工程设计.md
+- tasks/etf-prediction-upgrade/notes/2026-05-11_etf个股预测训练样本表设计与标签方案.md
+
+Then implement a pragmatic V1 foundation in the real project code (not only docs):
+
+1) Add a new source module, e.g. src/ml_stock_dataset.py, that:
+- builds DB engine consistently with existing project conventions
+- defines/creates tables:
+  - ml_stock_universe_daily
+  - ml_stock_label_daily
+- provides functions to build universe rows and label rows
+- keeps time alignment conservative to avoid leakage
+
+2) Universe builder requirements:
+- base universe from stock daily price data joined with stock basic/company context
+- one row per trade_date + ts_code
+- include at least these columns if available:
+  trade_date, ts_code, symbol, name, industry, market, exchange, list_date, listing_days,
+  list_status, is_current_st, has_ever_st, has_price, has_daily_basic, has_financial,
+  min_history_ok, sample_eligible, created_at, updated_at
+- sample_eligible should be conservative and deterministic
+- use current project SQL/view names rather than inventing new sources
+
+3) Label builder requirements:
+- one row per trade_date + ts_code
+- use entry_price = close on trade_date
+- generate at least:
+  y_up_1d, y_up_3d, y_up_5d, y_up_10d, y_up_20d
+  ret_fwd_1d, ret_fwd_3d, ret_fwd_5d, ret_fwd_10d, ret_fwd_20d
+  max_dd_fwd_3d, max_dd_fwd_5d, max_dd_fwd_10d, max_dd_fwd_20d
+  max_upside_fwd_5d, max_upside_fwd_20d
+  future_price_available_5d, future_price_available_20d
+  suspended_in_horizon_flag
+  entry_price, entry_basis, created_at
+- compute labels with forward bar offsets by trade_date within each ts_code
+- use future low/high from vw_ts_stock_daily where available for drawdown/upside
+
+4) Add CLI scripts in scripts/:
+- build_ml_stock_universe.py
+- build_ml_stock_labels.py
+with sensible args such as --start-date, --end-date, --if-exists / rebuild mode if useful
+
+5) Add tests under tests/ for the core pure logic where practical:
+- listing_days / eligibility behavior
+- forward returns / drawdown / upside label generation on a small synthetic dataframe
+
+6) Keep implementation aligned with existing code style and dependencies.
+- Prefer SQLAlchemy + pandas like the rest of the repo.
+- Don’t over-engineer.
+- If some fields are not reliably derivable today, still include the columns and fill with conservative/null values rather than inventing data.
+
+7) After changes, run the smallest meaningful verification:
+- pytest for the new tests
+- py_compile for the new Python files if helpful
+
+8) Summarize exactly what changed, what is still placeholder/conservative, and any important assumptions.

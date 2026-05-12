@@ -1,0 +1,92 @@
+You are continuing work in the ETF project at D:\sourcecode\etf.
+
+Current state already implemented in code:
+- src/ml_stock_dataset.py supports universe / feature / label / sample layers
+- scripts/build_ml_stock_universe.py
+- scripts/build_ml_stock_labels.py
+- scripts/build_ml_stock_features.py
+- scripts/build_ml_stock_samples.py
+- tests/test_ml_stock_dataset.py
+
+Important environment facts:
+- Do NOT attempt any live DB smoke test that requires ETF_PG_PASSWORD / PGPASSWORD.
+- scikit-learn is NOT currently installed in the environment.
+- numpy and pyarrow are available.
+- Focus on code + tests + lightweight CLI/help verification only.
+
+Goal now: implement a conservative training V1 scaffold WITHOUT introducing a hard dependency on scikit-learn.
+This step is about building the training-data workflow skeleton, feature selection, time split logic, and simple baseline evaluation — not a full production model trainer yet.
+
+Please inspect existing code as needed, especially:
+- src/ml_stock_dataset.py
+- requirements.txt
+- tests/test_ml_stock_dataset.py
+- tasks/etf-prediction-upgrade/notes/*.md relevant to sample/training design
+
+Then implement the following in the real project code:
+
+1) Add a new source module, e.g. src/ml_stock_train_v1.py, that provides pure-Python/pandas/numpy training scaffold helpers.
+Keep it simple and deterministic.
+
+2) Implement dataset preparation helpers around the joined sample dataframe.
+Suggested capabilities:
+- define a conservative V1 feature column list for now
+- pick a target column by task type
+- filter rows with required feature/label availability
+- split numeric feature columns and target series
+- optionally fill missing numeric features conservatively (e.g. median or leave filtered, but be explicit)
+
+3) Implement time-based split helpers.
+At minimum, support a simple chronological split like:
+- train rows before a cutoff date
+- validation/test rows on/after a cutoff date
+or similar date-based split helpers
+
+4) Implement simple baseline trainers/evaluators that do NOT require sklearn.
+Examples are acceptable such as:
+- classification baseline:
+  - predict using a simple threshold/rule or historical prior
+  - evaluate accuracy, positive rate, average label, sample count
+  - if you want, implement a tiny logistic-like score using one feature, but keep it simple
+- regression baseline:
+  - predict using training mean/median of target
+  - evaluate MAE / RMSE / mean target / sample count
+
+The point is to establish the workflow and metric plumbing, not state-of-the-art modeling.
+
+5) Add a CLI script, e.g. scripts/train_ml_stock_v1.py, that:
+- can load the sample dataset via src/ml_stock_dataset.py
+- choose task type such as classification/regression
+- choose target such as y_up_5d or ret_fwd_5d
+- perform date split
+- run the baseline evaluation
+- print a compact summary (and optionally JSON)
+
+Keep it robust if DB access is unavailable during local verification. For example:
+- the CLI help should work without DB access
+- pure helper tests should not require DB
+
+6) Add tests to tests/test_ml_stock_dataset.py and/or a new focused training test file if needed.
+Since .gitignore issues already got fixed, either is fine.
+At minimum test:
+- feature-column selection logic
+- chronological split behavior
+- baseline metric calculations on tiny synthetic data
+
+7) Verification to run:
+- python -m pytest tests/test_ml_stock_dataset.py -q
+  (or include the new test file if you create one)
+- python -m py_compile src/ml_stock_dataset.py src/ml_stock_train_v1.py scripts/build_ml_stock_universe.py scripts/build_ml_stock_labels.py scripts/build_ml_stock_features.py scripts/build_ml_stock_samples.py scripts/train_ml_stock_v1.py tests/test_ml_stock_dataset.py
+- python scripts/train_ml_stock_v1.py --help
+
+8) Important design constraints:
+- Do NOT add sklearn/xgboost/lightgbm dependencies yet
+- Do NOT attempt real model fitting that needs extra packages
+- Do NOT implement walk-forward backtesting fully yet; just create the clean split/eval skeleton
+- Keep code easy to extend later when a real model package is added
+
+9) At the end, summarize exactly:
+- what files changed
+- what the training scaffold can do now
+- what is intentionally still baseline/placeholder
+- what the next logical step would be once modeling deps are available

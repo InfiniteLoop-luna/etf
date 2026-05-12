@@ -1,3 +1,10 @@
+DECISION_PAGE_OPTIONS = [
+    "💼 今日机会清单",
+    "⭐ 每日趋势推荐",
+    "🧪 推荐评估",
+    "🤖 ML预测升级",
+]
+
 ETF_PAGE_OPTIONS = [
     "📈 主要宽基ETF份额",
     "🥧 ETF分类占比",

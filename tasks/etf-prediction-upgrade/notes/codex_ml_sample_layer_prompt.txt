@@ -1,0 +1,89 @@
+You are continuing work in the ETF project at D:\sourcecode\etf.
+
+Current state already implemented in code:
+- src/ml_stock_dataset.py now supports:
+  - ml_stock_universe_daily
+  - ml_stock_label_daily
+  - ml_stock_feature_daily
+- scripts/build_ml_stock_universe.py
+- scripts/build_ml_stock_labels.py
+- scripts/build_ml_stock_features.py
+- tests/test_ml_stock_dataset.py
+- .gitignore already adjusted for the new test file
+
+Important constraints:
+- Do NOT attempt any live DB smoke test that requires ETF_PG_PASSWORD / PGPASSWORD.
+- Focus on code + tests + lightweight CLI/help verification only.
+- Keep implementation conservative and aligned with current code style.
+
+Goal now: implement the sample-layer / training-dataset join foundation so the project can directly consume universe + feature + label as one dataset.
+
+Please inspect the existing code as needed, especially:
+- src/ml_stock_dataset.py
+- tests/test_ml_stock_dataset.py
+- tasks/etf-prediction-upgrade/notes/2026-05-11_etf个股预测训练样本表设计与标签方案.md
+
+Then implement the following in the real project code:
+
+1) Extend src/ml_stock_dataset.py with sample dataset support.
+Add a pragmatic V1 foundation for joining:
+- ml_stock_universe_daily
+- ml_stock_feature_daily
+- ml_stock_label_daily
+into one trainable dataset.
+
+2) Keep the design conservative and simple.
+Suggested shape:
+- SAMPLE_VIEW = "ml_stock_sample_daily" (plain SQL view is fine)
+- function(s) such as:
+  - ensure_sample_view(engine)
+  - load_sample_dataset(...)
+  - optionally export_sample_dataset(...) if useful
+- use sample_eligible = TRUE as the default gating condition for the joined training sample set
+
+3) The joined sample dataset should:
+- key on trade_date + ts_code
+- include universe metadata columns
+- include feature columns
+- include label columns
+- avoid duplicate key columns from joins
+- be deterministic and easy to read from Python
+
+4) Add a CLI script.
+Implement one of these, whichever best fits current code patterns:
+- scripts/build_ml_stock_samples.py
+or
+- scripts/export_ml_stock_samples.py
+
+Recommended capabilities:
+- create/refresh the SQL view
+- optionally read the joined sample dataframe for a date range
+- optionally export to parquet if the codebase already handles it simply; if not, skip export and keep it to view/read only
+- args like:
+  --start-date
+  --end-date
+  --only-eligible (default true or an explicit flag)
+  --json
+
+5) Add/extend tests for pure logic in tests/test_ml_stock_dataset.py.
+At minimum, add a small unit-level test around the join/filter behavior using small synthetic pandas DataFrames.
+For example, introduce a pure helper that merges universe/features/labels in-memory and test that:
+- only eligible rows are kept when requested
+- keys join correctly
+- expected columns survive
+- missing feature/label rows are handled conservatively
+
+6) Keep the implementation minimal.
+Do NOT try to build the actual model training loop yet.
+This task is only about the trainable sample-layer foundation.
+
+7) Verification to run:
+- python -m pytest tests/test_ml_stock_dataset.py -q
+- python -m py_compile src/ml_stock_dataset.py scripts/build_ml_stock_universe.py scripts/build_ml_stock_labels.py scripts/build_ml_stock_features.py scripts/build_ml_stock_samples.py tests/test_ml_stock_dataset.py
+- python scripts/build_ml_stock_samples.py --help
+
+8) At the end, summarize exactly:
+- what files changed
+- what the new sample layer does now
+- what remains intentionally deferred
+- any assumptions/follow-up items

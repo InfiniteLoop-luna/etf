@@ -1,0 +1,83 @@
+You are continuing work in the ETF project at D:\sourcecode\etf.
+
+Current state already implemented:
+- src/ml_stock_dataset.py supports universe / feature / label / sample layers
+- src/ml_stock_train_v1.py provides a baseline training scaffold without sklearn
+- scripts/train_ml_stock_v1.py provides baseline CLI usage
+- tests/test_ml_stock_dataset.py already contains training-scaffold tests
+- scikit-learn has now been installed successfully in the local environment
+
+Important constraints:
+- Do NOT attempt any live DB smoke test that requires ETF_PG_PASSWORD / PGPASSWORD.
+- Focus on code + tests + lightweight CLI/help verification only.
+- Keep the design conservative and easy to extend.
+
+Goal now: implement a sklearn-backed V2 training path while preserving the current V1 baseline scaffold.
+
+Please inspect existing code as needed, especially:
+- src/ml_stock_train_v1.py
+- scripts/train_ml_stock_v1.py
+- tests/test_ml_stock_dataset.py
+- requirements.txt
+
+Then implement the following in the real project code:
+
+1) Extend the training module with sklearn-backed model helpers.
+You may either extend src/ml_stock_train_v1.py or introduce a new module if cleaner, but keep the API practical.
+
+2) Support at least:
+- one classification model: LogisticRegression
+- one regression model: Ridge or LinearRegression
+
+3) Keep the current baseline path available.
+The CLI should be able to choose between:
+- baseline
+- sklearn
+
+4) Add model-training helpers that:
+- accept prepared train/test data from the existing scaffold
+- fit the sklearn model on training features/targets
+- produce predictions on train/test
+- return a serializable summary of model type and key parameters
+
+5) Add better evaluation for the sklearn path.
+At minimum:
+- classification:
+  - accuracy
+  - positive_rate_pred
+  - positive_rate_actual
+  - average_label
+  - if probabilities are available, include roc_auc when both classes exist
+- regression:
+  - mae
+  - rmse
+  - target_mean
+  - r2 if feasible
+
+6) Update scripts/train_ml_stock_v1.py into a more general CLI while keeping backward compatibility if possible.
+Suggested args:
+- --model-kind {baseline,sklearn}
+- --classifier {logistic}
+- --regressor {ridge,linear}
+- keep existing args for task type / target / cutoff / fill / json
+
+7) Update requirements.txt to include scikit-learn with a reasonable version floor.
+Do not add a large set of extra modeling libraries yet.
+
+8) Add/extend tests.
+Add small deterministic tests around:
+- sklearn classification train/predict path on tiny synthetic data
+- sklearn regression train/predict path on tiny synthetic data
+- summaries/metrics shape
+Keep tests lightweight and deterministic.
+
+9) Verification to run:
+- python -m pytest tests/test_ml_stock_dataset.py -q
+- python -m py_compile src/ml_stock_dataset.py src/ml_stock_train_v1.py scripts/build_ml_stock_universe.py scripts/build_ml_stock_labels.py scripts/build_ml_stock_features.py scripts/build_ml_stock_samples.py scripts/train_ml_stock_v1.py tests/test_ml_stock_dataset.py
+- python scripts/train_ml_stock_v1.py --help
+
+10) At the end, summarize exactly:
+- what files changed
+- what sklearn-backed training can do now
+- how baseline vs sklearn are selected
+- what remains intentionally simple / deferred

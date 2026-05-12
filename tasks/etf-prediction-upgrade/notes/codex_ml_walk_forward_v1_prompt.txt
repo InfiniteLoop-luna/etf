@@ -1,0 +1,103 @@
+You are continuing work in the ETF project at D:\sourcecode\etf.
+
+Current state already implemented:
+- src/ml_stock_dataset.py supports universe / feature / label / sample layers
+- src/ml_stock_train_v1.py supports:
+  - prepared training data
+  - fill handling
+  - split_by_date
+  - baseline models
+  - sklearn models (logistic / ridge / linear)
+  - evaluation metrics
+- scripts/train_ml_stock_v1.py is the unified CLI for baseline/sklearn single-cutoff evaluation
+- tests/test_ml_stock_dataset.py already contains dataset + training scaffold tests
+
+Important constraints:
+- Do NOT attempt any live DB smoke test that requires ETF_PG_PASSWORD / PGPASSWORD.
+- Focus on code + tests + lightweight CLI/help verification only.
+- Keep this V1 walk-forward layer simple and deterministic.
+
+Goal now: implement a walk-forward evaluation framework V1 on top of the existing single-cutoff training workflow.
+
+Please inspect existing code as needed, especially:
+- src/ml_stock_train_v1.py
+- scripts/train_ml_stock_v1.py
+- tests/test_ml_stock_dataset.py
+
+Then implement the following in the real project code:
+
+1) Add walk-forward helper(s) in the training module.
+Suggested capabilities:
+- generate evaluation cutoff dates from prepared.rows / trade_date
+- iterate through cutoffs chronologically
+- for each cutoff:
+  - split train/test by date
+  - apply fill based on training split only
+  - fit the selected model path (baseline or sklearn)
+  - compute train/test metrics
+- collect results into a serializable summary structure
+
+2) Keep the design conservative.
+Suggested controls:
+- minimum training rows required
+- minimum test rows required
+- optional max_windows
+- optional explicit cutoff_dates override
+- use unique sorted trade dates as the walk-forward anchors
+
+3) Make the output easy to inspect.
+At minimum include per-window records with:
+- cutoff_date
+- train_rows
+- test_rows
+- model summary
+- train_metrics
+- test_metrics
+
+Also include an aggregate summary such as:
+- window_count
+- average test accuracy / roc_auc for classification when available
+- average test mae / rmse / r2 for regression when available
+- rows evaluated total
+
+4) Update the CLI to support walk-forward mode while preserving current single-cutoff behavior.
+Suggested args:
+- --eval-mode {single,walk-forward}
+- --max-windows
+- --min-train-rows
+- --min-test-rows
+- optionally --cutoff-dates as a comma-separated explicit override
+
+If eval-mode is single, keep current behavior.
+If eval-mode is walk-forward, use the new walk-forward logic.
+
+5) Keep the model selection path unified.
+Walk-forward should work with:
+- model_kind=baseline
+- model_kind=sklearn
+for both classification and regression as already supported.
+
+6) Add lightweight deterministic tests.
+At minimum cover:
+- generated walk-forward windows are chronological
+- too-small windows get skipped appropriately
+- aggregate summary fields are populated
+- one classification walk-forward example
+- one regression walk-forward example
+
+7) Verification to run:
+- python -m pytest tests/test_ml_stock_dataset.py -q
+- python -m py_compile src/ml_stock_dataset.py src/ml_stock_train_v1.py scripts/build_ml_stock_universe.py scripts/build_ml_stock_labels.py scripts/build_ml_stock_features.py scripts/build_ml_stock_samples.py scripts/train_ml_stock_v1.py tests/test_ml_stock_dataset.py
+- python scripts/train_ml_stock_v1.py --help
+
+8) Important non-goals for this step:
+- Do NOT implement full strategy backtesting / portfolio simulation yet
+- Do NOT add LightGBM/XGBoost yet
+- Do NOT add hyperparameter tuning yet
+- Do NOT depend on DB availability for tests
+
+9) At the end, summarize exactly:
+- what files changed
+- what walk-forward evaluation can do now
+- how single vs walk-forward mode are selected
+- what remains intentionally deferred
