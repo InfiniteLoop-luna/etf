@@ -3638,6 +3638,14 @@ def main():
 
 
 # ===== ML预测升级 Tab =====
+ML_PREDICTION_RUNTIME_SNAPSHOT_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "tasks",
+    "etf-prediction-upgrade",
+    "outputs",
+    "runtime",
+    "ml_prediction_upgrade_walk_forward_snapshot.json",
+)
 ML_PREDICTION_SNAPSHOT_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "tasks",
@@ -3697,46 +3705,61 @@ def _build_ml_prediction_upgrade_demo_sample_df() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-@st.cache_data(show_spinner=False)
-def _load_ml_prediction_upgrade_snapshot_results(snapshot_path: str = ML_PREDICTION_SNAPSHOT_PATH) -> dict:
-    try:
-        if not snapshot_path or not os.path.exists(snapshot_path):
-            return {}
-        with open(snapshot_path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        snapshot_type = str(payload.get("snapshot_type") or "").strip()
-        if snapshot_type != "ml_stock_walk_forward":
-            return {}
+def _load_ml_prediction_upgrade_snapshot_results(snapshot_path: str | None = None) -> dict:
+    candidate_paths = []
+    if snapshot_path:
+        candidate_paths.append(snapshot_path)
+    candidate_paths.extend([
+        ML_PREDICTION_RUNTIME_SNAPSHOT_PATH,
+        ML_PREDICTION_SNAPSHOT_PATH,
+    ])
 
-        normalized = {
-            "snapshot_type": snapshot_type,
-            "generated_at": payload.get("generated_at"),
-            "data_source": payload.get("data_source") or "snapshot",
-            "sample_overview": payload.get("sample_overview") or {},
-            "classification": payload.get("classification") or {},
-            "regression": payload.get("regression") or {},
-        }
+    seen = set()
+    for path in candidate_paths:
+        normalized_path = os.path.abspath(path)
+        if normalized_path in seen:
+            continue
+        seen.add(normalized_path)
+        try:
+            if not normalized_path or not os.path.exists(normalized_path):
+                continue
+            with open(normalized_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            snapshot_type = str(payload.get("snapshot_type") or "").strip()
+            if snapshot_type != "ml_stock_walk_forward":
+                continue
 
-        task_type = str(payload.get("task_type") or "").strip()
-        if task_type in {"classification", "regression"} and not normalized.get(task_type):
-            normalized[task_type] = {
-                "task_type": task_type,
-                "model_kind": payload.get("model_kind"),
-                "target_column": payload.get("target_column"),
-                "fill_method": payload.get("fill_method"),
-                "classifier": payload.get("classifier"),
-                "regressor": payload.get("regressor"),
-                "rows_loaded": payload.get("rows_loaded"),
+            normalized = {
+                "snapshot_type": snapshot_type,
+                "generated_at": payload.get("generated_at"),
+                "data_source": payload.get("data_source") or "snapshot",
+                "snapshot_path": normalized_path,
                 "sample_overview": payload.get("sample_overview") or {},
-                "prepared": payload.get("prepared") or {},
-                "aggregate": payload.get("aggregate") or {},
-                "window_results": payload.get("window_results") or [],
-                "skipped_windows": payload.get("skipped_windows") or [],
+                "classification": payload.get("classification") or {},
+                "regression": payload.get("regression") or {},
             }
-        return normalized
-    except Exception as exc:
-        logger.warning(f"load_ml_prediction_upgrade_snapshot_results failed for {snapshot_path}: {exc}")
-        return {}
+
+            task_type = str(payload.get("task_type") or "").strip()
+            if task_type in {"classification", "regression"} and not normalized.get(task_type):
+                normalized[task_type] = {
+                    "task_type": task_type,
+                    "model_kind": payload.get("model_kind"),
+                    "target_column": payload.get("target_column"),
+                    "fill_method": payload.get("fill_method"),
+                    "classifier": payload.get("classifier"),
+                    "regressor": payload.get("regressor"),
+                    "rows_loaded": payload.get("rows_loaded"),
+                    "sample_overview": payload.get("sample_overview") or {},
+                    "prepared": payload.get("prepared") or {},
+                    "aggregate": payload.get("aggregate") or {},
+                    "window_results": payload.get("window_results") or [],
+                    "skipped_windows": payload.get("skipped_windows") or [],
+                }
+            return normalized
+        except Exception as exc:
+            logger.warning(f"load_ml_prediction_upgrade_snapshot_results failed for {normalized_path}: {exc}")
+            continue
+    return {}
 
 
 @st.cache_data(show_spinner=False)
@@ -3938,7 +3961,7 @@ def render_ml_prediction_upgrade_tab():
     })
 
     st.markdown("#### 📊 walk-forward 结果")
-    st.caption("页面会优先读取任务目录下的 walk-forward snapshot；如果当前还没有 snapshot，则自动回退到内置 demo 结果。整个流程保持只读，不触发数据库写入。")
+    st.caption("页面会优先读取 runtime walk-forward snapshot；如果当前没有 runtime snapshot，就回退到仓库内 demo snapshot / 内置 demo 结果。整个流程保持只读，不触发数据库写入。")
 
     snapshot_results = _load_ml_prediction_upgrade_snapshot_results()
     result_payload = snapshot_results
@@ -3960,6 +3983,9 @@ def render_ml_prediction_upgrade_tab():
         data_source = str(result_payload.get("data_source") or "").strip()
         if data_source:
             source_caption += f" ｜ source_tag: {data_source}"
+        snapshot_path = str(result_payload.get("snapshot_path") or "").strip()
+        if snapshot_path:
+            source_caption += f" ｜ file: {os.path.relpath(snapshot_path, os.path.dirname(os.path.abspath(__file__)))}"
         if generated_at:
             source_caption += f" ｜ generated_at: {generated_at}"
         st.caption(source_caption)
@@ -3993,7 +4019,7 @@ def render_ml_prediction_upgrade_tab():
     st.markdown("#### 📌 下一步")
     st.markdown(
         "\n".join([
-            "1. 用真实样本执行 walk-forward，并把 CLI 输出落成 snapshot 文件覆盖当前 demo snapshot",
+            "1. 用真实样本执行 walk-forward，并优先把 CLI 输出落成 runtime snapshot 文件覆盖页面当前数据源",
             "2. 明确 classification / regression 目标与策略指标解释口径",
             "3. 后续如需要，再接入图表、结果历史归档或更完整回测展示",
         ])

@@ -70,3 +70,6 @@ restore_*.py
 safe_*.py
 quick_*.py
 full_*.py
+
+# Runtime task outputs
+/tasks/etf-prediction-upgrade/outputs/runtime/
