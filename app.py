@@ -89,6 +89,8 @@ from src.ml_stock_train_v1 import (
     SUPPORTED_CLASSIFIERS,
     SUPPORTED_MODEL_KINDS,
     SUPPORTED_REGRESSORS,
+    prepare_training_data,
+    run_walk_forward_evaluation,
 )
 
 try:
@@ -3636,11 +3638,196 @@ def main():
 
 
 # ===== ML预测升级 Tab =====
-def render_ml_prediction_upgrade_tab():
-    st.subheader("🤖 ML 预测升级（最小可见版）")
-    st.caption("先把 ETF 预测升级的训练/评估进展挂到页面里。当前版本只做本地只读展示，不触发数据库写入，也不依赖 live DB 凭据。")
+def _format_ratio_pct(value, digits=1) -> str:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return "-"
+    return f"{float(numeric):.{digits}%}"
 
-    st.info("当前页面是最小可见版入口：用于确认 ML 训练链路已经接入应用导航，并集中展示 walk-forward 与 strategy metrics 的当前能力。")
+
+def _format_decimal_metric(value, digits=4) -> str:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return "-"
+    return f"{float(numeric):.{digits}f}"
+
+
+def _build_ml_prediction_upgrade_demo_sample_df() -> pd.DataFrame:
+    rows = []
+    for day_idx, trade_date in enumerate(pd.date_range("2026-01-05", periods=8, freq="D")):
+        for stock_idx in range(4):
+            signal = day_idx * 0.55 + stock_idx * 0.35
+            forward_return = (
+                -0.8
+                + day_idx * 0.7
+                + stock_idx * 0.4
+                - (1.8 if (day_idx + stock_idx) % 4 == 0 else 0.0)
+            ) / 100.0
+            rows.append(
+                {
+                    "trade_date": trade_date,
+                    "ts_code": f"{600000 + day_idx * 10 + stock_idx}.SH",
+                    "listing_days": 120 + day_idx * 5 + stock_idx,
+                    "is_current_st": 0,
+                    "has_ever_st": int(stock_idx == 3 and day_idx % 3 == 0),
+                    "close": 10 + signal * 2.5,
+                    "ret_1d": -0.3 + signal * 0.12,
+                    "ret_3d": -0.1 + signal * 0.18,
+                    "ret_5d": signal * 0.22,
+                    "ret_10d": signal * 0.27,
+                    "ret_20d": signal * 0.33,
+                    "close_over_ma5": 0.97 + signal * 0.03,
+                    "close_over_ma20": 0.95 + signal * 0.035,
+                    "ma5_over_ma20": 0.93 + signal * 0.04,
+                    "w_ema5_over_30": 0.94 + signal * 0.035,
+                    "feature_complete_ratio": 0.99 - stock_idx * 0.01,
+                    "y_up_5d": int(forward_return > 0.003),
+                    "ret_fwd_5d": forward_return,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(show_spinner=False)
+def _load_ml_prediction_upgrade_demo_results() -> dict:
+    sample_df = _build_ml_prediction_upgrade_demo_sample_df()
+    common_eval_kwargs = {
+        "fill_method": "median",
+        "min_train_rows": 8,
+        "min_test_rows": 8,
+        "max_windows": 3,
+    }
+
+    classification_prepared = prepare_training_data(
+        sample_df,
+        task_type="classification",
+        fill_method="median",
+    )
+    classification_result = run_walk_forward_evaluation(
+        classification_prepared,
+        model_kind="baseline",
+        **common_eval_kwargs,
+    )
+
+    regression_prepared = prepare_training_data(
+        sample_df,
+        task_type="regression",
+        target_column=DEFAULT_REGRESSION_TARGET,
+        fill_method="median",
+    )
+    regression_result = run_walk_forward_evaluation(
+        regression_prepared,
+        model_kind="sklearn",
+        regressor="linear",
+        **common_eval_kwargs,
+    )
+
+    trade_dates = pd.to_datetime(sample_df["trade_date"], errors="coerce")
+    return {
+        "sample_overview": {
+            "row_count": int(len(sample_df)),
+            "day_count": int(trade_dates.nunique()),
+            "symbol_count": int(sample_df["ts_code"].nunique()),
+            "date_start": trade_dates.min().strftime("%Y-%m-%d"),
+            "date_end": trade_dates.max().strftime("%Y-%m-%d"),
+        },
+        "classification": classification_result.to_summary(),
+        "regression": regression_result.to_summary(),
+    }
+
+
+def _build_ml_strategy_overview_df(strategy_metrics: dict) -> pd.DataFrame:
+    rows = []
+    for top_n in strategy_metrics.get("topn_levels", []):
+        top_key = f"top{top_n}"
+        rows.append(
+            {
+                "TopN": f"Top{top_n}",
+                "平均日收益": _format_ratio_pct(
+                    strategy_metrics.get(f"average_daily_{top_key}_return"),
+                    digits=2,
+                ),
+                "平均命中率": _format_ratio_pct(
+                    strategy_metrics.get(f"average_daily_{top_key}_hit_rate"),
+                    digits=1,
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _build_ml_window_results_df(summary: dict) -> pd.DataFrame:
+    rows = []
+    task_type = str(summary.get("task_type") or "")
+    for window in summary.get("window_results", []):
+        test_metrics = window.get("test_metrics") or {}
+        strategy_metrics = window.get("strategy_metrics") or {}
+        row = {
+            "cutoff_date": window.get("cutoff_date"),
+            "train_rows": window.get("train_rows"),
+            "test_rows": window.get("test_rows"),
+            "Top1收益": _format_ratio_pct((strategy_metrics.get("top1") or {}).get("avg_return"), digits=2),
+            "Top3收益": _format_ratio_pct((strategy_metrics.get("top3") or {}).get("avg_return"), digits=2),
+            "Top5收益": _format_ratio_pct((strategy_metrics.get("top5") or {}).get("avg_return"), digits=2),
+            "Top1命中率": _format_ratio_pct((strategy_metrics.get("top1") or {}).get("hit_rate"), digits=1),
+        }
+        if task_type == "classification":
+            row["测试准确率"] = _format_ratio_pct(test_metrics.get("accuracy"), digits=1)
+        else:
+            row["测试RMSE"] = _format_decimal_metric(test_metrics.get("rmse"), digits=4)
+            row["测试R²"] = _format_decimal_metric(test_metrics.get("r2"), digits=4)
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def _render_ml_prediction_upgrade_demo_panel(title: str, summary: dict):
+    aggregate = summary.get("aggregate") or {}
+    strategy_metrics = aggregate.get("strategy_metrics") or {}
+    cutoff_dates = " / ".join(aggregate.get("cutoff_dates") or []) or "-"
+    score_sources = ", ".join(strategy_metrics.get("score_sources") or []) or "-"
+
+    st.markdown(f"##### {title}")
+    metric_cols = st.columns(5)
+    metric_cols[0].metric("窗口数", str(aggregate.get("window_count") or 0))
+    metric_cols[1].metric("评估行数", str(aggregate.get("rows_evaluated_total") or 0))
+    metric_cols[2].metric("Top1日均收益", _format_ratio_pct(strategy_metrics.get("average_daily_top1_return"), digits=2))
+
+    if summary.get("task_type") == "classification":
+        metric_cols[3].metric("平均准确率", _format_ratio_pct(aggregate.get("average_test_accuracy"), digits=1))
+        metric_cols[4].metric("Top3日均收益", _format_ratio_pct(strategy_metrics.get("average_daily_top3_return"), digits=2))
+    else:
+        metric_cols[3].metric("平均RMSE", _format_decimal_metric(aggregate.get("average_test_rmse"), digits=4))
+        metric_cols[4].metric("平均R²", _format_decimal_metric(aggregate.get("average_test_r2"), digits=4))
+
+    st.caption(
+        f"cutoffs: {cutoff_dates} ｜ score source: {score_sources} ｜ return column: {strategy_metrics.get('return_column') or '-'}"
+    )
+
+    left_col, right_col = st.columns([1, 2])
+    with left_col:
+        st.markdown("**策略聚合摘要**")
+        st.dataframe(
+            _build_ml_strategy_overview_df(strategy_metrics),
+            width="stretch",
+            hide_index=True,
+        )
+    with right_col:
+        st.markdown("**分窗口结果**")
+        st.dataframe(
+            _build_ml_window_results_df(summary),
+            width="stretch",
+            hide_index=True,
+        )
+
+    with st.expander(f"查看 {title} 原始 summary", expanded=False):
+        st.json(summary)
+
+
+def render_ml_prediction_upgrade_tab():
+    st.subheader("🤖 ML 预测升级（最小结果页）")
+    st.caption("先把 ETF 预测升级的训练/评估进展挂到页面里。当前版本保持只读，不触发数据库写入，也不依赖 live DB 凭据。")
+
+    st.info("这一页现在不只是入口说明了：下面已经接上零 DB 依赖的 walk-forward demo 结果，用来提前验证聚合摘要与分窗口展示结构。")
 
     capability_cols = st.columns(4)
     capability_cols[0].metric("评估模式", "Single / Walk-forward")
@@ -3656,7 +3843,7 @@ def render_ml_prediction_upgrade_tab():
                 "- sklearn：当前支持 `LogisticRegression`、`Ridge`、`LinearRegression`",
                 "- 评估层：支持单次切分（single）与滚动评估（walk-forward）",
                 "- 策略层：walk-forward 已输出按交易日聚合的 Top1 / Top3 / Top5 指标",
-                "- 校验方式：当前只做 `pytest`、`py_compile`、`--help` 等轻量验证",
+                "- 页面层：已能展示 demo aggregate + 分窗口结果结构，后续可替换成真实样本结果",
             ])
         )
 
@@ -3693,15 +3880,42 @@ def render_ml_prediction_upgrade_tab():
     config_cols[2].write({
         "status": "local scaffold ready",
         "live_db_smoke": "blocked / intentionally skipped",
-        "page_mode": "read-only mvp",
+        "page_mode": "read-only + demo results",
     })
+
+    st.markdown("#### 📊 walk-forward demo 结果")
+    st.caption("下面这组结果来自页面内置的确定性演示样本，仅用于把 UI、摘要结构和分窗口展示先跑通；它不是实盘结果，也不读取 live DB。")
+
+    try:
+        demo_results = _load_ml_prediction_upgrade_demo_results()
+    except Exception as exc:
+        logger.warning(f"load_ml_prediction_upgrade_demo_results failed: {exc}")
+        st.warning("demo 结果生成失败，当前先保留说明页内容。")
+        demo_results = None
+
+    if demo_results:
+        sample_overview = demo_results.get("sample_overview") or {}
+        overview_cols = st.columns(4)
+        overview_cols[0].metric("演示样本行数", str(sample_overview.get("row_count") or 0))
+        overview_cols[1].metric("交易日数", str(sample_overview.get("day_count") or 0))
+        overview_cols[2].metric("样本股票数", str(sample_overview.get("symbol_count") or 0))
+        overview_cols[3].metric(
+            "样本区间",
+            f"{sample_overview.get('date_start') or '-'} → {sample_overview.get('date_end') or '-'}",
+        )
+
+        cls_tab, reg_tab = st.tabs(["📈 Classification demo", "📉 Regression demo"])
+        with cls_tab:
+            _render_ml_prediction_upgrade_demo_panel("Classification / baseline", demo_results.get("classification") or {})
+        with reg_tab:
+            _render_ml_prediction_upgrade_demo_panel("Regression / sklearn-linear", demo_results.get("regression") or {})
 
     st.markdown("#### 📌 下一步")
     st.markdown(
         "\n".join([
-            "1. 把 walk-forward 输出进一步整理成更适合落盘/汇报的结果结构",
+            "1. 把当前 demo 结果面板替换成真实 walk-forward 结果快照 / 文件读取入口",
             "2. 明确 classification / regression 目标与策略指标解释口径",
-            "3. 后续如需要，再接入真实样本查询或结果快照展示",
+            "3. 后续如需要，再接入真实样本查询、结果落盘或可视化图表展示",
         ])
     )
 
