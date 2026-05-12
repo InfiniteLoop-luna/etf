@@ -82,20 +82,17 @@ from src.index_monitor_store import (
     upsert_index_monitor_rows,
 )
 from src.navigation_config import DECISION_PAGE_OPTIONS, ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS, MONEY_PAGE_OPTIONS
-
-from src.ml_stock_dataset import (
-    get_engine as get_ml_stock_engine,
-    load_sample_dataset as load_ml_stock_sample_dataset,
+from src.ml_reco_candidate_scores import (
+    load_candidate_scores_from_snapshot,
+    compute_candidate_scores as compute_ml_reco_candidate_scores,
 )
+
 from src.ml_stock_train_v1 import (
     DEFAULT_CLASSIFICATION_TARGET,
     DEFAULT_REGRESSION_TARGET,
     SUPPORTED_CLASSIFIERS,
     SUPPORTED_MODEL_KINDS,
     SUPPORTED_REGRESSORS,
-    apply_feature_fill,
-    fit_classification_model,
-    fit_regression_model,
     prepare_training_data,
     run_walk_forward_evaluation,
 )
@@ -981,125 +978,37 @@ def load_ml_prediction_candidate_scores(
         for code in (candidate_codes or ())
         if str(code).strip()
     )
-    if not LIVE_ML_RECO_SCORING_ENABLED:
-        logger.info("load_ml_prediction_candidate_scores skipped: live scoring disabled")
-        return pd.DataFrame()
     if not trade_date_text:
         return pd.DataFrame()
 
+    snapshot_df = load_candidate_scores_from_snapshot(
+        trade_date_text,
+        candidate_codes=normalized_candidate_codes,
+    )
+    if snapshot_df is not None and not snapshot_df.empty:
+        logger.info(
+            "load_ml_prediction_candidate_scores loaded snapshot rows=%s trade_date=%s",
+            len(snapshot_df),
+            trade_date_text,
+        )
+        return snapshot_df
+
+    if not LIVE_ML_RECO_SCORING_ENABLED:
+        logger.info("load_ml_prediction_candidate_scores skipped: live scoring disabled and no snapshot matched")
+        return pd.DataFrame()
+
     try:
-        cutoff_ts = pd.to_datetime(trade_date_text, errors="coerce")
-        if pd.isna(cutoff_ts):
-            return pd.DataFrame()
-        start_ts = cutoff_ts - pd.Timedelta(days=int(lookback_days))
-
-        engine = get_ml_stock_engine()
-        sample_df = load_ml_stock_sample_dataset(
-            engine,
-            start_date=start_ts.strftime("%Y-%m-%d"),
-            end_date=cutoff_ts.strftime("%Y-%m-%d"),
-            only_eligible=True,
-        )
-        if sample_df is None or sample_df.empty:
-            return pd.DataFrame()
-
-        sample_df = sample_df.copy()
-        sample_df["trade_date"] = pd.to_datetime(sample_df.get("trade_date"), errors="coerce")
-        sample_df = sample_df.dropna(subset=["trade_date"]).reset_index(drop=True)
-
-        latest_rows = sample_df.loc[sample_df["trade_date"] == cutoff_ts].copy()
-        if latest_rows.empty:
-            latest_trade_date = sample_df["trade_date"].max()
-            latest_rows = sample_df.loc[sample_df["trade_date"] == latest_trade_date].copy()
-            cutoff_ts = latest_trade_date
-        if latest_rows.empty:
-            return pd.DataFrame()
-
-        latest_rows["ts_code"] = latest_rows["ts_code"].astype(str)
-        if normalized_candidate_codes:
-            latest_rows = latest_rows.loc[
-                latest_rows["ts_code"].str.upper().isin(normalized_candidate_codes)
-            ].copy()
-        else:
-            latest_rows = latest_rows.sort_values(["trade_date", "ts_code"]).head(int(max_candidates)).copy()
-
-        if latest_rows.empty:
-            return pd.DataFrame()
-
-        latest_rows = latest_rows.reset_index(drop=True)
-        history_df = sample_df.loc[sample_df["trade_date"] < cutoff_ts].copy()
-        if history_df.empty or len(history_df) < int(min_train_rows):
-            return pd.DataFrame()
-
-        cls_prepared = prepare_training_data(
-            history_df,
-            task_type="classification",
-            target_column=DEFAULT_CLASSIFICATION_TARGET,
-            fill_method="median",
-        )
-        reg_prepared = prepare_training_data(
-            history_df,
-            task_type="regression",
-            target_column=DEFAULT_REGRESSION_TARGET,
-            fill_method="median",
-        )
-        if len(cls_prepared.rows) < int(min_train_rows) or len(reg_prepared.rows) < int(min_train_rows):
-            return pd.DataFrame()
-
-        candidate_cls = latest_rows.copy()
-        candidate_cls[DEFAULT_CLASSIFICATION_TARGET] = 0
-        candidate_reg = latest_rows.copy()
-        candidate_reg[DEFAULT_REGRESSION_TARGET] = 0.0
-
-        candidate_cls_prepared = prepare_training_data(
-            candidate_cls,
-            task_type="classification",
-            target_column=DEFAULT_CLASSIFICATION_TARGET,
-            feature_columns=cls_prepared.feature_columns,
-            fill_method="none",
-        )
-        candidate_cls_prepared = apply_feature_fill(
-            candidate_cls_prepared,
-            fill_method="median",
-            fill_values=cls_prepared.fill_values,
-        )
-        candidate_reg_prepared = prepare_training_data(
-            candidate_reg,
-            task_type="regression",
-            target_column=DEFAULT_REGRESSION_TARGET,
-            feature_columns=reg_prepared.feature_columns,
-            fill_method="none",
-        )
-        candidate_reg_prepared = apply_feature_fill(
-            candidate_reg_prepared,
-            fill_method="median",
-            fill_values=reg_prepared.fill_values,
-        )
-        if candidate_cls_prepared.rows.empty or candidate_reg_prepared.rows.empty:
-            return pd.DataFrame()
-
-        cls_run = fit_classification_model(
-            cls_prepared.features,
-            cls_prepared.target,
-            candidate_cls_prepared.features,
-            model_kind=classification_model_kind,
+        return compute_ml_reco_candidate_scores(
+            trade_date_text,
+            candidate_codes=normalized_candidate_codes,
+            lookback_days=lookback_days,
+            min_train_rows=min_train_rows,
+            max_candidates=max_candidates,
+            classification_model_kind=classification_model_kind,
+            regression_model_kind=regression_model_kind,
             classifier=classifier,
-        )
-        reg_run = fit_regression_model(
-            reg_prepared.features,
-            reg_prepared.target,
-            candidate_reg_prepared.features,
-            model_kind=regression_model_kind,
             regressor=regressor,
         )
-
-        out = latest_rows[[col for col in ["trade_date", "ts_code", "name", "industry", "close"] if col in latest_rows.columns]].copy()
-        out["trade_date"] = pd.to_datetime(out.get("trade_date"), errors="coerce").dt.strftime("%Y-%m-%d")
-        out["ml_new_prob_up_5d"] = pd.to_numeric(cls_run.test_scores, errors="coerce") if cls_run.test_scores is not None else pd.to_numeric(cls_run.test_predictions, errors="coerce")
-        out["ml_new_pred_ret_5d"] = pd.to_numeric(reg_run.test_predictions, errors="coerce")
-        out["ml_new_classifier"] = cls_run.model_summary.get("classifier")
-        out["ml_new_regressor"] = reg_run.model_summary.get("regressor")
-        return out.drop_duplicates(subset=["ts_code"], keep="first").reset_index(drop=True)
     except Exception as exc:
         logger.warning(f"load_ml_prediction_candidate_scores failed for {trade_date_text}: {exc}")
         return pd.DataFrame()
