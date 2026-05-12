@@ -51,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lookback-days", type=int, default=120)
     parser.add_argument("--min-train-rows", type=int, default=5000)
     parser.add_argument("--max-candidates", type=int, default=200)
+    parser.add_argument("--recent-train-rows", type=int, default=12000)
     parser.add_argument("--classification-model-kind", default="sklearn")
     parser.add_argument("--regression-model-kind", default="sklearn")
     parser.add_argument("--classifier", default="logistic")
@@ -93,6 +94,7 @@ def main() -> None:
         lookback_days=args.lookback_days,
         min_train_rows=args.min_train_rows,
         max_candidates=args.max_candidates,
+        recent_train_rows=args.recent_train_rows,
         classification_model_kind=args.classification_model_kind,
         regression_model_kind=args.regression_model_kind,
         classifier=args.classifier,

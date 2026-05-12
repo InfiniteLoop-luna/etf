@@ -550,6 +550,15 @@ def build_opportunity_snapshot(
     base["model_name"] = model_names
 
     candidate_codes = tuple(base["ts_code"].astype(str).tolist()) if "ts_code" in base.columns else ()
+    for col_name, default_value in {
+        "ml_new_prob_up_5d": np.nan,
+        "ml_new_pred_ret_5d": np.nan,
+        "ml_new_classifier": "-",
+        "ml_new_regressor": "-",
+    }.items():
+        if col_name not in base.columns:
+            base[col_name] = default_value
+
     ml_new_df = load_ml_prediction_candidate_scores(
         base_trade_date,
         candidate_codes=candidate_codes,
@@ -557,12 +566,39 @@ def build_opportunity_snapshot(
     if ml_new_df is not None and not ml_new_df.empty and "ts_code" in ml_new_df.columns:
         merged_ml = ml_new_df[[c for c in ["ts_code", "ml_new_prob_up_5d", "ml_new_pred_ret_5d", "ml_new_classifier", "ml_new_regressor"] if c in ml_new_df.columns]].copy()
         merged_ml["ts_code"] = merged_ml["ts_code"].astype(str)
+        merged_ml = merged_ml.rename(columns={
+            "ml_new_prob_up_5d": "ml_new_prob_up_5d_snapshot",
+            "ml_new_pred_ret_5d": "ml_new_pred_ret_5d_snapshot",
+            "ml_new_classifier": "ml_new_classifier_snapshot",
+            "ml_new_regressor": "ml_new_regressor_snapshot",
+        })
         base = base.merge(merged_ml.drop_duplicates(subset=["ts_code"], keep="first"), on="ts_code", how="left")
-    else:
-        base["ml_new_prob_up_5d"] = np.nan
-        base["ml_new_pred_ret_5d"] = np.nan
-        base["ml_new_classifier"] = "-"
-        base["ml_new_regressor"] = "-"
+
+        for live_col, snap_col in {
+            "ml_new_prob_up_5d": "ml_new_prob_up_5d_snapshot",
+            "ml_new_pred_ret_5d": "ml_new_pred_ret_5d_snapshot",
+        }.items():
+            if snap_col in base.columns:
+                base[live_col] = pd.to_numeric(base.get(snap_col), errors="coerce").combine_first(
+                    pd.to_numeric(base.get(live_col), errors="coerce")
+                )
+                base.drop(columns=[snap_col], inplace=True)
+
+        for live_col, snap_col in {
+            "ml_new_classifier": "ml_new_classifier_snapshot",
+            "ml_new_regressor": "ml_new_regressor_snapshot",
+        }.items():
+            if snap_col in base.columns:
+                snapshot_series = base.get(snap_col)
+                current_series = base.get(live_col)
+                if snapshot_series is not None:
+                    snapshot_series = snapshot_series.astype(object)
+                    snapshot_series = snapshot_series.where(snapshot_series.notna() & (snapshot_series.astype(str).str.strip() != ""), None)
+                    if current_series is None:
+                        base[live_col] = snapshot_series
+                    else:
+                        base[live_col] = snapshot_series.combine_first(current_series)
+                base.drop(columns=[snap_col], inplace=True)
 
     blend_profile = load_reco_blend_profile(max_files=20)
     rule_blend = float(blend_profile.get("rule_weight") or 0.65)
@@ -967,6 +1003,7 @@ def load_ml_prediction_candidate_scores(
     lookback_days: int = 120,
     min_train_rows: int = 5000,
     max_candidates: int = 200,
+    recent_train_rows: int = 12000,
     classification_model_kind: str = "sklearn",
     regression_model_kind: str = "sklearn",
     classifier: str = "logistic",
@@ -1004,6 +1041,7 @@ def load_ml_prediction_candidate_scores(
             lookback_days=lookback_days,
             min_train_rows=min_train_rows,
             max_candidates=max_candidates,
+            recent_train_rows=recent_train_rows,
             classification_model_kind=classification_model_kind,
             regression_model_kind=regression_model_kind,
             classifier=classifier,
@@ -4522,18 +4560,34 @@ def render_daily_trend_reco_tab():
         if not rows:
             return pd.DataFrame(columns=["查询", "排名", "代码", "名称", "行业", "收盘价", "趋势分", "风险分", "5日概率", "20日概率", "新模型5日概率", "新模型5日收益预测", "原因"])
         df = pd.DataFrame(rows).copy()
+        for col_name, default_value in {
+            "ml_new_prob_up_5d": np.nan,
+            "ml_new_pred_ret_5d": np.nan,
+        }.items():
+            if col_name not in df.columns:
+                df[col_name] = default_value
         if ml_new_scores is not None and not ml_new_scores.empty and "ts_code" in df.columns:
             score_df = ml_new_scores.copy()
             score_df["ts_code"] = score_df["ts_code"].astype(str)
             df["ts_code"] = df["ts_code"].astype(str)
+            score_df = score_df.rename(columns={
+                "ml_new_prob_up_5d": "ml_new_prob_up_5d_snapshot",
+                "ml_new_pred_ret_5d": "ml_new_pred_ret_5d_snapshot",
+            })
             df = df.merge(
-                score_df[[c for c in ["ts_code", "ml_new_prob_up_5d", "ml_new_pred_ret_5d"] if c in score_df.columns]],
+                score_df[[c for c in ["ts_code", "ml_new_prob_up_5d_snapshot", "ml_new_pred_ret_5d_snapshot"] if c in score_df.columns]],
                 on="ts_code",
                 how="left",
             )
-        else:
-            df["ml_new_prob_up_5d"] = np.nan
-            df["ml_new_pred_ret_5d"] = np.nan
+            for live_col, snap_col in {
+                "ml_new_prob_up_5d": "ml_new_prob_up_5d_snapshot",
+                "ml_new_pred_ret_5d": "ml_new_pred_ret_5d_snapshot",
+            }.items():
+                if snap_col in df.columns:
+                    df[live_col] = pd.to_numeric(df.get(snap_col), errors="coerce").combine_first(
+                        pd.to_numeric(df.get(live_col), errors="coerce")
+                    )
+                    df.drop(columns=[snap_col], inplace=True)
         df = df[["rank", "ts_code", "name", "industry", "close", "trend_score", "risk_score", "prob_up_5d", "prob_up_20d", "ml_new_prob_up_5d", "ml_new_pred_ret_5d", "reason"]]
         df.columns = ["排名", "代码", "名称", "行业", "收盘价", "趋势分", "风险分", "5日概率", "20日概率", "新模型5日概率", "新模型5日收益预测", "原因"]
         query_links = []
