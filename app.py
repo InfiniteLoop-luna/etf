@@ -83,12 +83,19 @@ from src.index_monitor_store import (
 )
 from src.navigation_config import DECISION_PAGE_OPTIONS, ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS, MONEY_PAGE_OPTIONS
 
+from src.ml_stock_dataset import (
+    get_engine as get_ml_stock_engine,
+    load_sample_dataset as load_ml_stock_sample_dataset,
+)
 from src.ml_stock_train_v1 import (
     DEFAULT_CLASSIFICATION_TARGET,
     DEFAULT_REGRESSION_TARGET,
     SUPPORTED_CLASSIFIERS,
     SUPPORTED_MODEL_KINDS,
     SUPPORTED_REGRESSORS,
+    apply_feature_fill,
+    fit_classification_model,
+    fit_regression_model,
     prepare_training_data,
     run_walk_forward_evaluation,
 )
@@ -484,7 +491,13 @@ def load_security_model_score(ts_code: str, security_type: str = "stock") -> dic
         return {}
 
 
-def build_opportunity_snapshot(top_up_df: pd.DataFrame, top_avoid_df: pd.DataFrame, moneyflow_df: pd.DataFrame, emotion_stage: str = "") -> pd.DataFrame:
+def build_opportunity_snapshot(
+    top_up_df: pd.DataFrame,
+    top_avoid_df: pd.DataFrame,
+    moneyflow_df: pd.DataFrame,
+    emotion_stage: str = "",
+    trade_date_hint: str = "",
+) -> pd.DataFrame:
     if top_up_df is None or top_up_df.empty:
         return pd.DataFrame()
 
@@ -498,6 +511,18 @@ def build_opportunity_snapshot(top_up_df: pd.DataFrame, top_avoid_df: pd.DataFra
     base["prob_up_5d"] = pd.to_numeric(base.get("prob_up_5d"), errors="coerce")
     base["prob_up_20d"] = pd.to_numeric(base.get("prob_up_20d"), errors="coerce")
     base["close"] = pd.to_numeric(base.get("close"), errors="coerce")
+
+    base_trade_date = ""
+    for candidate in (base.get("trade_date"), base.get("date")):
+        if candidate is None:
+            continue
+        values = pd.to_datetime(candidate, errors="coerce").dropna()
+        if len(values) > 0:
+            base_trade_date = values.max().strftime("%Y-%m-%d")
+            break
+
+    if not base_trade_date:
+        base_trade_date = str(trade_date_hint or "").strip()
 
     if moneyflow_df is None or moneyflow_df.empty:
         base["net_mf_amount"] = 0.0
@@ -525,6 +550,21 @@ def build_opportunity_snapshot(top_up_df: pd.DataFrame, top_avoid_df: pd.DataFra
     base["model_prob_up_5d"] = model_prob_5d
     base["model_prob_up_20d"] = model_prob_20d
     base["model_name"] = model_names
+
+    candidate_codes = tuple(base["ts_code"].astype(str).tolist()) if "ts_code" in base.columns else ()
+    ml_new_df = load_ml_prediction_candidate_scores(
+        base_trade_date,
+        candidate_codes=candidate_codes,
+    ) if base_trade_date else pd.DataFrame()
+    if ml_new_df is not None and not ml_new_df.empty and "ts_code" in ml_new_df.columns:
+        merged_ml = ml_new_df[[c for c in ["ts_code", "ml_new_prob_up_5d", "ml_new_pred_ret_5d", "ml_new_classifier", "ml_new_regressor"] if c in ml_new_df.columns]].copy()
+        merged_ml["ts_code"] = merged_ml["ts_code"].astype(str)
+        base = base.merge(merged_ml.drop_duplicates(subset=["ts_code"], keep="first"), on="ts_code", how="left")
+    else:
+        base["ml_new_prob_up_5d"] = np.nan
+        base["ml_new_pred_ret_5d"] = np.nan
+        base["ml_new_classifier"] = "-"
+        base["ml_new_regressor"] = "-"
 
     blend_profile = load_reco_blend_profile(max_files=20)
     rule_blend = float(blend_profile.get("rule_weight") or 0.65)
@@ -570,6 +610,7 @@ def build_opportunity_snapshot(top_up_df: pd.DataFrame, top_avoid_df: pd.DataFra
     base["prob5_pct"] = base["prob_up_5d"].fillna(0.0) * 100.0
     base["hybrid_prob5_pct"] = base["prob_up_5d_final"].fillna(0.0) * 100.0
     base["ml_prob5_pct"] = base["model_prob_up_5d"].fillna(0.0) * 100.0
+    base["ml_new_prob5_pct"] = pd.to_numeric(base.get("ml_new_prob_up_5d"), errors="coerce").fillna(0.0) * 100.0
     base["mf_norm"] = base["net_mf_amount"].clip(lower=-100000, upper=100000) / 10000.0
     base["risk_penalty"] = base["risk_score"].fillna(50.0) * risk_penalty_weight
 
@@ -582,11 +623,14 @@ def build_opportunity_snapshot(top_up_df: pd.DataFrame, top_avoid_df: pd.DataFra
     base.loc[base["model_agreement"].fillna(0) >= 0.85, "model_bonus"] += 3.0
     base.loc[(base["model_prob_up_5d"].fillna(0) >= 0.60) & (base["prob_up_5d"].fillna(0) >= 0.60), "model_bonus"] += 2.0
     base.loc[pd.notna(base["model_agreement"]) & (base["model_agreement"] <= 0.65), "model_bonus"] -= 3.0
+    base.loc[pd.to_numeric(base.get("ml_new_prob_up_5d"), errors="coerce").fillna(0) >= 0.60, "model_bonus"] += 2.0
+    base.loc[pd.to_numeric(base.get("ml_new_pred_ret_5d"), errors="coerce").fillna(0) >= 0.03, "model_bonus"] += 1.0
 
     base["opportunity_score"] = (
         base["trend_score"].fillna(0.0) * trend_weight
         + base["hybrid_prob5_pct"] * prob_weight
         + base["ml_prob5_pct"] * ml_weight
+        + base["ml_new_prob5_pct"] * 0.10
         + base["mf_norm"] * moneyflow_weight
         - base["risk_penalty"]
         - base["overheat_penalty"]
@@ -915,6 +959,146 @@ def load_security_intraday_timeseries(ts_code: str, trade_date: str, freq: str =
     except Exception as exc:
         logger.warning(f"load_security_intraday_timeseries failed for {ts_code} {trade_date}: {exc}")
         return empty_df, "error", str(exc)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def load_ml_prediction_candidate_scores(
+    trade_date: str = "",
+    *,
+    candidate_codes: tuple[str, ...] = (),
+    lookback_days: int = 120,
+    min_train_rows: int = 5000,
+    max_candidates: int = 200,
+    classification_model_kind: str = "sklearn",
+    regression_model_kind: str = "sklearn",
+    classifier: str = "logistic",
+    regressor: str = "ridge",
+) -> pd.DataFrame:
+    trade_date_text = str(trade_date or "").strip()
+    normalized_candidate_codes = tuple(
+        str(code).strip().upper()
+        for code in (candidate_codes or ())
+        if str(code).strip()
+    )
+    if not trade_date_text:
+        return pd.DataFrame()
+
+    try:
+        cutoff_ts = pd.to_datetime(trade_date_text, errors="coerce")
+        if pd.isna(cutoff_ts):
+            return pd.DataFrame()
+        start_ts = cutoff_ts - pd.Timedelta(days=int(lookback_days))
+
+        engine = get_ml_stock_engine()
+        sample_df = load_ml_stock_sample_dataset(
+            engine,
+            start_date=start_ts.strftime("%Y-%m-%d"),
+            end_date=cutoff_ts.strftime("%Y-%m-%d"),
+            only_eligible=True,
+        )
+        if sample_df is None or sample_df.empty:
+            return pd.DataFrame()
+
+        sample_df = sample_df.copy()
+        sample_df["trade_date"] = pd.to_datetime(sample_df.get("trade_date"), errors="coerce")
+        sample_df = sample_df.dropna(subset=["trade_date"]).reset_index(drop=True)
+
+        latest_rows = sample_df.loc[sample_df["trade_date"] == cutoff_ts].copy()
+        if latest_rows.empty:
+            latest_trade_date = sample_df["trade_date"].max()
+            latest_rows = sample_df.loc[sample_df["trade_date"] == latest_trade_date].copy()
+            cutoff_ts = latest_trade_date
+        if latest_rows.empty:
+            return pd.DataFrame()
+
+        latest_rows["ts_code"] = latest_rows["ts_code"].astype(str)
+        if normalized_candidate_codes:
+            latest_rows = latest_rows.loc[
+                latest_rows["ts_code"].str.upper().isin(normalized_candidate_codes)
+            ].copy()
+        else:
+            latest_rows = latest_rows.sort_values(["trade_date", "ts_code"]).head(int(max_candidates)).copy()
+
+        if latest_rows.empty:
+            return pd.DataFrame()
+
+        latest_rows = latest_rows.reset_index(drop=True)
+        history_df = sample_df.loc[sample_df["trade_date"] < cutoff_ts].copy()
+        if history_df.empty or len(history_df) < int(min_train_rows):
+            return pd.DataFrame()
+
+        cls_prepared = prepare_training_data(
+            history_df,
+            task_type="classification",
+            target_column=DEFAULT_CLASSIFICATION_TARGET,
+            fill_method="median",
+        )
+        reg_prepared = prepare_training_data(
+            history_df,
+            task_type="regression",
+            target_column=DEFAULT_REGRESSION_TARGET,
+            fill_method="median",
+        )
+        if len(cls_prepared.rows) < int(min_train_rows) or len(reg_prepared.rows) < int(min_train_rows):
+            return pd.DataFrame()
+
+        candidate_cls = latest_rows.copy()
+        candidate_cls[DEFAULT_CLASSIFICATION_TARGET] = 0
+        candidate_reg = latest_rows.copy()
+        candidate_reg[DEFAULT_REGRESSION_TARGET] = 0.0
+
+        candidate_cls_prepared = prepare_training_data(
+            candidate_cls,
+            task_type="classification",
+            target_column=DEFAULT_CLASSIFICATION_TARGET,
+            feature_columns=cls_prepared.feature_columns,
+            fill_method="none",
+        )
+        candidate_cls_prepared = apply_feature_fill(
+            candidate_cls_prepared,
+            fill_method="median",
+            fill_values=cls_prepared.fill_values,
+        )
+        candidate_reg_prepared = prepare_training_data(
+            candidate_reg,
+            task_type="regression",
+            target_column=DEFAULT_REGRESSION_TARGET,
+            feature_columns=reg_prepared.feature_columns,
+            fill_method="none",
+        )
+        candidate_reg_prepared = apply_feature_fill(
+            candidate_reg_prepared,
+            fill_method="median",
+            fill_values=reg_prepared.fill_values,
+        )
+        if candidate_cls_prepared.rows.empty or candidate_reg_prepared.rows.empty:
+            return pd.DataFrame()
+
+        cls_run = fit_classification_model(
+            cls_prepared.features,
+            cls_prepared.target,
+            candidate_cls_prepared.features,
+            model_kind=classification_model_kind,
+            classifier=classifier,
+        )
+        reg_run = fit_regression_model(
+            reg_prepared.features,
+            reg_prepared.target,
+            candidate_reg_prepared.features,
+            model_kind=regression_model_kind,
+            regressor=regressor,
+        )
+
+        out = latest_rows[[col for col in ["trade_date", "ts_code", "name", "industry", "close"] if col in latest_rows.columns]].copy()
+        out["trade_date"] = pd.to_datetime(out.get("trade_date"), errors="coerce").dt.strftime("%Y-%m-%d")
+        out["ml_new_prob_up_5d"] = pd.to_numeric(cls_run.test_scores, errors="coerce") if cls_run.test_scores is not None else pd.to_numeric(cls_run.test_predictions, errors="coerce")
+        out["ml_new_pred_ret_5d"] = pd.to_numeric(reg_run.test_predictions, errors="coerce")
+        out["ml_new_classifier"] = cls_run.model_summary.get("classifier")
+        out["ml_new_regressor"] = reg_run.model_summary.get("regressor")
+        return out.drop_duplicates(subset=["ts_code"], keep="first").reset_index(drop=True)
+    except Exception as exc:
+        logger.warning(f"load_ml_prediction_candidate_scores failed for {trade_date_text}: {exc}")
+        return pd.DataFrame()
 
 
 @st.cache_data(ttl=300)
@@ -4109,7 +4293,13 @@ def render_commercial_mvp_tab():
     except Exception as exc:
         logger.warning(f"render_commercial_mvp_tab limitup load failed: {exc}")
 
-    opp_df = build_opportunity_snapshot(top_up, top_avoid, mf_top, emotion_stage=emotion_stage)
+    opp_df = build_opportunity_snapshot(
+        top_up,
+        top_avoid,
+        mf_top,
+        emotion_stage=emotion_stage,
+        trade_date_hint=str(payload.get("trade_date") or ""),
+    )
     if opp_df.empty:
         st.info("当前可用样本不足，稍后再试。")
         return
@@ -4190,6 +4380,8 @@ def render_commercial_mvp_tab():
     display_df["机会分"] = pd.to_numeric(display_df.get("opportunity_score"), errors="coerce").map(lambda x: f"{x:.1f}" if pd.notna(x) else "-")
     display_df["置信度"] = display_df.get("confidence", "-")
     display_df["模型5日概率"] = pd.to_numeric(display_df.get("model_prob_up_5d"), errors="coerce").map(lambda x: f"{x:.0%}" if pd.notna(x) else "-")
+    display_df["新模型5日概率"] = pd.to_numeric(display_df.get("ml_new_prob_up_5d"), errors="coerce").map(lambda x: f"{x:.0%}" if pd.notna(x) else "-")
+    display_df["新模型5日收益预测"] = pd.to_numeric(display_df.get("ml_new_pred_ret_5d"), errors="coerce").map(lambda x: f"{x:.2%}" if pd.notna(x) else "-")
     display_df["模型一致性"] = pd.to_numeric(display_df.get("model_agreement"), errors="coerce").map(lambda x: f"{x:.0%}" if pd.notna(x) else "-")
     display_df["融合权重"] = display_df.apply(lambda r: f"规则{_safe_float(r.get('blend_rule_weight'), 0.65):.0%} / 模型{_safe_float(r.get('blend_model_weight'), 0.35):.0%}", axis=1)
     display_df = display_df.rename(columns={"rank_commercial": "机会排名", "ts_code": "代码", "name": "名称", "industry": "行业", "reason": "原因", "action": "建议动作"})
@@ -4197,7 +4389,7 @@ def render_commercial_mvp_tab():
     st.markdown("#### 🎯 今日机会清单")
     if is_pro:
         st.success("你正在查看 Pro 完整版（Top20 + 详细字段）。")
-        cols = ["机会排名", "代码", "名称", "行业", "收盘价", "趋势分", "风险分", "5日概率", "20日概率", "模型5日概率", "模型一致性", "融合权重", "主力净流入(万元)", "机会分", "置信度", "建议动作", "原因"]
+        cols = ["机会排名", "代码", "名称", "行业", "收盘价", "趋势分", "风险分", "5日概率", "20日概率", "模型5日概率", "新模型5日概率", "新模型5日收益预测", "模型一致性", "融合权重", "主力净流入(万元)", "机会分", "置信度", "建议动作", "原因"]
         st.dataframe(display_df[cols].head(20), use_container_width=True, hide_index=True, height=470)
     else:
         st.info("免费版仅展示 Top3 精简字段，适合先快速判断今天值不值得深入研究。")
@@ -4397,12 +4589,40 @@ def render_daily_trend_reco_tab():
     render_nonce = st.session_state.get('daily_trend_reco_render_nonce', 0) + 1
     st.session_state['daily_trend_reco_render_nonce'] = render_nonce
 
+    candidate_codes = tuple(
+        pd.unique(
+            pd.Series(
+                [
+                    str(row.get("ts_code") or "").strip()
+                    for row in ((payload.get('top_uptrend', []) or []) + (payload.get('top_avoid', []) or []))
+                    if str(row.get("ts_code") or "").strip()
+                ]
+            )
+        ).tolist()
+    )
+    ml_new_scores = load_ml_prediction_candidate_scores(
+        selected_trade_date,
+        candidate_codes=candidate_codes,
+    ) if selected_trade_date and selected_trade_date != '-' else pd.DataFrame()
+
     def _format_frame(rows: list[dict], mode: str) -> pd.DataFrame:
         if not rows:
-            return pd.DataFrame(columns=["查询", "排名", "代码", "名称", "行业", "收盘价", "趋势分", "风险分", "5日概率", "20日概率", "原因"])
+            return pd.DataFrame(columns=["查询", "排名", "代码", "名称", "行业", "收盘价", "趋势分", "风险分", "5日概率", "20日概率", "新模型5日概率", "新模型5日收益预测", "原因"])
         df = pd.DataFrame(rows).copy()
-        df = df[["rank", "ts_code", "name", "industry", "close", "trend_score", "risk_score", "prob_up_5d", "prob_up_20d", "reason"]]
-        df.columns = ["排名", "代码", "名称", "行业", "收盘价", "趋势分", "风险分", "5日概率", "20日概率", "原因"]
+        if ml_new_scores is not None and not ml_new_scores.empty and "ts_code" in df.columns:
+            score_df = ml_new_scores.copy()
+            score_df["ts_code"] = score_df["ts_code"].astype(str)
+            df["ts_code"] = df["ts_code"].astype(str)
+            df = df.merge(
+                score_df[[c for c in ["ts_code", "ml_new_prob_up_5d", "ml_new_pred_ret_5d"] if c in score_df.columns]],
+                on="ts_code",
+                how="left",
+            )
+        else:
+            df["ml_new_prob_up_5d"] = np.nan
+            df["ml_new_pred_ret_5d"] = np.nan
+        df = df[["rank", "ts_code", "name", "industry", "close", "trend_score", "risk_score", "prob_up_5d", "prob_up_20d", "ml_new_prob_up_5d", "ml_new_pred_ret_5d", "reason"]]
+        df.columns = ["排名", "代码", "名称", "行业", "收盘价", "趋势分", "风险分", "5日概率", "20日概率", "新模型5日概率", "新模型5日收益预测", "原因"]
         query_links = []
         for _, row in df.iterrows():
             query = str(row.get('代码') or row.get('名称') or '').strip()
@@ -4418,9 +4638,11 @@ def render_daily_trend_reco_tab():
         df["风险分"] = pd.to_numeric(df["风险分"], errors='coerce').map(lambda x: f"{x:.1f}" if pd.notna(x) else '-')
         df["5日概率"] = pd.to_numeric(df["5日概率"], errors='coerce').map(lambda x: f"{x:.0%}" if pd.notna(x) else '-')
         df["20日概率"] = pd.to_numeric(df["20日概率"], errors='coerce').map(lambda x: f"{x:.0%}" if pd.notna(x) else '-')
+        df["新模型5日概率"] = pd.to_numeric(df["新模型5日概率"], errors='coerce').map(lambda x: f"{x:.0%}" if pd.notna(x) else '-')
+        df["新模型5日收益预测"] = pd.to_numeric(df["新模型5日收益预测"], errors='coerce').map(lambda x: f"{x:.2%}" if pd.notna(x) else '-')
         return df
 
-    st.info("💡 点击表格最左侧“🔎 查看”可直接跳到“个股/指数查询”，查看该股票的详细走势分析。")
+    st.info("💡 点击表格最左侧“🔎 查看”可直接跳到“个股/指数查询”，查看该股票的详细走势分析。当前已并联展示 ML预测升级 新模型分数，但暂未用它直接改写 Top10 原始入选名单。")
 
     with left:
         st.markdown("#### 📈 十大上涨趋势最强")
