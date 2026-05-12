@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 import sys
+
+import pandas as pd
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -118,6 +121,10 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
         help="Load both eligible and ineligible sample rows",
     )
+    parser.add_argument(
+        "--snapshot-out",
+        help="Optional JSON output path for a walk-forward snapshot file",
+    )
     parser.add_argument("--json", action="store_true", help="Print JSON summary")
     return parser.parse_args()
 
@@ -135,6 +142,56 @@ def _parse_cutoff_dates(cutoff_dates_arg: str | None) -> list[str] | None:
     values = [value.strip() for value in cutoff_dates_arg.split(",")]
     parsed = [value for value in values if value]
     return parsed or None
+
+
+def _build_sample_overview(sample_df) -> dict:
+    trade_dates = pd.to_datetime(sample_df.get("trade_date"), errors="coerce")
+    has_trade_dates = getattr(trade_dates, "notna", lambda: pd.Series([], dtype=bool))().any()
+    return {
+        "row_count": int(len(sample_df)),
+        "day_count": int(trade_dates.nunique()) if has_trade_dates else 0,
+        "symbol_count": int(sample_df["ts_code"].nunique()) if "ts_code" in sample_df.columns else 0,
+        "date_start": trade_dates.min().strftime("%Y-%m-%d") if has_trade_dates else None,
+        "date_end": trade_dates.max().strftime("%Y-%m-%d") if has_trade_dates else None,
+    }
+
+
+def _build_walk_forward_snapshot(
+    *,
+    args: argparse.Namespace,
+    sample_df,
+    prepared,
+    walk_forward_result,
+) -> dict:
+    walk_forward_summary = walk_forward_result.to_summary()
+    return {
+        "snapshot_type": "ml_stock_walk_forward",
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "eval_mode": args.eval_mode,
+        "task_type": walk_forward_summary.get("task_type") or args.task_type,
+        "model_kind": walk_forward_summary.get("model_kind") or args.model_kind,
+        "target_column": prepared.target_column,
+        "fill_method": args.fill_method,
+        "classifier": args.classifier if args.task_type == "classification" else None,
+        "regressor": args.regressor if args.task_type == "regression" else None,
+        "rows_loaded": int(len(sample_df)),
+        "sample_overview": _build_sample_overview(sample_df),
+        "prepared": prepared.to_summary(),
+        "aggregate": walk_forward_summary.get("aggregate") or {},
+        "window_results": walk_forward_summary.get("window_results") or [],
+        "skipped_windows": walk_forward_summary.get("skipped_windows") or [],
+    }
+
+
+
+def _write_json_file(output_path: str, payload: dict) -> None:
+    output_abspath = os.path.abspath(output_path)
+    output_dir = os.path.dirname(output_abspath)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    with open(output_abspath, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
+        f.write("\n")
 
 
 def _build_summary(
@@ -289,10 +346,20 @@ def main() -> None:
                 prepared=prepared,
                 walk_forward_result=result,
             )
+            if args.snapshot_out:
+                snapshot_payload = _build_walk_forward_snapshot(
+                    args=args,
+                    sample_df=sample_df,
+                    prepared=prepared,
+                    walk_forward_result=result,
+                )
+                _write_json_file(args.snapshot_out, snapshot_payload)
             if args.json:
                 print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
                 return
             _print_walk_forward_text_summary(summary)
+            if args.snapshot_out:
+                print(f"snapshot_written {os.path.abspath(args.snapshot_out)}")
             return
 
         if not args.cutoff_date:

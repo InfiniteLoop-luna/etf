@@ -3638,6 +3638,15 @@ def main():
 
 
 # ===== ML预测升级 Tab =====
+ML_PREDICTION_SNAPSHOT_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "tasks",
+    "etf-prediction-upgrade",
+    "outputs",
+    "ml_prediction_upgrade_walk_forward_snapshot.json",
+)
+
+
 def _format_ratio_pct(value, digits=1) -> str:
     numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
     if pd.isna(numeric):
@@ -3689,6 +3698,48 @@ def _build_ml_prediction_upgrade_demo_sample_df() -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
+def _load_ml_prediction_upgrade_snapshot_results(snapshot_path: str = ML_PREDICTION_SNAPSHOT_PATH) -> dict:
+    try:
+        if not snapshot_path or not os.path.exists(snapshot_path):
+            return {}
+        with open(snapshot_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        snapshot_type = str(payload.get("snapshot_type") or "").strip()
+        if snapshot_type != "ml_stock_walk_forward":
+            return {}
+
+        normalized = {
+            "snapshot_type": snapshot_type,
+            "generated_at": payload.get("generated_at"),
+            "data_source": payload.get("data_source") or "snapshot",
+            "sample_overview": payload.get("sample_overview") or {},
+            "classification": payload.get("classification") or {},
+            "regression": payload.get("regression") or {},
+        }
+
+        task_type = str(payload.get("task_type") or "").strip()
+        if task_type in {"classification", "regression"} and not normalized.get(task_type):
+            normalized[task_type] = {
+                "task_type": task_type,
+                "model_kind": payload.get("model_kind"),
+                "target_column": payload.get("target_column"),
+                "fill_method": payload.get("fill_method"),
+                "classifier": payload.get("classifier"),
+                "regressor": payload.get("regressor"),
+                "rows_loaded": payload.get("rows_loaded"),
+                "sample_overview": payload.get("sample_overview") or {},
+                "prepared": payload.get("prepared") or {},
+                "aggregate": payload.get("aggregate") or {},
+                "window_results": payload.get("window_results") or [],
+                "skipped_windows": payload.get("skipped_windows") or [],
+            }
+        return normalized
+    except Exception as exc:
+        logger.warning(f"load_ml_prediction_upgrade_snapshot_results failed for {snapshot_path}: {exc}")
+        return {}
+
+
+@st.cache_data(show_spinner=False)
 def _load_ml_prediction_upgrade_demo_results() -> dict:
     sample_df = _build_ml_prediction_upgrade_demo_sample_df()
     common_eval_kwargs = {
@@ -3724,6 +3775,9 @@ def _load_ml_prediction_upgrade_demo_results() -> dict:
 
     trade_dates = pd.to_datetime(sample_df["trade_date"], errors="coerce")
     return {
+        "snapshot_type": "ml_stock_walk_forward_demo",
+        "generated_at": None,
+        "data_source": "demo",
         "sample_overview": {
             "row_count": int(len(sample_df)),
             "day_count": int(trade_dates.nunique()),
@@ -3827,7 +3881,7 @@ def render_ml_prediction_upgrade_tab():
     st.subheader("🤖 ML 预测升级（最小结果页）")
     st.caption("先把 ETF 预测升级的训练/评估进展挂到页面里。当前版本保持只读，不触发数据库写入，也不依赖 live DB 凭据。")
 
-    st.info("这一页现在不只是入口说明了：下面已经接上零 DB 依赖的 walk-forward demo 结果，用来提前验证聚合摘要与分窗口展示结构。")
+    st.info("这一页现在会优先读取任务目录下的 walk-forward snapshot；如果还没有 snapshot，就自动回退到零 DB 依赖的 demo 结果。")
 
     capability_cols = st.columns(4)
     capability_cols[0].metric("评估模式", "Single / Walk-forward")
@@ -3880,23 +3934,38 @@ def render_ml_prediction_upgrade_tab():
     config_cols[2].write({
         "status": "local scaffold ready",
         "live_db_smoke": "blocked / intentionally skipped",
-        "page_mode": "read-only + demo results",
+        "page_mode": "read-only + snapshot/demo results",
     })
 
-    st.markdown("#### 📊 walk-forward demo 结果")
-    st.caption("下面这组结果来自页面内置的确定性演示样本，仅用于把 UI、摘要结构和分窗口展示先跑通；它不是实盘结果，也不读取 live DB。")
+    st.markdown("#### 📊 walk-forward 结果")
+    st.caption("页面会优先读取任务目录下的 walk-forward snapshot；如果当前还没有 snapshot，则自动回退到内置 demo 结果。整个流程保持只读，不触发数据库写入。")
 
-    try:
-        demo_results = _load_ml_prediction_upgrade_demo_results()
-    except Exception as exc:
-        logger.warning(f"load_ml_prediction_upgrade_demo_results failed: {exc}")
-        st.warning("demo 结果生成失败，当前先保留说明页内容。")
-        demo_results = None
+    snapshot_results = _load_ml_prediction_upgrade_snapshot_results()
+    result_payload = snapshot_results
+    result_source = "snapshot"
+    if not result_payload:
+        try:
+            result_payload = _load_ml_prediction_upgrade_demo_results()
+            result_source = "demo"
+        except Exception as exc:
+            logger.warning(f"load_ml_prediction_upgrade_demo_results failed: {exc}")
+            st.warning("结果页数据生成失败，当前先保留说明页内容。")
+            result_payload = None
 
-    if demo_results:
-        sample_overview = demo_results.get("sample_overview") or {}
+    if result_payload:
+        sample_overview = result_payload.get("sample_overview") or {}
+        generated_at = str(result_payload.get("generated_at") or "").strip()
+        source_label = "真实 snapshot" if result_source == "snapshot" else "内置 demo"
+        source_caption = f"当前数据源：{source_label}"
+        data_source = str(result_payload.get("data_source") or "").strip()
+        if data_source:
+            source_caption += f" ｜ source_tag: {data_source}"
+        if generated_at:
+            source_caption += f" ｜ generated_at: {generated_at}"
+        st.caption(source_caption)
+
         overview_cols = st.columns(4)
-        overview_cols[0].metric("演示样本行数", str(sample_overview.get("row_count") or 0))
+        overview_cols[0].metric("样本行数", str(sample_overview.get("row_count") or 0))
         overview_cols[1].metric("交易日数", str(sample_overview.get("day_count") or 0))
         overview_cols[2].metric("样本股票数", str(sample_overview.get("symbol_count") or 0))
         overview_cols[3].metric(
@@ -3904,18 +3973,29 @@ def render_ml_prediction_upgrade_tab():
             f"{sample_overview.get('date_start') or '-'} → {sample_overview.get('date_end') or '-'}",
         )
 
-        cls_tab, reg_tab = st.tabs(["📈 Classification demo", "📉 Regression demo"])
-        with cls_tab:
-            _render_ml_prediction_upgrade_demo_panel("Classification / baseline", demo_results.get("classification") or {})
-        with reg_tab:
-            _render_ml_prediction_upgrade_demo_panel("Regression / sklearn-linear", demo_results.get("regression") or {})
+        panel_defs = []
+        if result_payload.get("classification"):
+            panel_defs.append(("📈 Classification", "Classification / baseline", result_payload.get("classification") or {}))
+        if result_payload.get("regression"):
+            panel_defs.append(("📉 Regression", "Regression / sklearn-linear", result_payload.get("regression") or {}))
+
+        if len(panel_defs) >= 2:
+            tabs = st.tabs([panel[0] for panel in panel_defs])
+            for tab, (_, title, panel_summary) in zip(tabs, panel_defs):
+                with tab:
+                    _render_ml_prediction_upgrade_demo_panel(title, panel_summary)
+        elif len(panel_defs) == 1:
+            _, title, panel_summary = panel_defs[0]
+            _render_ml_prediction_upgrade_demo_panel(title, panel_summary)
+        else:
+            st.warning("snapshot 文件已读取，但没有识别到可展示的 classification / regression 结果。")
 
     st.markdown("#### 📌 下一步")
     st.markdown(
         "\n".join([
-            "1. 把当前 demo 结果面板替换成真实 walk-forward 结果快照 / 文件读取入口",
+            "1. 用真实样本执行 walk-forward，并把 CLI 输出落成 snapshot 文件覆盖当前 demo snapshot",
             "2. 明确 classification / regression 目标与策略指标解释口径",
-            "3. 后续如需要，再接入真实样本查询、结果落盘或可视化图表展示",
+            "3. 后续如需要，再接入图表、结果历史归档或更完整回测展示",
         ])
     )
 
