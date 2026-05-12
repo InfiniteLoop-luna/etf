@@ -232,6 +232,8 @@ def _load_recent_training_frame(
     WHERE trade_date >= :start_date
       AND trade_date < :trade_date
       AND sample_eligible = TRUE
+      AND {DEFAULT_CLASSIFICATION_TARGET} IS NOT NULL
+      AND {DEFAULT_REGRESSION_TARGET} IS NOT NULL
     ORDER BY trade_date DESC, ts_code
     LIMIT :limit
     """
