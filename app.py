@@ -406,6 +406,7 @@ st.markdown("""
 # 数据文件路径
 DATA_FILE = "主要ETF基金份额变动情况.xlsx"
 TREND_RECO_FILE = "data/recommendations/latest_trend_recommendations.json"
+LIVE_ML_RECO_SCORING_ENABLED = os.environ.get("ETF_ENABLE_LIVE_RECO_SCORING", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 # ===== 商业化MVP辅助函数 =====
@@ -980,6 +981,9 @@ def load_ml_prediction_candidate_scores(
         for code in (candidate_codes or ())
         if str(code).strip()
     )
+    if not LIVE_ML_RECO_SCORING_ENABLED:
+        logger.info("load_ml_prediction_candidate_scores skipped: live scoring disabled")
+        return pd.DataFrame()
     if not trade_date_text:
         return pd.DataFrame()
 
