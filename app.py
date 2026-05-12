@@ -3857,6 +3857,18 @@ def _build_ml_window_results_df(summary: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _build_ml_prediction_panel_title(summary: dict) -> str:
+    task_type = str(summary.get("task_type") or "").strip() or "unknown"
+    model_kind = str(summary.get("model_kind") or "").strip() or "unknown"
+    selection = ""
+    if task_type == "classification":
+        selection = str(summary.get("classifier") or "").strip()
+    elif task_type == "regression":
+        selection = str(summary.get("regressor") or "").strip()
+    return f"{task_type.capitalize()} / {model_kind}{('-' + selection) if selection else ''}"
+
+
+
 def _render_ml_prediction_upgrade_demo_panel(title: str, summary: dict):
     aggregate = summary.get("aggregate") or {}
     strategy_metrics = aggregate.get("strategy_metrics") or {}
@@ -3904,7 +3916,7 @@ def render_ml_prediction_upgrade_tab():
     st.subheader("🤖 ML 预测升级（最小结果页）")
     st.caption("先把 ETF 预测升级的训练/评估进展挂到页面里。当前版本保持只读，不触发数据库写入，也不依赖 live DB 凭据。")
 
-    st.info("这一页现在会优先读取任务目录下的 walk-forward snapshot；如果还没有 snapshot，就自动回退到零 DB 依赖的 demo 结果。")
+    st.info("这一页现在会优先读取 runtime walk-forward snapshot；如果还没有 snapshot，就自动回退到零 DB 依赖的 demo 结果。")
 
     capability_cols = st.columns(4)
     capability_cols[0].metric("评估模式", "Single / Walk-forward")
@@ -3920,7 +3932,7 @@ def render_ml_prediction_upgrade_tab():
                 "- sklearn：当前支持 `LogisticRegression`、`Ridge`、`LinearRegression`",
                 "- 评估层：支持单次切分（single）与滚动评估（walk-forward）",
                 "- 策略层：walk-forward 已输出按交易日聚合的 Top1 / Top3 / Top5 指标",
-                "- 页面层：已能展示 demo aggregate + 分窗口结果结构，后续可替换成真实样本结果",
+                "- 页面层：已能展示 demo / runtime aggregate + 分窗口结果结构，后续可替换或扩展成更完整真实样本视图",
             ])
         )
 
@@ -3955,9 +3967,9 @@ def render_ml_prediction_upgrade_tab():
         "topn_levels": [1, 3, 5],
     })
     config_cols[2].write({
-        "status": "local scaffold ready",
-        "live_db_smoke": "blocked / intentionally skipped",
-        "page_mode": "read-only + snapshot/demo results",
+        "status": "runtime snapshot ready",
+        "live_db_smoke": "classification runtime verified",
+        "page_mode": "read-only + runtime/demo results",
     })
 
     st.markdown("#### 📊 walk-forward 结果")
@@ -4001,9 +4013,11 @@ def render_ml_prediction_upgrade_tab():
 
         panel_defs = []
         if result_payload.get("classification"):
-            panel_defs.append(("📈 Classification", "Classification / baseline", result_payload.get("classification") or {}))
+            cls_summary = result_payload.get("classification") or {}
+            panel_defs.append(("📈 Classification", _build_ml_prediction_panel_title(cls_summary), cls_summary))
         if result_payload.get("regression"):
-            panel_defs.append(("📉 Regression", "Regression / sklearn-linear", result_payload.get("regression") or {}))
+            reg_summary = result_payload.get("regression") or {}
+            panel_defs.append(("📉 Regression", _build_ml_prediction_panel_title(reg_summary), reg_summary))
 
         if len(panel_defs) >= 2:
             tabs = st.tabs([panel[0] for panel in panel_defs])
