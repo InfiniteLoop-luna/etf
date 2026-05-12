@@ -3,10 +3,15 @@ from __future__ import annotations
 import json
 import os
 from collections import defaultdict
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+
+from .models import normalize_timestamp
+
+PRICE_DAILY_VIEW = "vw_ts_stock_daily"
 
 
 def build_db_url():
@@ -330,11 +335,39 @@ def list_cycles_with_scores(engine: Engine) -> list[dict[str, Any]]:
         rows = conn.execute(
             text(
                 """
+                WITH event_stats AS (
+                    SELECT cycle_id, COUNT(*) AS event_count
+                    FROM em_cycle_events
+                    GROUP BY cycle_id
+                ),
+                latest_event_keys AS (
+                    SELECT cycle_id, MAX(event_sequence) AS max_event_sequence
+                    FROM em_cycle_events
+                    GROUP BY cycle_id
+                ),
+                latest_events AS (
+                    SELECT
+                        e.cycle_id,
+                        m.mention_time AS latest_mention_time,
+                        m.direction AS latest_direction,
+                        m.source_type AS latest_source_type,
+                        m.reason_text AS latest_reason_text
+                    FROM em_cycle_events e
+                    JOIN latest_event_keys k
+                      ON k.cycle_id = e.cycle_id
+                     AND k.max_event_sequence = e.event_sequence
+                    JOIN em_stock_mentions m
+                      ON m.mention_id = e.mention_id
+                )
                 SELECT c.cycle_id, c.author_uid, c.ts_code, c.cycle_open_time, c.cycle_close_time,
                        c.cycle_status, c.open_mention_id, c.close_mention_id, c.close_reason,
-                       s.total_return, s.max_drawdown, s.hold_days, s.exit_quality_2d
+                       s.total_return, s.max_drawdown, s.hold_days, s.exit_quality_2d,
+                       COALESCE(es.event_count, 0) AS event_count,
+                       le.latest_mention_time, le.latest_direction, le.latest_source_type, le.latest_reason_text
                 FROM em_stock_cycles c
                 LEFT JOIN em_cycle_scores s ON s.cycle_id = c.cycle_id
+                LEFT JOIN event_stats es ON es.cycle_id = c.cycle_id
+                LEFT JOIN latest_events le ON le.cycle_id = c.cycle_id
                 ORDER BY c.cycle_open_time DESC, c.cycle_id DESC
                 """
             )
@@ -346,6 +379,24 @@ def list_cycles_with_scores(engine: Engine) -> list[dict[str, Any]]:
                 item["exit_quality_2d"] = bool(item["exit_quality_2d"])
             result.append(item)
         return result
+
+
+def get_author_tracking_metadata(engine: Engine) -> dict[str, Any]:
+    ensure_storage_objects(engine)
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM em_author_posts) AS post_count,
+                    (SELECT COUNT(*) FROM em_stock_mentions) AS mention_count,
+                    (SELECT COUNT(DISTINCT author_uid) FROM em_author_posts WHERE author_uid IS NOT NULL AND author_uid <> '') AS author_count,
+                    (SELECT MAX(post_publish_time) FROM em_author_posts) AS last_post_time,
+                    (SELECT MAX(mention_time) FROM em_stock_mentions) AS last_mention_time
+                """
+            )
+        ).mappings().one()
+        return dict(row)
 
 
 def list_cycle_events(engine: Engine, cycle_id: str) -> list[dict[str, Any]]:
@@ -365,19 +416,107 @@ def list_cycle_events(engine: Engine, cycle_id: str) -> list[dict[str, Any]]:
         return [dict(row) for row in rows]
 
 
+def list_cycle_event_details(engine: Engine, cycle_id: str) -> list[dict[str, Any]]:
+    ensure_storage_objects(engine)
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT
+                    e.cycle_id,
+                    e.event_sequence,
+                    m.mention_id,
+                    m.author_uid,
+                    m.post_id,
+                    m.reply_id,
+                    m.ts_code,
+                    m.symbol,
+                    m.security_name,
+                    m.mention_time,
+                    m.source_type,
+                    m.direction,
+                    m.confidence_score,
+                    m.target_text,
+                    m.risk_text,
+                    m.reason_text,
+                    m.rule_version,
+                    p.post_title,
+                    p.post_content,
+                    p.post_publish_time,
+                    p.post_guba_name,
+                    r.reply_text
+                FROM em_cycle_events e
+                JOIN em_stock_mentions m
+                  ON m.mention_id = e.mention_id
+                LEFT JOIN em_author_posts p
+                  ON p.post_id = m.post_id
+                LEFT JOIN em_author_replies r
+                  ON r.reply_id = m.reply_id
+                WHERE e.cycle_id = :cycle_id
+                ORDER BY e.event_sequence ASC
+                """
+            ),
+            {"cycle_id": cycle_id},
+        ).mappings()
+        return [dict(row) for row in rows]
+
+
+def list_cycle_price_history(
+    engine: Engine,
+    ts_code: str,
+    *,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    lookback_days: int = 10,
+    lookahead_days: int = 20,
+) -> list[dict[str, Any]]:
+    params: dict[str, Any] = {"ts_code": ts_code}
+    conditions = ["ts_code = :ts_code"]
+
+    if start_date:
+        start_value = normalize_timestamp(start_date).date() - timedelta(days=max(int(lookback_days), 0))
+        conditions.append("trade_date >= :start_date")
+        params["start_date"] = start_value.isoformat()
+
+    if end_date:
+        end_value = normalize_timestamp(end_date).date() + timedelta(days=max(int(lookahead_days), 0))
+        conditions.append("trade_date <= :end_date")
+        params["end_date"] = end_value.isoformat()
+
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                f"""
+                SELECT trade_date, open, high, low, close
+                FROM {PRICE_DAILY_VIEW}
+                WHERE {' AND '.join(conditions)}
+                ORDER BY trade_date ASC
+                """
+            ),
+            params,
+        ).mappings()
+        return [dict(row) for row in rows]
+
+
 def build_author_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     cycle_count = len(rows)
     active_count = sum(1 for row in rows if row.get("cycle_status") in {"active", "trimmed"})
-    closed_count = sum(1 for row in rows if row.get("cycle_status") in {"closed", "expired"})
-    win_count = sum(1 for row in rows if (row.get("total_return") or 0) > 0)
-    avg_return_values = [row.get("total_return") for row in rows if row.get("total_return") is not None]
+    closed_rows = [row for row in rows if row.get("cycle_status") in {"closed", "expired"}]
+    closed_count = len(closed_rows)
+    scored_closed_rows = [row for row in closed_rows if row.get("total_return") is not None]
+    win_count = sum(1 for row in scored_closed_rows if float(row.get("total_return") or 0) > 0)
+    avg_return_values = [float(row["total_return"]) for row in scored_closed_rows]
+    exit_evaluated_rows = [row for row in closed_rows if row.get("exit_quality_2d") is not None]
+    effective_exit_count = sum(1 for row in exit_evaluated_rows if bool(row.get("exit_quality_2d")) is True)
     return {
         "cycle_count": cycle_count,
         "active_count": active_count,
         "closed_count": closed_count,
+        "scored_closed_count": len(scored_closed_rows),
         "win_count": win_count,
-        "win_rate": (win_count / cycle_count) if cycle_count else 0.0,
+        "win_rate": (win_count / len(scored_closed_rows)) if scored_closed_rows else 0.0,
         "avg_return": (sum(avg_return_values) / len(avg_return_values)) if avg_return_values else None,
+        "effective_exit_rate": (effective_exit_count / len(exit_evaluated_rows)) if exit_evaluated_rows else None,
     }
 
 
