@@ -300,16 +300,31 @@ def compute_candidate_scores(
             )
             return pd.DataFrame(columns=CANDIDATE_SCORE_COLUMNS)
 
+        feature_columns = [
+            column
+            for column in V1_FEATURE_COLUMNS
+            if column in history_df.columns
+            and pd.to_numeric(history_df.get(column), errors="coerce").notna().any()
+        ]
+        if not feature_columns:
+            logger.info(
+                "compute_candidate_scores skipped: no usable feature columns trade_date=%s",
+                effective_trade_date,
+            )
+            return pd.DataFrame(columns=CANDIDATE_SCORE_COLUMNS)
+
         cls_prepared = prepare_training_data(
             history_df,
             task_type="classification",
             target_column=DEFAULT_CLASSIFICATION_TARGET,
+            feature_columns=feature_columns,
             fill_method="median",
         )
         reg_prepared = prepare_training_data(
             history_df,
             task_type="regression",
             target_column=DEFAULT_REGRESSION_TARGET,
+            feature_columns=feature_columns,
             fill_method="median",
         )
         if len(cls_prepared.rows) < int(min_train_rows) or len(reg_prepared.rows) < int(min_train_rows):
@@ -404,19 +419,21 @@ def build_candidate_score_snapshot(
         classifier=classifier,
         regressor=regressor,
     )
-    snapshot_trade_date = str(trade_date or "").strip()
+    requested_trade_date = str(trade_date or "").strip()
+    effective_trade_date = ""
     if not score_df.empty and "trade_date" in score_df.columns:
         non_empty_dates = [str(v).strip() for v in score_df["trade_date"].tolist() if str(v).strip()]
         if non_empty_dates:
-            snapshot_trade_date = non_empty_dates[0]
+            effective_trade_date = non_empty_dates[0]
 
     serializable_df = score_df.astype(object).where(pd.notna(score_df), None)
     return {
         "snapshot_type": SNAPSHOT_TYPE,
         "generated_at": _utcnow_iso(),
         "source": str(source or "trend_reco_latest"),
-        "trade_date": snapshot_trade_date,
-        "requested_trade_date": str(trade_date or "").strip(),
+        "trade_date": requested_trade_date,
+        "requested_trade_date": requested_trade_date,
+        "effective_trade_date": effective_trade_date,
         "lookback_days": int(lookback_days),
         "min_train_rows": int(min_train_rows),
         "max_candidates": int(max_candidates),

@@ -79,16 +79,27 @@ def main() -> None:
     print("history_date_max", history_df["trade_date"].max())
     print("history_symbol_count", history_df["ts_code"].astype(str).nunique())
 
+    feature_columns = [
+        column
+        for column in V1_FEATURE_COLUMNS
+        if column in history_df.columns
+        and pd.to_numeric(history_df.get(column), errors='coerce').notna().any()
+    ]
+    print("feature_column_count", len(feature_columns))
+    print("feature_columns_head", feature_columns[:12])
+
     cls_prepared = prepare_training_data(
         history_df,
         task_type="classification",
         target_column=DEFAULT_CLASSIFICATION_TARGET,
+        feature_columns=feature_columns,
         fill_method="median",
     )
     reg_prepared = prepare_training_data(
         history_df,
         task_type="regression",
         target_column=DEFAULT_REGRESSION_TARGET,
+        feature_columns=feature_columns,
         fill_method="median",
     )
     print("cls_rows_before", cls_prepared.row_count_before_filter)
