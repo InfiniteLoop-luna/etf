@@ -81,7 +81,7 @@ from src.index_monitor_store import (
     to_index_monitor_display_df,
     upsert_index_monitor_rows,
 )
-from src.navigation_config import DECISION_PAGE_OPTIONS, ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS, MONEY_PAGE_OPTIONS
+from src.navigation_config import DECISION_PAGE_OPTIONS, ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS, MONEY_PAGE_OPTIONS, STOCK_PAGE_OPTIONS
 from src.ml_reco_candidate_scores import (
     load_candidate_scores_from_snapshot,
     compute_candidate_scores as compute_ml_reco_candidate_scores,
@@ -96,6 +96,7 @@ from src.ml_stock_train_v1 import (
     prepare_training_data,
     run_walk_forward_evaluation,
 )
+from src.eastmoney_author_tracker.ui import TRACKING_PAGE_LABEL, render_author_tracking_tab
 
 try:
     from src.security_trend_model import (
@@ -3624,18 +3625,19 @@ def main():
                 render_fund_monitor_tab()
             else:
                 render_wide_index_tab()
-
-        elif mobile_group == "个股":
+        elif mobile_group == "涓偂":
             mobile_page = st.selectbox(
-                "页面",
-                ["🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股"],
+                "椤甸潰",
+                STOCK_PAGE_OPTIONS,
                 key="iphone_page_stock",
             )
-            st.caption(f"当前位置：个股 / {mobile_page}")
-            if mobile_page == "🔎 个股/指数查询":
+            st.caption(f"褰撳墠浣嶇疆锛氫釜鑲?/ {mobile_page}")
+            if mobile_page == STOCK_PAGE_OPTIONS[0]:
                 render_security_search_tab()
-            elif mobile_page == "🏢 公司筛选":
+            elif mobile_page == STOCK_PAGE_OPTIONS[1]:
                 render_company_screener_tab()
+            elif mobile_page == TRACKING_PAGE_LABEL:
+                render_author_tracking_tab()
             else:
                 render_tech_picker_tab()
 
@@ -3718,20 +3720,19 @@ def main():
             render_etf_trend_tab()
         elif etf_subpage == "📈 基金监测":
             render_fund_monitor_tab()
-        else:
-            render_wide_index_tab()
-
-    elif nav_group == "个股":
+    elif nav_group == "涓偂":
         stock_subpage = st.sidebar.radio(
-            "个股模块",
-            ["🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股"],
+            "涓偂妯″潡",
+            STOCK_PAGE_OPTIONS,
             key="stock_subpage"
         )
-        st.caption(f"当前位置：个股 / {stock_subpage}")
-        if stock_subpage == "🔎 个股/指数查询":
+        st.caption(f"褰撳墠浣嶇疆锛氫釜鑲?/ {stock_subpage}")
+        if stock_subpage == STOCK_PAGE_OPTIONS[0]:
             render_security_search_tab()
-        elif stock_subpage == "🏢 公司筛选":
+        elif stock_subpage == STOCK_PAGE_OPTIONS[1]:
             render_company_screener_tab()
+        elif stock_subpage == TRACKING_PAGE_LABEL:
+            render_author_tracking_tab()
         else:
             render_tech_picker_tab()
 
