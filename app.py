@@ -3625,13 +3625,13 @@ def main():
                 render_fund_monitor_tab()
             else:
                 render_wide_index_tab()
-        elif mobile_group == "涓偂":
+        elif mobile_group == "个股":
             mobile_page = st.selectbox(
-                "椤甸潰",
+                "页面",
                 STOCK_PAGE_OPTIONS,
                 key="iphone_page_stock",
             )
-            st.caption(f"褰撳墠浣嶇疆锛氫釜鑲?/ {mobile_page}")
+            st.caption(f"当前位置：个股 / {mobile_page}")
             if mobile_page == STOCK_PAGE_OPTIONS[0]:
                 render_security_search_tab()
             elif mobile_page == STOCK_PAGE_OPTIONS[1]:
@@ -3720,13 +3720,16 @@ def main():
             render_etf_trend_tab()
         elif etf_subpage == "📈 基金监测":
             render_fund_monitor_tab()
-    elif nav_group == "涓偂":
+        else:
+            render_wide_index_tab()
+
+    elif nav_group == "个股":
         stock_subpage = st.sidebar.radio(
-            "涓偂妯″潡",
+            "个股模块",
             STOCK_PAGE_OPTIONS,
             key="stock_subpage"
         )
-        st.caption(f"褰撳墠浣嶇疆锛氫釜鑲?/ {stock_subpage}")
+        st.caption(f"当前位置：个股 / {stock_subpage}")
         if stock_subpage == STOCK_PAGE_OPTIONS[0]:
             render_security_search_tab()
         elif stock_subpage == STOCK_PAGE_OPTIONS[1]:

@@ -3,7 +3,7 @@ import unittest
 import pandas as pd
 import streamlit as st
 
-from src.navigation_config import STOCK_PAGE_OPTIONS
+from src.navigation_config import ETF_PAGE_OPTIONS, STOCK_PAGE_OPTIONS
 from app import (
     HISTORICAL_ST_BADGE_TEXT,
     build_security_jump_links,
@@ -96,6 +96,16 @@ class NavigationConfigTests(unittest.TestCase):
 
     def test_stock_page_options_include_author_tracking(self):
         self.assertIn("🧭 观点跟踪", STOCK_PAGE_OPTIONS)
+
+    def test_navigation_option_labels_remain_stable(self):
+        self.assertEqual(
+            ETF_PAGE_OPTIONS,
+            ["📈 主要宽基ETF份额", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "📈 基金监测"],
+        )
+        self.assertEqual(
+            STOCK_PAGE_OPTIONS,
+            ["🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股", "🧭 观点跟踪"],
+        )
 
 
 if __name__ == "__main__":
