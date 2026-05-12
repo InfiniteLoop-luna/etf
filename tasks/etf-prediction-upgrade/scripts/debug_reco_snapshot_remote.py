@@ -17,6 +17,7 @@ from src.ml_stock_dataset import SAMPLE_VIEW, get_engine as get_ml_engine
 from src.ml_stock_train_v1 import (
     DEFAULT_CLASSIFICATION_TARGET,
     DEFAULT_REGRESSION_TARGET,
+    V1_FEATURE_COLUMNS,
     prepare_training_data,
 )
 from src.trend_reco_store import fetch_trend_reco_payload, get_engine as get_trend_engine
