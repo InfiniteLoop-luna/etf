@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -124,6 +125,24 @@ def _coalesce_evidence_text(row: dict[str, Any]) -> str:
     return ""
 
 
+def _build_security_jump_link(
+    query: Any,
+    display_label: Any = None,
+    nonce_key: str = "author_tracking_jump_render_nonce",
+) -> str:
+    query_text = str(query or "").strip()
+    if not query_text:
+        return "#"
+    render_nonce = st.session_state.get(nonce_key, 0) + 1
+    st.session_state[nonce_key] = render_nonce
+    label_text = str(display_label or query_text).strip() or query_text
+    return (
+        f"?security_query={quote(query_text)}"
+        f"&security_type=stock&open_tab=security&jump_nonce={render_nonce}_{quote(query_text)}"
+        f"#{label_text}"
+    )
+
+
 def build_dashboard_payload(rows: list[dict], metadata: dict[str, Any] | None = None) -> dict:
     active_cycles = [row for row in rows if row.get("cycle_status") in {"active", "trimmed"}]
     closed_cycles = [row for row in rows if row.get("cycle_status") in {"closed", "expired"}]
@@ -138,10 +157,13 @@ def build_dashboard_payload(rows: list[dict], metadata: dict[str, Any] | None = 
 def _to_cycle_display_df(rows: list[dict]) -> pd.DataFrame:
     records: list[dict[str, Any]] = []
     for row in rows:
+        ts_code = row.get("ts_code")
+        security_name = str(row.get("security_name") or ts_code or "").strip() or str(ts_code or "-")
         records.append(
             {
                 "周期ID": row.get("cycle_id"),
-                "代码": row.get("ts_code"),
+                "股票名称": _build_security_jump_link(ts_code, security_name),
+                "代码": ts_code,
                 "状态": _format_cycle_status(row.get("cycle_status")),
                 "开始时间": row.get("cycle_open_time"),
                 "最新提及": row.get("latest_mention_time"),
@@ -320,7 +342,8 @@ def _build_cycle_chart(detail_payload: dict[str, Any]) -> go.Figure | None:
 
 def _format_cycle_option(row: dict[str, Any]) -> str:
     open_time = str(row.get("cycle_open_time") or "").strip()
-    return f"{row.get('ts_code') or '-'} | {_format_cycle_status(row.get('cycle_status'))} | {open_time or '-'}"
+    security_name = str(row.get("security_name") or row.get("ts_code") or "-").strip() or "-"
+    return f"{security_name}（{row.get('ts_code') or '-'}） | {_format_cycle_status(row.get('cycle_status'))} | {open_time or '-'}"
 
 
 def _format_metadata_caption(metadata: dict[str, Any]) -> str:
@@ -374,14 +397,38 @@ def render_author_tracking_tab(engine=None) -> None:
     if active_df.empty:
         st.caption("当前没有活跃周期。")
     else:
-        st.dataframe(active_df, use_container_width=True, hide_index=True)
+        st.caption("点击“股票名称”列可跳转到“个股/指数查询”，并自动带入该股票代码。")
+        st.dataframe(
+            active_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "股票名称": st.column_config.LinkColumn(
+                    "股票名称",
+                    help="点击后跳转到个股/指数查询",
+                    display_text=r".*#(.*)$",
+                )
+            },
+        )
 
     st.markdown("#### 已关闭周期")
     closed_df = _to_cycle_display_df(payload["closed_cycles"])
     if closed_df.empty:
         st.caption("当前没有已关闭周期。")
     else:
-        st.dataframe(closed_df, use_container_width=True, hide_index=True)
+        st.caption("点击“股票名称”列可跳转到“个股/指数查询”，并自动带入该股票代码。")
+        st.dataframe(
+            closed_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "股票名称": st.column_config.LinkColumn(
+                    "股票名称",
+                    help="点击后跳转到个股/指数查询",
+                    display_text=r".*#(.*)$",
+                )
+            },
+        )
 
     cycle_options = {row["cycle_id"]: row for row in rows if row.get("cycle_id")}
     if not cycle_options:
@@ -417,7 +464,7 @@ def render_author_tracking_tab(engine=None) -> None:
 
     st.markdown("#### 周期总览")
     overview_cols = st.columns(5)
-    overview_cols[0].metric("代码", overview["ts_code"] or "-")
+    overview_cols[0].metric("股票", f"{selected_cycle.get('security_name') or overview['ts_code'] or '-'}（{overview['ts_code'] or '-'}）")
     overview_cols[1].metric("状态", overview["status_label"])
     overview_cols[2].metric("最新动作", overview["latest_stance_label"])
     overview_cols[3].metric("收益", "-" if overview["total_return_pct"] is None else f"{overview['total_return_pct']:.2f}%")

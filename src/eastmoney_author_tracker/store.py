@@ -12,6 +12,7 @@ from sqlalchemy.engine import Engine
 from .models import normalize_timestamp
 
 PRICE_DAILY_VIEW = "vw_ts_stock_daily"
+STOCK_BASIC_VIEW = "vw_ts_stock_basic"
 
 
 def build_db_url():
@@ -351,7 +352,8 @@ def list_cycles_with_scores(engine: Engine) -> list[dict[str, Any]]:
                         m.mention_time AS latest_mention_time,
                         m.direction AS latest_direction,
                         m.source_type AS latest_source_type,
-                        m.reason_text AS latest_reason_text
+                        m.reason_text AS latest_reason_text,
+                        m.security_name AS latest_security_name
                     FROM em_cycle_events e
                     JOIN latest_event_keys k
                       ON k.cycle_id = e.cycle_id
@@ -361,6 +363,7 @@ def list_cycles_with_scores(engine: Engine) -> list[dict[str, Any]]:
                 )
                 SELECT c.cycle_id, c.author_uid, c.ts_code, c.cycle_open_time, c.cycle_close_time,
                        c.cycle_status, c.open_mention_id, c.close_mention_id, c.close_reason,
+                       COALESCE(NULLIF(basic.name, ''), NULLIF(le.latest_security_name, ''), c.ts_code) AS security_name,
                        s.total_return, s.max_drawdown, s.hold_days, s.exit_quality_2d,
                        COALESCE(es.event_count, 0) AS event_count,
                        le.latest_mention_time, le.latest_direction, le.latest_source_type, le.latest_reason_text
@@ -368,6 +371,7 @@ def list_cycles_with_scores(engine: Engine) -> list[dict[str, Any]]:
                 LEFT JOIN em_cycle_scores s ON s.cycle_id = c.cycle_id
                 LEFT JOIN event_stats es ON es.cycle_id = c.cycle_id
                 LEFT JOIN latest_events le ON le.cycle_id = c.cycle_id
+                LEFT JOIN vw_ts_stock_basic basic ON basic.ts_code = c.ts_code
                 ORDER BY c.cycle_open_time DESC, c.cycle_id DESC
                 """
             )
