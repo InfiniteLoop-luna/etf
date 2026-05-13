@@ -7,14 +7,16 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from .models import normalize_timestamp
+from .service import rebuild_author_tracking_from_archive
 from .store import (
     build_author_summary,
     get_author_tracking_metadata,
     get_engine,
+    list_author_score_snapshots,
     list_cycle_event_details,
     list_cycle_price_history,
     list_cycles_with_scores,
+    upsert_mention_override,
 )
 
 TRACKING_PAGE_LABEL = "🧭 观点跟踪"
@@ -42,6 +44,7 @@ CLOSE_REASON_LABELS = {
     "explicit_exit": "明确出货",
     "thesis_reversal": "观点反转",
     "timeout": "超时关闭",
+    "manual_split": "人工拆分",
 }
 DIRECTION_COLORS = {
     "bullish": "#0F766E",
@@ -50,6 +53,11 @@ DIRECTION_COLORS = {
     "bearish": "#7C3AED",
     "neutral": "#475569",
 }
+TREND_DATE_COL = "\u65e5\u671f"
+TREND_WIN_RATE_COL = "\u80dc\u7387%"
+TREND_AVG_RETURN_COL = "\u5e73\u5747\u6536\u76ca%"
+TREND_CYCLE_COUNT_COL = "\u7d2f\u8ba1\u5468\u671f"
+TREND_CLOSED_COUNT_COL = "\u5df2\u5173\u95ed\u5468\u671f"
 
 
 def _to_float(value: Any) -> float | None:
@@ -117,6 +125,21 @@ def _format_exit_quality(value: Any) -> str:
     return "-"
 
 
+def _format_exit_quality_triplet(row: dict[str, Any]) -> str:
+    return "/".join(
+        [
+            f"2D:{_format_exit_quality(row.get('exit_quality_2d'))}",
+            f"5D:{_format_exit_quality(row.get('exit_quality_5d'))}",
+            f"10D:{_format_exit_quality(row.get('exit_quality_10d'))}",
+        ]
+    )
+
+
+def _format_override_direction(value: Any) -> str:
+    direction = str(value or "").strip()
+    return _format_direction(direction) if direction else "保持原判断"
+
+
 def _coalesce_evidence_text(row: dict[str, Any]) -> str:
     for key in ("reply_text", "reason_text", "post_title", "post_content"):
         text = str(row.get(key) or "").strip()
@@ -143,7 +166,11 @@ def _build_security_jump_link(
     )
 
 
-def build_dashboard_payload(rows: list[dict], metadata: dict[str, Any] | None = None) -> dict:
+def build_dashboard_payload(
+    rows: list[dict],
+    metadata: dict[str, Any] | None = None,
+    snapshots: list[dict[str, Any]] | None = None,
+) -> dict:
     active_cycles = [row for row in rows if row.get("cycle_status") in {"active", "trimmed"}]
     closed_cycles = [row for row in rows if row.get("cycle_status") in {"closed", "expired"}]
     return {
@@ -151,7 +178,85 @@ def build_dashboard_payload(rows: list[dict], metadata: dict[str, Any] | None = 
         "active_cycles": active_cycles,
         "closed_cycles": closed_cycles,
         "metadata": metadata or {},
+        "snapshots": list(snapshots or []),
+        "trend_df": build_summary_trend_df(snapshots or []),
     }
+
+
+def build_summary_trend_df(snapshots: list[dict[str, Any]]) -> pd.DataFrame:
+    if not snapshots:
+        return pd.DataFrame(
+            columns=[
+                TREND_DATE_COL,
+                TREND_WIN_RATE_COL,
+                TREND_AVG_RETURN_COL,
+                TREND_CYCLE_COUNT_COL,
+                TREND_CLOSED_COUNT_COL,
+            ]
+        )
+
+    records: list[dict[str, Any]] = []
+    for row in sorted(snapshots, key=lambda item: str(item.get("snapshot_date") or "")):
+        snapshot_date = str(row.get("snapshot_date") or "").strip()
+        if not snapshot_date:
+            continue
+        records.append(
+            {
+                TREND_DATE_COL: snapshot_date,
+                TREND_WIN_RATE_COL: round((_to_float(row.get("win_rate")) or 0.0) * 100, 2),
+                TREND_AVG_RETURN_COL: round((_to_float(row.get("avg_return")) or 0.0) * 100, 2),
+                TREND_CYCLE_COUNT_COL: int(row.get("cycle_count") or 0),
+                TREND_CLOSED_COUNT_COL: int(row.get("closed_count") or 0),
+            }
+        )
+    return pd.DataFrame(records)
+
+
+def _build_summary_trend_chart(trend_df: pd.DataFrame) -> go.Figure | None:
+    if trend_df.empty:
+        return None
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df[TREND_DATE_COL],
+            y=trend_df[TREND_WIN_RATE_COL],
+            mode="lines+markers",
+            name=TREND_WIN_RATE_COL,
+            line={"color": "#0F766E", "width": 2},
+            customdata=trend_df[[TREND_CYCLE_COUNT_COL, TREND_CLOSED_COUNT_COL]].values,
+            hovertemplate=(
+                f"{TREND_DATE_COL}=%{{x}}<br>"
+                f"{TREND_WIN_RATE_COL}=%{{y:.2f}}<br>"
+                f"{TREND_CYCLE_COUNT_COL}=%{{customdata[0]}}<br>"
+                f"{TREND_CLOSED_COUNT_COL}=%{{customdata[1]}}<extra></extra>"
+            ),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=trend_df[TREND_DATE_COL],
+            y=trend_df[TREND_AVG_RETURN_COL],
+            mode="lines+markers",
+            name=TREND_AVG_RETURN_COL,
+            line={"color": "#D97706", "width": 2},
+            customdata=trend_df[[TREND_CYCLE_COUNT_COL, TREND_CLOSED_COUNT_COL]].values,
+            hovertemplate=(
+                f"{TREND_DATE_COL}=%{{x}}<br>"
+                f"{TREND_AVG_RETURN_COL}=%{{y:.2f}}<br>"
+                f"{TREND_CYCLE_COUNT_COL}=%{{customdata[0]}}<br>"
+                f"{TREND_CLOSED_COUNT_COL}=%{{customdata[1]}}<extra></extra>"
+            ),
+        )
+    )
+    fig.update_layout(
+        height=260,
+        margin={"l": 20, "r": 20, "t": 20, "b": 20},
+        legend={"orientation": "h", "y": 1.12, "x": 0},
+        xaxis_title=TREND_DATE_COL,
+        yaxis_title="\u6bd4\u7387 / \u6536\u76ca%",
+    )
+    return fig
 
 
 def _to_cycle_display_df(rows: list[dict]) -> pd.DataFrame:
@@ -172,9 +277,11 @@ def _to_cycle_display_df(rows: list[dict]) -> pd.DataFrame:
                 "最新动作": _format_direction(row.get("latest_direction")),
                 "关闭原因": _format_close_reason(row.get("close_reason")),
                 "收益%": _to_percent(row.get("total_return")),
+                "超额收益%": _to_percent(row.get("excess_return")),
                 "最大回撤%": _to_percent(row.get("max_drawdown")),
                 "持有天数": row.get("hold_days"),
                 "退出质量": _format_exit_quality(row.get("exit_quality_2d")),
+                "10日退出质量": _format_exit_quality(row.get("exit_quality_10d")),
                 "最新观点": _truncate_text(row.get("latest_reason_text"), max_len=28),
             }
         )
@@ -240,6 +347,15 @@ def build_cycle_detail_payload(
     evidence_items: list[dict[str, Any]] = []
     for row in event_rows:
         evidence_text = _coalesce_evidence_text(row)
+        has_override = any(
+            [
+                row.get("override_ts_code"),
+                row.get("override_direction"),
+                bool(row.get("is_excluded")),
+                bool(row.get("force_new_cycle")),
+                row.get("override_note"),
+            ]
+        )
         event_records.append(
             {
                 "序号": row.get("event_sequence"),
@@ -249,10 +365,12 @@ def build_cycle_detail_payload(
                 "置信度": round((_to_float(row.get("confidence_score")) or 0.0) * 100, 1),
                 "目标价": row.get("target_text") or "",
                 "证据": _truncate_text(evidence_text, max_len=60),
+                "人工修正": "是" if has_override else "否",
             }
         )
         evidence_items.append(
             {
+                "mention_id": row.get("mention_id"),
                 "event_sequence": row.get("event_sequence"),
                 "mention_time": row.get("mention_time"),
                 "source_label": _format_source(row.get("source_type")),
@@ -266,6 +384,12 @@ def build_cycle_detail_payload(
                 "evidence_text": evidence_text,
                 "post_id": row.get("post_id"),
                 "reply_id": row.get("reply_id"),
+                "ts_code": row.get("ts_code"),
+                "override_ts_code": row.get("override_ts_code"),
+                "override_direction": row.get("override_direction"),
+                "is_excluded": bool(row.get("is_excluded")),
+                "force_new_cycle": bool(row.get("force_new_cycle")),
+                "override_note": row.get("override_note"),
             }
         )
 
@@ -281,9 +405,14 @@ def build_cycle_detail_payload(
         "cycle_open_time": cycle_row.get("cycle_open_time"),
         "cycle_close_time": cycle_row.get("cycle_close_time"),
         "total_return_pct": _to_percent(cycle_row.get("total_return")),
+        "benchmark_return_pct": _to_percent(cycle_row.get("benchmark_return")),
+        "excess_return_pct": _to_percent(cycle_row.get("excess_return")),
         "max_drawdown_pct": _to_percent(cycle_row.get("max_drawdown")),
         "hold_days": cycle_row.get("hold_days"),
         "exit_quality_label": _format_exit_quality(cycle_row.get("exit_quality_2d")),
+        "exit_quality_5d_label": _format_exit_quality(cycle_row.get("exit_quality_5d")),
+        "exit_quality_10d_label": _format_exit_quality(cycle_row.get("exit_quality_10d")),
+        "exit_quality_20d_label": _format_exit_quality(cycle_row.get("exit_quality_20d")),
     }
     return {
         "overview": overview,
@@ -358,7 +487,109 @@ def _format_metadata_caption(metadata: dict[str, Any]) -> str:
         parts.append(f"原帖数：{metadata['post_count']}")
     if metadata.get("mention_count") is not None:
         parts.append(f"提及事件：{metadata['mention_count']}")
+    if metadata.get("pending_image_count") is not None:
+        parts.append(f"待OCR：{metadata['pending_image_count']}")
+    if metadata.get("ocr_processed_image_count") is not None:
+        parts.append(f"已补录：{metadata['ocr_processed_image_count']}")
+    if metadata.get("last_ocr_update_time"):
+        parts.append(f"最近OCR更新：{metadata['last_ocr_update_time']}")
     return " | ".join(parts)
+
+
+def _render_ocr_status_metrics(metadata: dict[str, Any]) -> None:
+    pending_count = int(metadata.get("pending_image_count") or 0)
+    processed_count = metadata.get("ocr_processed_image_count")
+    last_ocr_update_time = str(metadata.get("last_ocr_update_time") or "").strip() or "-"
+
+    ocr_cols = st.columns(3)
+    ocr_cols[0].metric("待OCR", pending_count)
+    ocr_cols[1].metric("已补录", "-" if processed_count is None else int(processed_count))
+    ocr_cols[2].metric("最近OCR更新", last_ocr_update_time)
+
+
+def _render_manual_override_form(engine, author_uid: str, evidence_items: list[dict[str, Any]]) -> None:
+    if not author_uid or not evidence_items:
+        return
+
+    item_by_mention_id = {str(item.get("mention_id") or ""): item for item in evidence_items if item.get("mention_id")}
+    if not item_by_mention_id:
+        return
+
+    st.markdown("#### 人工修正")
+    selected_mention_id = st.selectbox(
+        "选择要修正的事件",
+        options=list(item_by_mention_id.keys()),
+        format_func=lambda mention_id: (
+            f"#{item_by_mention_id[mention_id].get('event_sequence')} "
+            f"{item_by_mention_id[mention_id].get('mention_time')} | "
+            f"{item_by_mention_id[mention_id].get('action_label')} | "
+            f"{item_by_mention_id[mention_id].get('source_label')}"
+        ),
+    )
+    selected_item = item_by_mention_id[selected_mention_id]
+    has_existing_override = any(
+        [
+            selected_item.get("override_ts_code"),
+            selected_item.get("override_direction"),
+            bool(selected_item.get("is_excluded")),
+            bool(selected_item.get("force_new_cycle")),
+            selected_item.get("override_note"),
+        ]
+    )
+    if has_existing_override:
+        st.caption(
+            "当前修正："
+            f" 代码={selected_item.get('override_ts_code') or '-'} |"
+            f" 方向={_format_override_direction(selected_item.get('override_direction'))} |"
+            f" 排除={'是' if selected_item.get('is_excluded') else '否'} |"
+            f" 新开周期={'是' if selected_item.get('force_new_cycle') else '否'}"
+        )
+
+    with st.form(f"manual_override_{selected_mention_id}"):
+        override_ts_code = st.text_input(
+            "修正股票代码",
+            value=str(selected_item.get("override_ts_code") or ""),
+            help="留空表示不改代码",
+        )
+        direction_options = {
+            "": "保持原判断",
+            "bullish": "改成看多",
+            "trim_signal": "改成减仓",
+            "exit_signal": "改成出货",
+            "bearish": "改成转空",
+        }
+        direction_keys = list(direction_options.keys())
+        current_direction = str(selected_item.get("override_direction") or "")
+        if current_direction not in direction_keys:
+            current_direction = ""
+        override_direction = st.selectbox(
+            "修正方向",
+            options=direction_keys,
+            index=direction_keys.index(current_direction),
+            format_func=lambda key: direction_options[key],
+        )
+        is_excluded = st.checkbox("排除该事件（假阳性、错误抓取等）", value=bool(selected_item.get("is_excluded")))
+        force_new_cycle = st.checkbox("从该事件开始强制新开一个周期", value=bool(selected_item.get("force_new_cycle")))
+        override_note = st.text_area("修正备注", value=str(selected_item.get("override_note") or ""), height=80)
+        save_override = st.form_submit_button("保存人工修正并重建", use_container_width=True)
+
+    clear_override = False
+    if has_existing_override:
+        clear_override = st.button("清除该事件人工修正", type="secondary", use_container_width=True)
+
+    if save_override or clear_override:
+        upsert_mention_override(
+            engine,
+            selected_mention_id,
+            override_ts_code=None if clear_override else override_ts_code,
+            override_direction=None if clear_override else override_direction,
+            is_excluded=False if clear_override else is_excluded,
+            force_new_cycle=False if clear_override else force_new_cycle,
+            override_note=None if clear_override else override_note,
+        )
+        rebuild_author_tracking_from_archive(engine, author_uid)
+        st.success("人工修正已保存，并已按当前归档重建周期。")
+        st.rerun()
 
 
 def render_author_tracking_tab(engine=None) -> None:
@@ -369,28 +600,44 @@ def render_author_tracking_tab(engine=None) -> None:
         actual_engine = engine or get_engine()
         rows = list_cycles_with_scores(actual_engine)
         metadata = get_author_tracking_metadata(actual_engine)
+        author_uid = next((str(row.get("author_uid") or "").strip() for row in rows if str(row.get("author_uid") or "").strip()), "")
+        snapshot_rows = list_author_score_snapshots(actual_engine, author_uid, limit=60) if author_uid else []
     except Exception as exc:
         st.warning(f"观点跟踪数据暂不可用：{exc}")
         return
+
+    payload = build_dashboard_payload(rows, metadata=metadata, snapshots=snapshot_rows)
+    metadata_caption = _format_metadata_caption(payload["metadata"])
+    if metadata_caption:
+        st.caption(metadata_caption)
+    _render_ocr_status_metrics(payload["metadata"])
 
     if not rows:
         st.info("当前暂无观点跟踪数据。先运行 `python scripts/sync_eastmoney_author.py --author-uid <UID>` 完成首轮同步。")
         return
 
-    payload = build_dashboard_payload(rows, metadata=metadata)
     summary = payload["summary"]
 
-    metric_cols = st.columns(5)
+    metric_cols = st.columns(6)
     metric_cols[0].metric("周期数", summary["cycle_count"])
     metric_cols[1].metric("活跃周期", summary["active_count"])
     metric_cols[2].metric("已关闭周期", summary["closed_count"])
     metric_cols[3].metric("已关闭胜率", f"{summary['win_rate'] * 100:.1f}%")
-    effective_exit_rate = summary.get("effective_exit_rate")
-    metric_cols[4].metric("有效出货率", "-" if effective_exit_rate is None else f"{effective_exit_rate * 100:.1f}%")
+    metric_cols[4].metric("Payoff", "-" if summary.get("payoff_ratio") is None else f"{summary['payoff_ratio']:.2f}")
+    metric_cols[5].metric("平均持有", "-" if summary.get("avg_hold_days") is None else f"{summary['avg_hold_days']:.1f}天")
 
-    metadata_caption = _format_metadata_caption(payload["metadata"])
-    if metadata_caption:
-        st.caption(metadata_caption)
+    secondary_metric_cols = st.columns(3)
+    secondary_metric_cols[0].metric("平均收益", "-" if summary.get("avg_return") is None else f"{summary['avg_return'] * 100:.1f}%")
+    secondary_metric_cols[1].metric(
+        "平均超额收益",
+        "-" if summary.get("avg_excess_return") is None else f"{summary['avg_excess_return'] * 100:.1f}%",
+    )
+    effective_exit_rate = summary.get("effective_exit_rate")
+    secondary_metric_cols[2].metric("有效出货率", "-" if effective_exit_rate is None else f"{effective_exit_rate * 100:.1f}%")
+
+    trend_chart = _build_summary_trend_chart(payload["trend_df"])
+    if trend_chart is not None:
+        st.plotly_chart(trend_chart, use_container_width=True)
 
     st.markdown("#### 活跃周期")
     active_df = _to_cycle_display_df(payload["active_cycles"])
@@ -463,12 +710,13 @@ def render_author_tracking_tab(engine=None) -> None:
     overview = detail_payload["overview"]
 
     st.markdown("#### 周期总览")
-    overview_cols = st.columns(5)
+    overview_cols = st.columns(6)
     overview_cols[0].metric("股票", f"{selected_cycle.get('security_name') or overview['ts_code'] or '-'}（{overview['ts_code'] or '-'}）")
     overview_cols[1].metric("状态", overview["status_label"])
     overview_cols[2].metric("最新动作", overview["latest_stance_label"])
     overview_cols[3].metric("收益", "-" if overview["total_return_pct"] is None else f"{overview['total_return_pct']:.2f}%")
-    overview_cols[4].metric("最大回撤", "-" if overview["max_drawdown_pct"] is None else f"{overview['max_drawdown_pct']:.2f}%")
+    overview_cols[4].metric("超额收益", "-" if overview["excess_return_pct"] is None else f"{overview['excess_return_pct']:.2f}%")
+    overview_cols[5].metric("最大回撤", "-" if overview["max_drawdown_pct"] is None else f"{overview['max_drawdown_pct']:.2f}%")
 
     st.caption(
         " | ".join(
@@ -478,7 +726,8 @@ def render_author_tracking_tab(engine=None) -> None:
                 f"关闭：{overview.get('cycle_close_time') or '-'}",
                 f"关闭原因：{overview.get('close_reason_label') or '-'}",
                 f"事件数：{overview.get('event_count') or 0}",
-                f"退出质量：{overview.get('exit_quality_label') or '-'}",
+                f"基准收益：{'-' if overview.get('benchmark_return_pct') is None else f'{overview['benchmark_return_pct']:.2f}%'}",
+                f"2/5/10/20D退出：{overview.get('exit_quality_label') or '-'} / {overview.get('exit_quality_5d_label') or '-'} / {overview.get('exit_quality_10d_label') or '-'} / {overview.get('exit_quality_20d_label') or '-'}",
             ]
         )
     )
@@ -526,3 +775,15 @@ def render_author_tracking_tab(engine=None) -> None:
                 st.markdown(f"**提取证据**：{item['reason_text']}")
             if item.get("post_content") and item["post_content"] not in {item.get("reply_text"), item.get("reason_text")}:
                 st.markdown(f"**帖子正文**：{item['post_content']}")
+            if any([item.get("override_ts_code"), item.get("override_direction"), item.get("is_excluded"), item.get("force_new_cycle"), item.get("override_note")]):
+                st.markdown("**人工修正**")
+                st.caption(
+                    f"代码={item.get('override_ts_code') or '-'} | "
+                    f"方向={_format_override_direction(item.get('override_direction'))} | "
+                    f"排除={'是' if item.get('is_excluded') else '否'} | "
+                    f"新开周期={'是' if item.get('force_new_cycle') else '否'}"
+                )
+                if item.get("override_note"):
+                    st.markdown(f"**修正备注**：{item['override_note']}")
+
+    _render_manual_override_form(actual_engine, str(selected_cycle.get("author_uid") or ""), evidence_items)

@@ -5,6 +5,9 @@ from datetime import date, timedelta
 
 from .models import normalize_timestamp
 
+DEFAULT_BENCHMARK_TS_CODE = "000300.SH"
+EXIT_FLAT_THRESHOLD = 0.02
+
 
 def _build_cycle_id(ts_code: str, mention_time: str, index: int) -> str:
     symbol = ts_code.split(".", 1)[0]
@@ -36,6 +39,11 @@ def build_stock_cycles(mentions: list[dict], inactivity_days: int = 30, as_of_da
                 _close_cycle(active_cycle, None, "timeout", active_cycle["last_event_time"])
                 active_by_code.pop(ts_code, None)
                 active_cycle = None
+
+        if bool(mention.get("force_new_cycle")) and active_cycle is not None:
+            _close_cycle(active_cycle, None, "manual_split", active_cycle["last_event_time"])
+            active_by_code.pop(ts_code, None)
+            active_cycle = None
 
         direction = mention.get("direction") or "bullish"
         if direction == "bullish":
@@ -119,8 +127,26 @@ def _calculate_max_drawdown(closes: list[float]) -> float | None:
     return max_drawdown
 
 
+def _calculate_total_return(window: list[dict]) -> float | None:
+    if not window:
+        return None
+    open_close = window[0]["close"]
+    final_close = window[-1]["close"]
+    return (final_close / open_close) - 1.0 if open_close else None
+
+
+def _evaluate_exit_quality(final_close: float, future_closes: list[float], horizon_days: int) -> bool | None:
+    if final_close <= 0:
+        return None
+    horizon_window = future_closes[: max(int(horizon_days), 0)]
+    if not horizon_window:
+        return None
+    return max(horizon_window) <= final_close * (1.0 + EXIT_FLAT_THRESHOLD)
+
+
 def score_cycles(cycles: list[dict], price_history_by_code: dict[str, list[dict]]) -> list[dict]:
     scores: list[dict] = []
+    benchmark_history = price_history_by_code.get(DEFAULT_BENCHMARK_TS_CODE) or []
     for cycle in cycles:
         history = price_history_by_code.get(cycle["ts_code"]) or []
         open_date = normalize_timestamp(cycle["cycle_open_time"]).date()
@@ -129,10 +155,17 @@ def score_cycles(cycles: list[dict], price_history_by_code: dict[str, list[dict]
         if not window:
             continue
 
-        open_close = window[0]["close"]
         final_close = window[-1]["close"]
-        total_return = (final_close / open_close) - 1.0 if open_close else None
+        score_end_date = close_date or window[-1]["trade_date"]
+        total_return = _calculate_total_return(window)
         max_drawdown = _calculate_max_drawdown([row["close"] for row in window])
+        benchmark_return = None
+        excess_return = None
+        if benchmark_history:
+            benchmark_window = _slice_price_window(benchmark_history, open_date, score_end_date)
+            benchmark_return = _calculate_total_return(benchmark_window)
+            if total_return is not None and benchmark_return is not None:
+                excess_return = total_return - benchmark_return
 
         future_rows = []
         if close_date:
@@ -140,18 +173,24 @@ def score_cycles(cycles: list[dict], price_history_by_code: dict[str, list[dict]
                 row_date = normalize_timestamp(row["trade_date"]).date()
                 if row_date > close_date:
                     future_rows.append(float(row["close"]))
-        exit_quality_2d = None
-        if future_rows:
-            exit_quality_2d = any(close < final_close for close in future_rows[:2])
+        exit_quality_2d = _evaluate_exit_quality(final_close, future_rows, 2)
+        exit_quality_5d = _evaluate_exit_quality(final_close, future_rows, 5)
+        exit_quality_10d = _evaluate_exit_quality(final_close, future_rows, 10)
+        exit_quality_20d = _evaluate_exit_quality(final_close, future_rows, 20)
 
         scores.append(
             {
                 "cycle_id": cycle["cycle_id"],
                 "ts_code": cycle["ts_code"],
                 "total_return": total_return,
+                "benchmark_return": benchmark_return,
+                "excess_return": excess_return,
                 "max_drawdown": max_drawdown,
                 "hold_days": max(len(window) - 1, 0),
                 "exit_quality_2d": exit_quality_2d,
+                "exit_quality_5d": exit_quality_5d,
+                "exit_quality_10d": exit_quality_10d,
+                "exit_quality_20d": exit_quality_20d,
             }
         )
     return scores
