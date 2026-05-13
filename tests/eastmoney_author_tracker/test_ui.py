@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, unquote, urlparse
+from pathlib import Path
 
 from src.apple_theme import (
     build_apple_plotly_template,
@@ -45,11 +46,34 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn('[data-baseweb="select"]', css)
         self.assertIn(".stPlotlyChart", css)
 
+    def test_build_global_apple_theme_css_includes_strong_legacy_overrides(self):
+        css = build_global_apple_theme_css()
+
+        self.assertIn("-webkit-text-fill-color: var(--ws-text) !important", css)
+        self.assertIn("background-image: none !important", css)
+        self.assertIn("-webkit-background-clip: border-box !important", css)
+        self.assertIn('[data-testid="stSidebar"] [role="radiogroup"]', css)
+        self.assertIn('.block-container h1 *', css)
+
+    def test_build_global_apple_theme_css_uses_layered_glass_surfaces(self):
+        css = build_global_apple_theme_css()
+
+        self.assertIn("--ws-bg-deep", css)
+        self.assertIn("--ws-surface-glass", css)
+        self.assertIn("backdrop-filter: blur(28px)", css)
+        self.assertIn("var(--ws-surface-glass)", css)
+
     def test_build_apple_plotly_template_uses_light_backgrounds(self):
         template = build_apple_plotly_template()
 
         self.assertEqual(template.layout.paper_bgcolor, "#F5F5F7")
         self.assertEqual(template.layout.plot_bgcolor, "#FFFFFF")
+
+    def test_app_py_no_longer_uses_legacy_plot_background_literals(self):
+        app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertNotIn("rgba(248, 250, 252, 0.92)", app_source)
+        self.assertNotIn("rgba(241, 245, 249, 0.58)", app_source)
 
     def test_build_author_tracker_apple_css_contains_tracker_hooks(self):
         css = build_author_tracker_apple_css()
