@@ -2,6 +2,11 @@ import unittest
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, unquote, urlparse
 
+from src.apple_theme import (
+    build_apple_plotly_template,
+    build_author_tracker_apple_css,
+    build_global_apple_theme_css,
+)
 from src.eastmoney_author_tracker.ui import (
     _format_metadata_caption,
     _format_cycle_option,
@@ -25,6 +30,34 @@ LABEL_WATCH = "\u5f85\u89c2\u5bdf"
 
 
 class TrackerUiPayloadTests(unittest.TestCase):
+    def test_build_global_apple_theme_css_contains_core_shell_tokens(self):
+        css = build_global_apple_theme_css()
+
+        self.assertIn("--ws-bg", css)
+        self.assertIn('[data-testid="stSidebar"]', css)
+        self.assertIn('[data-testid="stDataFrame"]', css)
+        self.assertIn(".stMetric", css)
+
+    def test_build_global_apple_theme_css_includes_primary_interaction_selectors(self):
+        css = build_global_apple_theme_css()
+
+        self.assertIn(".stButton", css)
+        self.assertIn('[data-baseweb="select"]', css)
+        self.assertIn(".stPlotlyChart", css)
+
+    def test_build_apple_plotly_template_uses_light_backgrounds(self):
+        template = build_apple_plotly_template()
+
+        self.assertEqual(template.layout.paper_bgcolor, "#F5F5F7")
+        self.assertEqual(template.layout.plot_bgcolor, "#FFFFFF")
+
+    def test_build_author_tracker_apple_css_contains_tracker_hooks(self):
+        css = build_author_tracker_apple_css()
+
+        self.assertIn(".ws-tracker-shell", css)
+        self.assertIn(".ws-tracker-section", css)
+        self.assertIn(".ws-evidence-gallery", css)
+
     def test_build_dashboard_payload_splits_cycles_and_keeps_metadata(self):
         rows = [
             {"cycle_id": "c1", "cycle_status": "active", "ts_code": "301139.SZ", "security_name": NAME_MY},

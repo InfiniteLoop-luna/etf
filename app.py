@@ -86,6 +86,11 @@ from src.ml_reco_candidate_scores import (
     load_candidate_scores_from_snapshot,
     compute_candidate_scores as compute_ml_reco_candidate_scores,
 )
+from src.apple_theme import (
+    build_apple_plotly_template,
+    build_author_tracker_apple_css,
+    build_global_apple_theme_css,
+)
 
 from src.ml_stock_train_v1 import (
     DEFAULT_CLASSIFICATION_TARGET,
@@ -152,6 +157,12 @@ pio.templates["wealthspark_balanced"] = go.layout.Template(
     )
 )
 pio.templates.default = "wealthspark_balanced"
+
+apple_plotly_template = build_apple_plotly_template()
+pio.templates["wealthspark_apple"] = apple_plotly_template
+pio.templates["wealthspark_balanced"] = apple_plotly_template
+pio.templates["plotly_white"] = apple_plotly_template
+pio.templates.default = "wealthspark_apple"
 
 # 自定义CSS样式 - 金融专业风格
 st.markdown("""
@@ -403,6 +414,11 @@ st.markdown("""
 
 # 数据文件路径
 DATA_FILE = "主要ETF基金份额变动情况.xlsx"
+st.markdown(
+    f"<style>{build_global_apple_theme_css()}{build_author_tracker_apple_css()}</style>",
+    unsafe_allow_html=True,
+)
+
 TREND_RECO_FILE = "data/recommendations/latest_trend_recommendations.json"
 LIVE_ML_RECO_SCORING_ENABLED = os.environ.get("ETF_ENABLE_LIVE_RECO_SCORING", "").strip().lower() in {"1", "true", "yes", "on"}
 

@@ -674,6 +674,14 @@ def _render_manual_override_form(engine, author_uid: str, evidence_items: list[d
 
 def render_author_tracking_tab(engine=None) -> None:
     st.subheader(TRACKING_PAGE_LABEL)
+    st.markdown(
+        '<div class="ws-tracker-shell">'
+        '<span class="ws-tracker-eyebrow">观点跟踪工作台</span>'
+        '<h4>从首次提及到出货，按周期回看作者观点质量</h4>'
+        '<p>集中查看活跃周期、已关闭周期、收益表现、事件证据和人工复核入口。</p>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     st.caption("跟踪东方财富作者提及个股的活跃周期、关闭周期、事件证据与整体评分。")
 
     try:
