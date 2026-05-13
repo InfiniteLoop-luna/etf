@@ -60,8 +60,20 @@ class TrackerUiPayloadTests(unittest.TestCase):
 
         self.assertIn("--ws-bg-deep", css)
         self.assertIn("--ws-surface-glass", css)
+        self.assertIn("--ws-surface-tint", css)
+        self.assertIn("--ws-surface-titanium", css)
+        self.assertIn("--ws-surface-shell", css)
         self.assertIn("backdrop-filter: blur(28px)", css)
         self.assertIn("var(--ws-surface-glass)", css)
+
+    def test_build_global_apple_theme_css_adds_shell_finish_details(self):
+        css = build_global_apple_theme_css()
+
+        self.assertIn("--ws-shell-highlight", css)
+        self.assertIn("--ws-shell-shadow-edge", css)
+        self.assertIn(".main .block-container::before", css)
+        self.assertIn(".main .block-container::after", css)
+        self.assertIn('[data-testid="stSidebar"] > div:first-child::before', css)
 
     def test_build_apple_plotly_template_uses_light_backgrounds(self):
         template = build_apple_plotly_template()
