@@ -2685,6 +2685,7 @@ def create_security_kline_chart(
 def create_security_intraday_chart(
     df: pd.DataFrame,
     title: str,
+    reference_close: float | None = None,
 ) -> go.Figure | None:
     required = ["trade_time", "open", "high", "low", "close"]
     if df is None or df.empty or any(col not in df.columns for col in required):
@@ -2698,6 +2699,18 @@ def create_security_intraday_chart(
     chart_df = chart_df.dropna(subset=["trade_time", "open", "high", "low", "close"]).sort_values("trade_time")
     if chart_df.empty:
         return None
+
+    reference_price = pd.to_numeric(pd.Series([reference_close]), errors="coerce").iloc[0]
+    if pd.isna(reference_price) or float(reference_price) == 0:
+        fallback_open = pd.to_numeric(chart_df["open"], errors="coerce").dropna()
+        reference_price = float(fallback_open.iloc[0]) if not fallback_open.empty else np.nan
+
+    if pd.notna(reference_price) and float(reference_price) != 0:
+        chart_df["hover_pct_text"] = ((chart_df["close"] - float(reference_price)) / float(reference_price) * 100.0).map(
+            lambda value: f"{value:+.2f}%"
+        )
+    else:
+        chart_df["hover_pct_text"] = "-"
 
     # A股午休（11:30-13:00）不应在分时图里显示为空白时间段。
     intraday_rangebreaks = [dict(bounds=[11.5, 13], pattern="hour")]
@@ -2722,6 +2735,16 @@ def create_security_intraday_chart(
             high=chart_df["high"],
             low=chart_df["low"],
             close=chart_df["close"],
+            customdata=chart_df[["hover_pct_text"]],
+            hovertemplate=(
+                "%{x|%H:%M}"
+                "<br>开: %{open:.2f}"
+                "<br>高: %{high:.2f}"
+                "<br>低: %{low:.2f}"
+                "<br>收: %{close:.2f}"
+                "<br>涨幅: %{customdata[0]}"
+                "<extra></extra>"
+            ),
             increasing_line_color="#EF4444",
             decreasing_line_color="#10B981",
             increasing_fillcolor="#FCA5A5",
@@ -7498,9 +7521,20 @@ def render_security_search_tab():
                         elif intraday_df is None or intraday_df.empty:
                             st.info("该交易日暂无可展示的分时数据。")
                         else:
+                            intraday_reference_close = None
+                            selected_intraday_ts = pd.to_datetime(effective_intraday_date, errors="coerce")
+                            if kline_df is not None and not kline_df.empty and not pd.isna(selected_intraday_ts):
+                                previous_close_series = pd.to_numeric(
+                                    kline_df.loc[kline_df["trade_date"] < selected_intraday_ts, "close"],
+                                    errors="coerce",
+                                ).dropna()
+                                if not previous_close_series.empty:
+                                    intraday_reference_close = float(previous_close_series.iloc[-1])
+
                             intraday_chart = create_security_intraday_chart(
                                 intraday_df,
                                 title=f"{title_name} — {effective_intraday_date} 分时图",
+                                reference_close=intraday_reference_close,
                             )
                             if intraday_chart is not None:
                                 st.plotly_chart(intraday_chart, use_container_width=True)

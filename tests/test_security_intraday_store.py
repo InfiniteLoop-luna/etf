@@ -77,6 +77,42 @@ class SecurityIntradayStoreTests(unittest.TestCase):
         self.assertEqual(fig.layout.xaxis.rangebreaks[0]["pattern"], "hour")
         self.assertEqual(list(fig.layout.xaxis.rangebreaks[0]["bounds"]), [11.5, 13])
 
+    def test_create_security_intraday_chart_hover_shows_pct_change(self):
+        df = pd.DataFrame([
+            {
+                "ts_code": "600036.SH",
+                "trade_date": date(2026, 5, 8),
+                "trade_time": pd.Timestamp("2026-05-08 09:30:00"),
+                "freq": "1min",
+                "open": 10.0,
+                "high": 10.1,
+                "low": 9.9,
+                "close": 10.0,
+                "vol": 100,
+                "amount": None,
+            },
+            {
+                "ts_code": "600036.SH",
+                "trade_date": date(2026, 5, 8),
+                "trade_time": pd.Timestamp("2026-05-08 09:31:00"),
+                "freq": "1min",
+                "open": 10.0,
+                "high": 10.6,
+                "low": 9.9,
+                "close": 10.5,
+                "vol": 180,
+                "amount": None,
+            },
+        ])
+
+        fig = create_security_intraday_chart(df, title="test", reference_close=10.0)
+
+        self.assertIsNotNone(fig)
+        candle = fig.data[0]
+        self.assertIn("涨幅", candle.hovertemplate)
+        self.assertEqual(candle.customdata[0][0], "+0.00%")
+        self.assertEqual(candle.customdata[1][0], "+5.00%")
+
     @patch("src.security_intraday_store._get_mootdx_default_server")
     @patch("src.security_intraday_store._get_mootdx_quotes_class")
     def test_create_mootdx_client_retries_with_explicit_server(self, mock_get_quotes_class, mock_get_default_server):
