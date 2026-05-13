@@ -712,6 +712,7 @@ def render_author_tracking_tab(engine=None) -> None:
 
     detail_payload = build_cycle_detail_payload(selected_cycle, event_rows, price_rows)
     overview = detail_payload["overview"]
+    benchmark_return_label = "-" if overview.get("benchmark_return_pct") is None else f"{overview['benchmark_return_pct']:.2f}%"
 
     st.markdown("#### 周期总览")
     overview_cols = st.columns(6)
@@ -730,7 +731,7 @@ def render_author_tracking_tab(engine=None) -> None:
                 f"关闭：{overview.get('cycle_close_time') or '-'}",
                 f"关闭原因：{overview.get('close_reason_label') or '-'}",
                 f"事件数：{overview.get('event_count') or 0}",
-                f"基准收益：{'-' if overview.get('benchmark_return_pct') is None else f'{overview['benchmark_return_pct']:.2f}%'}",
+                f"基准收益：{benchmark_return_label}",
                 f"2/5/10/20D退出：{overview.get('exit_quality_label') or '-'} / {overview.get('exit_quality_5d_label') or '-'} / {overview.get('exit_quality_10d_label') or '-'} / {overview.get('exit_quality_20d_label') or '-'}",
             ]
         )
