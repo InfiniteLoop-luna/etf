@@ -2,6 +2,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+from pathlib import Path
+
+
+def _ensure_repo_root_on_sys_path() -> None:
+    if __package__ not in {None, ""}:
+        return
+
+    repo_root = str(Path(__file__).resolve().parents[1])
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+
+
+_ensure_repo_root_on_sys_path()
 
 from src.eastmoney_author_tracker.ocr import DeferredOcrProvider, OptionalTesseractOcrProvider
 from src.eastmoney_author_tracker.service import enrich_pending_author_images, sync_author_activity

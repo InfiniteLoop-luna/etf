@@ -613,7 +613,11 @@ def render_author_tracking_tab(engine=None) -> None:
     _render_ocr_status_metrics(payload["metadata"])
 
     if not rows:
-        st.info("当前暂无观点跟踪数据。先运行 `python scripts/sync_eastmoney_author.py --author-uid <UID>` 完成首轮同步。")
+        st.info(
+            "当前暂无观点跟踪数据。先运行 "
+            "`python -m scripts.sync_eastmoney_author --author-uid <UID>` "
+            "或 `scripts\\run_eastmoney_author_daily.bat` 完成首轮同步。"
+        )
         return
 
     summary = payload["summary"]
