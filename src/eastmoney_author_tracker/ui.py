@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 from urllib.parse import quote
 
@@ -146,6 +147,81 @@ def _coalesce_evidence_text(row: dict[str, Any]) -> str:
         if text:
             return text
     return ""
+
+
+def _load_json_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    text = str(value or "").strip()
+    if not text:
+        return {}
+    try:
+        loaded = json.loads(text)
+    except Exception:
+        return {}
+    return dict(loaded) if isinstance(loaded, dict) else {}
+
+
+def _load_json_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return list(value)
+    text = str(value or "").strip()
+    if not text:
+        return []
+    try:
+        loaded = json.loads(text)
+    except Exception:
+        return []
+    return list(loaded) if isinstance(loaded, list) else []
+
+
+def _resolve_evidence_images(row: dict[str, Any]) -> dict[str, Any]:
+    evidence_payload = _load_json_dict(row.get("evidence_payload_json") or row.get("evidence_payload"))
+    raw_image_urls = row.get("post_image_urls")
+    if not isinstance(raw_image_urls, list):
+        raw_image_urls = _load_json_list(row.get("post_pic_url_json"))
+
+    image_urls: list[str] = []
+    for item in raw_image_urls:
+        image_url = str(item or "").strip()
+        if image_url and image_url not in image_urls:
+            image_urls.append(image_url)
+
+    direct_image_url = str(row.get("image_url") or "").strip()
+    if direct_image_url and direct_image_url not in image_urls:
+        image_urls.append(direct_image_url)
+
+    image_index = evidence_payload.get("image_index")
+    try:
+        resolved_image_index = int(image_index) if image_index is not None else None
+    except (TypeError, ValueError):
+        resolved_image_index = None
+
+    primary_image_url = None
+    if resolved_image_index is not None and 0 <= resolved_image_index < len(image_urls):
+        primary_image_url = image_urls[resolved_image_index]
+    elif direct_image_url:
+        primary_image_url = direct_image_url
+
+    return {
+        "image_urls": image_urls,
+        "image_index": resolved_image_index,
+        "primary_image_url": primary_image_url,
+    }
+
+
+def _render_evidence_images(item: dict[str, Any]) -> None:
+    image_urls = [str(url or "").strip() for url in item.get("image_urls") or [] if str(url or "").strip()]
+    if not image_urls:
+        return
+
+    st.markdown("**相关图片**")
+    primary_image_url = str(item.get("primary_image_url") or "").strip()
+    highlight_suffix = "OCR命中图" if str(item.get("source_label") or "").strip() == SOURCE_LABELS.get("image_ocr") else "当前证据图"
+
+    for index, image_url in enumerate(image_urls, start=1):
+        suffix = f"（{highlight_suffix}）" if primary_image_url and image_url == primary_image_url else ""
+        st.image(image_url, caption=f"图片#{index}{suffix}", use_container_width=True)
 
 
 def _build_security_jump_link(
@@ -347,6 +423,7 @@ def build_cycle_detail_payload(
     evidence_items: list[dict[str, Any]] = []
     for row in event_rows:
         evidence_text = _coalesce_evidence_text(row)
+        image_payload = _resolve_evidence_images(row)
         has_override = any(
             [
                 row.get("override_ts_code"),
@@ -382,6 +459,9 @@ def build_cycle_detail_payload(
                 "reply_text": str(row.get("reply_text") or "").strip(),
                 "reason_text": str(row.get("reason_text") or "").strip(),
                 "evidence_text": evidence_text,
+                "image_urls": image_payload["image_urls"],
+                "image_index": image_payload["image_index"],
+                "primary_image_url": image_payload["primary_image_url"],
                 "post_id": row.get("post_id"),
                 "reply_id": row.get("reply_id"),
                 "ts_code": row.get("ts_code"),
@@ -780,6 +860,7 @@ def render_author_tracking_tab(engine=None) -> None:
                 st.markdown(f"**提取证据**：{item['reason_text']}")
             if item.get("post_content") and item["post_content"] not in {item.get("reply_text"), item.get("reason_text")}:
                 st.markdown(f"**帖子正文**：{item['post_content']}")
+            _render_evidence_images(item)
             if any([item.get("override_ts_code"), item.get("override_direction"), item.get("is_excluded"), item.get("force_new_cycle"), item.get("override_note")]):
                 st.markdown("**人工修正**")
                 st.caption(

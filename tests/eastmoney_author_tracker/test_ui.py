@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from src.eastmoney_author_tracker.ui import (
     _format_metadata_caption,
     _format_cycle_option,
+    _render_evidence_images,
     _to_cycle_display_df,
     build_cycle_detail_payload,
     build_dashboard_payload,
@@ -246,6 +247,53 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertEqual(payload["evidence_items"][0]["override_direction"], "bearish")
         self.assertEqual(payload["evidence_items"][0]["override_note"], "Manual override note")
         self.assertIs(payload["evidence_items"][0]["force_new_cycle"], True)
+
+    def test_build_cycle_detail_payload_includes_post_images_for_ocr_evidence(self):
+        cycle_row = {
+            "cycle_id": "c1",
+            "ts_code": "600030.SH",
+            "cycle_status": "active",
+            "cycle_open_time": "2026-05-08 14:57:43",
+            "cycle_close_time": None,
+            "latest_direction": "bullish",
+        }
+        event_rows = [
+            {
+                "mention_id": "m1",
+                "event_sequence": 1,
+                "mention_time": "2026-05-08 14:57:43",
+                "source_type": "image_ocr",
+                "direction": "bullish",
+                "confidence_score": 0.7,
+                "reason_text": "继续看好 600030",
+                "target_text": None,
+                "post_title": "图片观点",
+                "post_content": "正文见图",
+                "reply_text": None,
+                "post_pic_url_json": '["https://example.com/0.png", "https://example.com/1.png"]',
+                "evidence_payload_json": '{"image_index": 1}',
+            }
+        ]
+
+        payload = build_cycle_detail_payload(cycle_row, event_rows, [])
+
+        self.assertEqual(payload["evidence_items"][0]["image_urls"], ["https://example.com/0.png", "https://example.com/1.png"])
+        self.assertEqual(payload["evidence_items"][0]["image_index"], 1)
+        self.assertEqual(payload["evidence_items"][0]["primary_image_url"], "https://example.com/1.png")
+
+    @patch("src.eastmoney_author_tracker.ui.st")
+    def test_render_evidence_images_uses_streamlit_image(self, mock_st):
+        _render_evidence_images(
+            {
+                "image_urls": ["https://example.com/0.png", "https://example.com/1.png"],
+                "primary_image_url": "https://example.com/1.png",
+                "source_label": "图片OCR",
+            }
+        )
+
+        self.assertEqual(len(mock_st.image.call_args_list), 2)
+        self.assertEqual(mock_st.image.call_args_list[0].args[0], "https://example.com/0.png")
+        self.assertEqual(mock_st.image.call_args_list[1].args[0], "https://example.com/1.png")
 
 
 if __name__ == "__main__":

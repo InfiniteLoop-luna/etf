@@ -5,9 +5,11 @@ from sqlalchemy.pool import StaticPool
 
 from src.eastmoney_author_tracker.store import (
     build_author_summary,
+    ensure_storage_objects,
     get_author_tracking_metadata,
     list_cycles_with_scores,
     list_author_score_snapshots,
+    list_cycle_event_details,
     load_price_history_by_codes,
     load_mention_overrides_map,
     upsert_author_score_snapshot,
@@ -295,6 +297,50 @@ class AuthorSummaryTests(unittest.TestCase):
         self.assertEqual(metadata["pending_image_count"], 1)
         self.assertEqual(metadata["ocr_processed_image_count"], 1)
         self.assertEqual(metadata["last_ocr_update_time"], "2026-05-13 09:30:00")
+
+    def test_list_cycle_event_details_includes_post_images_and_evidence_payload(self):
+        engine = _build_sqlite_engine()
+        ensure_storage_objects(engine)
+
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO em_author_posts (
+                        post_id, author_uid, post_publish_time, post_title, post_content, post_pic_url_json
+                    ) VALUES (
+                        1001, '4348595203199492', '2026-05-12 20:08:17', '图文观点', '正文见图',
+                        '["https://example.com/0.png", "https://example.com/1.png"]'
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO em_stock_mentions (
+                        mention_id, author_uid, post_id, ts_code, symbol, mention_time, source_type,
+                        direction, confidence_score, reason_text, rule_version, evidence_payload_json
+                    ) VALUES (
+                        'm1', '4348595203199492', 1001, '600030.SH', '600030', '2026-05-12 20:08:17', 'image_ocr',
+                        'bullish', 0.7, '继续看好 600030', 'v1', '{"image_index": 1}'
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO em_cycle_events (cycle_id, mention_id, event_sequence)
+                    VALUES ('c1', 'm1', 1)
+                    """
+                )
+            )
+
+        rows = list_cycle_event_details(engine, "c1")
+
+        self.assertEqual(rows[0]["post_pic_url_json"], '["https://example.com/0.png", "https://example.com/1.png"]')
+        self.assertEqual(rows[0]["evidence_payload_json"], '{"image_index": 1}')
 
 
 if __name__ == "__main__":
