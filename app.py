@@ -92,6 +92,7 @@ from src.apple_theme import (
     build_apple_plotly_template,
     build_author_tracker_apple_css,
     build_global_apple_theme_css,
+    get_apple_theme_tokens,
 )
 
 from src.ml_stock_train_v1 import (
@@ -134,7 +135,7 @@ pio.templates["wealthspark_balanced"] = apple_plotly_template
 pio.templates["plotly_white"] = apple_plotly_template
 pio.templates.default = "wealthspark_apple"
 
-THEME = APPLE_THEME_TOKENS
+THEME = get_apple_theme_tokens(APPLE_THEME_TOKENS)
 THEME_PRIMARY = THEME["primary"]
 THEME_PRIMARY_HOVER = THEME["primary_hover"]
 THEME_PRIMARY_STRONG = THEME["primary_strong"]
@@ -1720,6 +1721,57 @@ def build_security_jump_links(df: pd.DataFrame, code_col: str = '代码', fallba
             f"?security_query={quote(query)}&security_type=stock&open_tab=security&jump_nonce={render_nonce}_{quote(query)}"
         )
     return query_links
+
+
+def build_security_name_jump_links(
+    df: pd.DataFrame,
+    code_col: str = '代码',
+    label_col: str = '名称',
+    fallback_col: str | None = None,
+    label_prefix: str = '',
+    nonce_key: str = 'security_name_jump_render_nonce',
+) -> list[str]:
+    from urllib.parse import quote
+
+    if df is None or df.empty:
+        return []
+
+    render_nonce = st.session_state.get(nonce_key, 0) + 1
+    st.session_state[nonce_key] = render_nonce
+
+    query_links: list[str] = []
+    for _, row in df.iterrows():
+        fallback_value = row.get(fallback_col) if fallback_col else ''
+        query = str(row.get(code_col) or fallback_value or '').strip()
+        if not query:
+            query_links.append('#')
+            continue
+
+        label = str(row.get(label_col) or query).strip() or query
+        if label_prefix:
+            label = f"{label_prefix}{label}"
+        query_links.append(
+            f"?security_query={quote(query)}&security_type=stock&open_tab=security&jump_nonce={render_nonce}_{quote(query)}#{label}"
+        )
+    return query_links
+
+
+def build_hotmoney_stock_preference_display_df(df_stocks: pd.DataFrame) -> pd.DataFrame:
+    if df_stocks is None or df_stocks.empty:
+        return pd.DataFrame(columns=["股票名称", "代码", "上榜次数", "游资数", "净买卖(亿)"])
+
+    out = df_stocks[["ts_name", "ts_code", "hit_count", "hm_count", "total_net_amount_yi"]].copy()
+    out.columns = ["股票名称", "代码", "上榜次数", "游资数", "净买卖(亿)"]
+    out["股票名称"] = build_security_name_jump_links(
+        out,
+        code_col="代码",
+        label_col="股票名称",
+        fallback_col="股票名称",
+        label_prefix="🔎 ",
+        nonce_key="hm_stock_preference_render_nonce",
+    )
+    out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda v: f"{v:,.2f}")
+    return out
 
 
 HISTORICAL_ST_BADGE_TEXT = '曾经ST'
@@ -4672,10 +4724,20 @@ def render_hotmoney_tab():
                     xaxis_title=stock_x_title,
                 )
                 st.plotly_chart(fig_stocks, use_container_width=True)
-                out = show[["ts_name", "ts_code", "hit_count", "hm_count", "total_net_amount_yi"]].copy()
-                out.columns = ["股票", "代码", "上榜次数", "游资数", "净买卖(亿)"]
-                out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda v: f"{v:,.2f}")
-                st.dataframe(out, use_container_width=True, hide_index=True)
+                out = build_hotmoney_stock_preference_display_df(show)
+                st.caption("点击“股票名称”列可跳转到“个股/指数查询”，并自动带入该股票代码。")
+                st.dataframe(
+                    out,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "股票名称": st.column_config.LinkColumn(
+                            "股票名称",
+                            help="点击后跳转到个股/指数查询",
+                            display_text=r".*#(.*)$",
+                        )
+                    },
+                )
             else:
                 st.info("当前窗口暂无游资个股数据。")
 

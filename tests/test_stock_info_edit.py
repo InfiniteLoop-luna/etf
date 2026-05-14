@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 import pandas as pd
 
-from app import format_security_option
+from app import build_hotmoney_stock_preference_display_df, format_security_option
 from src.etf_stats import (
     get_stock_profile,
     search_companies,
@@ -15,6 +15,28 @@ from src.etf_stats import (
 
 
 class StockInfoEditTests(unittest.TestCase):
+    def test_build_hotmoney_stock_preference_display_df_turns_stock_name_into_jump_link(self):
+        source_df = pd.DataFrame([
+            {
+                "ts_name": "平安银行",
+                "ts_code": "000001.SZ",
+                "hit_count": 5,
+                "hm_count": 3,
+                "total_net_amount_yi": 1.23,
+            }
+        ])
+
+        with patch("app.st.session_state", {}):
+            display_df = build_hotmoney_stock_preference_display_df(source_df)
+
+        self.assertEqual(list(display_df.columns), ["股票名称", "代码", "上榜次数", "游资数", "净买卖(亿)"])
+        self.assertEqual(display_df.iloc[0]["代码"], "000001.SZ")
+        self.assertEqual(display_df.iloc[0]["净买卖(亿)"], "1.23")
+        self.assertEqual(
+            display_df.iloc[0]["股票名称"],
+            "?security_query=000001.SZ&security_type=stock&open_tab=security&jump_nonce=1_000001.SZ#🔎 平安银行",
+        )
+
     def test_search_companies_exposes_historical_st_flag(self):
         captured = {}
 
