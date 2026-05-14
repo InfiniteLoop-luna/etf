@@ -48,6 +48,7 @@ from src.etf_deposit_store import (
     build_deposit_summary,
     build_upsert_rows,
     classify_import_rows,
+    delete_deposit_months,
     get_engine as get_deposit_engine,
     load_deposit_monthly_df,
     to_deposit_display_df,
@@ -1562,6 +1563,52 @@ def grant_stock_info_edit_permission(password: str) -> bool:
     is_authorized = compare_digest(password or "", expected_password)
     st.session_state["stock_info_edit_authorized"] = is_authorized
     return is_authorized
+
+
+
+def get_deposit_edit_password() -> str:
+    secret_password = ""
+    try:
+        secret_password = st.secrets.get("deposit_edit_password", "")
+        if not secret_password:
+            secret_password = st.secrets.get("app", {}).get("deposit_edit_password", "")
+    except Exception:
+        secret_password = ""
+
+    return str(
+        secret_password
+        or os.getenv("ETF_DEPOSIT_EDIT_PASSWORD")
+        or os.getenv("ETF_EDIT_PASSWORD")
+        or ""
+    ).strip()
+
+
+
+def has_deposit_edit_permission() -> bool:
+    return bool(get_deposit_edit_password()) and bool(
+        st.session_state.get("deposit_edit_authorized", False)
+    )
+
+
+
+def grant_deposit_edit_permission(password: str) -> bool:
+    expected_password = get_deposit_edit_password()
+    if not expected_password:
+        st.session_state["deposit_edit_authorized"] = False
+        return False
+
+    is_authorized = compare_digest(password or "", expected_password)
+    st.session_state["deposit_edit_authorized"] = is_authorized
+    return is_authorized
+
+
+
+def clear_deposit_edit_permission() -> None:
+    st.session_state["deposit_edit_authorized"] = False
+    st.session_state["deposit_manual_open"] = False
+    st.session_state["deposit_import_open"] = False
+    st.session_state["deposit_edit_month"] = ""
+
 
 
 def get_query_param_value(name: str) -> str:
@@ -7936,10 +7983,18 @@ def render_etf_deposit_tab():
     action_col, status_col = st.columns([1, 3])
     with action_col:
         if st.button("新增月份", key="deposit_add_month"):
-            st.session_state["deposit_manual_open"] = True
-            st.session_state["deposit_edit_month"] = ""
+            if has_deposit_edit_permission():
+                st.session_state["deposit_manual_open"] = True
+                st.session_state["deposit_import_open"] = False
+                st.session_state["deposit_edit_month"] = ""
+            else:
+                st.warning("请先完成编辑权限验证，再新增月份。")
         if st.button("批量导入", key="deposit_import_file"):
-            st.session_state["deposit_import_open"] = True
+            if has_deposit_edit_permission():
+                st.session_state["deposit_import_open"] = True
+                st.session_state["deposit_manual_open"] = False
+            else:
+                st.warning("请先完成编辑权限验证，再批量导入。")
 
     with status_col:
         if df.empty:
@@ -7957,6 +8012,29 @@ def render_etf_deposit_tab():
             st.caption(
                 f"最新数据月份：{latest_month} | 数据来源：{source_type} | 最近更新时间：{updated_at}"
             )
+
+    permission_cols = st.columns([4, 1.2])
+    if has_deposit_edit_permission():
+        permission_cols[0].success("当前会话已获得本外币存款编辑权限。")
+        if permission_cols[1].button("退出权限", key="revoke_deposit_edit_permission"):
+            clear_deposit_edit_permission()
+            st.rerun()
+    else:
+        configured_password = get_deposit_edit_password()
+        if not configured_password:
+            st.warning("当前未配置本外币存款编辑权限密码，新增/导入/删除功能已禁用。请设置 ETF_DEPOSIT_EDIT_PASSWORD 或 ETF_EDIT_PASSWORD 后重启应用。")
+        else:
+            access_password = permission_cols[0].text_input(
+                "本外币存款编辑权限密码",
+                type="password",
+                key="deposit_edit_password_input",
+            )
+            if permission_cols[1].button("权限验证", key="grant_deposit_edit_permission"):
+                if grant_deposit_edit_permission(access_password):
+                    st.success("权限验证成功，现在可以新增、导入、删除本外币存款数据。")
+                    st.rerun()
+                st.error("权限验证失败，请检查密码。")
+            st.info("仅通过权限验证的会话可以新增、导入或删除本外币存款数据。")
 
     if df.empty:
         st.info("暂无本外币存款数据，请先新增月份或批量导入。")
@@ -8064,158 +8142,197 @@ def render_etf_deposit_tab():
             index=0,
             key="deposit_edit_select",
         )
-        if edit_month and st.button("编辑选中月份", key="deposit_edit_button"):
+        edit_button_disabled = (not has_deposit_edit_permission()) or (not edit_month)
+        if st.button("编辑选中月份", key="deposit_edit_button", disabled=edit_button_disabled):
             st.session_state["deposit_manual_open"] = True
+            st.session_state["deposit_import_open"] = False
             st.session_state["deposit_edit_month"] = edit_month
 
+        if not has_deposit_edit_permission() and edit_month:
+            st.caption("要编辑或删除已有月份，请先完成权限验证。")
+
         display_df = to_deposit_display_df(detail_df)
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        if not display_df.empty:
+            display_df.insert(0, "删除", False)
+        editor_df = st.data_editor(
+            display_df,
+            use_container_width=True,
+            hide_index=True,
+            disabled=[column for column in display_df.columns if column != "删除"],
+            column_config={
+                "删除": st.column_config.CheckboxColumn("删除", help="勾选后可删除对应月份"),
+            },
+            key="deposit_detail_editor",
+        )
+        selected_delete_months = editor_df.loc[editor_df["删除"], "月份"].tolist() if not editor_df.empty else []
 
-    if st.session_state.get("deposit_manual_open", False):
-        edit_row = None
-        if st.session_state.get("deposit_edit_month") and not df.empty:
-            mask = pd.to_datetime(df["month"]).dt.strftime("%Y-%m-%d") == st.session_state["deposit_edit_month"]
-            if mask.any():
-                edit_row = df.loc[mask].iloc[-1].to_dict()
-
-        with st.form("deposit_manual_form", clear_on_submit=False):
-            month = st.text_input(
-                "月份",
-                value=pd.to_datetime(edit_row["month"]).strftime("%Y-%m") if edit_row else "",
-            )
-            rmb = st.number_input(
-                "人民币存款余额",
-                value=float(edit_row["rmb_deposit_balance"]) if edit_row else 0.0,
-                format="%.4f",
-            )
-            fx = st.number_input(
-                "外币存款余额",
-                value=float(edit_row["fx_deposit_balance"]) if edit_row else 0.0,
-                format="%.4f",
-            )
-            total = st.number_input(
-                "本外币存款余额",
-                value=float(edit_row["total_deposit_balance"]) if edit_row else 0.0,
-                format="%.4f",
-            )
-            household = st.number_input(
-                "住户存款增加额",
-                value=float(edit_row["household_deposit_increase"]) if edit_row else 0.0,
-                format="%.4f",
-            )
-            corp = st.number_input(
-                "非金融企业存款增加额",
-                value=float(edit_row["corp_deposit_increase"]) if edit_row else 0.0,
-                format="%.4f",
-            )
-            fiscal = st.number_input(
-                "财政性存款增加额",
-                value=float(edit_row["fiscal_deposit_increase"]) if edit_row else 0.0,
-                format="%.4f",
-            )
-            nonbank = st.number_input(
-                "非银行业金融机构存款增加额",
-                value=float(edit_row["nonbank_deposit_increase"]) if edit_row else 0.0,
-                format="%.4f",
-            )
-            total_increase = st.number_input(
-                "存款合计增加额",
-                value=float(edit_row["total_deposit_increase"]) if edit_row else 0.0,
-                format="%.4f",
-            )
-            household_loan = st.number_input(
-                "居民长期贷款增加额",
-                value=float(edit_row["household_long_loan_increase"]) if edit_row else 0.0,
-                format="%.4f",
-            )
-            submitted = st.form_submit_button("保存本月数据")
-            canceled = st.form_submit_button("取消")
-
-        if canceled:
-            st.session_state["deposit_manual_open"] = False
-            st.session_state["deposit_edit_month"] = ""
-            st.rerun()
-
-        if submitted:
+        delete_disabled = (not has_deposit_edit_permission()) or (not selected_delete_months)
+        if st.button("删除选中月份", key="deposit_delete_selected", disabled=delete_disabled):
             try:
-                rows = build_upsert_rows(
-                    [
-                        {
-                            "month": month,
-                            "rmb_deposit_balance": rmb,
-                            "fx_deposit_balance": fx,
-                            "total_deposit_balance": total,
-                            "household_deposit_increase": household,
-                            "corp_deposit_increase": corp,
-                            "fiscal_deposit_increase": fiscal,
-                            "nonbank_deposit_increase": nonbank,
-                            "total_deposit_increase": total_increase,
-                            "household_long_loan_increase": household_loan,
-                        }
-                    ],
-                    source_type="manual",
-                    source_file=None,
-                )
-                upsert_deposit_rows(engine, rows)
+                deleted_count = delete_deposit_months(engine, selected_delete_months)
             except Exception as exc:
-                st.error(f"保存失败: {exc}")
+                st.error(f"删除失败: {exc}")
             else:
                 st.session_state["deposit_manual_open"] = False
+                st.session_state["deposit_import_open"] = False
                 st.session_state["deposit_edit_month"] = ""
-                st.success("保存成功")
+                st.success(f"已删除 {deleted_count} 个月份")
                 st.rerun()
 
+    if st.session_state.get("deposit_manual_open", False):
+        if not has_deposit_edit_permission():
+            st.warning("当前会话没有本外币存款编辑权限，请先完成权限验证。")
+            st.session_state["deposit_manual_open"] = False
+            st.session_state["deposit_edit_month"] = ""
+        else:
+            edit_row = None
+            if st.session_state.get("deposit_edit_month") and not df.empty:
+                mask = pd.to_datetime(df["month"]).dt.strftime("%Y-%m-%d") == st.session_state["deposit_edit_month"]
+                if mask.any():
+                    edit_row = df.loc[mask].iloc[-1].to_dict()
+
+            with st.form("deposit_manual_form", clear_on_submit=False):
+                month = st.text_input(
+                    "月份",
+                    value=pd.to_datetime(edit_row["month"]).strftime("%Y-%m") if edit_row else "",
+                )
+                rmb = st.number_input(
+                    "人民币存款余额",
+                    value=float(edit_row["rmb_deposit_balance"]) if edit_row else 0.0,
+                    format="%.4f",
+                )
+                fx = st.number_input(
+                    "外币存款余额",
+                    value=float(edit_row["fx_deposit_balance"]) if edit_row else 0.0,
+                    format="%.4f",
+                )
+                total = st.number_input(
+                    "本外币存款余额",
+                    value=float(edit_row["total_deposit_balance"]) if edit_row else 0.0,
+                    format="%.4f",
+                )
+                household = st.number_input(
+                    "住户存款增加额",
+                    value=float(edit_row["household_deposit_increase"]) if edit_row else 0.0,
+                    format="%.4f",
+                )
+                corp = st.number_input(
+                    "非金融企业存款增加额",
+                    value=float(edit_row["corp_deposit_increase"]) if edit_row else 0.0,
+                    format="%.4f",
+                )
+                fiscal = st.number_input(
+                    "财政性存款增加额",
+                    value=float(edit_row["fiscal_deposit_increase"]) if edit_row else 0.0,
+                    format="%.4f",
+                )
+                nonbank = st.number_input(
+                    "非银行业金融机构存款增加额",
+                    value=float(edit_row["nonbank_deposit_increase"]) if edit_row else 0.0,
+                    format="%.4f",
+                )
+                total_increase = st.number_input(
+                    "存款合计增加额",
+                    value=float(edit_row["total_deposit_increase"]) if edit_row else 0.0,
+                    format="%.4f",
+                )
+                household_loan = st.number_input(
+                    "居民长期贷款增加额",
+                    value=float(edit_row["household_long_loan_increase"]) if edit_row else 0.0,
+                    format="%.4f",
+                )
+                submitted = st.form_submit_button("保存本月数据")
+                canceled = st.form_submit_button("取消")
+
+            if canceled:
+                st.session_state["deposit_manual_open"] = False
+                st.session_state["deposit_edit_month"] = ""
+                st.rerun()
+
+            if submitted:
+                try:
+                    rows = build_upsert_rows(
+                        [
+                            {
+                                "month": month,
+                                "rmb_deposit_balance": rmb,
+                                "fx_deposit_balance": fx,
+                                "total_deposit_balance": total,
+                                "household_deposit_increase": household,
+                                "corp_deposit_increase": corp,
+                                "fiscal_deposit_increase": fiscal,
+                                "nonbank_deposit_increase": nonbank,
+                                "total_deposit_increase": total_increase,
+                                "household_long_loan_increase": household_loan,
+                            }
+                        ],
+                        source_type="manual",
+                        source_file=None,
+                    )
+                    upsert_deposit_rows(engine, rows)
+                except Exception as exc:
+                    st.error(f"保存失败: {exc}")
+                else:
+                    st.session_state["deposit_manual_open"] = False
+                    st.session_state["deposit_edit_month"] = ""
+                    st.success("保存成功")
+                    st.rerun()
+
     if st.session_state.get("deposit_import_open", False):
-        upload = st.file_uploader(
-            "上传本外币存款 Excel",
-            type=["xlsx"],
-            key="deposit_uploader",
-        )
-        if upload is not None:
-            try:
-                imported_df = parse_deposit_workbook(upload)
-                preview = classify_import_rows(imported_df, df)
-            except Exception as exc:
-                st.error(f"导入预览失败: {exc}")
-            else:
-                st.radio(
-                    "重复月份处理",
-                    ["跳过已存在月份", "覆盖已存在月份"],
-                    horizontal=True,
-                    key="deposit_overwrite_mode",
-                )
-                st.write("新增月份")
-                st.dataframe(
-                    to_deposit_display_df(preview["to_insert"]),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-                st.write("覆盖月份")
-                st.dataframe(
-                    to_deposit_display_df(preview["to_overwrite"]),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-                if st.button("确认写入", key="deposit_confirm_import"):
-                    write_df = imported_df.copy()
-                    if st.session_state["deposit_overwrite_mode"] == "跳过已存在月份":
-                        write_df = preview["to_insert"].copy()
-                    if write_df.empty:
-                        st.warning("没有需要写入的月份。")
-                    else:
-                        try:
-                            rows = build_upsert_rows(
-                                write_df.to_dict(orient="records"),
-                                source_type="import",
-                                source_file=getattr(upload, "name", None),
-                            )
-                            upsert_deposit_rows(engine, rows)
-                        except Exception as exc:
-                            st.error(f"导入写入失败: {exc}")
+        if not has_deposit_edit_permission():
+            st.warning("当前会话没有本外币存款编辑权限，请先完成权限验证。")
+            st.session_state["deposit_import_open"] = False
+        else:
+            upload = st.file_uploader(
+                "上传本外币存款 Excel",
+                type=["xlsx"],
+                key="deposit_uploader",
+            )
+            if upload is not None:
+                try:
+                    imported_df = parse_deposit_workbook(upload)
+                    preview = classify_import_rows(imported_df, df)
+                except Exception as exc:
+                    st.error(f"导入预览失败: {exc}")
+                else:
+                    st.radio(
+                        "重复月份处理",
+                        ["跳过已存在月份", "覆盖已存在月份"],
+                        horizontal=True,
+                        key="deposit_overwrite_mode",
+                    )
+                    st.write("新增月份")
+                    st.dataframe(
+                        to_deposit_display_df(preview["to_insert"]),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                    st.write("覆盖月份")
+                    st.dataframe(
+                        to_deposit_display_df(preview["to_overwrite"]),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                    if st.button("确认写入", key="deposit_confirm_import"):
+                        write_df = imported_df.copy()
+                        if st.session_state["deposit_overwrite_mode"] == "跳过已存在月份":
+                            write_df = preview["to_insert"].copy()
+                        if write_df.empty:
+                            st.warning("没有需要写入的月份。")
                         else:
-                            st.session_state["deposit_import_open"] = False
-                            st.success(f"已写入 {len(rows)} 个月份")
-                            st.rerun()
+                            try:
+                                rows = build_upsert_rows(
+                                    write_df.to_dict(orient="records"),
+                                    source_type="import",
+                                    source_file=getattr(upload, "name", None),
+                                )
+                                upsert_deposit_rows(engine, rows)
+                            except Exception as exc:
+                                st.error(f"导入写入失败: {exc}")
+                            else:
+                                st.session_state["deposit_import_open"] = False
+                                st.success(f"已写入 {len(rows)} 个月份")
+                                st.rerun()
 
 INDEX_MONITOR_DEFAULT_NAMES = [
     "上证指数",

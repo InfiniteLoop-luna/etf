@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 import os
+import re
 
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -103,10 +104,17 @@ def normalize_month(value) -> date:
     if not raw:
         raise ValueError("month 不能为空")
 
-    candidates = [raw]
-    if len(raw) == 7:
-        candidates.append(raw + "-01")
-    candidates.append(raw.replace("-", ""))
+    compact = re.sub(r"\s+", "", raw)
+    normalized = (
+        compact.replace("年", "-")
+        .replace("月", "-")
+        .replace("日", "")
+        .replace("/", "-")
+        .replace(".", "-")
+    )
+    normalized = re.sub(r"-+", "-", normalized).strip("-")
+
+    candidates = [raw, compact, normalized]
 
     for candidate in candidates:
         try:
@@ -114,9 +122,25 @@ def normalize_month(value) -> date:
                 return datetime.strptime(candidate, "%Y-%m-%d").date().replace(day=1)
             if len(candidate) == 8 and candidate.isdigit():
                 return datetime.strptime(candidate, "%Y%m%d").date().replace(day=1)
+            if len(candidate) == 6 and candidate.isdigit():
+                return datetime.strptime(candidate, "%Y%m").date().replace(day=1)
         except ValueError:
             continue
-    raise ValueError(f"无法解析 month: {value}")
+
+    month_match = re.fullmatch(r"(\d{4})-(\d{1,2})", normalized)
+    if month_match:
+        year = int(month_match.group(1))
+        month = int(month_match.group(2))
+        return date(year, month, 1)
+
+    day_match = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", normalized)
+    if day_match:
+        year = int(day_match.group(1))
+        month = int(day_match.group(2))
+        day = int(day_match.group(3))
+        return date(year, month, day).replace(day=1)
+
+    raise ValueError(f"无法识别月份格式: {value}，请使用 YYYY-MM，例如 2026-05")
 
 
 def build_deposit_summary(df: pd.DataFrame) -> dict:
@@ -313,6 +337,21 @@ def upsert_deposit_rows(engine: Engine, rows: list[dict]) -> int:
     with engine.begin() as conn:
         conn.execute(insert_sql, rows)
     return len(rows)
+
+
+def delete_deposit_months(engine: Engine, months: list) -> int:
+    ensure_deposit_table(engine)
+    normalized_months = sorted({normalize_month(month) for month in months if str(month).strip()})
+    if not normalized_months:
+        return 0
+
+    delete_sql = text(f"DELETE FROM {TABLE_NAME} WHERE month = :month")
+    deleted_count = 0
+    with engine.begin() as conn:
+        for month in normalized_months:
+            result = conn.execute(delete_sql, {"month": month})
+            deleted_count += int(result.rowcount or 0)
+    return deleted_count
 
 
 def load_deposit_monthly_df(engine: Engine | None = None) -> pd.DataFrame:
