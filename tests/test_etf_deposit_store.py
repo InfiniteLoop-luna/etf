@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock, patch
 
 import pandas as pd
 
@@ -8,6 +9,7 @@ from src.etf_deposit_store import (
     build_deposit_summary,
     build_upsert_rows,
     classify_import_rows,
+    delete_deposit_months,
     normalize_month,
     to_deposit_display_df,
 )
@@ -16,6 +18,9 @@ from src.etf_deposit_store import (
 class EtfDepositStoreTests(unittest.TestCase):
     def test_normalize_month_accepts_common_formats(self):
         self.assertEqual(str(normalize_month("2026-03")), "2026-03-01")
+        self.assertEqual(str(normalize_month("2026-3")), "2026-03-01")
+        self.assertEqual(str(normalize_month("2026/03")), "2026-03-01")
+        self.assertEqual(str(normalize_month("2026年03月")), "2026-03-01")
         self.assertEqual(str(normalize_month("2026-03-01")), "2026-03-01")
         self.assertEqual(str(normalize_month("20260301")), "2026-03-01")
 
@@ -114,6 +119,26 @@ class EtfDepositStoreTests(unittest.TestCase):
 
         self.assertEqual(preview["to_insert"]["month"].tolist(), ["2026-04-01"])
         self.assertEqual(preview["to_overwrite"]["month"].tolist(), ["2026-03-01"])
+
+    def test_delete_deposit_months_normalizes_and_deduplicates_input(self):
+        conn = Mock()
+        conn.execute.return_value.rowcount = 1
+        context_manager = Mock()
+        context_manager.__enter__ = Mock(return_value=conn)
+        context_manager.__exit__ = Mock(return_value=False)
+        engine = Mock()
+        engine.begin.return_value = context_manager
+
+        with patch("src.etf_deposit_store.ensure_deposit_table"):
+            deleted = delete_deposit_months(engine, ["2026-3", "2026/04", "2026-03-01", "  "])
+
+        self.assertEqual(deleted, 2)
+        self.assertEqual(conn.execute.call_count, 2)
+        params_list = [call.args[1] for call in conn.execute.call_args_list]
+        self.assertEqual(
+            [params["month"].isoformat() for params in params_list],
+            ["2026-03-01", "2026-04-01"],
+        )
 
     def test_to_deposit_display_df_uses_chinese_column_labels(self):
         df = pd.DataFrame(
