@@ -9,6 +9,7 @@ from src.apple_theme import (
     build_global_apple_theme_css,
 )
 from src.eastmoney_author_tracker.ui import (
+    DIRECTION_COLORS,
     _format_metadata_caption,
     _format_cycle_option,
     _render_evidence_images,
@@ -31,10 +32,15 @@ LABEL_WATCH = "\u5f85\u89c2\u5bdf"
 
 
 class TrackerUiPayloadTests(unittest.TestCase):
-    def test_build_global_apple_theme_css_contains_core_shell_tokens(self):
+    def test_build_global_apple_theme_css_contains_professional_gold_core_tokens(self):
         css = build_global_apple_theme_css()
 
-        self.assertIn("--ws-bg", css)
+        self.assertIn("--ws-bg-base: #F4F7F6", css)
+        self.assertIn("--ws-bg-surface: #FFFFFF", css)
+        self.assertIn("--ws-bg-dark: #1B263B", css)
+        self.assertIn("--ws-color-primary: #D4AF37", css)
+        self.assertIn("--ws-color-up: #E63946", css)
+        self.assertIn("--ws-color-down: #2A9D8F", css)
         self.assertIn('[data-testid="stSidebar"]', css)
         self.assertIn('[data-testid="stDataFrame"]', css)
         self.assertIn(".stMetric", css)
@@ -55,37 +61,39 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn('[data-testid="stSidebar"] [role="radiogroup"]', css)
         self.assertIn('.block-container h1 *', css)
 
-    def test_build_global_apple_theme_css_uses_layered_glass_surfaces(self):
+    def test_build_global_apple_theme_css_uses_professional_gold_shell_structure(self):
         css = build_global_apple_theme_css()
 
-        self.assertIn("--ws-bg-deep", css)
-        self.assertIn("--ws-surface-glass", css)
-        self.assertIn("--ws-surface-tint", css)
-        self.assertIn("--ws-surface-titanium", css)
-        self.assertIn("--ws-surface-shell", css)
-        self.assertIn("backdrop-filter: blur(28px)", css)
-        self.assertIn("var(--ws-surface-glass)", css)
+        self.assertIn("background: var(--ws-bg-base) !important", css)
+        self.assertIn("background: var(--ws-bg-dark) !important", css)
+        self.assertIn("var(--ws-bg-surface)", css)
+        self.assertIn("var(--ws-color-primary)", css)
+        self.assertIn("box-shadow: 0 4px 20px rgba(27, 38, 59, 0.04)", css)
 
     def test_build_global_apple_theme_css_adds_shell_finish_details(self):
         css = build_global_apple_theme_css()
 
-        self.assertIn("--ws-shell-highlight", css)
-        self.assertIn("--ws-shell-shadow-edge", css)
-        self.assertIn(".main .block-container::before", css)
-        self.assertIn(".main .block-container::after", css)
-        self.assertIn('[data-testid="stSidebar"] > div:first-child::before', css)
+        self.assertIn("--ws-ai-glow", css)
+        self.assertIn(".ws-ai-signal", css)
+        self.assertIn(".main .block-container", css)
+        self.assertIn('[data-testid="stSidebar"] [aria-checked="true"]', css)
+        self.assertIn("linear-gradient(135deg, var(--ws-color-primary)", css)
 
-    def test_build_apple_plotly_template_uses_light_backgrounds(self):
+    def test_build_apple_plotly_template_uses_professional_gold_palette(self):
         template = build_apple_plotly_template()
 
-        self.assertEqual(template.layout.paper_bgcolor, "#F5F5F7")
+        self.assertEqual(template.layout.paper_bgcolor, "#F4F7F6")
         self.assertEqual(template.layout.plot_bgcolor, "#FFFFFF")
+        self.assertEqual(template.layout.colorway[0], "#1B263B")
+        self.assertEqual(template.layout.colorway[1], "#D4AF37")
 
-    def test_app_py_no_longer_uses_legacy_plot_background_literals(self):
+    def test_app_py_no_longer_uses_legacy_cold_blue_theme_literals(self):
         app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 
         self.assertNotIn("rgba(248, 250, 252, 0.92)", app_source)
         self.assertNotIn("rgba(241, 245, 249, 0.58)", app_source)
+        self.assertNotIn("rgba(236, 241, 247, 0.84)", app_source)
+        self.assertNotIn("linear-gradient(180deg, #F8FAFC 0%, #EEF4FF 48%, #E2E8F0 100%)", app_source)
 
     def test_build_author_tracker_apple_css_contains_tracker_hooks(self):
         css = build_author_tracker_apple_css()
@@ -93,6 +101,11 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn(".ws-tracker-shell", css)
         self.assertIn(".ws-tracker-section", css)
         self.assertIn(".ws-evidence-gallery", css)
+
+    def test_tracker_direction_colors_follow_professional_gold_semantics(self):
+        self.assertEqual(DIRECTION_COLORS["bullish"], "#E63946")
+        self.assertEqual(DIRECTION_COLORS["exit_signal"], "#2A9D8F")
+        self.assertEqual(DIRECTION_COLORS["neutral"], "#6E7C8C")
 
     def test_build_dashboard_payload_splits_cycles_and_keeps_metadata(self):
         rows = [

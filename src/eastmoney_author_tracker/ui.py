@@ -48,11 +48,11 @@ CLOSE_REASON_LABELS = {
     "manual_split": "人工拆分",
 }
 DIRECTION_COLORS = {
-    "bullish": "#0F766E",
-    "trim_signal": "#D97706",
-    "exit_signal": "#DC2626",
-    "bearish": "#7C3AED",
-    "neutral": "#475569",
+    "bullish": "#E63946",
+    "trim_signal": "#F4A261",
+    "exit_signal": "#2A9D8F",
+    "bearish": "#7D6B91",
+    "neutral": "#6E7C8C",
 }
 TREND_DATE_COL = "\u65e5\u671f"
 TREND_WIN_RATE_COL = "\u80dc\u7387%"

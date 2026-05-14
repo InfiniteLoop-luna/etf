@@ -44,10 +44,11 @@ class NavigationConfigTests(unittest.TestCase):
         self.assertEqual(len(links), 1)
         self.assertIn("security_query=%E6%B2%A7%E5%B7%9E%E5%A4%A7%E5%8C%96", links[0])
 
-    def test_style_historical_st_badge_column_only_styles_badge_rows(self):
+    def test_style_historical_st_badge_column_uses_professional_gold_palette(self):
         styles = style_historical_st_badge_column(pd.Series([HISTORICAL_ST_BADGE_TEXT, "", None]))
 
-        self.assertIn("background-color: #FEF3C7", styles[0])
+        self.assertIn("background-color: #F6E7B8", styles[0])
+        self.assertIn("color: #1B263B", styles[0])
         self.assertEqual(styles[1], "")
         self.assertEqual(styles[2], "")
 

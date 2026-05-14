@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """ETF份额变动可视化 - Streamlit Web应用"""
 
 # Version: 2.0 - Fixed data_only issue for formula cells
@@ -87,6 +87,7 @@ from src.ml_reco_candidate_scores import (
     compute_candidate_scores as compute_ml_reco_candidate_scores,
 )
 from src.apple_theme import (
+    APPLE_THEME_TOKENS,
     build_apple_plotly_template,
     build_author_tracker_apple_css,
     build_global_apple_theme_css,
@@ -126,291 +127,39 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Plotly 统一主题：匹配浅灰蓝数据看板
-pio.templates["wealthspark_balanced"] = go.layout.Template(
-    layout=go.Layout(
-        paper_bgcolor="rgba(236, 241, 247, 0.84)",
-        plot_bgcolor="rgba(225, 232, 240, 0.52)",
-        font=dict(color="#0F172A"),
-        hoverlabel=dict(bgcolor="rgba(15, 23, 42, 0.96)", font=dict(color="#F8FAFC")),
-        title=dict(font=dict(color="#0F172A")),
-        legend=dict(bgcolor="rgba(255,255,255,0.52)", bordercolor="rgba(148,163,184,0.10)", borderwidth=1),
-        xaxis=dict(
-            showline=True,
-            linewidth=1,
-            ticks="outside",
-            tickcolor="rgba(148, 163, 184, 0.28)",
-            gridcolor="rgba(148, 163, 184, 0.12)",
-            linecolor="rgba(148, 163, 184, 0.24)",
-            zerolinecolor="rgba(148, 163, 184, 0.10)"
-        ),
-        yaxis=dict(
-            showline=True,
-            linewidth=1,
-            ticks="outside",
-            tickcolor="rgba(148, 163, 184, 0.28)",
-            gridcolor="rgba(148, 163, 184, 0.12)",
-            linecolor="rgba(148, 163, 184, 0.24)",
-            zerolinecolor="rgba(148, 163, 184, 0.10)"
-        ),
-        colorway=["#2563EB", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4"]
-    )
-)
-pio.templates.default = "wealthspark_balanced"
-
 apple_plotly_template = build_apple_plotly_template()
 pio.templates["wealthspark_apple"] = apple_plotly_template
 pio.templates["wealthspark_balanced"] = apple_plotly_template
 pio.templates["plotly_white"] = apple_plotly_template
 pio.templates.default = "wealthspark_apple"
 
-# 自定义CSS样式 - 金融专业风格
-st.markdown("""
-<style>
-    /* 导入专业字体 */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+THEME = APPLE_THEME_TOKENS
+THEME_PRIMARY = THEME["primary"]
+THEME_PRIMARY_HOVER = THEME["primary_hover"]
+THEME_PRIMARY_STRONG = THEME["primary_strong"]
+THEME_NAVY = THEME["bg_dark"]
+THEME_SURFACE = THEME["bg_surface"]
+THEME_TEXT = THEME["text_main"]
+THEME_MUTED = THEME["text_muted"]
+THEME_BORDER_SOFT = THEME["border_soft"]
+THEME_SHADOW = THEME["shadow"]
+THEME_UP = THEME["color_up"]
+THEME_DOWN = THEME["color_down"]
+THEME_WARN = THEME["color_warn"]
+THEME_NEUTRAL = THEME["color_neutral"]
+THEME_PURPLE = THEME["color_purple"]
+CHART_BG = THEME_SURFACE
+CHART_PAPER_BG = THEME["bg_base"]
+CHART_GRID_COLOR = "rgba(27, 38, 59, 0.08)"
+CHART_AXIS_COLOR = "rgba(27, 38, 59, 0.12)"
+CHART_ZERO_LINE_COLOR = "rgba(27, 38, 59, 0.18)"
+CHART_UP_FILL = "rgba(230, 57, 70, 0.20)"
+CHART_DOWN_FILL = "rgba(42, 157, 143, 0.20)"
+CHART_NAVY_SOFT_FILL = "rgba(27, 38, 59, 0.10)"
+CHART_GOLD_SOFT_FILL = "rgba(212, 175, 55, 0.12)"
+CHART_SERIES = [THEME_NAVY, THEME_PRIMARY, "#4F6785", "#5B8E7D", "#C28C4E", THEME_PURPLE]
 
-    /* 全局字体设置 */
-    html, body, [class*="css"] {
-        font-family: 'Inter', 'PingFang SC', -apple-system, BlinkMacSystemFont, sans-serif;
-    }
-
-
-    /* 整体页面背景：浅灰蓝数据看板 */
-    html, body, .stApp, [data-testid="stAppViewContainer"] {
-        background:
-            radial-gradient(circle at top left, rgba(59, 130, 246, 0.10), transparent 28%),
-            radial-gradient(circle at top right, rgba(16, 185, 129, 0.06), transparent 24%),
-            linear-gradient(180deg, #F8FAFC 0%, #EEF4FF 48%, #E2E8F0 100%) !important;
-        color: #0F172A !important;
-    }
-
-    [data-testid="stAppViewContainer"] > .main {
-        background: transparent !important;
-    }
-
-    .main .block-container {
-        background: transparent !important;
-    }
-
-    .main p,
-    .main li,
-    .main label,
-    .main span,
-    .main .stMarkdown,
-    .main [data-testid="stCaptionContainer"] {
-        color: #334155 !important;
-    }
-
-    /* 隐藏Streamlit默认元素 */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-
-    /* 平衡看板侧边栏（浅色高可读） */
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #F8FAFC 0%, #EEF4FF 100%);
-        border-right: 1px solid rgba(148, 163, 184, 0.25);
-        padding: 2rem 1rem;
-        min-width: 300px !important;
-    }
-
-    /* 普通模式下强制保持侧边栏可见，避免折叠后刷新无法恢复 */
-    [data-testid="stSidebar"][aria-expanded="false"] {
-        min-width: 300px !important;
-        width: 300px !important;
-        transform: none !important;
-        margin-left: 0 !important;
-    }
-    [data-testid="stSidebar"] > div:first-child {
-        width: 300px !important;
-    }
-
-    [data-testid="collapsedControl"],
-    button[aria-label="Open sidebar"],
-    button[aria-label="Close sidebar"] {
-        position: fixed !important;
-        top: 0.75rem !important;
-        left: 0.75rem !important;
-        width: 2.75rem !important;
-        height: 2.75rem !important;
-        border-radius: 9999px !important;
-        border: 1px solid rgba(59, 130, 246, 0.35) !important;
-        background: linear-gradient(135deg, rgba(30, 41, 59, 0.96) 0%, rgba(37, 99, 235, 0.96) 100%) !important;
-        color: #0F172A !important;
-        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.28) !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        opacity: 1 !important;
-        z-index: 1000 !important;
-        transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease !important;
-    }
-
-    [data-testid="collapsedControl"]:hover,
-    button[aria-label="Open sidebar"]:hover,
-    button[aria-label="Close sidebar"]:hover {
-        transform: translateY(-1px) scale(1.02) !important;
-        box-shadow: 0 14px 36px rgba(37, 99, 235, 0.28) !important;
-        background: linear-gradient(135deg, rgba(30, 41, 59, 1) 0%, rgba(59, 130, 246, 1) 100%) !important;
-    }
-
-    [data-testid="collapsedControl"] svg,
-    button[aria-label="Open sidebar"] svg,
-    button[aria-label="Close sidebar"] svg {
-        width: 1.2rem !important;
-        height: 1.2rem !important;
-        fill: currentColor !important;
-    }
-
-    [data-testid="stSidebar"] * {
-        color: #1E293B !important;
-    }
-
-    [data-testid="stSidebar"] h1,
-    [data-testid="stSidebar"] h2,
-    [data-testid="stSidebar"] h3 {
-        color: #F8FAFC !important;
-        font-weight: 600;
-        letter-spacing: -0.02em;
-    }
-
-    /* 侧边栏标签样式 */
-    [data-testid="stSidebar"] label {
-        color: #475569 !important;
-        font-weight: 500;
-        font-size: 0.875rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-
-    /* Multiselect标签美化 */
-    [data-testid="stSidebar"] [data-baseweb="tag"] {
-        background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%) !important;
-        border-radius: 6px !important;
-        padding: 4px 10px !important;
-        margin: 2px !important;
-        border: none !important;
-        box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
-    }
-
-    [data-testid="stSidebar"] [data-baseweb="tag"] span {
-        color: #FFFFFF !important;
-        font-weight: 500;
-    }
-
-    /* 主内容区域 */
-    .main .block-container {
-        padding: 2rem 3rem;
-        max-width: 1400px;
-    }
-
-    /* 卡片式容器 */
-    .stPlotlyChart {
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.96) 100%);
-        border: 1px solid rgba(148, 163, 184, 0.22);
-        border-radius: 16px;
-        padding: 1.25rem;
-        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.10);
-        margin: 1rem 0;
-        transition: box-shadow 0.3s ease, transform 0.3s ease;
-    }
-
-    .stPlotlyChart:hover {
-        box-shadow: 0 16px 32px rgba(15, 23, 42, 0.14);
-        transform: translateY(-1px);
-    }
-
-    /* 数据表格样式 */
-    [data-testid="stDataFrame"] {
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%);
-        border: 1px solid rgba(148, 163, 184, 0.22);
-        border-radius: 16px;
-        padding: 1rem;
-        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
-    }
-
-    /* 标题样式 */
-    h1 {
-        font-weight: 700;
-        font-size: 2.5rem;
-        background: linear-gradient(135deg, #1E293B 0%, #3B82F6 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        margin-bottom: 0.5rem;
-    }
-
-    h2, h3 {
-        font-weight: 600;
-        color: #1E293B;
-        letter-spacing: -0.02em;
-    }
-
-    /* 按钮美化 */
-    .stButton > button {
-        background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 0.5rem 1.5rem;
-        font-weight: 500;
-        transition: all 0.3s ease;
-        box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
-    }
-
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
-    }
-
-    /* 信息框样式 */
-    .stAlert {
-        border-radius: 8px;
-        border-left: 4px solid #3B82F6;
-    }
-
-    /* 滑块样式 */
-    [data-testid="stSidebar"] .stSlider {
-        padding: 1rem 0;
-    }
-
-    /* 响应式设计移动端适配 */
-    @media (max-width: 768px) {
-        .main .block-container {
-            padding: 1rem;
-        }
-
-        h1 {
-            font-size: 1.8rem;
-        }
-
-        h2 {
-            font-size: 1.5rem;
-        }
-
-        h3 {
-            font-size: 1.2rem;
-        }
-
-        .stPlotlyChart {
-            padding: 0.5rem;
-        }
-
-        [data-testid="stSidebar"] {
-            padding: 1rem 0.5rem;
-        }
-        
-        .stMetric, div[style*="background: white; border-radius: 12px;"] {
-            padding: 1rem !important;
-        }
-
-        div[style*="font-size: 2rem;"] {
-            font-size: 1.5rem !important; 
-        }
-    }
-</style>
-""", unsafe_allow_html=True)
+# Legacy inline CSS retired; shared Professional Gold theme is injected below.
 
 # 数据文件路径
 DATA_FILE = "主要ETF基金份额变动情况.xlsx"
@@ -1568,9 +1317,9 @@ def render_strategy_comparison_panel():
     comp_df = comp_df.sort_values("trade_date").reset_index(drop=True)
 
     strategy_meta = [
-        ("rule_ret_5d", "纯规则", "#2563EB"),
-        ("model_ret_5d", "纯模型", "#F59E0B"),
-        ("hybrid_ret_5d", "混合模型", "#10B981"),
+        ("rule_ret_5d", "纯规则", THEME_NAVY),
+        ("model_ret_5d", "纯模型", THEME_WARN),
+        ("hybrid_ret_5d", "混合模型", THEME_DOWN),
     ]
 
     metrics = []
@@ -1935,10 +1684,10 @@ def format_historical_st_badge(value) -> str:
 
 def style_historical_st_badge_column(column: pd.Series) -> list[str]:
     badge_style = (
-        'background-color: #FEF3C7; '
-        'color: #92400E; '
+        'background-color: #F6E7B8; '
+        'color: #1B263B; '
         'font-weight: 700; '
-        'border: 1px solid #F59E0B; '
+        f'border: 1px solid {THEME_PRIMARY}; '
         'border-radius: 999px; '
         'text-align: center; '
         'white-space: nowrap;'
@@ -2503,7 +2252,7 @@ def create_security_kline_chart(
     )
 
     up_mask = chart_df[close_col] >= chart_df[open_col]
-    bar_colors = np.where(up_mask, "#EF4444", "#10B981")
+    bar_colors = np.where(up_mask, THEME_UP, THEME_DOWN)
 
     fig.add_trace(
         go.Candlestick(
@@ -2512,10 +2261,10 @@ def create_security_kline_chart(
             high=high_values,
             low=low_values,
             close=close_values,
-            increasing_line_color="#EF4444",
-            decreasing_line_color="#10B981",
-            increasing_fillcolor="#FCA5A5",
-            decreasing_fillcolor="#86EFAC",
+            increasing_line_color=THEME_UP,
+            decreasing_line_color=THEME_DOWN,
+            increasing_fillcolor=CHART_UP_FILL,
+            decreasing_fillcolor=CHART_DOWN_FILL,
             name="K线",
         ),
         row=1, col=1
@@ -2544,8 +2293,8 @@ def create_security_kline_chart(
                 base=[selected_body_bottom],
                 width=[selected_body_width_ms],
                 marker=dict(
-                    color="rgba(59, 130, 246, 0.22)",
-                    line=dict(color="rgba(37, 99, 235, 0.98)", width=2.4),
+                    color=CHART_GOLD_SOFT_FILL,
+                    line=dict(color=THEME_PRIMARY, width=2.4),
                 ),
                 hoverinfo="skip",
                 showlegend=False,
@@ -2559,7 +2308,7 @@ def create_security_kline_chart(
                 x=[selected_date, selected_date],
                 y=[selected_low, selected_high],
                 mode="lines",
-                line=dict(color="rgba(37, 99, 235, 0.98)", width=1.8),
+                line=dict(color=THEME_PRIMARY, width=1.8),
                 hoverinfo="skip",
                 showlegend=False,
                 name="当前选中日K影线",
@@ -2568,7 +2317,7 @@ def create_security_kline_chart(
             col=1,
         )
 
-    ma_colors = ["#2563EB", "#7C3AED", "#F59E0B", "#10B981", "#EF4444", "#06B6D4"]
+    ma_colors = [THEME_NAVY, THEME_PURPLE, THEME_WARN, THEME_DOWN, THEME_UP, "#6FA3B8"]
     for idx, w in enumerate(ma_windows):
         ma_col = f"ma{w}"
         if ma_col not in chart_df.columns:
@@ -2613,7 +2362,7 @@ def create_security_kline_chart(
         if not volume_ma_windows:
             volume_ma_windows = [5, 10]
 
-        vol_ma_colors = ["#1D4ED8", "#9333EA", "#EA580C", "#0F766E"]
+        vol_ma_colors = ["#4F6785", THEME_PURPLE, "#C28C4E", "#5B8E7D"]
         for idx, w in enumerate(volume_ma_windows):
             vol_ma_col = f"vol_ma{w}"
             chart_df[vol_ma_col] = pd.to_numeric(chart_df[volume_used], errors="coerce").rolling(window=w).mean()
@@ -2637,7 +2386,7 @@ def create_security_kline_chart(
         chart_df["dea"] = chart_df["dif"].ewm(span=9, adjust=False).mean()
         chart_df["macd_hist"] = (chart_df["dif"] - chart_df["dea"]) * 2
 
-        macd_colors = np.where(chart_df["macd_hist"] >= 0, "#EF4444", "#10B981")
+        macd_colors = np.where(chart_df["macd_hist"] >= 0, THEME_UP, THEME_DOWN)
         fig.add_trace(
             go.Bar(
                 x=trade_dates,
@@ -2655,7 +2404,7 @@ def create_security_kline_chart(
                 y=_series_to_plotly_list(chart_df["dif"]),
                 mode="lines",
                 name="DIF",
-                line=dict(color="#2563EB", width=1.5),
+                line=dict(color=THEME_NAVY, width=1.5),
                 hovertemplate="%{x|%Y-%m-%d}<br>DIF: %{y:,.3f}<extra></extra>",
             ),
             row=3, col=1,
@@ -2666,7 +2415,7 @@ def create_security_kline_chart(
                 y=_series_to_plotly_list(chart_df["dea"]),
                 mode="lines",
                 name="DEA",
-                line=dict(color="#7C3AED", width=1.5),
+                line=dict(color=THEME_PURPLE, width=1.5),
                 hovertemplate="%{x|%Y-%m-%d}<br>DEA: %{y:,.3f}<extra></extra>",
             ),
             row=3, col=1,
@@ -2689,7 +2438,7 @@ def create_security_kline_chart(
     fig.update_xaxes(
         showgrid=True,
         gridwidth=1,
-        gridcolor='rgba(226,232,240,0.5)',
+        gridcolor=CHART_GRID_COLOR,
         type="date",
         rangebreaks=rangebreaks,
         fixedrange=True,
@@ -2742,7 +2491,7 @@ def create_security_intraday_chart(
     )
 
     up_mask = chart_df["close"] >= chart_df["open"]
-    bar_colors = np.where(up_mask, "#EF4444", "#10B981")
+    bar_colors = np.where(up_mask, THEME_UP, THEME_DOWN)
 
     fig.add_trace(
         go.Candlestick(
@@ -2761,10 +2510,10 @@ def create_security_intraday_chart(
                 "<br>涨幅: %{customdata[0]}"
                 "<extra></extra>"
             ),
-            increasing_line_color="#EF4444",
-            decreasing_line_color="#10B981",
-            increasing_fillcolor="#FCA5A5",
-            decreasing_fillcolor="#86EFAC",
+            increasing_line_color=THEME_UP,
+            decreasing_line_color=THEME_DOWN,
+            increasing_fillcolor=CHART_UP_FILL,
+            decreasing_fillcolor=CHART_DOWN_FILL,
             name="1分钟K线",
         ),
         row=1,
@@ -2807,7 +2556,7 @@ def create_security_intraday_chart(
     fig.update_xaxes(
         showgrid=True,
         gridwidth=1,
-        gridcolor='rgba(226,232,240,0.5)',
+        gridcolor=CHART_GRID_COLOR,
         type="date",
         tickformat="%H:%M",
         rangebreaks=intraday_rangebreaks,
@@ -2823,7 +2572,7 @@ def create_metric_line_chart(
     yaxis_title: str,
     scale: float = 1.0,
     digits: int = 2,
-    color: str = '#2563EB'
+    color: str = THEME_NAVY
 ):
     if df is None or df.empty or y_col not in df.columns:
         return None
@@ -2844,19 +2593,19 @@ def create_metric_line_chart(
         hovertemplate=f"%{{x|%Y-%m-%d}}<br>{yaxis_title}: %{{y:,.{digits}f}}<extra></extra>"
     ))
     fig.update_layout(
-        title=dict(text=title, x=0.02, font=dict(size=18, color='#1E293B')),
+        title=dict(text=title, x=0.02, font=dict(size=18, color=THEME_TEXT)),
         xaxis_title='日期',
         yaxis_title=yaxis_title,
         hovermode='x unified',
         height=360,
         template='plotly_white',
-        plot_bgcolor='rgba(229, 235, 243, 0.44)',
-        paper_bgcolor='rgba(236, 241, 247, 0.84)',
+        plot_bgcolor=CHART_BG,
+        paper_bgcolor=CHART_PAPER_BG,
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
-    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)')
-    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)')
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR)
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR)
     return fig
 
 
@@ -2868,8 +2617,8 @@ def create_financial_bar_chart(
     yaxis_title: str,
     scale: float = 1.0,
     digits: int = 2,
-    positive_color: str = '#2563EB',
-    negative_color: str = '#10B981'
+    positive_color: str = THEME_NAVY,
+    negative_color: str = THEME_DOWN
 ):
     if df is None or df.empty or y_col not in df.columns:
         return None
@@ -2891,18 +2640,18 @@ def create_financial_bar_chart(
         hovertemplate=f"%{{x}}<br>{yaxis_title}: %{{y:,.{digits}f}}<extra></extra>"
     ))
     fig.update_layout(
-        title=dict(text=title, x=0.02, font=dict(size=18, color='#1E293B')),
+        title=dict(text=title, x=0.02, font=dict(size=18, color=THEME_TEXT)),
         xaxis_title='报告期',
         yaxis_title=yaxis_title,
         height=360,
         template='plotly_white',
-        plot_bgcolor='rgba(229, 235, 243, 0.44)',
-        paper_bgcolor='rgba(236, 241, 247, 0.84)',
+        plot_bgcolor=CHART_BG,
+        paper_bgcolor=CHART_PAPER_BG,
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     fig.update_xaxes(showgrid=False)
-    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)')
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR)
     return fig
 
 
@@ -2924,13 +2673,13 @@ def draw_metric_card(title: str, value: str, delta: str, delta_pct: str = None) 
 
     if is_positive is None:
         arrow = ""
-        color = "#64748B"
+        color = THEME_MUTED
     elif is_positive:
         arrow = "↑"
-        color = "#EF4444"  # 红色表示上涨
+        color = THEME_UP  # 红色表示上涨
     else:
         arrow = "↓"
-        color = "#10B981"  # 绿色表示下跌
+        color = THEME_DOWN  # 绿色表示下跌
 
     delta_display = f"{arrow} {delta}" if delta != '-' else '-'
     if delta_pct and delta_pct != '-':
@@ -2938,7 +2687,7 @@ def draw_metric_card(title: str, value: str, delta: str, delta_pct: str = None) 
 
     card_html = f"""
     <div style="
-        background: white;
+        background: {THEME_SURFACE};
         border-radius: 12px;
         padding: 1.5rem;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
@@ -2950,7 +2699,7 @@ def draw_metric_card(title: str, value: str, delta: str, delta_pct: str = None) 
         <div style="
             font-size: 0.875rem;
             font-weight: 600;
-            color: #64748B;
+            color: {THEME_MUTED};
             text-transform: uppercase;
             letter-spacing: 0.05em;
             margin-bottom: 0.5rem;
@@ -2958,7 +2707,7 @@ def draw_metric_card(title: str, value: str, delta: str, delta_pct: str = None) 
         <div style="
             font-size: 2rem;
             font-weight: 700;
-            color: #1E293B;
+            color: {THEME_TEXT};
             margin-bottom: 0.5rem;
         ">{value}</div>
         <div style="
@@ -2987,8 +2736,8 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
     """
     # 专业金融调色盘
     color_palette = [
-        '#2E5BFF', '#8E54E9', '#FF9966', '#00D4AA', '#FF6B9D',
-        '#FFC233', '#00C9FF', '#FF5757', '#A0D911', '#9254DE'
+        THEME_NAVY, THEME_PURPLE, "#C28C4E", "#5B8E7D", "#B86A84",
+        THEME_PRIMARY, "#6FA3B8", THEME_UP, "#8AA05A", THEME_PURPLE
     ]
 
     fig = go.Figure()
@@ -3005,7 +2754,7 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
                     name='所有ETF总和',
                     fill='tozeroy',
                     line=dict(width=3, shape='spline', color=color_palette[0]),
-                    fillcolor='rgba(46, 91, 255, 0.1)',
+                    fillcolor=CHART_NAVY_SOFT_FILL,
                     hovertemplate='<b>%{x|%Y-%m-%d}</b><br>%{y:.2f}<extra></extra>'
                 ))
             else:
@@ -3063,7 +2812,7 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
     fig.update_layout(
         title=dict(
             text=f'{metric_name} 变动趋势',
-            font=dict(size=20, weight=700, color='#1E293B'),
+            font=dict(size=20, weight=700, color=THEME_TEXT),
             x=0.02
         ),
         xaxis_title='日期',
@@ -3080,8 +2829,8 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
         ),
         height=500,
         template='plotly_white',
-        plot_bgcolor='rgba(229, 235, 243, 0.44)',
-        paper_bgcolor='rgba(236, 241, 247, 0.84)',
+        plot_bgcolor=CHART_BG,
+        paper_bgcolor=CHART_PAPER_BG,
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -3091,19 +2840,19 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
         rangeslider_visible=False,
         showgrid=True,
         gridwidth=1,
-        gridcolor='rgba(226, 232, 240, 0.5)',
+        gridcolor=CHART_GRID_COLOR,
         showline=True,
         linewidth=1,
-        linecolor='#E2E8F0'
+        linecolor=CHART_AXIS_COLOR
     )
 
     fig.update_yaxes(
         showgrid=True,
         gridwidth=1,
-        gridcolor='rgba(226, 232, 240, 0.5)',
+        gridcolor=CHART_GRID_COLOR,
         showline=True,
         linewidth=1,
-        linecolor='#E2E8F0',
+        linecolor=CHART_AXIS_COLOR,
         fixedrange=True
     )
 
@@ -3216,10 +2965,10 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
     """
     # 板块颜色映射
     sector_colors = {
-        '沪市主板': '#2E5BFF',
-        '深市主板': '#00D4AA',
-        '创业板': '#FF9966',
-        '科创板': '#8E54E9',
+        '沪市主板': THEME_NAVY,
+        '深市主板': "#5B8E7D",
+        '创业板': "#C28C4E",
+        '科创板': THEME_PURPLE,
     }
 
     fig = go.Figure()
@@ -3239,7 +2988,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
         barmode='stack',
         title=dict(
             text='各板块每日成交额（亿元）',
-            font=dict(size=20, weight=700, color='#1E293B'),
+            font=dict(size=20, weight=700, color=THEME_TEXT),
             x=0.02
         ),
         xaxis_title='日期',
@@ -3256,19 +3005,19 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
         ),
         height=500,
         template='plotly_white',
-        plot_bgcolor='rgba(229, 235, 243, 0.44)',
-        paper_bgcolor='rgba(236, 241, 247, 0.84)',
+        plot_bgcolor=CHART_BG,
+        paper_bgcolor=CHART_PAPER_BG,
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
 
     fig.update_xaxes(
-        showgrid=True, gridwidth=1, gridcolor='rgba(226, 232, 240, 0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0'
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
     )
     fig.update_yaxes(
-        showgrid=True, gridwidth=1, gridcolor='rgba(226, 232, 240, 0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0',
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR,
         fixedrange=True
     )
 
@@ -3300,7 +3049,7 @@ def create_volume_total_line(df: pd.DataFrame) -> go.Figure:
         x=daily_total['trade_date'],
         y=daily_total['amount'],
         name='每日总成交额',
-        marker_color='rgba(46, 91, 255, 0.25)',
+        marker_color=CHART_NAVY_SOFT_FILL,
         hovertemplate='<b>%{x|%Y-%m-%d}</b><br>成交额: %{y:.2f} 亿元<extra></extra>'
     ))
 
@@ -3310,7 +3059,7 @@ def create_volume_total_line(df: pd.DataFrame) -> go.Figure:
         y=daily_total['ma5'],
         mode='lines',
         name='5日均线',
-        line=dict(width=2, color='#FF9966', shape='spline'),
+        line=dict(width=2, color="#C28C4E", shape='spline'),
         hovertemplate='<b>%{x|%Y-%m-%d}</b><br>5日均线: %{y:.2f} 亿元<extra></extra>'
     ))
 
@@ -3320,14 +3069,14 @@ def create_volume_total_line(df: pd.DataFrame) -> go.Figure:
         y=daily_total['ma20'],
         mode='lines',
         name='20日均线',
-        line=dict(width=2.5, color='#EF4444', shape='spline'),
+        line=dict(width=2.5, color=THEME_UP, shape='spline'),
         hovertemplate='<b>%{x|%Y-%m-%d}</b><br>20日均线: %{y:.2f} 亿元<extra></extra>'
     ))
 
     fig.update_layout(
         title=dict(
             text='A股每日总成交额趋势',
-            font=dict(size=20, weight=700, color='#1E293B'),
+            font=dict(size=20, weight=700, color=THEME_TEXT),
             x=0.02
         ),
         xaxis_title='日期',
@@ -3344,19 +3093,19 @@ def create_volume_total_line(df: pd.DataFrame) -> go.Figure:
         ),
         height=500,
         template='plotly_white',
-        plot_bgcolor='rgba(229, 235, 243, 0.44)',
-        paper_bgcolor='rgba(236, 241, 247, 0.84)',
+        plot_bgcolor=CHART_BG,
+        paper_bgcolor=CHART_PAPER_BG,
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
 
     fig.update_xaxes(
-        showgrid=True, gridwidth=1, gridcolor='rgba(226, 232, 240, 0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0'
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
     )
     fig.update_yaxes(
-        showgrid=True, gridwidth=1, gridcolor='rgba(226, 232, 240, 0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0',
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR,
         fixedrange=True
     )
 
@@ -3577,7 +3326,8 @@ def main():
         st.markdown(
             '<div style="margin:0.25rem 0 0.75rem 0;"><a href="?iphone_mode=1" '
             'style="display:inline-block;padding:0.45rem 0.8rem;border-radius:999px;'
-            'background:#2563eb;color:#fff;text-decoration:none;font-weight:700;">📱 iPhone模式</a></div>',
+            f'background:linear-gradient(135deg,{THEME_PRIMARY} 0%, {THEME_PRIMARY_STRONG} 100%);'
+            f'color:{THEME_NAVY};text-decoration:none;font-weight:700;box-shadow:{THEME_SHADOW};">📱 iPhone模式</a></div>',
             unsafe_allow_html=True,
         )
 
@@ -3596,9 +3346,9 @@ def main():
                 padding: 1rem 1rem 3rem 1rem !important;
             }
             div[data-testid="stExpander"] {
-                border: 1px solid #dbeafe !important;
+                border: 1px solid rgba(27, 38, 59, 0.08) !important;
                 border-radius: 14px !important;
-                background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%) !important;
+                background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248, 250, 248, 0.98) 100%) !important;
                 overflow: hidden !important;
                 box-shadow: 0 8px 24px rgba(37, 99, 235, 0.08) !important;
                 margin-bottom: 1rem !important;
@@ -3606,7 +3356,7 @@ def main():
             div[data-testid="stExpander"] details summary {
                 padding: 0.85rem 1rem !important;
                 font-weight: 700 !important;
-                color: #1e3a8a !important;
+                color: #1B263B !important;
             }
             div[data-testid="stExpanderDetails"] {
                 padding: 0.2rem 1rem 1rem 1rem !important;
@@ -3617,9 +3367,9 @@ def main():
         )
 
         st.markdown(
-            '<div style="margin-bottom:0.6rem;color:#475569;">'
+            f'<div style="margin-bottom:0.6rem;color:{THEME_MUTED};">'
             '已启用 iPhone 专用模式（不依赖 sidebar）。 '
-            '<a href="?" style="color:#64748b;text-decoration:none;">退出 iPhone 模式</a>'
+            f'<a href="?" style="color:{THEME_PRIMARY};text-decoration:none;">退出 iPhone 模式</a>'
             '</div>',
             unsafe_allow_html=True,
         )
@@ -4761,10 +4511,10 @@ def render_hotmoney_tab():
                 textposition="outside",
             ))
             fig_org.update_layout(
-                title=dict(text="游资关联机构数 Top20", x=0.02, font=dict(size=16, color="#1E293B")),
+                title=dict(text="游资关联机构数 Top20", x=0.02, font=dict(size=16, color=THEME_TEXT)),
                 template="wealthspark_balanced",
-                paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 height=max(360, len(show) * 24),
                 margin=dict(l=120, r=30, t=55, b=20),
@@ -4819,10 +4569,10 @@ def render_hotmoney_tab():
                     textposition="outside",
                 ))
                 fig_active.update_layout(
-                    title=dict(text="活跃游资 TopN", x=0.02, font=dict(size=16, color="#1E293B")),
+                    title=dict(text="活跃游资 TopN", x=0.02, font=dict(size=16, color=THEME_TEXT)),
                     template="wealthspark_balanced",
-                    paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                    plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                    paper_bgcolor=CHART_PAPER_BG,
+                    plot_bgcolor=CHART_BG,
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     height=max(320, len(show) * 24),
                     margin=dict(l=120, r=30, t=55, b=20),
@@ -4864,10 +4614,10 @@ def render_hotmoney_tab():
                     textposition="outside",
                 ))
                 fig_stocks.update_layout(
-                    title=dict(text="游资关注个股 TopN", x=0.02, font=dict(size=16, color="#1E293B")),
+                    title=dict(text="游资关注个股 TopN", x=0.02, font=dict(size=16, color=THEME_TEXT)),
                     template="wealthspark_balanced",
-                    paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                    plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                    paper_bgcolor=CHART_PAPER_BG,
+                    plot_bgcolor=CHART_BG,
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     height=max(320, len(show) * 24),
                     margin=dict(l=120, r=30, t=55, b=20),
@@ -4978,13 +4728,13 @@ def render_limitup_monitor_tab():
         y=df_emotion["emotion_score"],
         mode="lines+markers",
         name="情绪分",
-        line=dict(color="#EF4444", width=2.5),
+        line=dict(color=THEME_UP, width=2.5),
     ))
     fig_emotion.update_layout(
-        title=dict(text="情绪趋势图", x=0.02, font=dict(size=17, color="#1E293B")),
+        title=dict(text="情绪趋势图", x=0.02, font=dict(size=17, color=THEME_TEXT)),
         template="wealthspark_balanced",
-        paper_bgcolor="rgba(236, 241, 247, 0.84)",
-        plot_bgcolor="rgba(225, 232, 240, 0.52)",
+        paper_bgcolor=CHART_PAPER_BG,
+        plot_bgcolor=CHART_BG,
         font=dict(family="Inter, PingFang SC, sans-serif"),
         height=360,
         margin=dict(l=30, r=30, t=55, b=30),
@@ -5042,20 +4792,20 @@ def render_limitup_monitor_tab():
                     x=show["tag"],
                     y=show["stock_count"],
                     name="个股数",
-                    marker_color="#3B82F6",
+                    marker_color=THEME_NAVY,
                 ))
                 fig_tag.add_trace(go.Bar(
                     x=show["tag"],
                     y=show["lb_count"],
                     name="连板股数",
-                    marker_color="#EF4444",
+                    marker_color=THEME_UP,
                 ))
                 fig_tag.update_layout(
                     barmode="group",
-                    title=dict(text="同花顺标签分布", x=0.02, font=dict(size=15, color="#1E293B")),
+                    title=dict(text="同花顺标签分布", x=0.02, font=dict(size=15, color=THEME_TEXT)),
                     template="wealthspark_balanced",
-                    paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                    plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                    paper_bgcolor=CHART_PAPER_BG,
+                    plot_bgcolor=CHART_BG,
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     height=300,
                     margin=dict(l=25, r=25, t=50, b=25),
@@ -5089,14 +4839,14 @@ def render_limitup_monitor_tab():
                     x=chart_df["stock_count"],
                     y=chart_df["reason_short"],
                     orientation="h",
-                    marker_color="#10B981",
+                    marker_color=THEME_DOWN,
                     name="出现次数",
                 ))
                 fig_reason.update_layout(
-                    title=dict(text="涨停原因 Top10", x=0.02, font=dict(size=15, color="#1E293B")),
+                    title=dict(text="涨停原因 Top10", x=0.02, font=dict(size=15, color=THEME_TEXT)),
                     template="wealthspark_balanced",
-                    paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                    plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                    paper_bgcolor=CHART_PAPER_BG,
+                    plot_bgcolor=CHART_BG,
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     height=300,
                     margin=dict(l=25, r=25, t=50, b=25),
@@ -5902,9 +5652,9 @@ def create_change_curve_chart(
     positive_max = chart_df.loc[chart_df[value_col] > 0, value_col].max() if not chart_df.empty else None
     negative_min = chart_df.loc[chart_df[value_col] < 0, value_col].min() if not chart_df.empty else None
     if pd.notna(positive_max):
-        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor='rgba(239, 68, 68, 0.05)', line_width=0)
+        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor="rgba(230, 57, 70, 0.05)", line_width=0)
     if pd.notna(negative_min):
-        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor='rgba(16, 185, 129, 0.05)', line_width=0)
+        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor="rgba(42, 157, 143, 0.05)", line_width=0)
 
     if series_col is None:
         custom_cols = [col for col in [pct_col, extra_col] if col and col in chart_df.columns]
@@ -5922,15 +5672,15 @@ def create_change_curve_chart(
             y=chart_df[value_col],
             mode='lines+markers',
             name=yaxis_title,
-            line=dict(width=2.4, color='#F59E0B', shape='spline'),
-            marker=dict(size=5, color='#F59E0B'),
+            line=dict(width=2.4, color=THEME_WARN, shape='spline'),
+            marker=dict(size=5, color=THEME_WARN),
             fill='tozeroy',
-            fillcolor='rgba(245, 158, 11, 0.10)',
+            fillcolor=CHART_GOLD_SOFT_FILL,
             customdata=custom_data,
             hovertemplate=hover_template
         ))
     else:
-        palette = color_palette or ['#2E5BFF', '#8E54E9', '#FF9966', '#00D4AA', '#FF6B9D']
+        palette = color_palette or [THEME_NAVY, THEME_PURPLE, "#C28C4E", "#5B8E7D", "#B86A84"]
         ordered_names = series_names or chart_df[series_col].dropna().unique().tolist()
         for idx, name in enumerate(ordered_names):
             line_df = chart_df[chart_df[series_col] == name]
@@ -5957,11 +5707,11 @@ def create_change_curve_chart(
                 hovertemplate=hover_template
             ))
 
-    fig.add_hline(y=0, line_width=1, line_dash='dash', line_color='#94A3B8')
+    fig.add_hline(y=0, line_width=1, line_dash='dash', line_color=THEME_NEUTRAL)
     fig.update_layout(
         title=dict(
             text=title,
-            font=dict(size=20, weight=700, color='#1E293B'),
+            font=dict(size=20, weight=700, color=THEME_TEXT),
             x=0.02
         ),
         xaxis_title='日期',
@@ -5969,8 +5719,8 @@ def create_change_curve_chart(
         hovermode='x unified',
         height=420,
         template='plotly_white',
-        plot_bgcolor='rgba(229, 235, 243, 0.44)',
-        paper_bgcolor='rgba(236, 241, 247, 0.84)',
+        plot_bgcolor=CHART_BG,
+        paper_bgcolor=CHART_PAPER_BG,
         font=dict(family='Inter, PingFang SC, sans-serif'),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.25,
@@ -5980,12 +5730,12 @@ def create_change_curve_chart(
         margin=dict(l=20, r=20, t=60, b=20)
     )
     fig.update_xaxes(
-        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0'
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
     )
     fig.update_yaxes(
-        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0',
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR,
         zeroline=False,
         fixedrange=True
     )
@@ -6007,14 +5757,14 @@ def create_change_bar_chart(
 ) -> go.Figure:
     fig = go.Figure()
     chart_df = df.dropna(subset=[value_col]).copy()
-    positive_color = '#EF4444'
-    negative_color = '#10B981'
+    positive_color = THEME_UP
+    negative_color = THEME_DOWN
     positive_max = chart_df.loc[chart_df[value_col] > 0, value_col].max() if not chart_df.empty else None
     negative_min = chart_df.loc[chart_df[value_col] < 0, value_col].min() if not chart_df.empty else None
     if pd.notna(positive_max):
-        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor='rgba(239, 68, 68, 0.05)', line_width=0)
+        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor="rgba(230, 57, 70, 0.05)", line_width=0)
     if pd.notna(negative_min):
-        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor='rgba(16, 185, 129, 0.05)', line_width=0)
+        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor="rgba(42, 157, 143, 0.05)", line_width=0)
 
     if series_col is None:
         colors = [
@@ -6070,11 +5820,11 @@ def create_change_bar_chart(
                 hovertemplate=hover_template
             ))
 
-    fig.add_hline(y=0, line_width=1, line_dash='dash', line_color='#94A3B8')
+    fig.add_hline(y=0, line_width=1, line_dash='dash', line_color=THEME_NEUTRAL)
     fig.update_layout(
         title=dict(
             text=title,
-            font=dict(size=20, weight=700, color='#1E293B'),
+            font=dict(size=20, weight=700, color=THEME_TEXT),
             x=0.02
         ),
         xaxis_title='日期',
@@ -6082,8 +5832,8 @@ def create_change_bar_chart(
         hovermode='x unified',
         height=420,
         template='plotly_white',
-        plot_bgcolor='rgba(229, 235, 243, 0.44)',
-        paper_bgcolor='rgba(236, 241, 247, 0.84)',
+        plot_bgcolor=CHART_BG,
+        paper_bgcolor=CHART_PAPER_BG,
         font=dict(family='Inter, PingFang SC, sans-serif'),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.25,
@@ -6095,12 +5845,12 @@ def create_change_bar_chart(
         barmode='group'
     )
     fig.update_xaxes(
-        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0'
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
     )
     fig.update_yaxes(
-        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0',
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR,
         zeroline=False,
         fixedrange=True
     )
@@ -6137,7 +5887,7 @@ def create_macro_line_chart(
     yaxis_title: str
 ) -> go.Figure:
     fig = go.Figure()
-    palette = ['#2E5BFF', '#EF4444', '#00A76F', '#F59E0B', '#8E54E9']
+    palette = [THEME_NAVY, THEME_UP, "#5B8E7D", THEME_WARN, THEME_PURPLE]
     chart_df = df.sort_values("trade_date").copy()
 
     for idx, (column, label) in enumerate(series):
@@ -6157,14 +5907,14 @@ def create_macro_line_chart(
         ))
 
     fig.update_layout(
-        title=dict(text=title, font=dict(size=20, weight=700, color="#1E293B"), x=0.02),
+        title=dict(text=title, font=dict(size=20, weight=700, color=THEME_TEXT), x=0.02),
         xaxis_title="日期",
         yaxis_title=yaxis_title,
         hovermode="x unified",
         height=420,
         template="wealthspark_balanced",
-        plot_bgcolor="rgba(229, 235, 243, 0.44)",
-        paper_bgcolor="rgba(236, 241, 247, 0.84)",
+        plot_bgcolor=CHART_BG,
+        paper_bgcolor=CHART_PAPER_BG,
         font=dict(family="Inter, PingFang SC, sans-serif"),
         legend=dict(
             orientation="h", yanchor="bottom", y=-0.25,
@@ -6174,12 +5924,12 @@ def create_macro_line_chart(
         margin=dict(l=20, r=20, t=60, b=20)
     )
     fig.update_xaxes(
-        showgrid=True, gridwidth=1, gridcolor="rgba(226,232,240,0.5)",
-        showline=True, linewidth=1, linecolor="#E2E8F0"
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
     )
     fig.update_yaxes(
-        showgrid=True, gridwidth=1, gridcolor="rgba(226,232,240,0.5)",
-        showline=True, linewidth=1, linecolor="#E2E8F0",
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR,
         zeroline=False,
         fixedrange=True
     )
@@ -6409,9 +6159,9 @@ def render_etf_trend_tab():
         y=chart_data[metric_col],
         mode='lines',
         name=category_key,
-        line=dict(width=2.5, shape='spline', color='#2E5BFF'),
+        line=dict(width=2.5, shape='spline', color=THEME_NAVY),
         fill='tozeroy',
-        fillcolor='rgba(46, 91, 255, 0.08)',
+        fillcolor=CHART_NAVY_SOFT_FILL,
         hovertemplate='<b>%{x|%Y-%m-%d}</b><br>%{y:,.2f}<extra></extra>'
     ))
 
@@ -6422,14 +6172,14 @@ def render_etf_trend_tab():
             y=chart_data['ma20'],
             mode='lines',
             name='20日均线',
-            line=dict(width=1.5, color='#EF4444', dash='dot'),
+            line=dict(width=1.5, color=THEME_UP, dash='dot'),
             hovertemplate='<b>%{x|%Y-%m-%d}</b><br>20MA: %{y:,.2f}<extra></extra>'
         ))
 
     fig.update_layout(
         title=dict(
             text=f'{category_key} \u2014 {metric} 趋势',
-            font=dict(size=20, weight=700, color='#1E293B'),
+            font=dict(size=20, weight=700, color=THEME_TEXT),
             x=0.02
         ),
         xaxis_title='日期',
@@ -6442,18 +6192,18 @@ def render_etf_trend_tab():
         ),
         height=500,
         template='plotly_white',
-        plot_bgcolor='rgba(229, 235, 243, 0.44)',
-        paper_bgcolor='rgba(236, 241, 247, 0.84)',
+        plot_bgcolor=CHART_BG,
+        paper_bgcolor=CHART_PAPER_BG,
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     fig.update_xaxes(
-        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0'
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
     )
     fig.update_yaxes(
-        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0',
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR,
         fixedrange=True
     )
 
@@ -6606,12 +6356,12 @@ def _render_top10_shareholder_panel(top10_holders, top10_floatholders, stock_tit
                 hovertemplate="%{y}<br>占总股本：%{x:,.2f}%<extra></extra>",
             ))
             fig_holder.update_layout(
-                title=dict(text=f"{stock_title_for_top10} 前十大股东持股柱状图", x=0.02, font=dict(size=17, color="#1E293B")),
+                title=dict(text=f"{stock_title_for_top10} 前十大股东持股柱状图", x=0.02, font=dict(size=17, color=THEME_TEXT)),
                 xaxis_title="占总股本比例（%）",
                 height=max(360, len(holder_plot) * 26),
                 template="wealthspark_balanced",
-                paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=140, r=40, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -6658,12 +6408,12 @@ def _render_top10_shareholder_panel(top10_holders, top10_floatholders, stock_tit
                 hovertemplate="%{y}<br>占流通股比例：%{x:,.2f}%<extra></extra>",
             ))
             fig_float.update_layout(
-                title=dict(text=f"{stock_title_for_top10} 前十大流通股东持股柱状图", x=0.02, font=dict(size=17, color="#1E293B")),
+                title=dict(text=f"{stock_title_for_top10} 前十大流通股东持股柱状图", x=0.02, font=dict(size=17, color=THEME_TEXT)),
                 xaxis_title="占流通股比例（%）",
                 height=max(360, len(float_plot) * 26),
                 template="wealthspark_balanced",
-                paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=140, r=40, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -7301,25 +7051,25 @@ def render_security_search_tab():
         y=chart_df['metric_value'],
         mode='lines',
         name=metric_label,
-        line=dict(width=2.6, shape='spline', color='#2563EB'),
+        line=dict(width=2.6, shape='spline', color=THEME_NAVY),
         fill='tozeroy',
-        fillcolor='rgba(37, 99, 235, 0.08)',
+        fillcolor=CHART_NAVY_SOFT_FILL,
         hovertemplate=f"<b>{title_name}</b><br>%{{x|%Y-%m-%d}}<br>{metric_label}: %{{y:,.{metric_digits}f}}<extra></extra>"
     ))
     fig.update_layout(
-        title=dict(text=f'{title_name} — {metric_label}趋势', x=0.02, font=dict(size=20, color='#1E293B')),
+        title=dict(text=f'{title_name} — {metric_label}趋势', x=0.02, font=dict(size=20, color=THEME_TEXT)),
         xaxis_title='日期',
         yaxis_title=metric_label,
         hovermode='x unified',
         height=500,
         template='plotly_white',
-        plot_bgcolor='rgba(229, 235, 243, 0.44)',
-        paper_bgcolor='rgba(236, 241, 247, 0.84)',
+        plot_bgcolor=CHART_BG,
+        paper_bgcolor=CHART_PAPER_BG,
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
-    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)')
-    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)', fixedrange=True)
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR)
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR, fixedrange=True)
     st.plotly_chart(fig, use_container_width=True)
 
     if selected_type == 'stock':
@@ -7563,9 +7313,9 @@ def render_security_search_tab():
         with tab_valuation:
             st.caption("展示静态市盈率、动态市盈率与股息率曲线")
             valuation_metrics = [
-                ('静态市盈率曲线', 'pe', '静态市盈率PE', 1.0, 2, '#2563EB'),
-                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, '#7C3AED'),
-                ('股息率曲线', 'dv_ratio', '股息率(%)', 1.0, 2, '#F59E0B'),
+                ('静态市盈率曲线', 'pe', '静态市盈率PE', 1.0, 2, THEME_NAVY),
+                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, THEME_PURPLE),
+                ('股息率曲线', 'dv_ratio', '股息率(%)', 1.0, 2, THEME_WARN),
             ]
             valuation_cols = st.columns(2)
             for index, (title, column, yaxis_title, scale, digits, color) in enumerate(valuation_metrics):
@@ -7588,9 +7338,9 @@ def render_security_search_tab():
         with tab_financial:
             st.caption("财务柱状图按报告期展示，默认与上方时间范围联动")
             financial_metrics = [
-                ('营业总收入柱状图', 'total_revenue', '营业总收入(亿元)', 100000000.0, 2, '#2563EB', '#1D4ED8'),
-                ('净利润柱状图', 'net_profit', '净利润(亿元)', 100000000.0, 2, '#7C3AED', '#059669'),
-                ('扣非净利润柱状图', 'profit_dedt', '扣非净利润(亿元)', 100000000.0, 2, '#F59E0B', '#059669'),
+                ('营业总收入柱状图', 'total_revenue', '营业总收入(亿元)', 100000000.0, 2, THEME_NAVY, "#4F6785"),
+                ('净利润柱状图', 'net_profit', '净利润(亿元)', 100000000.0, 2, THEME_PURPLE, THEME_DOWN),
+                ('扣非净利润柱状图', 'profit_dedt', '扣非净利润(亿元)', 100000000.0, 2, THEME_WARN, THEME_DOWN),
             ]
             financial_cols = st.columns(3)
             for index, (title, column, yaxis_title, scale, digits, positive_color, negative_color) in enumerate(financial_metrics):
@@ -7614,10 +7364,10 @@ def render_security_search_tab():
         with tab_capital:
             st.caption("展示总市值、流通市值、总股本与流通股本曲线")
             cap_metrics = [
-                ('总市值曲线', 'total_mv', '总市值(亿元)', 10000.0, 2, '#DC2626'),
-                ('流通市值曲线', 'circ_mv', '流通市值(亿元)', 10000.0, 2, '#EA580C'),
-                ('总股本曲线', 'total_share', '总股本(亿股)', 10000.0, 2, '#0891B2'),
-                ('流通股本曲线', 'float_share', '流通股本(亿股)', 10000.0, 2, '#059669'),
+                ('总市值曲线', 'total_mv', '总市值(亿元)', 10000.0, 2, THEME_UP),
+                ('流通市值曲线', 'circ_mv', '流通市值(亿元)', 10000.0, 2, "#C28C4E"),
+                ('总股本曲线', 'total_share', '总股本(亿股)', 10000.0, 2, "#6FA3B8"),
+                ('流通股本曲线', 'float_share', '流通股本(亿股)', 10000.0, 2, THEME_DOWN),
             ]
             cap_cols = st.columns(2)
             for index, (title, column, yaxis_title, scale, digits, color) in enumerate(cap_metrics):
@@ -7642,8 +7392,8 @@ def render_security_search_tab():
         with tab_index_valuation:
             st.caption("展示指数静态市盈率与动态市盈率曲线")
             valuation_metrics = [
-                ('静态市盈率曲线', 'pe', '静态市盈率PE', 1.0, 2, '#2563EB'),
-                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, '#7C3AED'),
+                ('静态市盈率曲线', 'pe', '静态市盈率PE', 1.0, 2, THEME_NAVY),
+                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, THEME_PURPLE),
             ]
             valuation_cols = st.columns(2)
             for index, (title, column, yaxis_title, scale, digits, color) in enumerate(valuation_metrics):
@@ -7666,10 +7416,10 @@ def render_security_search_tab():
         with tab_index_capital:
             st.caption("展示指数总市值、流通市值、总股本与流通股本曲线")
             cap_metrics = [
-                ('当日总市值曲线', 'total_mv', '总市值(亿元)', 10000.0, 2, '#DC2626'),
-                ('当日流通市值曲线', 'float_mv', '流通市值(亿元)', 10000.0, 2, '#EA580C'),
-                ('当日总股本曲线', 'total_share', '总股本(亿股)', 10000.0, 2, '#0891B2'),
-                ('当日流通股本曲线', 'float_share', '流通股本(亿股)', 10000.0, 2, '#059669'),
+                ('当日总市值曲线', 'total_mv', '总市值(亿元)', 10000.0, 2, THEME_UP),
+                ('当日流通市值曲线', 'float_mv', '流通市值(亿元)', 10000.0, 2, "#C28C4E"),
+                ('当日总股本曲线', 'total_share', '总股本(亿股)', 10000.0, 2, "#6FA3B8"),
+                ('当日流通股本曲线', 'float_share', '流通股本(亿股)', 10000.0, 2, THEME_DOWN),
             ]
             cap_cols = st.columns(2)
             for index, (title, column, yaxis_title, scale, digits, color) in enumerate(cap_metrics):
@@ -7699,7 +7449,7 @@ def render_security_search_tab():
                 yaxis_title='换手率(%)',
                 scale=1.0,
                 digits=2,
-                color='#0F766E'
+                color="#5B8E7D"
             )
             if turnover_chart is not None:
                 st.plotly_chart(turnover_chart, use_container_width=True)
@@ -7876,9 +7626,9 @@ def render_wide_index_tab():
 
     fig = go.Figure()
     color_palette = [
-        '#2E5BFF', '#8E54E9', '#FF9966', '#00D4AA', '#FF6B9D',
-        '#FFC233', '#00C9FF', '#FF5757', '#A0D911', '#9254DE',
-        '#1D4ED8', '#059669', '#F97316'
+        THEME_NAVY, THEME_PURPLE, "#C28C4E", "#5B8E7D", "#B86A84",
+        THEME_PRIMARY, "#6FA3B8", THEME_UP, "#8AA05A", "#4F6785",
+        THEME_DOWN, THEME_WARN
     ]
     for idx, name in enumerate(selected_names):
         line_df = chart_df[chart_df['benchmark_index_name'] == name]
@@ -7896,7 +7646,7 @@ def render_wide_index_tab():
     fig.update_layout(
         title=dict(
             text=f'宽基指数ETF {metric_title} 趋势',
-            font=dict(size=20, weight=700, color='#1E293B'),
+            font=dict(size=20, weight=700, color=THEME_TEXT),
             x=0.02
         ),
         xaxis_title='日期',
@@ -7904,8 +7654,8 @@ def render_wide_index_tab():
         hovermode='x unified',
         height=520,
         template='plotly_white',
-        plot_bgcolor='rgba(229, 235, 243, 0.44)',
-        paper_bgcolor='rgba(236, 241, 247, 0.84)',
+        plot_bgcolor=CHART_BG,
+        paper_bgcolor=CHART_PAPER_BG,
         font=dict(family='Inter, PingFang SC, sans-serif'),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.28,
@@ -7915,12 +7665,12 @@ def render_wide_index_tab():
         margin=dict(l=20, r=20, t=60, b=20)
     )
     fig.update_xaxes(
-        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0'
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
     )
     fig.update_yaxes(
-        showgrid=True, gridwidth=1, gridcolor='rgba(226,232,240,0.5)',
-        showline=True, linewidth=1, linecolor='#E2E8F0',
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR,
         fixedrange=True
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -9380,12 +9130,12 @@ def render_fund_hot_stocks_tab():
                 hovertemplate="%{y}<br>%{x:,.2f}<extra></extra>",
             ))
             fig_top.update_layout(
-                title=dict(text=f"{selected_sort} Top{min(len(plot_df), int(top_n))}", x=0.02, font=dict(size=18, color="#1E293B")),
+                title=dict(text=f"{selected_sort} Top{min(len(plot_df), int(top_n))}", x=0.02, font=dict(size=18, color=THEME_TEXT)),
                 xaxis_title=xaxis_title,
                 height=max(420, len(plot_df) * 24),
                 template="wealthspark_balanced",
-                paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=120, r=40, t=60, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -9619,12 +9369,12 @@ def render_fund_hot_stocks_tab():
                 hovertemplate="%{y}<br>持仓市值：%{x:,.2f} 亿<extra></extra>",
             ))
             fig_detail.update_layout(
-                title=dict(text=f"{stock_title} 持仓基金 Top20", x=0.02, font=dict(size=18, color="#1E293B")),
+                title=dict(text=f"{stock_title} 持仓基金 Top20", x=0.02, font=dict(size=18, color=THEME_TEXT)),
                 xaxis_title="持仓市值（亿元）",
                 height=max(420, len(plot_df) * 24),
                 template="wealthspark_balanced",
-                paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=120, r=40, t=60, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -9679,12 +9429,12 @@ def render_fund_hot_stocks_tab():
                     hovertemplate="%{y}<br>总持仓市值：%{x:,.2f} 亿<extra></extra>",
                 ))
                 fig_mgmt.update_layout(
-                    title=dict(text="管理人抱团分布 Top15", x=0.02, font=dict(size=17, color="#1E293B")),
+                    title=dict(text="管理人抱团分布 Top15", x=0.02, font=dict(size=17, color=THEME_TEXT)),
                     xaxis_title="总持仓市值（亿元）",
                     height=max(360, len(mgmt_plot) * 26),
                     template="wealthspark_balanced",
-                    paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                    plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                    paper_bgcolor=CHART_PAPER_BG,
+                    plot_bgcolor=CHART_BG,
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     margin=dict(l=120, r=40, t=55, b=20),
                     yaxis=dict(autorange="reversed"),
@@ -9725,7 +9475,7 @@ def render_fund_hot_stocks_tab():
                         x=trend_df["end_date_label"],
                         y=trend_df["holding_fund_count"],
                         name="持有基金数",
-                        marker_color="#3B82F6",
+                        marker_color=THEME_NAVY,
                         opacity=0.75,
                     ),
                     secondary_y=False,
@@ -9736,16 +9486,16 @@ def render_fund_hot_stocks_tab():
                         y=trend_df["total_mkv_yi"],
                         name="总持仓市值(亿)",
                         mode="lines+markers",
-                        line=dict(color="#F59E0B", width=3),
+                        line=dict(color=THEME_WARN, width=3),
                         marker=dict(size=7),
                     ),
                     secondary_y=True,
                 )
                 fig_trend.update_layout(
-                    title=dict(text="近季度持仓趋势", x=0.02, font=dict(size=17, color="#1E293B")),
+                    title=dict(text="近季度持仓趋势", x=0.02, font=dict(size=17, color=THEME_TEXT)),
                     template="wealthspark_balanced",
-                    paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                    plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                    paper_bgcolor=CHART_PAPER_BG,
+                    plot_bgcolor=CHART_BG,
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     height=420,
                     margin=dict(l=50, r=50, t=55, b=30),
@@ -9888,12 +9638,12 @@ def render_fund_hot_stocks_tab():
                 hovertemplate="%{y}<br>持仓市值：%{x:,.2f} 亿<extra></extra>",
             ))
             fig_pref.update_layout(
-                title=dict(text="基金偏好持仓 Top15", x=0.02, font=dict(size=17, color="#1E293B")),
+                title=dict(text="基金偏好持仓 Top15", x=0.02, font=dict(size=17, color=THEME_TEXT)),
                 xaxis_title="持仓市值（亿元）",
                 height=max(380, len(pref_plot) * 26),
                 template="wealthspark_balanced",
-                paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=120, r=40, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -10024,7 +9774,7 @@ def render_moneyflow_tab():
                 orientation="h",
                 marker=dict(
                     color=df_disp["net_mf_amount"].astype(float),
-                    colorscale=[[0, "#10B981"], [0.5, "#F59E0B"], [1, "#EF4444"]],
+                    colorscale=[[0, THEME_DOWN], [0.5, THEME_WARN], [1, THEME_UP]],
                     showscale=False,
                 ),
                 text=df_disp["net_mf_amount"].apply(lambda v: f"{float(v):,.0f}万"),
@@ -10032,12 +9782,12 @@ def render_moneyflow_tab():
                 hovertemplate="%{y}<br>主力净流入: %{x:,.0f} 万元<extra></extra>",
             ))
             fig_bar.update_layout(
-                title=dict(text="主力净流入（万元）", x=0.02, font=dict(size=18, color="#1E293B")),
+                title=dict(text="主力净流入（万元）", x=0.02, font=dict(size=18, color=THEME_TEXT)),
                 xaxis_title="净流入额（万元）",
                 height=max(400, top_n * 22),
                 template="wealthspark_balanced",
-                paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=100, r=60, t=60, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -10200,7 +9950,7 @@ def render_moneyflow_tab():
             # 主力净流入趋势（面积图）
             fig_hist = go.Figure()
             net = df_hist["net_mf_amount"].astype(float)
-            colors = ["#EF4444" if v >= 0 else "#10B981" for v in net]
+            colors = [THEME_UP if v >= 0 else THEME_DOWN for v in net]
 
             fig_hist.add_trace(go.Bar(
                 x=df_hist["trade_date"],
@@ -10218,7 +9968,7 @@ def render_moneyflow_tab():
                     y=elg_net,
                     mode="lines",
                     name="超大单净额",
-                    line=dict(color="#8E54E9", width=2),
+                    line=dict(color=THEME_PURPLE, width=2),
                     hovertemplate="%{x|%Y-%m-%d}<br>超大单净额: %{y:,.0f} 万元<extra></extra>",
                 ))
 
@@ -10229,21 +9979,21 @@ def render_moneyflow_tab():
             fig_hist.update_layout(
                 title=dict(
                     text=f"{selected_stock_title} 主力资金流入趋势",
-                    x=0.02, font=dict(size=18, color="#1E293B")
+                    x=0.02, font=dict(size=18, color=THEME_TEXT)
                 ),
                 xaxis_title="日期",
                 yaxis_title="净流入额（万元）",
                 hovermode="x unified",
                 height=420,
                 template="wealthspark_balanced",
-                paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=20, r=20, t=60, b=20),
                 legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
             )
-            fig_hist.update_xaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)")
-            fig_hist.update_yaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)", zeroline=True, zerolinecolor="#CBD5E1", zerolinewidth=1.5)
+            fig_hist.update_xaxes(showgrid=True, gridcolor=CHART_GRID_COLOR)
+            fig_hist.update_yaxes(showgrid=True, gridcolor=CHART_GRID_COLOR, zeroline=True, zerolinecolor=CHART_ZERO_LINE_COLOR, zerolinewidth=1.5)
             st.plotly_chart(fig_hist, use_container_width=True)
 
             # 买卖力量对比（最近20个交易日）
@@ -10253,37 +10003,37 @@ def render_moneyflow_tab():
                 fig_force.add_trace(go.Bar(
                     name="超大单买入",
                     x=recent["trade_date"], y=recent.get("buy_elg_amount", pd.Series(dtype=float)).astype(float),
-                    marker_color="#EF4444", opacity=0.85,
+                    marker_color=THEME_UP, opacity=0.85,
                 ))
                 fig_force.add_trace(go.Bar(
                     name="超大单卖出",
                     x=recent["trade_date"], y=-recent.get("sell_elg_amount", pd.Series(dtype=float)).astype(float),
-                    marker_color="#10B981", opacity=0.85,
+                    marker_color=THEME_DOWN, opacity=0.85,
                 ))
                 fig_force.add_trace(go.Bar(
                     name="大单买入",
                     x=recent["trade_date"], y=recent.get("buy_lg_amount", pd.Series(dtype=float)).astype(float),
-                    marker_color="#F97316", opacity=0.7,
+                    marker_color=THEME_WARN, opacity=0.7,
                 ))
                 fig_force.add_trace(go.Bar(
                     name="大单卖出",
                     x=recent["trade_date"], y=-recent.get("sell_lg_amount", pd.Series(dtype=float)).astype(float),
-                    marker_color="#34D399", opacity=0.7,
+                    marker_color="#5B8E7D", opacity=0.7,
                 ))
                 fig_force.update_layout(
                     barmode="relative",
-                    title=dict(text="近20日买卖力量博弈（万元）", x=0.02, font=dict(size=16, color="#1E293B")),
+                    title=dict(text="近20日买卖力量博弈（万元）", x=0.02, font=dict(size=16, color=THEME_TEXT)),
                     height=360,
                     template="wealthspark_balanced",
-                    paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                    plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                    paper_bgcolor=CHART_PAPER_BG,
+                    plot_bgcolor=CHART_BG,
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     margin=dict(l=20, r=20, t=60, b=20),
                     hovermode="x unified",
                     legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
                 )
-                fig_force.update_xaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)")
-                fig_force.update_yaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)", zeroline=True, zerolinecolor="#CBD5E1", zerolinewidth=1.5)
+                fig_force.update_xaxes(showgrid=True, gridcolor=CHART_GRID_COLOR)
+                fig_force.update_yaxes(showgrid=True, gridcolor=CHART_GRID_COLOR, zeroline=True, zerolinecolor=CHART_ZERO_LINE_COLOR, zerolinewidth=1.5)
                 st.plotly_chart(fig_force, use_container_width=True)
 
             # ===== 新增：THS 与 DC 分别展示 =====
@@ -10301,7 +10051,7 @@ def render_moneyflow_tab():
                         x=_ths["trade_date"],
                         y=_ths["net_amount"].astype(float),
                         name="THS主力净流入",
-                        marker_color=["#EF4444" if v >= 0 else "#10B981" for v in _ths["net_amount"].astype(float)],
+                        marker_color=[THEME_UP if v >= 0 else THEME_DOWN for v in _ths["net_amount"].astype(float)],
                         hovertemplate="%{x|%Y-%m-%d}<br>THS净流入: %{y:,.0f} 万元<extra></extra>",
                     ))
                     if "net_d5_amount" in _ths.columns:
@@ -10310,19 +10060,19 @@ def render_moneyflow_tab():
                             y=_ths["net_d5_amount"].astype(float),
                             mode="lines",
                             name="THS 5日主力净额",
-                            line=dict(color="#2563EB", width=2),
+                            line=dict(color=THEME_NAVY, width=2),
                             hovertemplate="%{x|%Y-%m-%d}<br>THS 5日净额: %{y:,.0f} 万元<extra></extra>",
                         ))
 
                     fig_ths.update_layout(
-                        title=dict(text="THS 个股资金流向趋势", x=0.02, font=dict(size=16, color="#1E293B")),
+                        title=dict(text="THS 个股资金流向趋势", x=0.02, font=dict(size=16, color=THEME_TEXT)),
                         xaxis_title="日期",
                         yaxis_title="净流入额（万元）",
                         hovermode="x unified",
                         height=360,
                         template="wealthspark_balanced",
-                        paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                        plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                        paper_bgcolor=CHART_PAPER_BG,
+                        plot_bgcolor=CHART_BG,
                         font=dict(family="Inter, PingFang SC, sans-serif"),
                         margin=dict(l=20, r=20, t=60, b=20),
                     )
@@ -10341,7 +10091,7 @@ def render_moneyflow_tab():
                         x=_dc["trade_date"],
                         y=_dc["net_amount"].astype(float),
                         name="DC主力净流入",
-                        marker_color=["#EF4444" if v >= 0 else "#10B981" for v in _dc["net_amount"].astype(float)],
+                        marker_color=[THEME_UP if v >= 0 else THEME_DOWN for v in _dc["net_amount"].astype(float)],
                         hovertemplate="%{x|%Y-%m-%d}<br>DC净流入: %{y:,.0f} 万元<extra></extra>",
                     ))
                     if "net_amount_rate" in _dc.columns:
@@ -10351,20 +10101,20 @@ def render_moneyflow_tab():
                             mode="lines",
                             name="DC净占比(%)",
                             yaxis="y2",
-                            line=dict(color="#F59E0B", width=2),
+                            line=dict(color=THEME_WARN, width=2),
                             hovertemplate="%{x|%Y-%m-%d}<br>DC净占比: %{y:.2f}%<extra></extra>",
                         ))
 
                     fig_dc.update_layout(
-                        title=dict(text="DC 个股资金流向趋势", x=0.02, font=dict(size=16, color="#1E293B")),
+                        title=dict(text="DC 个股资金流向趋势", x=0.02, font=dict(size=16, color=THEME_TEXT)),
                         xaxis_title="日期",
                         yaxis_title="净流入额（万元）",
                         yaxis2=dict(title="净占比(%)", overlaying="y", side="right", showgrid=False),
                         hovermode="x unified",
                         height=360,
                         template="wealthspark_balanced",
-                        paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                        plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                        paper_bgcolor=CHART_PAPER_BG,
+                        plot_bgcolor=CHART_BG,
                         font=dict(family="Inter, PingFang SC, sans-serif"),
                         margin=dict(l=20, r=20, t=60, b=20),
                     )
@@ -10427,13 +10177,13 @@ def render_moneyflow_tab():
                 hovertemplate="<b>%{text}</b><br>连续天数: %{x}<br>累计净流入: %{y:,.0f} 万<extra></extra>",
             ))
             fig_scatter.update_layout(
-                title=dict(text="连续净流入天数 vs 累计净流入额", x=0.02, font=dict(size=18, color="#1E293B")),
+                title=dict(text="连续净流入天数 vs 累计净流入额", x=0.02, font=dict(size=18, color=THEME_TEXT)),
                 xaxis_title="连续净流入天数",
                 yaxis_title="累计主力净流入（万元）",
                 height=480,
                 template="wealthspark_balanced",
-                paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
                 font=dict(family="Inter, PingFang SC, sans-serif"),
                 margin=dict(l=20, r=20, t=60, b=20),
             )
@@ -10542,16 +10292,16 @@ def render_moneyflow_tab():
                         animation_frame="date_label",
                         animation_group="sector_name",
                         color="color_group",
-                        color_discrete_map={"净流入": "#EF4444", "净流出": "#10B981"},
+                        color_discrete_map={"净流入": THEME_UP, "净流出": THEME_DOWN},
                         orientation="h",
                         range_x=[-max_abs * 1.15, max_abs * 1.15],
                         hover_data={"net_amount_yi": ':.2f', "sector_name": True, "date_label": True},
                     )
                     fig_anim.update_layout(
-                        title=dict(text=f"{sector_anim_source} 资金流向轮动（从 {str(sector_anim_start)} 到 {latest_date}）", x=0.02, font=dict(size=17, color="#1E293B")),
+                        title=dict(text=f"{sector_anim_source} 资金流向轮动（从 {str(sector_anim_start)} 到 {latest_date}）", x=0.02, font=dict(size=17, color=THEME_TEXT)),
                         template="wealthspark_balanced",
-                        paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                        plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                        paper_bgcolor=CHART_PAPER_BG,
+                        plot_bgcolor=CHART_BG,
                         font=dict(family="Inter, PingFang SC, sans-serif"),
                         height=560,
                         margin=dict(l=30, r=30, t=60, b=30),
@@ -10617,7 +10367,7 @@ def render_moneyflow_tab():
                                     xanchor="left",
                                     yanchor="middle",
                                     align="left",
-                                    font=dict(size=12, color="#0F172A"),
+                                    font=dict(size=12, color=THEME_TEXT),
                                     bgcolor="rgba(255,255,255,0.0)",
                                     borderwidth=0,
                                 ))
@@ -10636,10 +10386,10 @@ def render_moneyflow_tab():
                         fig_anim = go.Figure(data=first_traces)
                         fig_anim.frames = frames
                         fig_anim.update_layout(
-                            title=dict(text=f"{sector_anim_source} 资金曲线动画（从 {str(sector_anim_start)} 到 {latest_date}）", x=0.02, font=dict(size=17, color="#1E293B")),
+                            title=dict(text=f"{sector_anim_source} 资金曲线动画（从 {str(sector_anim_start)} 到 {latest_date}）", x=0.02, font=dict(size=17, color=THEME_TEXT)),
                             template="wealthspark_balanced",
-                            paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                            plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                            paper_bgcolor=CHART_PAPER_BG,
+                            plot_bgcolor=CHART_BG,
                             font=dict(family="Inter, PingFang SC, sans-serif"),
                             height=720,
                             margin=dict(l=30, r=260, t=80, b=30),
@@ -10695,7 +10445,7 @@ def render_moneyflow_tab():
                     df_ths["net_amount"] = pd.to_numeric(df_ths["net_amount"], errors="coerce")
                     df_ths = df_ths.dropna(subset=["net_amount"]).sort_values("net_amount", ascending=False)
 
-                    colors_ths = ["#EF4444" if v >= 0 else "#10B981" for v in df_ths["net_amount"]]
+                    colors_ths = [THEME_UP if v >= 0 else THEME_DOWN for v in df_ths["net_amount"]]
                     fig_ths = go.Figure(go.Bar(
                         x=df_ths["net_amount"],
                         y=df_ths["industry"].fillna("未知"),
@@ -10704,11 +10454,11 @@ def render_moneyflow_tab():
                         hovertemplate="%{y}<br>净流入: %{x:,.2f} 亿元<extra></extra>",
                     ))
                     fig_ths.update_layout(
-                        title=dict(text="THS 行业净流入（亿元）", x=0.02, font=dict(size=15, color="#1E293B")),
+                        title=dict(text="THS 行业净流入（亿元）", x=0.02, font=dict(size=15, color=THEME_TEXT)),
                         height=max(380, len(df_ths) * 20),
                         template="wealthspark_balanced",
-                        paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                        plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                        paper_bgcolor=CHART_PAPER_BG,
+                        plot_bgcolor=CHART_BG,
                         font=dict(family="Inter, PingFang SC, sans-serif"),
                         margin=dict(l=20, r=20, t=50, b=20),
                         yaxis=dict(autorange="reversed"),
@@ -10738,7 +10488,7 @@ def render_moneyflow_tab():
                     df_dc["net_amount"] = pd.to_numeric(df_dc["net_amount"], errors="coerce")
                     df_dc = df_dc.dropna(subset=["net_amount"]).sort_values("net_amount", ascending=False)
 
-                    colors_dc = ["#EF4444" if v >= 0 else "#10B981" for v in df_dc["net_amount"]]
+                    colors_dc = [THEME_UP if v >= 0 else THEME_DOWN for v in df_dc["net_amount"]]
                     fig_dc = go.Figure(go.Bar(
                         x=df_dc["net_amount"],
                         y=df_dc["name"].fillna("未知"),
@@ -10747,11 +10497,11 @@ def render_moneyflow_tab():
                         hovertemplate="%{y}<br>净流入: %{x:,.2f} 亿元<extra></extra>",
                     ))
                     fig_dc.update_layout(
-                        title=dict(text="DC 板块净流入（亿元）", x=0.02, font=dict(size=15, color="#1E293B")),
+                        title=dict(text="DC 板块净流入（亿元）", x=0.02, font=dict(size=15, color=THEME_TEXT)),
                         height=max(380, len(df_dc) * 20),
                         template="wealthspark_balanced",
-                        paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                        plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                        paper_bgcolor=CHART_PAPER_BG,
+                        plot_bgcolor=CHART_BG,
                         font=dict(family="Inter, PingFang SC, sans-serif"),
                         margin=dict(l=20, r=20, t=50, b=20),
                         yaxis=dict(autorange="reversed"),
@@ -10824,7 +10574,7 @@ def render_moneyflow_tab():
                 fig_hsgt = go.Figure()
 
                 north_vals = df_hsgt["north_money"].astype(float)
-                colors_n = ["#EF4444" if v >= 0 else "#10B981" for v in north_vals]
+                colors_n = [THEME_UP if v >= 0 else THEME_DOWN for v in north_vals]
                 fig_hsgt.add_trace(go.Bar(
                     x=df_hsgt["trade_date"],
                     y=north_vals,
@@ -10841,27 +10591,27 @@ def render_moneyflow_tab():
                     y=north_ma5,
                     mode="lines",
                     name="5日均线",
-                    line=dict(color="#8E54E9", width=2.5),
+                    line=dict(color=THEME_PURPLE, width=2.5),
                     hovertemplate="%{x|%Y-%m-%d}<br>5日均线: %{y:,.2f} 亿<extra></extra>",
                 ))
 
                 fig_hsgt.update_layout(
-                    title=dict(text="北向资金每日净流入（亿元）", x=0.02, font=dict(size=18, color="#1E293B")),
+                    title=dict(text="北向资金每日净流入（亿元）", x=0.02, font=dict(size=18, color=THEME_TEXT)),
                     xaxis_title="日期",
                     yaxis_title="净流入额（亿元）",
                     hovermode="x unified",
                     height=420,
                     template="wealthspark_balanced",
-                    paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                    plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                    paper_bgcolor=CHART_PAPER_BG,
+                    plot_bgcolor=CHART_BG,
                     font=dict(family="Inter, PingFang SC, sans-serif"),
                     margin=dict(l=20, r=20, t=60, b=20),
                     legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
                 )
-                fig_hsgt.update_xaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)")
+                fig_hsgt.update_xaxes(showgrid=True, gridcolor=CHART_GRID_COLOR)
                 fig_hsgt.update_yaxes(
-                    showgrid=True, gridcolor="rgba(226,232,240,0.5)",
-                    zeroline=True, zerolinecolor="#CBD5E1", zerolinewidth=1.5
+                    showgrid=True, gridcolor=CHART_GRID_COLOR,
+                    zeroline=True, zerolinecolor=CHART_ZERO_LINE_COLOR, zerolinewidth=1.5
                 )
                 st.plotly_chart(fig_hsgt, use_container_width=True)
 
@@ -10873,7 +10623,7 @@ def render_moneyflow_tab():
                         y=df_hsgt["hgt"].astype(float),
                         mode="lines",
                         name="沪股通",
-                        line=dict(color="#3B82F6", width=2),
+                        line=dict(color=THEME_NAVY, width=2),
                         hovertemplate="%{x|%Y-%m-%d}<br>沪股通: %{y:,.2f} 亿<extra></extra>",
                     ))
                     fig_detail.add_trace(go.Scatter(
@@ -10881,22 +10631,22 @@ def render_moneyflow_tab():
                         y=df_hsgt["sgt"].astype(float),
                         mode="lines",
                         name="深股通",
-                        line=dict(color="#F59E0B", width=2),
+                        line=dict(color=THEME_WARN, width=2),
                         hovertemplate="%{x|%Y-%m-%d}<br>深股通: %{y:,.2f} 亿<extra></extra>",
                     ))
                     fig_detail.update_layout(
-                        title=dict(text="沪股通 / 深股通 净流入分项", x=0.02, font=dict(size=16, color="#1E293B")),
+                        title=dict(text="沪股通 / 深股通 净流入分项", x=0.02, font=dict(size=16, color=THEME_TEXT)),
                         height=360,
                         template="wealthspark_balanced",
-                        paper_bgcolor="rgba(236, 241, 247, 0.84)",
-                        plot_bgcolor="rgba(225, 232, 240, 0.52)",
+                        paper_bgcolor=CHART_PAPER_BG,
+                        plot_bgcolor=CHART_BG,
                         font=dict(family="Inter, PingFang SC, sans-serif"),
                         margin=dict(l=20, r=20, t=60, b=20),
                         hovermode="x unified",
                         legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
                     )
-                    fig_detail.update_xaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)")
-                    fig_detail.update_yaxes(showgrid=True, gridcolor="rgba(226,232,240,0.5)")
+                    fig_detail.update_xaxes(showgrid=True, gridcolor=CHART_GRID_COLOR)
+                    fig_detail.update_yaxes(showgrid=True, gridcolor=CHART_GRID_COLOR)
                     st.plotly_chart(fig_detail, use_container_width=True)
 
                 # 明细表格
