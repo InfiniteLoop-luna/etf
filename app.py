@@ -1675,6 +1675,53 @@ def build_security_jump_links(df: pd.DataFrame, code_col: str = '代码', fallba
     return query_links
 
 
+def build_security_name_jump_links(
+    df: pd.DataFrame,
+    code_col: str = '代码',
+    label_col: str = '名称',
+    fallback_col: str | None = None,
+    nonce_key: str = 'security_name_jump_render_nonce',
+) -> list[str]:
+    from urllib.parse import quote
+
+    if df is None or df.empty:
+        return []
+
+    render_nonce = st.session_state.get(nonce_key, 0) + 1
+    st.session_state[nonce_key] = render_nonce
+
+    query_links: list[str] = []
+    for _, row in df.iterrows():
+        fallback_value = row.get(fallback_col) if fallback_col else ''
+        query = str(row.get(code_col) or fallback_value or '').strip()
+        if not query:
+            query_links.append('#')
+            continue
+
+        label = str(row.get(label_col) or query).strip() or query
+        query_links.append(
+            f"?security_query={quote(query)}&security_type=stock&open_tab=security&jump_nonce={render_nonce}_{quote(query)}#{label}"
+        )
+    return query_links
+
+
+def build_hotmoney_stock_preference_display_df(df_stocks: pd.DataFrame) -> pd.DataFrame:
+    if df_stocks is None or df_stocks.empty:
+        return pd.DataFrame(columns=["股票名称", "代码", "上榜次数", "游资数", "净买卖(亿)"])
+
+    out = df_stocks[["ts_name", "ts_code", "hit_count", "hm_count", "total_net_amount_yi"]].copy()
+    out.columns = ["股票名称", "代码", "上榜次数", "游资数", "净买卖(亿)"]
+    out["股票名称"] = build_security_name_jump_links(
+        out,
+        code_col="代码",
+        label_col="股票名称",
+        fallback_col="股票名称",
+        nonce_key="hm_stock_preference_render_nonce",
+    )
+    out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda v: f"{v:,.2f}")
+    return out
+
+
 HISTORICAL_ST_BADGE_TEXT = '曾经ST'
 
 
@@ -4625,10 +4672,20 @@ def render_hotmoney_tab():
                     xaxis_title=stock_x_title,
                 )
                 st.plotly_chart(fig_stocks, use_container_width=True)
-                out = show[["ts_name", "ts_code", "hit_count", "hm_count", "total_net_amount_yi"]].copy()
-                out.columns = ["股票", "代码", "上榜次数", "游资数", "净买卖(亿)"]
-                out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda v: f"{v:,.2f}")
-                st.dataframe(out, use_container_width=True, hide_index=True)
+                out = build_hotmoney_stock_preference_display_df(show)
+                st.caption("点击“股票名称”列可跳转到“个股/指数查询”，并自动带入该股票代码。")
+                st.dataframe(
+                    out,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "股票名称": st.column_config.LinkColumn(
+                            "股票名称",
+                            help="点击后跳转到个股/指数查询",
+                            display_text=r".*#(.*)$",
+                        )
+                    },
+                )
             else:
                 st.info("当前窗口暂无游资个股数据。")
 
