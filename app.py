@@ -91,6 +91,7 @@ from src.apple_theme import (
     build_apple_plotly_template,
     build_author_tracker_apple_css,
     build_global_apple_theme_css,
+    get_apple_theme_tokens,
 )
 
 from src.ml_stock_train_v1 import (
@@ -133,7 +134,7 @@ pio.templates["wealthspark_balanced"] = apple_plotly_template
 pio.templates["plotly_white"] = apple_plotly_template
 pio.templates.default = "wealthspark_apple"
 
-THEME = APPLE_THEME_TOKENS
+THEME = get_apple_theme_tokens(APPLE_THEME_TOKENS)
 THEME_PRIMARY = THEME["primary"]
 THEME_PRIMARY_HOVER = THEME["primary_hover"]
 THEME_PRIMARY_STRONG = THEME["primary_strong"]
@@ -1680,6 +1681,7 @@ def build_security_name_jump_links(
     code_col: str = '代码',
     label_col: str = '名称',
     fallback_col: str | None = None,
+    label_prefix: str = '',
     nonce_key: str = 'security_name_jump_render_nonce',
 ) -> list[str]:
     from urllib.parse import quote
@@ -1699,6 +1701,8 @@ def build_security_name_jump_links(
             continue
 
         label = str(row.get(label_col) or query).strip() or query
+        if label_prefix:
+            label = f"{label_prefix}{label}"
         query_links.append(
             f"?security_query={quote(query)}&security_type=stock&open_tab=security&jump_nonce={render_nonce}_{quote(query)}#{label}"
         )
@@ -1716,6 +1720,7 @@ def build_hotmoney_stock_preference_display_df(df_stocks: pd.DataFrame) -> pd.Da
         code_col="代码",
         label_col="股票名称",
         fallback_col="股票名称",
+        label_prefix="🔎 ",
         nonce_key="hm_stock_preference_render_nonce",
     )
     out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda v: f"{v:,.2f}")

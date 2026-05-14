@@ -3,7 +3,7 @@ from __future__ import annotations
 import plotly.graph_objects as go
 
 
-APPLE_THEME_TOKENS = {
+APPLE_THEME_DEFAULT_TOKENS = {
     "bg_base": "#F4F7F6",
     "bg_surface": "#FFFFFF",
     "bg_dark": "#1B263B",
@@ -34,32 +34,43 @@ APPLE_THEME_TOKENS = {
     "max_width": "1480px",
 }
 
+APPLE_THEME_TOKENS = dict(APPLE_THEME_DEFAULT_TOKENS)
+
+
+def get_apple_theme_tokens(overrides: dict | None = None) -> dict:
+    tokens = dict(APPLE_THEME_DEFAULT_TOKENS)
+    source = APPLE_THEME_TOKENS if overrides is None else overrides
+    if isinstance(source, dict):
+        tokens.update({key: value for key, value in source.items() if value is not None})
+    return tokens
+
 
 def build_apple_plotly_template() -> go.layout.Template:
+    tokens = get_apple_theme_tokens()
     return go.layout.Template(
         layout=go.Layout(
-            paper_bgcolor=APPLE_THEME_TOKENS["bg_base"],
-            plot_bgcolor=APPLE_THEME_TOKENS["bg_surface"],
-            font={"color": APPLE_THEME_TOKENS["text_main"], "family": "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif"},
-            title={"font": {"color": APPLE_THEME_TOKENS["text_main"], "size": 20}},
+            paper_bgcolor=tokens["bg_base"],
+            plot_bgcolor=tokens["bg_surface"],
+            font={"color": tokens["text_main"], "family": "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif"},
+            title={"font": {"color": tokens["text_main"], "size": 20}},
             colorway=[
-                APPLE_THEME_TOKENS["bg_dark"],
-                APPLE_THEME_TOKENS["primary"],
+                tokens["bg_dark"],
+                tokens["primary"],
                 "#4F6785",
                 "#5B8E7D",
                 "#C28C4E",
                 "#7D6B91",
             ],
             hoverlabel={
-                "bgcolor": APPLE_THEME_TOKENS["bg_dark"],
-                "font": {"color": APPLE_THEME_TOKENS["text_inverse"]},
-                "bordercolor": APPLE_THEME_TOKENS["border_strong"],
+                "bgcolor": tokens["bg_dark"],
+                "font": {"color": tokens["text_inverse"]},
+                "bordercolor": tokens["border_strong"],
             },
             legend={
                 "bgcolor": "rgba(255,255,255,0.94)",
-                "bordercolor": APPLE_THEME_TOKENS["border_soft"],
+                "bordercolor": tokens["border_soft"],
                 "borderwidth": 1,
-                "font": {"color": APPLE_THEME_TOKENS["text_muted"]},
+                "font": {"color": tokens["text_muted"]},
             },
             margin={"l": 20, "r": 20, "t": 36, "b": 20},
             xaxis={
@@ -70,7 +81,7 @@ def build_apple_plotly_template() -> go.layout.Template:
                 "gridcolor": "rgba(27, 38, 59, 0.08)",
                 "linecolor": "rgba(27, 38, 59, 0.12)",
                 "zerolinecolor": "rgba(27, 38, 59, 0.08)",
-                "title": {"font": {"color": APPLE_THEME_TOKENS["text_muted"]}},
+                "title": {"font": {"color": tokens["text_muted"]}},
             },
             yaxis={
                 "showline": True,
@@ -80,20 +91,21 @@ def build_apple_plotly_template() -> go.layout.Template:
                 "gridcolor": "rgba(27, 38, 59, 0.08)",
                 "linecolor": "rgba(27, 38, 59, 0.12)",
                 "zerolinecolor": "rgba(27, 38, 59, 0.08)",
-                "title": {"font": {"color": APPLE_THEME_TOKENS["text_muted"]}},
+                "title": {"font": {"color": tokens["text_muted"]}},
             },
         )
     )
 
 
 def build_author_tracker_apple_css() -> str:
+    tokens = get_apple_theme_tokens()
     return f"""
 .ws-tracker-shell {{
-    background: linear-gradient(180deg, {APPLE_THEME_TOKENS["bg_surface"]} 0%, {APPLE_THEME_TOKENS["surface_alt"]} 100%);
-    border: 1px solid {APPLE_THEME_TOKENS["border_soft"]};
-    border-radius: {APPLE_THEME_TOKENS["radius_lg"]};
+    background: linear-gradient(180deg, {tokens["bg_surface"]} 0%, {tokens["surface_alt"]} 100%);
+    border: 1px solid {tokens["border_soft"]};
+    border-radius: {tokens["radius_lg"]};
     padding: 1.2rem 1.3rem;
-    box-shadow: {APPLE_THEME_TOKENS["shadow"]};
+    box-shadow: {tokens["shadow"]};
     margin: 0.35rem 0 1rem 0;
 }}
 
@@ -103,8 +115,8 @@ def build_author_tracker_apple_css() -> str:
     gap: 0.35rem;
     padding: 0.3rem 0.7rem;
     border-radius: 999px;
-    background: {APPLE_THEME_TOKENS["primary_soft"]};
-    color: {APPLE_THEME_TOKENS["primary"]};
+    background: {tokens["primary_soft"]};
+    color: {tokens["primary"]};
     font-size: 0.76rem;
     font-weight: 700;
     letter-spacing: 0.02em;
@@ -112,7 +124,7 @@ def build_author_tracker_apple_css() -> str:
 
 .ws-tracker-shell h4 {{
     margin: 0.9rem 0 0.35rem 0;
-    color: {APPLE_THEME_TOKENS["text_main"]};
+    color: {tokens["text_main"]};
     font-size: 1.25rem;
     font-weight: 700;
     letter-spacing: -0.02em;
@@ -120,7 +132,7 @@ def build_author_tracker_apple_css() -> str:
 
 .ws-tracker-shell p {{
     margin: 0;
-    color: {APPLE_THEME_TOKENS["text_muted"]};
+    color: {tokens["text_muted"]};
     font-size: 0.95rem;
     line-height: 1.6;
 }}
@@ -128,11 +140,11 @@ def build_author_tracker_apple_css() -> str:
 .ws-tracker-section {{
     margin: 1.15rem 0 0.55rem 0;
     padding: 0.15rem 0 0.55rem 0;
-    border-bottom: 1px solid {APPLE_THEME_TOKENS["border_soft"]};
+    border-bottom: 1px solid {tokens["border_soft"]};
 }}
 
 .ws-tracker-section span {{
-    color: {APPLE_THEME_TOKENS["text_main"]};
+    color: {tokens["text_main"]};
     font-size: 1rem;
     font-weight: 650;
     letter-spacing: -0.01em;
@@ -141,57 +153,58 @@ def build_author_tracker_apple_css() -> str:
 .ws-evidence-gallery {{
     margin: 0.8rem 0 0.25rem 0;
     padding: 0.9rem 1rem;
-    border-radius: {APPLE_THEME_TOKENS["radius_md"]};
+    border-radius: {tokens["radius_md"]};
     background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(244, 247, 246, 0.96) 100%);
-    border: 1px solid {APPLE_THEME_TOKENS["border_soft"]};
-    box-shadow: {APPLE_THEME_TOKENS["shadow"]};
+    border: 1px solid {tokens["border_soft"]};
+    box-shadow: {tokens["shadow"]};
 }}
 
 .ws-evidence-gallery strong {{
-    color: {APPLE_THEME_TOKENS["text_main"]};
+    color: {tokens["text_main"]};
     font-size: 0.93rem;
 }}
 
 .ws-evidence-gallery-note {{
     margin-top: 0.35rem;
-    color: {APPLE_THEME_TOKENS["text_soft"]};
+    color: {tokens["text_soft"]};
     font-size: 0.82rem;
 }}
 """
 
 
 def build_global_apple_theme_css() -> str:
+    tokens = get_apple_theme_tokens()
     return f"""
 :root {{
-    --ws-bg-base: {APPLE_THEME_TOKENS["bg_base"]};
-    --ws-bg-surface: {APPLE_THEME_TOKENS["bg_surface"]};
-    --ws-bg-dark: {APPLE_THEME_TOKENS["bg_dark"]};
-    --ws-surface-soft: {APPLE_THEME_TOKENS["surface_soft"]};
-    --ws-surface-alt: {APPLE_THEME_TOKENS["surface_alt"]};
-    --ws-surface-dark-alt: {APPLE_THEME_TOKENS["surface_dark_alt"]};
-    --ws-color-primary: {APPLE_THEME_TOKENS["primary"]};
-    --ws-color-primary-hover: {APPLE_THEME_TOKENS["primary_hover"]};
-    --ws-color-primary-strong: {APPLE_THEME_TOKENS["primary_strong"]};
-    --ws-color-primary-soft: {APPLE_THEME_TOKENS["primary_soft"]};
-    --ws-text-main: {APPLE_THEME_TOKENS["text_main"]};
-    --ws-text-muted: {APPLE_THEME_TOKENS["text_muted"]};
-    --ws-text-soft: {APPLE_THEME_TOKENS["text_soft"]};
-    --ws-text-inverse: {APPLE_THEME_TOKENS["text_inverse"]};
-    --ws-text: {APPLE_THEME_TOKENS["text_main"]};
-    --ws-border-soft: {APPLE_THEME_TOKENS["border_soft"]};
-    --ws-border-strong: {APPLE_THEME_TOKENS["border_strong"]};
-    --ws-border: {APPLE_THEME_TOKENS["border_soft"]};
-    --ws-shadow: {APPLE_THEME_TOKENS["shadow"]};
-    --ws-shadow-hover: {APPLE_THEME_TOKENS["shadow_hover"]};
-    --ws-ai-glow: {APPLE_THEME_TOKENS["ai_glow"]};
-    --ws-color-up: {APPLE_THEME_TOKENS["color_up"]};
-    --ws-color-down: {APPLE_THEME_TOKENS["color_down"]};
-    --ws-color-warn: {APPLE_THEME_TOKENS["color_warn"]};
-    --ws-color-neutral: {APPLE_THEME_TOKENS["color_neutral"]};
-    --ws-color-purple: {APPLE_THEME_TOKENS["color_purple"]};
-    --ws-radius-lg: {APPLE_THEME_TOKENS["radius_lg"]};
-    --ws-radius-md: {APPLE_THEME_TOKENS["radius_md"]};
-    --ws-radius-sm: {APPLE_THEME_TOKENS["radius_sm"]};
+    --ws-bg-base: {tokens["bg_base"]};
+    --ws-bg-surface: {tokens["bg_surface"]};
+    --ws-bg-dark: {tokens["bg_dark"]};
+    --ws-surface-soft: {tokens["surface_soft"]};
+    --ws-surface-alt: {tokens["surface_alt"]};
+    --ws-surface-dark-alt: {tokens["surface_dark_alt"]};
+    --ws-color-primary: {tokens["primary"]};
+    --ws-color-primary-hover: {tokens["primary_hover"]};
+    --ws-color-primary-strong: {tokens["primary_strong"]};
+    --ws-color-primary-soft: {tokens["primary_soft"]};
+    --ws-text-main: {tokens["text_main"]};
+    --ws-text-muted: {tokens["text_muted"]};
+    --ws-text-soft: {tokens["text_soft"]};
+    --ws-text-inverse: {tokens["text_inverse"]};
+    --ws-text: {tokens["text_main"]};
+    --ws-border-soft: {tokens["border_soft"]};
+    --ws-border-strong: {tokens["border_strong"]};
+    --ws-border: {tokens["border_soft"]};
+    --ws-shadow: {tokens["shadow"]};
+    --ws-shadow-hover: {tokens["shadow_hover"]};
+    --ws-ai-glow: {tokens["ai_glow"]};
+    --ws-color-up: {tokens["color_up"]};
+    --ws-color-down: {tokens["color_down"]};
+    --ws-color-warn: {tokens["color_warn"]};
+    --ws-color-neutral: {tokens["color_neutral"]};
+    --ws-color-purple: {tokens["color_purple"]};
+    --ws-radius-lg: {tokens["radius_lg"]};
+    --ws-radius-md: {tokens["radius_md"]};
+    --ws-radius-sm: {tokens["radius_sm"]};
 }}
 
 html, body, [class*="css"] {{
@@ -223,7 +236,7 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {{
 }}
 
 .main .block-container {{
-    max-width: {APPLE_THEME_TOKENS["max_width"]};
+    max-width: {tokens["max_width"]};
     padding: 1.6rem 2.2rem 3rem 2.2rem;
     margin-top: 0.55rem;
     background: linear-gradient(180deg, var(--ws-bg-surface) 0%, rgba(248, 250, 248, 0.98) 100%) !important;

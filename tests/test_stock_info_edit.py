@@ -34,7 +34,7 @@ class StockInfoEditTests(unittest.TestCase):
         self.assertEqual(display_df.iloc[0]["净买卖(亿)"], "1.23")
         self.assertEqual(
             display_df.iloc[0]["股票名称"],
-            "?security_query=000001.SZ&security_type=stock&open_tab=security&jump_nonce=1_000001.SZ#平安银行",
+            "?security_query=000001.SZ&security_type=stock&open_tab=security&jump_nonce=1_000001.SZ#🔎 平安银行",
         )
 
     def test_search_companies_exposes_historical_st_flag(self):

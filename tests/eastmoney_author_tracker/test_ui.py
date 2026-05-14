@@ -4,9 +4,11 @@ from urllib.parse import parse_qs, unquote, urlparse
 from pathlib import Path
 
 from src.apple_theme import (
+    APPLE_THEME_TOKENS,
     build_apple_plotly_template,
     build_author_tracker_apple_css,
     build_global_apple_theme_css,
+    get_apple_theme_tokens,
 )
 from src.eastmoney_author_tracker.ui import (
     DIRECTION_COLORS,
@@ -32,6 +34,16 @@ LABEL_WATCH = "\u5f85\u89c2\u5bdf"
 
 
 class TrackerUiPayloadTests(unittest.TestCase):
+    def test_get_apple_theme_tokens_backfills_missing_required_keys(self):
+        with patch("src.apple_theme.APPLE_THEME_TOKENS", {"bg_base": "#000000", "text_main": "#FFFFFF"}):
+            tokens = get_apple_theme_tokens()
+
+        self.assertEqual(tokens["bg_base"], "#000000")
+        self.assertEqual(tokens["text_main"], "#FFFFFF")
+        self.assertEqual(tokens["primary"], APPLE_THEME_TOKENS["primary"])
+        self.assertEqual(tokens["primary_hover"], APPLE_THEME_TOKENS["primary_hover"])
+        self.assertEqual(tokens["primary_strong"], APPLE_THEME_TOKENS["primary_strong"])
+
     def test_build_global_apple_theme_css_contains_professional_gold_core_tokens(self):
         css = build_global_apple_theme_css()
 
