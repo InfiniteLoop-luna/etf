@@ -8142,14 +8142,21 @@ def render_etf_deposit_tab():
             index=0,
             key="deposit_edit_select",
         )
-        edit_button_disabled = (not has_deposit_edit_permission()) or (not edit_month)
-        if st.button("编辑选中月份", key="deposit_edit_button", disabled=edit_button_disabled):
-            st.session_state["deposit_manual_open"] = True
-            st.session_state["deposit_import_open"] = False
-            st.session_state["deposit_edit_month"] = edit_month
+        can_edit_deposit = has_deposit_edit_permission()
+        if st.button("编辑选中月份", key="deposit_edit_button"):
+            if not can_edit_deposit:
+                st.warning("请先完成编辑权限验证，再编辑已有月份。")
+            elif not edit_month:
+                st.info("请先选择要编辑的月份。")
+            else:
+                st.session_state["deposit_manual_open"] = True
+                st.session_state["deposit_import_open"] = False
+                st.session_state["deposit_edit_month"] = edit_month
 
-        if not has_deposit_edit_permission() and edit_month:
+        if not can_edit_deposit:
             st.caption("要编辑或删除已有月份，请先完成权限验证。")
+        elif not edit_month:
+            st.caption("已完成权限验证：请选择一个月份后再点“编辑选中月份”。")
 
         display_df = to_deposit_display_df(detail_df)
         if not display_df.empty:
@@ -8166,18 +8173,25 @@ def render_etf_deposit_tab():
         )
         selected_delete_months = editor_df.loc[editor_df["删除"], "月份"].tolist() if not editor_df.empty else []
 
-        delete_disabled = (not has_deposit_edit_permission()) or (not selected_delete_months)
-        if st.button("删除选中月份", key="deposit_delete_selected", disabled=delete_disabled):
-            try:
-                deleted_count = delete_deposit_months(engine, selected_delete_months)
-            except Exception as exc:
-                st.error(f"删除失败: {exc}")
+        if can_edit_deposit and not selected_delete_months:
+            st.caption("已完成权限验证：勾选表格左侧“删除”后即可删除对应月份。")
+
+        if st.button("删除选中月份", key="deposit_delete_selected"):
+            if not can_edit_deposit:
+                st.warning("请先完成编辑权限验证，再删除已有月份。")
+            elif not selected_delete_months:
+                st.info("请先勾选要删除的月份。")
             else:
-                st.session_state["deposit_manual_open"] = False
-                st.session_state["deposit_import_open"] = False
-                st.session_state["deposit_edit_month"] = ""
-                st.success(f"已删除 {deleted_count} 个月份")
-                st.rerun()
+                try:
+                    deleted_count = delete_deposit_months(engine, selected_delete_months)
+                except Exception as exc:
+                    st.error(f"删除失败: {exc}")
+                else:
+                    st.session_state["deposit_manual_open"] = False
+                    st.session_state["deposit_import_open"] = False
+                    st.session_state["deposit_edit_month"] = ""
+                    st.success(f"已删除 {deleted_count} 个月份")
+                    st.rerun()
 
     if st.session_state.get("deposit_manual_open", False):
         if not has_deposit_edit_permission():
