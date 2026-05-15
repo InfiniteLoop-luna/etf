@@ -4595,6 +4595,7 @@ def render_hotmoney_tab():
         stock_rank_mode = st.selectbox("个股排序", ["按上榜次数", "按游资数", "按净买卖绝对值"], index=0, key="hm_stock_rank_mode")
 
     hm_list_df = query_hotmoney_list(name=hm_keyword or None, limit=300, engine=_hm_engine)
+    st.markdown("#### 🗂️ 游资名录总览")
     if hm_list_df is not None and not hm_list_df.empty:
         show = hm_list_df.copy()
         show["org_count"] = show["hm_orgs"].astype(str).apply(lambda x: len([i for i in x.split('、') if i.strip()]))
@@ -4613,7 +4614,7 @@ def render_hotmoney_tab():
             paper_bgcolor=CHART_PAPER_BG,
             plot_bgcolor=CHART_BG,
             font=dict(family="Inter, PingFang SC, sans-serif"),
-            height=max(360, len(show) * 24),
+            height=max(340, len(show) * 20),
             margin=dict(l=120, r=30, t=55, b=20),
             yaxis=dict(autorange="reversed"),
             xaxis_title="关联机构数",
@@ -4622,7 +4623,7 @@ def render_hotmoney_tab():
 
         out = hm_list_df[["hm_name", "hm_desc", "hm_orgs"]].copy()
         out.columns = ["游资名称", "说明", "关联机构"]
-        st.dataframe(out, use_container_width=True, hide_index=True, height=420)
+        st.dataframe(out, use_container_width=True, hide_index=True, height=380)
     else:
         st.info("暂无游资名录数据。")
 
@@ -4669,7 +4670,7 @@ def render_hotmoney_tab():
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
                 font=dict(family="Inter, PingFang SC, sans-serif"),
-                height=max(320, len(show) * 24),
+                height=max(340, len(show) * 20),
                 margin=dict(l=120, r=30, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
                 xaxis_title="上榜次数",
@@ -4678,7 +4679,7 @@ def render_hotmoney_tab():
             out = show[["hm_name", "hit_count", "stock_count", "total_net_amount_yi"]].copy()
             out.columns = ["游资", "上榜次数", "涉及股票数", "净买卖(亿)"]
             out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda v: f"{v:,.2f}")
-            st.dataframe(out, use_container_width=True, hide_index=True)
+            st.dataframe(out, use_container_width=True, hide_index=True, height=380)
         else:
             st.info("当前窗口暂无活跃游资数据。")
 
@@ -4713,7 +4714,7 @@ def render_hotmoney_tab():
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
                 font=dict(family="Inter, PingFang SC, sans-serif"),
-                height=max(320, len(show) * 24),
+                height=max(340, len(show) * 20),
                 margin=dict(l=120, r=30, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
                 xaxis_title=stock_x_title,
@@ -4724,6 +4725,7 @@ def render_hotmoney_tab():
                 out,
                 use_container_width=True,
                 hide_index=True,
+                height=380,
                 column_config={
                     "股票名称": st.column_config.LinkColumn(
                         "股票名称",
