@@ -195,11 +195,20 @@ HOTMONEY_SECTION_WRAPPER_CSS = """
     letter-spacing: 0.02em;
     margin-bottom: 0.45rem;
 }
+.ws-hotmoney-section .ws-hotmoney-kicker::before {
+    content: "";
+    width: 0.38rem;
+    height: 0.38rem;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0.85;
+}
 .ws-hotmoney-section .ws-hotmoney-note {
     color: var(--ws-text-soft);
     font-size: 0.83rem;
     margin-top: -0.05rem;
     margin-bottom: 0.15rem;
+    line-height: 1.6;
 }
 </style>
 """
@@ -4634,8 +4643,8 @@ def render_hotmoney_tab():
     st.markdown(
         """
         <div class="ws-hotmoney-section">
-          <div class="ws-hotmoney-kicker">HOTMONEY DIRECTORY</div>
-          <div class="ws-hotmoney-note">先看游资名录与关联机构，再往下看活跃游资、偏好个股和每日博弈明细。</div>
+          <div class="ws-hotmoney-kicker">游资名录</div>
+          <div class="ws-hotmoney-note">先看名录与关联机构，再往下看活跃游资、偏好个股和每日博弈明细。</div>
         """,
         unsafe_allow_html=True,
     )
@@ -4701,7 +4710,7 @@ def render_hotmoney_tab():
         st.markdown(
             """
             <div class="ws-hotmoney-section">
-              <div class="ws-hotmoney-kicker">ACTIVE DESK FLOW</div>
+              <div class="ws-hotmoney-kicker">活跃榜</div>
             """,
             unsafe_allow_html=True,
         )
@@ -4742,7 +4751,7 @@ def render_hotmoney_tab():
         st.markdown(
             f"""
             <div class="ws-hotmoney-section">
-              <div class="ws-hotmoney-kicker">STOCK PREFERENCE</div>
+              <div class="ws-hotmoney-kicker">偏好股</div>
             """,
             unsafe_allow_html=True,
         )
@@ -4804,7 +4813,7 @@ def render_hotmoney_tab():
         st.markdown(
             """
             <div class="ws-hotmoney-section">
-              <div class="ws-hotmoney-kicker">DAILY GAME DETAIL</div>
+              <div class="ws-hotmoney-kicker">每日明细</div>
             """,
             unsafe_allow_html=True,
         )
