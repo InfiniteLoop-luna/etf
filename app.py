@@ -4653,6 +4653,9 @@ def render_hotmoney_tab():
             st.error(f"游资明细查询失败：{e}")
             return
 
+        if df_stocks is not None and not df_stocks.empty:
+            st.caption("💡 右侧“股票名称”列可跳转到“个股/指数查询”，并自动带入该股票代码。")
+
         row1 = st.columns(2)
         with row1[0]:
             st.markdown("#### 🔥 活跃游资榜")
@@ -4725,7 +4728,6 @@ def render_hotmoney_tab():
                 )
                 st.plotly_chart(fig_stocks, use_container_width=True)
                 out = build_hotmoney_stock_preference_display_df(show)
-                st.caption("点击“股票名称”列可跳转到“个股/指数查询”，并自动带入该股票代码。")
                 st.dataframe(
                     out,
                     use_container_width=True,
