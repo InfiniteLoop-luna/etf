@@ -4653,92 +4653,89 @@ def render_hotmoney_tab():
             st.error(f"游资明细查询失败：{e}")
             return
 
-        row1 = st.columns(2)
-        with row1[0]:
-            st.markdown("#### 🔥 活跃游资榜")
-            if df_active is not None and not df_active.empty:
-                show = df_active.copy()
-                show["total_net_amount_yi"] = pd.to_numeric(show["total_net_amount"], errors="coerce").fillna(0) / 1e8
-                fig_active = go.Figure(go.Bar(
-                    x=show["hit_count"],
-                    y=show["hm_name"],
-                    orientation="h",
-                    marker=dict(color=show["total_net_amount_yi"], colorscale="Tealgrn", showscale=False),
-                    text=show["hit_count"],
-                    textposition="outside",
-                ))
-                fig_active.update_layout(
-                    title=dict(text="活跃游资 TopN", x=0.02, font=dict(size=16, color=THEME_TEXT)),
-                    template="wealthspark_balanced",
-                    paper_bgcolor=CHART_PAPER_BG,
-                    plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
-                    height=max(320, len(show) * 24),
-                    margin=dict(l=120, r=30, t=55, b=20),
-                    yaxis=dict(autorange="reversed"),
-                    xaxis_title="上榜次数",
-                )
-                st.plotly_chart(fig_active, use_container_width=True)
-                out = show[["hm_name", "hit_count", "stock_count", "total_net_amount_yi"]].copy()
-                out.columns = ["游资", "上榜次数", "涉及股票数", "净买卖(亿)"]
-                out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda v: f"{v:,.2f}")
-                st.dataframe(out, use_container_width=True, hide_index=True)
-            else:
-                st.info("当前窗口暂无活跃游资数据。")
+        st.markdown("#### 🔥 活跃游资榜")
+        if df_active is not None and not df_active.empty:
+            show = df_active.copy()
+            show["total_net_amount_yi"] = pd.to_numeric(show["total_net_amount"], errors="coerce").fillna(0) / 1e8
+            fig_active = go.Figure(go.Bar(
+                x=show["hit_count"],
+                y=show["hm_name"],
+                orientation="h",
+                marker=dict(color=show["total_net_amount_yi"], colorscale="Tealgrn", showscale=False),
+                text=show["hit_count"],
+                textposition="outside",
+            ))
+            fig_active.update_layout(
+                title=dict(text="活跃游资 TopN", x=0.02, font=dict(size=16, color=THEME_TEXT)),
+                template="wealthspark_balanced",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                height=max(320, len(show) * 24),
+                margin=dict(l=120, r=30, t=55, b=20),
+                yaxis=dict(autorange="reversed"),
+                xaxis_title="上榜次数",
+            )
+            st.plotly_chart(fig_active, use_container_width=True)
+            out = show[["hm_name", "hit_count", "stock_count", "total_net_amount_yi"]].copy()
+            out.columns = ["游资", "上榜次数", "涉及股票数", "净买卖(亿)"]
+            out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda v: f"{v:,.2f}")
+            st.dataframe(out, use_container_width=True, hide_index=True)
+        else:
+            st.info("当前窗口暂无活跃游资数据。")
 
-        with row1[1]:
-            rank_mode_label = stock_rank_mode.replace("按", "")
-            st.markdown(f"#### 🎯 游资偏好个股（{rank_mode_label}）")
-            if df_stocks is not None and not df_stocks.empty:
-                show = df_stocks.copy()
-                show["total_net_amount_yi"] = pd.to_numeric(show["total_net_amount"], errors="coerce").fillna(0) / 1e8
-                stock_x_col = "hit_count"
-                stock_x_title = "上榜次数"
-                stock_text_col = "hit_count"
-                if stock_order_by == "hm_count":
-                    stock_x_col = "hm_count"
-                    stock_x_title = "游资数"
-                    stock_text_col = "hm_count"
-                elif stock_order_by == "net_amount_abs":
-                    stock_x_col = "total_net_amount_yi"
-                    stock_x_title = "净买卖绝对值(亿)"
-                    stock_text_col = "total_net_amount_yi"
+        rank_mode_label = stock_rank_mode.replace("按", "")
+        st.markdown(f"#### 🎯 游资偏好个股（{rank_mode_label}）")
+        if df_stocks is not None and not df_stocks.empty:
+            show = df_stocks.copy()
+            show["total_net_amount_yi"] = pd.to_numeric(show["total_net_amount"], errors="coerce").fillna(0) / 1e8
+            stock_x_col = "hit_count"
+            stock_x_title = "上榜次数"
+            stock_text_col = "hit_count"
+            if stock_order_by == "hm_count":
+                stock_x_col = "hm_count"
+                stock_x_title = "游资数"
+                stock_text_col = "hm_count"
+            elif stock_order_by == "net_amount_abs":
+                stock_x_col = "total_net_amount_yi"
+                stock_x_title = "净买卖绝对值(亿)"
+                stock_text_col = "total_net_amount_yi"
 
-                fig_stocks = go.Figure(go.Bar(
-                    x=show[stock_x_col],
-                    y=show["ts_name"],
-                    orientation="h",
-                    marker=dict(color=show["hm_count"], colorscale="Oranges", showscale=False),
-                    text=show[stock_text_col],
-                    textposition="outside",
-                ))
-                fig_stocks.update_layout(
-                    title=dict(text="游资关注个股 TopN", x=0.02, font=dict(size=16, color=THEME_TEXT)),
-                    template="wealthspark_balanced",
-                    paper_bgcolor=CHART_PAPER_BG,
-                    plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
-                    height=max(320, len(show) * 24),
-                    margin=dict(l=120, r=30, t=55, b=20),
-                    yaxis=dict(autorange="reversed"),
-                    xaxis_title=stock_x_title,
-                )
-                st.plotly_chart(fig_stocks, use_container_width=True)
-                out = build_hotmoney_stock_preference_display_df(show)
-                st.dataframe(
-                    out,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "股票名称": st.column_config.LinkColumn(
-                            "股票名称",
-                            help="点击后跳转到个股/指数查询",
-                            display_text=r".*#(.*)$",
-                        )
-                    },
-                )
-            else:
-                st.info("当前窗口暂无游资个股数据。")
+            fig_stocks = go.Figure(go.Bar(
+                x=show[stock_x_col],
+                y=show["ts_name"],
+                orientation="h",
+                marker=dict(color=show["hm_count"], colorscale="Oranges", showscale=False),
+                text=show[stock_text_col],
+                textposition="outside",
+            ))
+            fig_stocks.update_layout(
+                title=dict(text="游资关注个股 TopN", x=0.02, font=dict(size=16, color=THEME_TEXT)),
+                template="wealthspark_balanced",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                height=max(320, len(show) * 24),
+                margin=dict(l=120, r=30, t=55, b=20),
+                yaxis=dict(autorange="reversed"),
+                xaxis_title=stock_x_title,
+            )
+            st.plotly_chart(fig_stocks, use_container_width=True)
+            out = build_hotmoney_stock_preference_display_df(show)
+            st.dataframe(
+                out,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "股票名称": st.column_config.LinkColumn(
+                        "股票名称",
+                        help="点击后跳转到个股/指数查询",
+                        display_text=r".*#(.*)$",
+                    )
+                },
+            )
+        else:
+            st.info("当前窗口暂无游资个股数据。")
 
         st.markdown("#### 🧾 游资博弈每日明细")
         if df_detail is not None and not df_detail.empty:
