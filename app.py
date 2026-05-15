@@ -170,6 +170,42 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
+HOTMONEY_SECTION_WRAPPER_CSS = """
+<style>
+.ws-hotmoney-section {
+    margin: 1.05rem 0 1.35rem 0;
+    padding: 0.2rem 0 0.8rem 0;
+    border-bottom: 1px solid var(--ws-border-soft);
+}
+.ws-hotmoney-section:last-of-type {
+    border-bottom: none;
+    margin-bottom: 0.35rem;
+}
+.ws-hotmoney-section .ws-hotmoney-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.22rem 0.72rem;
+    border-radius: 999px;
+    background: var(--ws-color-primary-soft);
+    color: var(--ws-color-primary);
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin-bottom: 0.45rem;
+}
+.ws-hotmoney-section .ws-hotmoney-note {
+    color: var(--ws-text-soft);
+    font-size: 0.83rem;
+    margin-top: -0.05rem;
+    margin-bottom: 0.15rem;
+}
+</style>
+"""
+
+st.markdown(HOTMONEY_SECTION_WRAPPER_CSS, unsafe_allow_html=True)
+
 TREND_RECO_FILE = "data/recommendations/latest_trend_recommendations.json"
 LIVE_ML_RECO_SCORING_ENABLED = os.environ.get("ETF_ENABLE_LIVE_RECO_SCORING", "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -4595,6 +4631,14 @@ def render_hotmoney_tab():
         stock_rank_mode = st.selectbox("个股排序", ["按上榜次数", "按游资数", "按净买卖绝对值"], index=0, key="hm_stock_rank_mode")
 
     hm_list_df = query_hotmoney_list(name=hm_keyword or None, limit=300, engine=_hm_engine)
+    st.markdown(
+        """
+        <div class="ws-hotmoney-section">
+          <div class="ws-hotmoney-kicker">HOTMONEY DIRECTORY</div>
+          <div class="ws-hotmoney-note">先看游资名录与关联机构，再往下看活跃游资、偏好个股和每日博弈明细。</div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.markdown("#### 🗂️ 游资名录总览")
     if hm_list_df is not None and not hm_list_df.empty:
         show = hm_list_df.copy()
@@ -4627,6 +4671,8 @@ def render_hotmoney_tab():
     else:
         st.info("暂无游资名录数据。")
 
+    st.markdown("</div>", unsafe_allow_html=True)
+
     if latest_date:
         latest_dt = pd.to_datetime(latest_date, format="%Y%m%d").date()
         if detail_window == "最近1日":
@@ -4652,6 +4698,13 @@ def render_hotmoney_tab():
             st.error(f"游资明细查询失败：{e}")
             return
 
+        st.markdown(
+            """
+            <div class="ws-hotmoney-section">
+              <div class="ws-hotmoney-kicker">ACTIVE DESK FLOW</div>
+            """,
+            unsafe_allow_html=True,
+        )
         st.markdown("#### 🔥 活跃游资榜")
         if df_active is not None and not df_active.empty:
             show = df_active.copy()
@@ -4683,7 +4736,16 @@ def render_hotmoney_tab():
         else:
             st.info("当前窗口暂无活跃游资数据。")
 
+        st.markdown("</div>", unsafe_allow_html=True)
+
         rank_mode_label = stock_rank_mode.replace("按", "")
+        st.markdown(
+            f"""
+            <div class="ws-hotmoney-section">
+              <div class="ws-hotmoney-kicker">STOCK PREFERENCE</div>
+            """,
+            unsafe_allow_html=True,
+        )
         st.markdown(f"#### 🎯 游资偏好个股（{rank_mode_label}）")
         if df_stocks is not None and not df_stocks.empty:
             show = df_stocks.copy()
@@ -4737,6 +4799,15 @@ def render_hotmoney_tab():
         else:
             st.info("当前窗口暂无游资个股数据。")
 
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown(
+            """
+            <div class="ws-hotmoney-section">
+              <div class="ws-hotmoney-kicker">DAILY GAME DETAIL</div>
+            """,
+            unsafe_allow_html=True,
+        )
         st.markdown("#### 🧾 游资博弈每日明细")
         if df_detail is not None and not df_detail.empty:
             show = df_detail.copy()
@@ -4750,6 +4821,8 @@ def render_hotmoney_tab():
             st.dataframe(out, use_container_width=True, hide_index=True, height=420)
         else:
             st.info("当前窗口暂无游资明细数据。")
+
+        st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.warning("游资每日明细目前仅成功拉到 2024-01-02；该接口限频很低，后续需要按低频增量策略继续补数。")
 
