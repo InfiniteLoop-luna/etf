@@ -4596,35 +4596,33 @@ def render_hotmoney_tab():
 
     hm_list_df = query_hotmoney_list(name=hm_keyword or None, limit=300, engine=_hm_engine)
     if hm_list_df is not None and not hm_list_df.empty:
-        list_cols = st.columns([1.15, 1.85])
-        with list_cols[0]:
-            show = hm_list_df.copy()
-            show["org_count"] = show["hm_orgs"].astype(str).apply(lambda x: len([i for i in x.split('、') if i.strip()]))
-            show = show.sort_values(["org_count", "hm_name"], ascending=[False, True]).head(20)
-            fig_org = go.Figure(go.Bar(
-                x=show["org_count"],
-                y=show["hm_name"],
-                orientation="h",
-                marker=dict(color=show["org_count"], colorscale="Blues", showscale=False),
-                text=show["org_count"],
-                textposition="outside",
-            ))
-            fig_org.update_layout(
-                title=dict(text="游资关联机构数 Top20", x=0.02, font=dict(size=16, color=THEME_TEXT)),
-                template="wealthspark_balanced",
-                paper_bgcolor=CHART_PAPER_BG,
-                plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
-                height=max(360, len(show) * 24),
-                margin=dict(l=120, r=30, t=55, b=20),
-                yaxis=dict(autorange="reversed"),
-                xaxis_title="关联机构数",
-            )
-            st.plotly_chart(fig_org, use_container_width=True)
-        with list_cols[1]:
-            out = hm_list_df[["hm_name", "hm_desc", "hm_orgs"]].copy()
-            out.columns = ["游资名称", "说明", "关联机构"]
-            st.dataframe(out, use_container_width=True, hide_index=True, height=420)
+        show = hm_list_df.copy()
+        show["org_count"] = show["hm_orgs"].astype(str).apply(lambda x: len([i for i in x.split('、') if i.strip()]))
+        show = show.sort_values(["org_count", "hm_name"], ascending=[False, True]).head(20)
+        fig_org = go.Figure(go.Bar(
+            x=show["org_count"],
+            y=show["hm_name"],
+            orientation="h",
+            marker=dict(color=show["org_count"], colorscale="Blues", showscale=False),
+            text=show["org_count"],
+            textposition="outside",
+        ))
+        fig_org.update_layout(
+            title=dict(text="游资关联机构数 Top20", x=0.02, font=dict(size=16, color=THEME_TEXT)),
+            template="wealthspark_balanced",
+            paper_bgcolor=CHART_PAPER_BG,
+            plot_bgcolor=CHART_BG,
+            font=dict(family="Inter, PingFang SC, sans-serif"),
+            height=max(360, len(show) * 24),
+            margin=dict(l=120, r=30, t=55, b=20),
+            yaxis=dict(autorange="reversed"),
+            xaxis_title="关联机构数",
+        )
+        st.plotly_chart(fig_org, use_container_width=True)
+
+        out = hm_list_df[["hm_name", "hm_desc", "hm_orgs"]].copy()
+        out.columns = ["游资名称", "说明", "关联机构"]
+        st.dataframe(out, use_container_width=True, hide_index=True, height=420)
     else:
         st.info("暂无游资名录数据。")
 
