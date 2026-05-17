@@ -1,8 +1,10 @@
 import math
 import unittest
 
+import numpy as np
 import pandas as pd
 
+from src.alpha_191 import add_alpha095_family
 from src.ml_stock_dataset import (
     build_forward_label_frame,
     build_feature_frame,
@@ -280,6 +282,86 @@ class MlStockFeatureTests(unittest.TestCase):
             ),
             "insufficient",
         )
+
+
+class Alpha191FactorTests(unittest.TestCase):
+    def _build_source_df(self) -> pd.DataFrame:
+        rows = []
+        trade_dates = pd.date_range("2026-01-02", periods=25, freq="B")
+
+        for idx, trade_date in enumerate(trade_dates):
+            rows.append(
+                {
+                    "date": trade_date,
+                    "code": "000001.SZ",
+                    "amount": 1_000.0 + idx * 10.0,
+                }
+            )
+            rows.append(
+                {
+                    "date": trade_date,
+                    "code": "000002.SZ",
+                    "amount": 100.0 + idx,
+                }
+            )
+
+        source_df = pd.DataFrame(rows).sample(frac=1.0, random_state=7)
+        source_df.index = pd.Index(np.arange(1000, 1000 + len(source_df)) * 3)
+        return source_df
+
+    def test_add_alpha095_family_keeps_input_row_order(self):
+        source_df = self._build_source_df()
+
+        result = add_alpha095_family(source_df, window=20, ddof=1)
+
+        self.assertEqual(result.index.tolist(), source_df.index.tolist())
+        self.assertEqual(
+            result[["date", "code", "amount"]].to_dict("records"),
+            source_df[["date", "code", "amount"]].to_dict("records"),
+        )
+
+    def test_add_alpha095_family_matches_manual_calculation_by_code(self):
+        source_df = self._build_source_df()
+
+        result = add_alpha095_family(source_df, window=20, ddof=1)
+        ordered = result.sort_values(["code", "date"], kind="mergesort")
+
+        stock_a = ordered.loc[ordered["code"] == "000001.SZ"].reset_index(drop=True)
+        amount_a = stock_a["amount"].astype(float)
+        expected_alpha095 = amount_a.rolling(20, min_periods=20).std(ddof=1)
+        expected_cv = expected_alpha095 / amount_a.rolling(20, min_periods=20).mean()
+        expected_logstd = np.log1p(amount_a).rolling(20, min_periods=20).std(ddof=1)
+        amount_ret = amount_a.pct_change(fill_method=None)
+        expected_pctstd = amount_ret.rolling(20, min_periods=20).std(ddof=1)
+
+        last = stock_a.iloc[-1]
+        last_idx = len(stock_a) - 1
+
+        self.assertAlmostEqual(last["alpha095"], expected_alpha095.iloc[last_idx])
+        self.assertAlmostEqual(last["alpha095_cv"], expected_cv.iloc[last_idx])
+        self.assertAlmostEqual(last["alpha095_logstd"], expected_logstd.iloc[last_idx])
+        self.assertAlmostEqual(last["alpha095_pctstd"], expected_pctstd.iloc[last_idx])
+
+    def test_add_alpha095_family_isolates_stocks_and_respects_min_periods(self):
+        source_df = self._build_source_df()
+
+        result = add_alpha095_family(source_df, window=20, ddof=1).sort_values(
+            ["code", "date"],
+            kind="mergesort",
+        )
+
+        stock_a = result.loc[result["code"] == "000001.SZ"].reset_index(drop=True)
+        stock_b = result.loc[result["code"] == "000002.SZ"].reset_index(drop=True)
+
+        self.assertTrue(stock_a.loc[:18, "alpha095"].isna().all())
+        self.assertTrue(stock_b.loc[:18, "alpha095"].isna().all())
+        self.assertFalse(math.isclose(stock_a.iloc[-1]["alpha095"], stock_b.iloc[-1]["alpha095"]))
+        self.assertTrue(stock_a["alpha095"].notna().sum() == 6)
+        self.assertTrue(stock_b["alpha095"].notna().sum() == 6)
+
+    def test_add_alpha095_family_raises_when_required_columns_are_missing(self):
+        with self.assertRaises(ValueError):
+            add_alpha095_family(pd.DataFrame({"date": [], "code": []}))
 
 
 class MlStockSampleTests(unittest.TestCase):
