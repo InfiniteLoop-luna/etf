@@ -83,6 +83,16 @@ from src.index_monitor_store import (
     upsert_index_monitor_rows,
 )
 from src.navigation_config import DECISION_PAGE_OPTIONS, ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS, MONEY_PAGE_OPTIONS, STOCK_PAGE_OPTIONS
+from src.factor_workbench import (
+    FACTOR_WORKBENCH_PAGE_LABEL,
+    apply_factor_filters,
+    compute_factor_scores,
+    get_factor_catalog,
+    get_factor_workbench_data_freshness,
+    get_factor_workbench_trade_dates,
+    get_score_preset,
+    load_factor_workbench_frame,
+)
 from src.ml_reco_candidate_scores import (
     load_candidate_scores_from_snapshot,
     compute_candidate_scores as compute_ml_reco_candidate_scores,
@@ -582,6 +592,21 @@ def load_security_kline_timeseries(ts_code: str, security_type: str) -> pd.DataF
 @st.cache_data(ttl=300)
 def load_stock_basic_summary_export() -> pd.DataFrame:
     return get_stock_basic_summary()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_factor_workbench_trade_dates_cached() -> list[pd.Timestamp]:
+    return get_factor_workbench_trade_dates()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_factor_workbench_frame_cached(trade_date_text: str) -> pd.DataFrame:
+    return load_factor_workbench_frame(trade_date_text)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_factor_workbench_data_freshness_cached() -> dict[str, str | None]:
+    return get_factor_workbench_data_freshness()
 
 
 @st.cache_data(ttl=300)
@@ -3569,6 +3594,8 @@ def main():
                 render_security_search_tab()
             elif mobile_page == STOCK_PAGE_OPTIONS[1]:
                 render_company_screener_tab()
+            elif mobile_page == FACTOR_WORKBENCH_PAGE_LABEL:
+                render_factor_workbench_tab()
             elif mobile_page == TRACKING_PAGE_LABEL:
                 render_author_tracking_tab()
             else:
@@ -3667,6 +3694,8 @@ def main():
             render_security_search_tab()
         elif stock_subpage == STOCK_PAGE_OPTIONS[1]:
             render_company_screener_tab()
+        elif stock_subpage == FACTOR_WORKBENCH_PAGE_LABEL:
+            render_factor_workbench_tab()
         elif stock_subpage == TRACKING_PAGE_LABEL:
             render_author_tracking_tab()
         else:
@@ -5050,6 +5079,389 @@ def render_limitup_monitor_tab():
                 st.info("暂无同花顺题材数据。")
         except Exception as e:
             st.warning(f"同花顺题材榜查询失败：{e}")
+
+def _build_factor_workbench_result_display_df(result_df: pd.DataFrame) -> pd.DataFrame:
+    if result_df is None or result_df.empty:
+        return pd.DataFrame()
+
+    display_df = result_df.copy()
+    display_df["标签"] = display_df.get("has_ever_st", False).map(format_historical_st_badge)
+    if "fina_end_date" in display_df.columns:
+        display_df["财报期"] = pd.to_datetime(display_df["fina_end_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    else:
+        display_df["财报期"] = "-"
+
+    selected_cols = [
+        "ts_code",
+        "name",
+        "industry",
+        "market",
+        "final_score",
+        "alpha095_cv",
+        "close_over_ma20",
+        "w_ema5_over_30",
+        "net_mf_amount_rate",
+        "dc_net_amount_rate",
+        "roe",
+        "pb",
+        "财报期",
+        "标签",
+    ]
+    selected_cols = [col for col in selected_cols if col in display_df.columns]
+    out = display_df[selected_cols].copy()
+    out = out.rename(
+        columns={
+            "ts_code": "代码",
+            "name": "简称",
+            "industry": "行业",
+            "market": "市场",
+            "final_score": "总分",
+            "alpha095_cv": "Alpha095 CV",
+            "close_over_ma20": "收盘/MA20",
+            "w_ema5_over_30": "周EMA5/30",
+            "net_mf_amount_rate": "主力流入/成交额",
+            "dc_net_amount_rate": "DC流入占比",
+            "roe": "ROE",
+            "pb": "PB",
+        }
+    )
+
+    numeric_formatters = {
+        "总分": "{:,.1f}",
+        "Alpha095 CV": "{:,.4f}",
+        "收盘/MA20": "{:,.3f}",
+        "周EMA5/30": "{:,.3f}",
+        "主力流入/成交额": "{:,.4f}",
+        "DC流入占比": "{:,.4f}",
+        "ROE": "{:,.2f}",
+        "PB": "{:,.2f}",
+    }
+    for col, formatter in numeric_formatters.items():
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce").map(
+                lambda value, fmt=formatter: "-" if pd.isna(value) else fmt.format(value)
+            )
+
+    if "财报期" in out.columns:
+        out["财报期"] = out["财报期"].fillna("-")
+
+    return out.fillna("-")
+
+
+def render_factor_workbench_tab():
+    st.subheader(FACTOR_WORKBENCH_PAGE_LABEL)
+    st.caption("以日度特征表为锚点，先做硬条件初筛，再做多因子加权打分，输出每日盘后候选池。")
+
+    try:
+        trade_dates = load_factor_workbench_trade_dates_cached()
+        freshness = load_factor_workbench_data_freshness_cached()
+    except Exception as exc:
+        st.error(f"因子工作台初始化失败：{exc}")
+        return
+
+    if not trade_dates:
+        st.warning("暂无可用的日度因子锚点数据，请先构建 ml_stock_feature_daily。")
+        return
+
+    page_tab_workbench, page_tab_catalog, page_tab_freshness = st.tabs(["🛠 工作台", "📚 因子字典", "🕒 数据新鲜度"])
+
+    with page_tab_workbench:
+        latest_feature_date = freshness.get("feature_date") or str(pd.Timestamp(trade_dates[0]).date())
+        selected_trade_date = st.selectbox(
+            "交易日",
+            options=trade_dates,
+            index=0,
+            format_func=lambda value: pd.Timestamp(value).strftime("%Y-%m-%d"),
+            key="factor_workbench_trade_date",
+        )
+        selected_trade_date_text = pd.Timestamp(selected_trade_date).strftime("%Y-%m-%d")
+
+        st.info(
+            "💡 说明：量价、技术、估值和标准资金流按选定交易日对齐；财务因子使用每只股票最近一期财报快照。"
+        )
+        st.caption(
+            f"当前锚点交易日：{selected_trade_date_text} ｜ 特征表最新：{latest_feature_date} ｜ "
+            f"标准资金流最新：{freshness.get('moneyflow_date') or '-'} ｜ 财报最新披露期：{freshness.get('fina_end_date') or '-'}"
+        )
+
+        try:
+            base_df = load_factor_workbench_frame_cached(selected_trade_date_text)
+        except Exception as exc:
+            st.error(f"加载因子底表失败：{exc}")
+            return
+
+        if base_df.empty:
+            st.warning("选定交易日没有可用的因子底表数据。")
+            return
+
+        market_options = sorted([item for item in base_df["market"].dropna().astype(str).str.strip().unique().tolist() if item])
+        industry_options = sorted([item for item in base_df["industry"].dropna().astype(str).str.strip().unique().tolist() if item])
+        preset_names = list(get_score_preset(name).get("name") for name in ["均衡打分", "趋势动量", "质量价值", "资金驱动", "自定义"])
+        factor_catalog = get_factor_catalog()
+        factor_catalog_map = {item["key"]: item for item in factor_catalog}
+
+        with st.expander("1. 股票池与输出范围", expanded=True):
+            col_scope_1, col_scope_2, col_scope_3 = st.columns(3)
+            with col_scope_1:
+                selected_markets = st.multiselect(
+                    "市场",
+                    options=market_options,
+                    default=market_options,
+                    key="factor_workbench_markets",
+                )
+            with col_scope_2:
+                selected_industries = st.multiselect(
+                    "行业",
+                    options=industry_options,
+                    default=[],
+                    key="factor_workbench_industries",
+                )
+            with col_scope_3:
+                top_n = st.selectbox("展示 TopN", [20, 50, 100, 200], index=1, key="factor_workbench_topn")
+                min_score = st.slider("最低总分", min_value=0, max_value=100, value=0, step=5, key="factor_workbench_min_score")
+
+            col_scope_4, col_scope_5, col_scope_6 = st.columns(3)
+            with col_scope_4:
+                exclude_historical_st = st.checkbox("剔除历史ST", value=True, key="factor_workbench_exclude_historical_st")
+            with col_scope_5:
+                require_is_hs = st.checkbox("仅保留沪深港通", value=False, key="factor_workbench_require_is_hs")
+            with col_scope_6:
+                st.metric("锚点股票数", len(base_df))
+
+        with st.expander("2. 硬条件初筛", expanded=True):
+            liq_col_1, liq_col_2, liq_col_3 = st.columns(3)
+            min_turnover_enabled = liq_col_1.checkbox("启用最小换手率", value=False, key="factor_filter_min_turnover_enabled")
+            min_turnover_value = liq_col_1.number_input("最小换手率(%)", min_value=0.0, value=3.0, step=0.1, disabled=not min_turnover_enabled, key="factor_filter_min_turnover")
+            min_amount_enabled = liq_col_2.checkbox("启用最小成交额", value=False, key="factor_filter_min_amount_enabled")
+            min_amount_value = liq_col_2.number_input("最小成交额", min_value=0.0, value=5e8, step=1e8, disabled=not min_amount_enabled, key="factor_filter_min_amount")
+            min_total_mv_enabled = liq_col_3.checkbox("启用最小总市值", value=False, key="factor_filter_min_total_mv_enabled")
+            min_total_mv_value = liq_col_3.number_input("最小总市值", min_value=0.0, value=1e10, step=1e9, disabled=not min_total_mv_enabled, key="factor_filter_min_total_mv")
+
+            tech_col_1, tech_col_2, tech_col_3 = st.columns(3)
+            min_close_ma20_enabled = tech_col_1.checkbox("启用收盘/MA20下限", value=True, key="factor_filter_min_close_ma20_enabled")
+            min_close_ma20_value = tech_col_1.number_input("收盘/MA20 >=", min_value=0.0, value=1.0, step=0.01, disabled=not min_close_ma20_enabled, key="factor_filter_min_close_ma20")
+            min_ma5_ma20_enabled = tech_col_2.checkbox("启用MA5/MA20下限", value=False, key="factor_filter_min_ma5_ma20_enabled")
+            min_ma5_ma20_value = tech_col_2.number_input("MA5/MA20 >=", min_value=0.0, value=1.0, step=0.01, disabled=not min_ma5_ma20_enabled, key="factor_filter_min_ma5_ma20")
+            min_w_ema_enabled = tech_col_3.checkbox("启用周EMA5/30下限", value=False, key="factor_filter_min_w_ema_enabled")
+            min_w_ema_value = tech_col_3.number_input("周EMA5/30 >=", min_value=0.0, value=1.0, step=0.01, disabled=not min_w_ema_enabled, key="factor_filter_min_w_ema")
+
+            flow_col_1, flow_col_2, flow_col_3 = st.columns(3)
+            min_mf_enabled = flow_col_1.checkbox("启用主力净流入额下限", value=False, key="factor_filter_min_mf_enabled")
+            min_mf_value = flow_col_1.number_input("主力净流入额 >=", value=0.0, step=1e7, disabled=not min_mf_enabled, key="factor_filter_min_mf")
+            min_mf_rate_enabled = flow_col_2.checkbox("启用主力流入/成交额下限", value=False, key="factor_filter_min_mf_rate_enabled")
+            min_mf_rate_value = flow_col_2.number_input("主力流入/成交额 >=", value=0.0, step=0.001, format="%.4f", disabled=not min_mf_rate_enabled, key="factor_filter_min_mf_rate")
+            min_dc_rate_enabled = flow_col_3.checkbox("启用DC流入占比下限", value=False, key="factor_filter_min_dc_rate_enabled")
+            min_dc_rate_value = flow_col_3.number_input("DC流入占比 >=", value=0.0, step=0.001, format="%.4f", disabled=not min_dc_rate_enabled, key="factor_filter_min_dc_rate")
+
+            val_col_1, val_col_2, val_col_3 = st.columns(3)
+            min_pe_enabled = val_col_1.checkbox("启用PE下限", value=False, key="factor_filter_min_pe_enabled")
+            min_pe_value = val_col_1.number_input("PE下限", value=0.0, step=1.0, disabled=not min_pe_enabled, key="factor_filter_min_pe")
+            max_pe_enabled = val_col_2.checkbox("启用PE上限", value=False, key="factor_filter_max_pe_enabled")
+            max_pe_value = val_col_2.number_input("PE上限", value=60.0, step=1.0, disabled=not max_pe_enabled, key="factor_filter_max_pe")
+            max_pb_enabled = val_col_3.checkbox("启用PB上限", value=False, key="factor_filter_max_pb_enabled")
+            max_pb_value = val_col_3.number_input("PB <=", value=5.0, step=0.1, disabled=not max_pb_enabled, key="factor_filter_max_pb")
+
+            fin_col_1, fin_col_2, fin_col_3, fin_col_4 = st.columns(4)
+            min_roe_enabled = fin_col_1.checkbox("启用ROE下限", value=False, key="factor_filter_min_roe_enabled")
+            min_roe_value = fin_col_1.number_input("ROE >=", value=10.0, step=0.5, disabled=not min_roe_enabled, key="factor_filter_min_roe")
+            min_gpm_enabled = fin_col_2.checkbox("启用毛利率下限", value=False, key="factor_filter_min_gpm_enabled")
+            min_gpm_value = fin_col_2.number_input("毛利率 >=", value=20.0, step=0.5, disabled=not min_gpm_enabled, key="factor_filter_min_gpm")
+            max_debt_enabled = fin_col_3.checkbox("启用资产负债率上限", value=False, key="factor_filter_max_debt_enabled")
+            max_debt_value = fin_col_3.number_input("资产负债率 <=", value=60.0, step=1.0, disabled=not max_debt_enabled, key="factor_filter_max_debt")
+            min_current_ratio_enabled = fin_col_4.checkbox("启用流动比率下限", value=False, key="factor_filter_min_current_ratio_enabled")
+            min_current_ratio_value = fin_col_4.number_input("流动比率 >=", value=1.0, step=0.1, disabled=not min_current_ratio_enabled, key="factor_filter_min_current_ratio")
+
+        with st.expander("3. 打分模型", expanded=True):
+            selected_preset_name = st.selectbox("打分模板", options=preset_names, index=0, key="factor_workbench_preset")
+            preset = get_score_preset(selected_preset_name)
+            st.caption(preset.get("description", ""))
+
+            factor_weights = dict(preset["factor_weights"])
+            if selected_preset_name == "自定义":
+                weight_cols = st.columns(2)
+                editable_keys = list(factor_weights.keys())
+                for idx, factor_key in enumerate(editable_keys):
+                    meta = factor_catalog_map.get(factor_key, {"label": factor_key})
+                    factor_weights[factor_key] = weight_cols[idx % 2].number_input(
+                        f"{meta['label']} 权重",
+                        min_value=0.0,
+                        value=float(factor_weights[factor_key]),
+                        step=0.1,
+                        key=f"factor_workbench_weight_{factor_key}",
+                    )
+            else:
+                weight_df = pd.DataFrame(
+                    [
+                        {
+                            "因子": factor_catalog_map.get(factor_key, {"label": factor_key})["label"],
+                            "字段": factor_key,
+                            "权重": weight,
+                        }
+                        for factor_key, weight in factor_weights.items()
+                        if weight > 0
+                    ]
+                )
+                st.dataframe(weight_df, use_container_width=True, hide_index=True)
+
+        if st.button("开始筛选并打分", type="primary", key="factor_workbench_run"):
+            filters = {
+                "markets": selected_markets,
+                "industries": selected_industries,
+                "exclude_historical_st": exclude_historical_st,
+                "require_is_hs": require_is_hs,
+                "min_turnover_rate_enabled": min_turnover_enabled,
+                "min_turnover_rate": min_turnover_value,
+                "min_amount_enabled": min_amount_enabled,
+                "min_amount": min_amount_value,
+                "min_total_mv_enabled": min_total_mv_enabled,
+                "min_total_mv": min_total_mv_value,
+                "min_close_over_ma20_enabled": min_close_ma20_enabled,
+                "min_close_over_ma20": min_close_ma20_value,
+                "min_ma5_over_ma20_enabled": min_ma5_ma20_enabled,
+                "min_ma5_over_ma20": min_ma5_ma20_value,
+                "min_w_ema5_over_30_enabled": min_w_ema_enabled,
+                "min_w_ema5_over_30": min_w_ema_value,
+                "min_net_mf_amount_enabled": min_mf_enabled,
+                "min_net_mf_amount": min_mf_value,
+                "min_net_mf_amount_rate_enabled": min_mf_rate_enabled,
+                "min_net_mf_amount_rate": min_mf_rate_value,
+                "min_dc_net_amount_rate_enabled": min_dc_rate_enabled,
+                "min_dc_net_amount_rate": min_dc_rate_value,
+                "min_pe_ttm_enabled": min_pe_enabled,
+                "min_pe_ttm": min_pe_value,
+                "max_pe_ttm_enabled": max_pe_enabled,
+                "max_pe_ttm": max_pe_value,
+                "max_pb_enabled": max_pb_enabled,
+                "max_pb": max_pb_value,
+                "min_roe_enabled": min_roe_enabled,
+                "min_roe": min_roe_value,
+                "min_grossprofit_margin_enabled": min_gpm_enabled,
+                "min_grossprofit_margin": min_gpm_value,
+                "max_debt_to_assets_enabled": max_debt_enabled,
+                "max_debt_to_assets": max_debt_value,
+                "min_current_ratio_enabled": min_current_ratio_enabled,
+                "min_current_ratio": min_current_ratio_value,
+            }
+
+            filtered_df = apply_factor_filters(base_df, filters)
+            if filtered_df.empty:
+                st.session_state["factor_workbench_result"] = {
+                    "selected_trade_date_text": selected_trade_date_text,
+                    "anchor_count": int(len(base_df)),
+                    "filtered_count": 0,
+                    "ranked_df": pd.DataFrame(),
+                    "display_top_df": pd.DataFrame(),
+                }
+            else:
+                scored_df = compute_factor_scores(filtered_df, factor_weights=factor_weights)
+                if min_score > 0:
+                    scored_df = scored_df.loc[scored_df["final_score"] >= float(min_score)].copy()
+
+                st.session_state["factor_workbench_result"] = {
+                    "selected_trade_date_text": selected_trade_date_text,
+                    "anchor_count": int(len(base_df)),
+                    "filtered_count": int(len(filtered_df)),
+                    "ranked_df": scored_df.copy(),
+                    "display_top_df": scored_df.head(int(top_n)).copy(),
+                }
+
+        result_payload = st.session_state.get("factor_workbench_result")
+        if result_payload and result_payload.get("selected_trade_date_text") == selected_trade_date_text:
+            ranked_df = result_payload.get("ranked_df")
+            display_top_df = result_payload.get("display_top_df")
+            anchor_count = int(result_payload.get("anchor_count", len(base_df)))
+            filtered_count = int(result_payload.get("filtered_count", 0))
+            ranked_count = 0 if ranked_df is None else int(len(ranked_df))
+
+            stat_col_1, stat_col_2, stat_col_3, stat_col_4 = st.columns(4)
+            stat_col_1.metric("锚点股票数", anchor_count)
+            stat_col_2.metric("初筛后数量", filtered_count)
+            stat_col_3.metric("达标候选数", ranked_count)
+            top_score = 0.0
+            if display_top_df is not None and not display_top_df.empty:
+                top_score = float(pd.to_numeric(display_top_df["final_score"], errors="coerce").iloc[0] or 0.0)
+            stat_col_4.metric("最高分", f"{top_score:,.1f}")
+
+            if ranked_df is None or ranked_df.empty:
+                st.warning("当前条件下没有产生候选股，请放宽筛选条件或降低最低总分。")
+            else:
+                chart_df = display_top_df.copy()
+                chart_df["display_name"] = chart_df.get("name", chart_df.get("ts_code", "")).fillna(chart_df.get("ts_code", "")).astype(str)
+                fig = px.bar(
+                    chart_df.head(10),
+                    x="display_name",
+                    y="final_score",
+                    color="final_score",
+                    text="final_score",
+                    color_continuous_scale="Tealgrn",
+                    title="候选池 Top10 总分",
+                )
+                fig.update_layout(
+                    template="wealthspark_balanced",
+                    paper_bgcolor=CHART_PAPER_BG,
+                    plot_bgcolor=CHART_BG,
+                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    height=360,
+                    xaxis_title="股票",
+                    yaxis_title="总分",
+                    coloraxis_showscale=False,
+                )
+                fig.update_traces(texttemplate="%{text:.1f}", textposition="outside")
+                st.plotly_chart(fig, use_container_width=True)
+
+                render_security_jump_table(
+                    _build_factor_workbench_result_display_df(display_top_df),
+                    help_text="💡 点击最左侧“🔎 查询”可跳转到个股/指数查询，并自动带入该股票代码。",
+                    code_col="代码",
+                    fallback_col="简称",
+                    nonce_key="factor_workbench_render_nonce",
+                )
+
+                export_df = ranked_df.copy()
+                for col in ["trade_date", "list_date", "fina_ann_date", "fina_end_date"]:
+                    if col in export_df.columns:
+                        export_df[col] = pd.to_datetime(export_df[col], errors="coerce").dt.strftime("%Y-%m-%d")
+                st.download_button(
+                    "下载候选池 CSV",
+                    data=export_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
+                    file_name=f"factor_workbench_{selected_trade_date_text}.csv",
+                    mime="text/csv",
+                    key="factor_workbench_download_csv",
+                )
+
+    with page_tab_catalog:
+        catalog_df = pd.DataFrame(get_factor_catalog())
+        if not catalog_df.empty:
+            catalog_df = catalog_df.rename(
+                columns={
+                    "key": "字段",
+                    "label": "名称",
+                    "group": "分组",
+                    "higher_better": "方向",
+                    "source": "来源",
+                    "description": "说明",
+                }
+            )
+            catalog_df["方向"] = catalog_df["方向"].map(lambda value: "高值更优" if bool(value) else "低值更优")
+            st.dataframe(catalog_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("暂无因子字典。")
+
+    with page_tab_freshness:
+        freshness_df = pd.DataFrame(
+            [
+                {"数据源": "ml_stock_feature_daily", "最新日期": freshness.get("feature_date") or "-", "说明": "页面主锚点"},
+                {"数据源": "vw_moneyflow", "最新日期": freshness.get("moneyflow_date") or "-", "说明": "标准资金流"},
+                {"数据源": "vw_moneyflow_ths", "最新日期": freshness.get("moneyflow_ths_date") or "-", "说明": "THS资金流"},
+                {"数据源": "vw_moneyflow_dc", "最新日期": freshness.get("moneyflow_dc_date") or "-", "说明": "DC资金流"},
+                {"数据源": "ts_stock_technical_signals", "最新日期": freshness.get("tech_signal_date") or "-", "说明": "周月线EMA"},
+                {"数据源": "vw_ts_stock_fina_indicator.end_date", "最新日期": freshness.get("fina_end_date") or "-", "说明": "最新财报期"},
+                {"数据源": "vw_ts_stock_fina_indicator.ann_date", "最新日期": freshness.get("fina_ann_date") or "-", "说明": "最新披露日"},
+            ]
+        )
+        st.dataframe(freshness_df, use_container_width=True, hide_index=True)
+        st.info("财务因子使用最近一期财报快照，不与交易日严格同步；页面会同时展示对应财报期。")
+
 
 def render_tech_picker_tab():
     st.subheader("🎯 技术指标选股")
