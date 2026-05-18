@@ -63,6 +63,10 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn(".stButton", css)
         self.assertIn('[data-baseweb="select"]', css)
         self.assertIn(".stPlotlyChart", css)
+        self.assertIn(".ws-sidebar-block", css)
+        self.assertIn(".ws-sidebar-brand", css)
+        self.assertIn(".ws-sidebar-recent-item", css)
+        self.assertIn(".ws-page-toolbar", css)
 
     def test_build_global_apple_theme_css_includes_strong_legacy_overrides(self):
         css = build_global_apple_theme_css()

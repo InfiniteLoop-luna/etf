@@ -4,6 +4,7 @@
 # Version: 2.0 - Fixed data_only issue for formula cells
 import os
 import json
+from html import escape
 from hmac import compare_digest
 import streamlit as st
 import pandas as pd
@@ -82,7 +83,42 @@ from src.index_monitor_store import (
     to_index_monitor_display_df,
     upsert_index_monitor_rows,
 )
-from src.navigation_config import DECISION_PAGE_OPTIONS, ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS, MONEY_PAGE_OPTIONS, STOCK_PAGE_OPTIONS
+from src.navigation_config import (
+    DECISION_DAILY_RECO_PAGE_LABEL,
+    DECISION_ML_PAGE_LABEL,
+    DECISION_PAGE_OPTIONS,
+    DECISION_RECO_EVAL_PAGE_LABEL,
+    DECISION_TODAY_PAGE_LABEL,
+    ETF_FUND_MONITOR_PAGE_LABEL,
+    ETF_MAIN_PAGE_LABEL,
+    ETF_PAGE_OPTIONS,
+    ETF_RATIO_PAGE_LABEL,
+    ETF_TREND_PAGE_LABEL,
+    ETF_WIDE_INDEX_PAGE_LABEL,
+    MACRO_DEPOSIT_PAGE_LABEL,
+    MACRO_INDEX_MONITOR_PAGE_LABEL,
+    MACRO_MAIN_PAGE_LABEL,
+    MACRO_PAGE_OPTIONS,
+    MONEY_FLOW_PAGE_LABEL,
+    MONEY_FUND_HOT_PAGE_LABEL,
+    MONEY_HOTMONEY_PAGE_LABEL,
+    MONEY_LIMITUP_PAGE_LABEL,
+    MONEY_PAGE_OPTIONS,
+    MONEY_VOLUME_PAGE_LABEL,
+    STOCK_COMPANY_SCREENER_LABEL,
+    STOCK_PAGE_OPTIONS,
+    STOCK_SECURITY_SEARCH_LABEL,
+    STOCK_TECH_PICKER_LABEL,
+)
+from src.sidebar_navigation import (
+    get_default_shortcuts,
+    get_module_by_label,
+    get_module_label_for_page,
+    get_module_labels,
+    get_page_labels,
+    get_recent_visits,
+    record_recent_visit,
+)
 from src.factor_workbench import (
     FACTOR_WORKBENCH_PAGE_LABEL,
     apply_factor_filters,
@@ -1720,7 +1756,7 @@ def hydrate_security_jump_from_query_params() -> None:
     if open_tab == "security":
         # 方案B：通过 sidebar 一级导航 + 个股子导航完成跳转
         st.session_state["sidebar_nav_group"] = "个股"
-        st.session_state["stock_subpage"] = "🔎 个股/指数查询"
+        st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
         st.session_state["jump_to_security_tab"] = True
 
     if jump_nonce:
@@ -1733,8 +1769,140 @@ def trigger_security_tab_jump_if_needed() -> None:
         return
 
     st.session_state["sidebar_nav_group"] = "个股"
-    st.session_state["stock_subpage"] = "🔎 个股/指数查询"
+    st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
     st.session_state["jump_to_security_tab"] = False
+
+
+def render_desktop_sidebar_navigation() -> tuple[str, str]:
+    module_labels = get_module_labels()
+    selected_module = st.session_state.get("sidebar_nav_group")
+    if selected_module not in module_labels:
+        selected_module = module_labels[0]
+        st.session_state["sidebar_nav_group"] = selected_module
+
+    all_page_labels = [
+        page_label
+        for module_label in module_labels
+        for page_label in get_page_labels(module_label)
+    ]
+
+    st.sidebar.markdown(
+        """
+        <div class="ws-sidebar-brand">
+            <span class="ws-sidebar-brand-kicker">WealthSpark</span>
+            <h2>桌面导航</h2>
+            <p>聚焦模块切换、最近访问和高频入口，保留清晰的列表式导航节奏。</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.sidebar.markdown(
+        """
+        <div class="ws-sidebar-block">
+            <div class="ws-sidebar-block-title">快速跳转</div>
+            <p class="ws-sidebar-block-copy">直接定位到任意桌面页面，不影响后续手动导航。</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    quick_jump_page = st.sidebar.selectbox(
+        "快速跳转",
+        all_page_labels,
+        index=None,
+        placeholder="选择页面…",
+        key="sidebar_quick_jump",
+    )
+    if quick_jump_page:
+        last_applied_quick_jump = st.session_state.get("sidebar_quick_jump_applied")
+        if quick_jump_page != last_applied_quick_jump:
+            jump_module = get_module_label_for_page(quick_jump_page)
+            jump_module_config = get_module_by_label(jump_module)
+            st.session_state["sidebar_nav_group"] = jump_module
+            st.session_state[jump_module_config.session_key] = quick_jump_page
+            st.session_state["sidebar_quick_jump_applied"] = quick_jump_page
+            st.rerun()
+
+    st.sidebar.markdown(
+        """
+        <div class="ws-sidebar-block">
+            <div class="ws-sidebar-block-title">模块</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    selected_module = st.sidebar.radio(
+        "选择模块",
+        module_labels,
+        key="sidebar_nav_group",
+        label_visibility="collapsed",
+    )
+    selected_module_config = get_module_by_label(selected_module)
+
+    page_labels = get_page_labels(selected_module)
+    selected_page = st.session_state.get(selected_module_config.session_key)
+    if selected_page not in page_labels:
+        st.session_state[selected_module_config.session_key] = page_labels[0]
+
+    st.sidebar.markdown(
+        f"""
+        <div class="ws-sidebar-block">
+            <div class="ws-sidebar-block-title">{escape(selected_module)}页面</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    selected_page = st.sidebar.radio(
+        "选择页面",
+        page_labels,
+        key=selected_module_config.session_key,
+        label_visibility="collapsed",
+    )
+
+    record_recent_visit(st.session_state, selected_module, selected_page)
+    recent_visits = get_recent_visits(st.session_state)
+    st.sidebar.markdown(
+        """
+        <div class="ws-sidebar-block">
+            <div class="ws-sidebar-block-title">最近访问</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    for recent_item in recent_visits:
+        st.sidebar.markdown(
+            f"""
+            <div class="ws-sidebar-recent-item">
+                <span class="ws-sidebar-recent-module">{escape(recent_item["module"])}</span>
+                <span class="ws-sidebar-recent-page">{escape(recent_item["page"])}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.sidebar.markdown(
+        """
+        <div class="ws-sidebar-block">
+            <div class="ws-sidebar-block-title">常用入口</div>
+            <p class="ws-sidebar-block-copy">保留少量精选快捷入口，避免侧边栏变成按钮墙。</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    for shortcut_index, shortcut_page in enumerate(get_default_shortcuts()):
+        shortcut_module = get_module_label_for_page(shortcut_page)
+        if st.sidebar.button(
+            f"{shortcut_module} / {shortcut_page}",
+            key=f"sidebar_shortcut_{shortcut_index}",
+            type="secondary",
+            use_container_width=True,
+        ):
+            shortcut_module_config = get_module_by_label(shortcut_module)
+            st.session_state["sidebar_nav_group"] = shortcut_module
+            st.session_state[shortcut_module_config.session_key] = shortcut_page
+            st.rerun()
+
+    return selected_module, selected_page
 
 def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
     if df is None or df.empty:
@@ -3637,103 +3805,79 @@ def main():
 
         st.stop()
 
-    # ===== 方案B进阶版：sidebar 顶部一级导航 + 二级页面 + 下方动态筛选 =====
-    st.sidebar.markdown("---")
-    st.sidebar.header("🧭 页面导航")
+    # ===== 方案B进阶版：desktop sidebar 导航壳层 =====
+    selected_module, selected_page = render_desktop_sidebar_navigation()
+    st.caption(f"当前位置：{selected_module} / {selected_page}")
 
-    nav_group = st.sidebar.radio(
-        "选择模块",
-        ["决策", "基金", "个股", "资金", "宏观"],
-        key="sidebar_nav_group"
-    )
+    decision_module_label = get_module_label_for_page(DECISION_TODAY_PAGE_LABEL)
+    fund_module_label = get_module_label_for_page(ETF_MAIN_PAGE_LABEL)
+    stock_module_label = get_module_label_for_page(STOCK_SECURITY_SEARCH_LABEL)
+    money_module_label = get_module_label_for_page(MONEY_FLOW_PAGE_LABEL)
+    macro_module_label = get_module_label_for_page(MACRO_MAIN_PAGE_LABEL)
 
-    st.sidebar.markdown("**当前页面**")
-
-    if nav_group == "决策":
-        decision_subpage = st.sidebar.radio(
-            "决策模块",
-            DECISION_PAGE_OPTIONS,
-            key="decision_subpage"
-        )
-        st.caption(f"当前位置：决策 / {decision_subpage}")
-        if decision_subpage == "💼 今日机会清单":
+    if selected_module == decision_module_label:
+        if selected_page == DECISION_TODAY_PAGE_LABEL:
             render_commercial_mvp_tab()
-        elif decision_subpage == "⭐ 每日趋势推荐":
+        elif selected_page == DECISION_DAILY_RECO_PAGE_LABEL:
             render_daily_trend_reco_tab()
-        elif decision_subpage == "🧪 推荐评估":
+        elif selected_page == DECISION_RECO_EVAL_PAGE_LABEL:
             render_reco_effectiveness_tracking_panel()
-        else:
+        elif selected_page == DECISION_ML_PAGE_LABEL:
             render_ml_prediction_upgrade_tab()
+        else:
+            render_commercial_mvp_tab()
 
-    elif nav_group == "基金":
-        etf_subpage = st.sidebar.radio(
-            "基金模块",
-            ETF_PAGE_OPTIONS,
-            key="etf_subpage"
-        )
-        st.caption(f"当前位置：基金 / {etf_subpage}")
-        if etf_subpage == "📈 主要宽基ETF份额":
+    elif selected_module == fund_module_label:
+        if selected_page == ETF_MAIN_PAGE_LABEL:
             render_etf_tab()
-        elif etf_subpage == "🥧 ETF分类占比":
+        elif selected_page == ETF_RATIO_PAGE_LABEL:
             render_etf_category_ratio_tab()
-        elif etf_subpage == "📈 ETF分类趋势":
+        elif selected_page == ETF_TREND_PAGE_LABEL:
             render_etf_trend_tab()
-        elif etf_subpage == "📈 基金监测":
+        elif selected_page == ETF_FUND_MONITOR_PAGE_LABEL:
             render_fund_monitor_tab()
-        else:
+        elif selected_page == ETF_WIDE_INDEX_PAGE_LABEL:
             render_wide_index_tab()
+        else:
+            render_etf_tab()
 
-    elif nav_group == "个股":
-        stock_subpage = st.sidebar.radio(
-            "个股模块",
-            STOCK_PAGE_OPTIONS,
-            key="stock_subpage"
-        )
-        st.caption(f"当前位置：个股 / {stock_subpage}")
-        if stock_subpage == STOCK_PAGE_OPTIONS[0]:
+    elif selected_module == stock_module_label:
+        if selected_page == STOCK_SECURITY_SEARCH_LABEL:
             render_security_search_tab()
-        elif stock_subpage == STOCK_PAGE_OPTIONS[1]:
+        elif selected_page == STOCK_COMPANY_SCREENER_LABEL:
             render_company_screener_tab()
-        elif stock_subpage == FACTOR_WORKBENCH_PAGE_LABEL:
+        elif selected_page == FACTOR_WORKBENCH_PAGE_LABEL:
             render_factor_workbench_tab()
-        elif stock_subpage == TRACKING_PAGE_LABEL:
+        elif selected_page == TRACKING_PAGE_LABEL:
             render_author_tracking_tab()
-        else:
+        elif selected_page == STOCK_TECH_PICKER_LABEL:
             render_tech_picker_tab()
-
-    elif nav_group == "资金":
-        money_subpage = st.sidebar.radio(
-            "资金模块",
-            MONEY_PAGE_OPTIONS,
-            key="money_subpage"
-        )
-        st.caption(f"当前位置：资金 / {money_subpage}")
-        if money_subpage == "💹 资金流向":
-            render_moneyflow_tab()
-        elif money_subpage == "📊 每日成交量":
-            render_volume_tab()
-        elif money_subpage == "🏦 公募持仓热股":
-            render_fund_hot_stocks_tab()
-        elif money_subpage == "🔥 打板情绪":
-            render_limitup_monitor_tab()
         else:
-            render_hotmoney_tab()
+            render_security_search_tab()
 
-    else:
-        macro_subpage = st.sidebar.radio(
-            "宏观模块",
-            MACRO_PAGE_OPTIONS,
-            key="macro_subpage"
-        )
-        st.caption(f"当前位置：宏观 / {macro_subpage}")
-        if macro_subpage == "🌏 宏观经济":
+    elif selected_module == money_module_label:
+        if selected_page == MONEY_FLOW_PAGE_LABEL:
+            render_moneyflow_tab()
+        elif selected_page == MONEY_VOLUME_PAGE_LABEL:
+            render_volume_tab()
+        elif selected_page == MONEY_FUND_HOT_PAGE_LABEL:
+            render_fund_hot_stocks_tab()
+        elif selected_page == MONEY_LIMITUP_PAGE_LABEL:
+            render_limitup_monitor_tab()
+        elif selected_page == MONEY_HOTMONEY_PAGE_LABEL:
+            render_hotmoney_tab()
+        else:
+            render_moneyflow_tab()
+
+    elif selected_module == macro_module_label:
+        if selected_page == MACRO_MAIN_PAGE_LABEL:
             render_macro_tab()
-        elif macro_subpage == "🏦 本外币存款":
+        elif selected_page == MACRO_DEPOSIT_PAGE_LABEL:
             render_etf_deposit_tab()
-        elif macro_subpage == "📊 指数监测":
+        elif selected_page == MACRO_INDEX_MONITOR_PAGE_LABEL:
             render_index_monitor_tab()
         else:
-            render_fund_monitor_tab()
+            render_macro_tab()
 
 
 
