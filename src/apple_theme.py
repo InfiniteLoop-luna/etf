@@ -350,6 +350,89 @@ button[aria-label="Close sidebar"]:hover {{
     color: var(--ws-color-primary) !important;
 }}
 
+[data-testid="stSidebar"] .ws-sidebar-brand {{
+    margin: 0 0 1rem 0;
+    padding: 1rem 1.05rem;
+    border-radius: 22px;
+    background: linear-gradient(180deg, rgba(212, 175, 55, 0.18) 0%, rgba(255, 255, 255, 0.04) 100%);
+    border: 1px solid rgba(212, 175, 55, 0.22);
+    box-shadow: 0 18px 34px rgba(9, 15, 25, 0.18);
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-brand h2 {{
+    margin: 0.35rem 0 0.2rem 0;
+    font-size: 1.02rem;
+    color: var(--ws-text-inverse) !important;
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-brand p {{
+    margin: 0;
+    color: rgba(248, 250, 252, 0.76) !important;
+    font-size: 0.82rem;
+    line-height: 1.55;
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-brand-kicker {{
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.22rem 0.68rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--ws-color-primary) !important;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-block {{
+    margin: 0.85rem 0 0.3rem 0;
+    padding: 0.75rem 0.9rem;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-block-title {{
+    color: var(--ws-text-inverse) !important;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-block-copy {{
+    margin: 0.35rem 0 0 0;
+    color: rgba(248, 250, 252, 0.72) !important;
+    font-size: 0.78rem;
+    line-height: 1.5;
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-recent-item {{
+    display: flex;
+    flex-direction: column;
+    gap: 0.12rem;
+    padding: 0.72rem 0.85rem;
+    margin: 0.28rem 0 0 0;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-recent-module {{
+    color: var(--ws-color-primary) !important;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-recent-page {{
+    color: var(--ws-text-inverse) !important;
+    font-size: 0.84rem;
+    font-weight: 600;
+    line-height: 1.45;
+}}
+
 html body .stApp [data-testid="stAppViewContainer"] .main .block-container h1,
 html body .stApp [data-testid="stAppViewContainer"] .main .block-container h2,
 html body .stApp [data-testid="stAppViewContainer"] .main .block-container h3,
@@ -506,6 +589,35 @@ div[data-testid="stExpander"] details summary {{
     padding: 0.9rem 1rem !important;
     color: var(--ws-text-main) !important;
     font-weight: 620 !important;
+}}
+
+.ws-page-toolbar,
+[class*="st-key-ws-page-toolbar"] {{
+    margin: 0.4rem 0 1.1rem 0;
+    padding: 0.95rem 1.05rem;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 248, 0.92) 100%);
+    border: 1px solid var(--ws-border-soft);
+    border-radius: var(--ws-radius-md);
+    box-shadow: var(--ws-shadow);
+}}
+
+.ws-page-toolbar {{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.85rem;
+}}
+
+.ws-page-toolbar > * {{
+    flex: 0 1 auto;
+}}
+
+[class*="st-key-ws-page-toolbar"] > div[data-testid="stVerticalBlock"] {{
+    gap: 0.85rem;
+}}
+
+[class*="st-key-ws-page-toolbar"] [data-testid="stHorizontalBlock"] {{
+    align-items: flex-end;
 }}
 
 div[data-testid="stExpanderDetails"] {{

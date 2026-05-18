@@ -4,6 +4,7 @@
 # Version: 2.0 - Fixed data_only issue for formula cells
 import os
 import json
+from html import escape
 from hmac import compare_digest
 import streamlit as st
 import pandas as pd
@@ -82,7 +83,42 @@ from src.index_monitor_store import (
     to_index_monitor_display_df,
     upsert_index_monitor_rows,
 )
-from src.navigation_config import DECISION_PAGE_OPTIONS, ETF_PAGE_OPTIONS, MACRO_PAGE_OPTIONS, MONEY_PAGE_OPTIONS, STOCK_PAGE_OPTIONS
+from src.navigation_config import (
+    DECISION_DAILY_RECO_PAGE_LABEL,
+    DECISION_ML_PAGE_LABEL,
+    DECISION_PAGE_OPTIONS,
+    DECISION_RECO_EVAL_PAGE_LABEL,
+    DECISION_TODAY_PAGE_LABEL,
+    ETF_FUND_MONITOR_PAGE_LABEL,
+    ETF_MAIN_PAGE_LABEL,
+    ETF_PAGE_OPTIONS,
+    ETF_RATIO_PAGE_LABEL,
+    ETF_TREND_PAGE_LABEL,
+    ETF_WIDE_INDEX_PAGE_LABEL,
+    MACRO_DEPOSIT_PAGE_LABEL,
+    MACRO_INDEX_MONITOR_PAGE_LABEL,
+    MACRO_MAIN_PAGE_LABEL,
+    MACRO_PAGE_OPTIONS,
+    MONEY_FLOW_PAGE_LABEL,
+    MONEY_FUND_HOT_PAGE_LABEL,
+    MONEY_HOTMONEY_PAGE_LABEL,
+    MONEY_LIMITUP_PAGE_LABEL,
+    MONEY_PAGE_OPTIONS,
+    MONEY_VOLUME_PAGE_LABEL,
+    STOCK_COMPANY_SCREENER_LABEL,
+    STOCK_PAGE_OPTIONS,
+    STOCK_SECURITY_SEARCH_LABEL,
+    STOCK_TECH_PICKER_LABEL,
+)
+from src.sidebar_navigation import (
+    get_default_shortcuts,
+    get_module_by_label,
+    get_module_label_for_page,
+    get_module_labels,
+    get_page_labels,
+    get_recent_visits,
+    record_recent_visit,
+)
 from src.factor_workbench import (
     FACTOR_WORKBENCH_PAGE_LABEL,
     apply_factor_filters,
@@ -92,6 +128,12 @@ from src.factor_workbench import (
     get_factor_workbench_trade_dates,
     get_score_preset,
     load_factor_workbench_frame,
+)
+from src.page_filter_utils import (
+    build_metric_categories,
+    build_quick_metric_groups,
+    build_secondary_category_options,
+    resolve_trend_category_key,
 )
 from src.ml_reco_candidate_scores import (
     load_candidate_scores_from_snapshot,
@@ -1720,7 +1762,7 @@ def hydrate_security_jump_from_query_params() -> None:
     if open_tab == "security":
         # 方案B：通过 sidebar 一级导航 + 个股子导航完成跳转
         st.session_state["sidebar_nav_group"] = "个股"
-        st.session_state["stock_subpage"] = "🔎 个股/指数查询"
+        st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
         st.session_state["jump_to_security_tab"] = True
 
     if jump_nonce:
@@ -1733,8 +1775,148 @@ def trigger_security_tab_jump_if_needed() -> None:
         return
 
     st.session_state["sidebar_nav_group"] = "个股"
-    st.session_state["stock_subpage"] = "🔎 个股/指数查询"
+    st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
     st.session_state["jump_to_security_tab"] = False
+
+
+def render_desktop_sidebar_navigation() -> tuple[str, str]:
+    module_labels = get_module_labels()
+    selected_module = st.session_state.get("sidebar_nav_group")
+    if selected_module not in module_labels:
+        selected_module = module_labels[0]
+        st.session_state["sidebar_nav_group"] = selected_module
+
+    all_page_labels = [
+        page_label
+        for module_label in module_labels
+        for page_label in get_page_labels(module_label)
+    ]
+    stale_quick_jump_keys = st.session_state.pop("sidebar_quick_jump_stale_keys", [])
+    if isinstance(stale_quick_jump_keys, list):
+        for stale_key in stale_quick_jump_keys:
+            st.session_state.pop(stale_key, None)
+
+    st.sidebar.markdown(
+        """
+        <div class="ws-sidebar-brand">
+            <span class="ws-sidebar-brand-kicker">WealthSpark</span>
+            <h2>桌面导航</h2>
+            <p>聚焦模块切换、最近访问和高频入口，保留清晰的列表式导航节奏。</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.sidebar.markdown(
+        """
+        <div class="ws-sidebar-block">
+            <div class="ws-sidebar-block-title">快速跳转</div>
+            <p class="ws-sidebar-block-copy">直接定位到任意桌面页面，不影响后续手动导航。</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    quick_jump_version = st.session_state.get("sidebar_quick_jump_version", 0)
+    if not isinstance(quick_jump_version, int) or quick_jump_version < 0:
+        quick_jump_version = 0
+        st.session_state["sidebar_quick_jump_version"] = 0
+    quick_jump_key = f"sidebar_quick_jump_{quick_jump_version}"
+    quick_jump_page = st.sidebar.selectbox(
+        "快速跳转",
+        all_page_labels,
+        index=None,
+        placeholder="选择页面…",
+        key=quick_jump_key,
+    )
+    if quick_jump_page:
+        jump_module = get_module_label_for_page(quick_jump_page)
+        jump_module_config = get_module_by_label(jump_module)
+        st.session_state["sidebar_nav_group"] = jump_module
+        st.session_state[jump_module_config.session_key] = quick_jump_page
+        st.session_state["sidebar_quick_jump_stale_keys"] = [quick_jump_key]
+        st.session_state["sidebar_quick_jump_version"] = quick_jump_version + 1
+        st.rerun()
+
+    st.sidebar.markdown(
+        """
+        <div class="ws-sidebar-block">
+            <div class="ws-sidebar-block-title">模块</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    selected_module = st.sidebar.radio(
+        "选择模块",
+        module_labels,
+        key="sidebar_nav_group",
+        label_visibility="collapsed",
+    )
+    selected_module_config = get_module_by_label(selected_module)
+
+    page_labels = get_page_labels(selected_module)
+    selected_page = st.session_state.get(selected_module_config.session_key)
+    if selected_page not in page_labels:
+        st.session_state[selected_module_config.session_key] = page_labels[0]
+
+    st.sidebar.markdown(
+        f"""
+        <div class="ws-sidebar-block">
+            <div class="ws-sidebar-block-title">{escape(selected_module)}页面</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    selected_page = st.sidebar.radio(
+        "选择页面",
+        page_labels,
+        key=selected_module_config.session_key,
+        label_visibility="collapsed",
+    )
+
+    record_recent_visit(st.session_state, selected_module, selected_page)
+    recent_visits = get_recent_visits(st.session_state)
+    st.sidebar.markdown(
+        """
+        <div class="ws-sidebar-block">
+            <div class="ws-sidebar-block-title">最近访问</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    for recent_item in recent_visits:
+        st.sidebar.markdown(
+            f"""
+            <div class="ws-sidebar-recent-item">
+                <span class="ws-sidebar-recent-module">{escape(recent_item["module"])}</span>
+                <span class="ws-sidebar-recent-page">{escape(recent_item["page"])}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.sidebar.markdown(
+        """
+        <div class="ws-sidebar-block">
+            <div class="ws-sidebar-block-title">常用入口</div>
+            <p class="ws-sidebar-block-copy">保留少量精选快捷入口，避免侧边栏变成按钮墙。</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    for shortcut_index, shortcut_page in enumerate(get_default_shortcuts()):
+        shortcut_module = get_module_label_for_page(shortcut_page)
+        if st.sidebar.button(
+            f"{shortcut_module} / {shortcut_page}",
+            key=f"sidebar_shortcut_{shortcut_index}",
+            type="secondary",
+            use_container_width=True,
+        ):
+            shortcut_module_config = get_module_by_label(shortcut_module)
+            st.session_state["sidebar_nav_group"] = shortcut_module
+            st.session_state[shortcut_module_config.session_key] = shortcut_page
+            st.rerun()
+
+    return selected_module, selected_page
 
 def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
     if df is None or df.empty:
@@ -3322,29 +3504,29 @@ def render_volume_tab():
                 key="iphone_vol_sectors"
             )
     else:
-        st.sidebar.header("📅 成交量日期筛选")
-
-        if vol_min_date == vol_max_date:
-            st.sidebar.info(f"📅 当前数据日期: {vol_min_date}")
-            vol_date_range = (vol_min_date, vol_max_date)
-        else:
-            vol_date_range = st.sidebar.slider(
-                "选择日期范围（成交量）",
-                min_value=vol_min_date,
-                max_value=vol_max_date,
-                value=(vol_min_date, vol_max_date),
-                format="YYYY-MM-DD",
-                key="vol_date_range"
-            )
-
-        # 板块筛选
-        all_sectors = sorted(vol_df['ts_name'].unique())
-        selected_sectors = st.sidebar.multiselect(
-            "选择板块",
-            options=all_sectors,
-            default=all_sectors,
-            key="vol_sectors"
-        )
+        with st.container(key="ws-page-toolbar-volume"):
+            toolbar_date_col, toolbar_sector_col = st.columns([1.0, 1.4])
+            with toolbar_date_col:
+                if vol_min_date == vol_max_date:
+                    st.info(f"📅 当前数据日期: {vol_min_date}")
+                    vol_date_range = (vol_min_date, vol_max_date)
+                else:
+                    vol_date_range = st.slider(
+                        "选择日期范围（成交量）",
+                        min_value=vol_min_date,
+                        max_value=vol_max_date,
+                        value=(vol_min_date, vol_max_date),
+                        format="YYYY-MM-DD",
+                        key="vol_date_range"
+                    )
+            with toolbar_sector_col:
+                all_sectors = sorted(vol_df['ts_name'].unique())
+                selected_sectors = st.multiselect(
+                    "选择板块",
+                    options=all_sectors,
+                    default=all_sectors,
+                    key="vol_sectors"
+                )
 
     # 筛选数据
     filtered_vol = vol_df[
@@ -3637,103 +3819,79 @@ def main():
 
         st.stop()
 
-    # ===== 方案B进阶版：sidebar 顶部一级导航 + 二级页面 + 下方动态筛选 =====
-    st.sidebar.markdown("---")
-    st.sidebar.header("🧭 页面导航")
+    # ===== 方案B进阶版：desktop sidebar 导航壳层 =====
+    selected_module, selected_page = render_desktop_sidebar_navigation()
+    st.caption(f"当前位置：{selected_module} / {selected_page}")
 
-    nav_group = st.sidebar.radio(
-        "选择模块",
-        ["决策", "基金", "个股", "资金", "宏观"],
-        key="sidebar_nav_group"
-    )
+    decision_module_label = get_module_label_for_page(DECISION_TODAY_PAGE_LABEL)
+    fund_module_label = get_module_label_for_page(ETF_MAIN_PAGE_LABEL)
+    stock_module_label = get_module_label_for_page(STOCK_SECURITY_SEARCH_LABEL)
+    money_module_label = get_module_label_for_page(MONEY_FLOW_PAGE_LABEL)
+    macro_module_label = get_module_label_for_page(MACRO_MAIN_PAGE_LABEL)
 
-    st.sidebar.markdown("**当前页面**")
-
-    if nav_group == "决策":
-        decision_subpage = st.sidebar.radio(
-            "决策模块",
-            DECISION_PAGE_OPTIONS,
-            key="decision_subpage"
-        )
-        st.caption(f"当前位置：决策 / {decision_subpage}")
-        if decision_subpage == "💼 今日机会清单":
+    if selected_module == decision_module_label:
+        if selected_page == DECISION_TODAY_PAGE_LABEL:
             render_commercial_mvp_tab()
-        elif decision_subpage == "⭐ 每日趋势推荐":
+        elif selected_page == DECISION_DAILY_RECO_PAGE_LABEL:
             render_daily_trend_reco_tab()
-        elif decision_subpage == "🧪 推荐评估":
+        elif selected_page == DECISION_RECO_EVAL_PAGE_LABEL:
             render_reco_effectiveness_tracking_panel()
-        else:
+        elif selected_page == DECISION_ML_PAGE_LABEL:
             render_ml_prediction_upgrade_tab()
+        else:
+            render_commercial_mvp_tab()
 
-    elif nav_group == "基金":
-        etf_subpage = st.sidebar.radio(
-            "基金模块",
-            ETF_PAGE_OPTIONS,
-            key="etf_subpage"
-        )
-        st.caption(f"当前位置：基金 / {etf_subpage}")
-        if etf_subpage == "📈 主要宽基ETF份额":
+    elif selected_module == fund_module_label:
+        if selected_page == ETF_MAIN_PAGE_LABEL:
             render_etf_tab()
-        elif etf_subpage == "🥧 ETF分类占比":
+        elif selected_page == ETF_RATIO_PAGE_LABEL:
             render_etf_category_ratio_tab()
-        elif etf_subpage == "📈 ETF分类趋势":
+        elif selected_page == ETF_TREND_PAGE_LABEL:
             render_etf_trend_tab()
-        elif etf_subpage == "📈 基金监测":
+        elif selected_page == ETF_FUND_MONITOR_PAGE_LABEL:
             render_fund_monitor_tab()
-        else:
+        elif selected_page == ETF_WIDE_INDEX_PAGE_LABEL:
             render_wide_index_tab()
+        else:
+            render_etf_tab()
 
-    elif nav_group == "个股":
-        stock_subpage = st.sidebar.radio(
-            "个股模块",
-            STOCK_PAGE_OPTIONS,
-            key="stock_subpage"
-        )
-        st.caption(f"当前位置：个股 / {stock_subpage}")
-        if stock_subpage == STOCK_PAGE_OPTIONS[0]:
+    elif selected_module == stock_module_label:
+        if selected_page == STOCK_SECURITY_SEARCH_LABEL:
             render_security_search_tab()
-        elif stock_subpage == STOCK_PAGE_OPTIONS[1]:
+        elif selected_page == STOCK_COMPANY_SCREENER_LABEL:
             render_company_screener_tab()
-        elif stock_subpage == FACTOR_WORKBENCH_PAGE_LABEL:
+        elif selected_page == FACTOR_WORKBENCH_PAGE_LABEL:
             render_factor_workbench_tab()
-        elif stock_subpage == TRACKING_PAGE_LABEL:
+        elif selected_page == TRACKING_PAGE_LABEL:
             render_author_tracking_tab()
-        else:
+        elif selected_page == STOCK_TECH_PICKER_LABEL:
             render_tech_picker_tab()
-
-    elif nav_group == "资金":
-        money_subpage = st.sidebar.radio(
-            "资金模块",
-            MONEY_PAGE_OPTIONS,
-            key="money_subpage"
-        )
-        st.caption(f"当前位置：资金 / {money_subpage}")
-        if money_subpage == "💹 资金流向":
-            render_moneyflow_tab()
-        elif money_subpage == "📊 每日成交量":
-            render_volume_tab()
-        elif money_subpage == "🏦 公募持仓热股":
-            render_fund_hot_stocks_tab()
-        elif money_subpage == "🔥 打板情绪":
-            render_limitup_monitor_tab()
         else:
-            render_hotmoney_tab()
+            render_security_search_tab()
 
-    else:
-        macro_subpage = st.sidebar.radio(
-            "宏观模块",
-            MACRO_PAGE_OPTIONS,
-            key="macro_subpage"
-        )
-        st.caption(f"当前位置：宏观 / {macro_subpage}")
-        if macro_subpage == "🌏 宏观经济":
+    elif selected_module == money_module_label:
+        if selected_page == MONEY_FLOW_PAGE_LABEL:
+            render_moneyflow_tab()
+        elif selected_page == MONEY_VOLUME_PAGE_LABEL:
+            render_volume_tab()
+        elif selected_page == MONEY_FUND_HOT_PAGE_LABEL:
+            render_fund_hot_stocks_tab()
+        elif selected_page == MONEY_LIMITUP_PAGE_LABEL:
+            render_limitup_monitor_tab()
+        elif selected_page == MONEY_HOTMONEY_PAGE_LABEL:
+            render_hotmoney_tab()
+        else:
+            render_moneyflow_tab()
+
+    elif selected_module == macro_module_label:
+        if selected_page == MACRO_MAIN_PAGE_LABEL:
             render_macro_tab()
-        elif macro_subpage == "🏦 本外币存款":
+        elif selected_page == MACRO_DEPOSIT_PAGE_LABEL:
             render_etf_deposit_tab()
-        elif macro_subpage == "📊 指数监测":
+        elif selected_page == MACRO_INDEX_MONITOR_PAGE_LABEL:
             render_index_monitor_tab()
         else:
-            render_fund_monitor_tab()
+            render_macro_tab()
 
 
 
@@ -5759,9 +5917,6 @@ def render_etf_tab():
     # 显示数据加载信息
     if iphone_mode:
         st.success(f"✅ 已加载 {len(df)} 条数据记录")
-    else:
-        st.sidebar.success(f"✅ 已加载 {len(df)} 条数据记录")
-        st.sidebar.header("🔍 数据筛选")
 
     # 1. 指标选择器
     metric_types = sorted(df['metric_type'].unique())
@@ -5771,15 +5926,13 @@ def render_etf_tab():
         st.info("Excel文件应包含section标题行，标题中应包含关键词：市值、份额、变动、申赎、比例、涨跌幅")
         st.stop()
 
-    metric_categories = {
-        "市值类": [m for m in metric_types if "市值" in m],
-        "份额类": [m for m in metric_types if "份额" in m],
-        "变动类": [m for m in metric_types if "变动" in m or "申赎" in m],
-        "比例类": [m for m in metric_types if "比例" in m],
-        "涨跌类": [m for m in metric_types if "涨跌" in m],
-        "其他": [m for m in metric_types if not any(keyword in m for keyword in ["市值", "份额", "变动", "申赎", "比例", "涨跌"])]
-    }
-    metric_categories = {k: v for k, v in metric_categories.items() if v}
+    metric_categories = build_metric_categories(metric_types)
+
+    def resolve_metric_category(metric_name: str | None) -> str:
+        for category_name, metrics in metric_categories.items():
+            if metric_name in metrics:
+                return category_name
+        return next(iter(metric_categories))
 
     if iphone_mode:
         with st.expander("🔍 ETF筛选条件", expanded=True):
@@ -5853,76 +6006,135 @@ def render_etf_tab():
                 key="iphone_etf_chart_type"
             )
     else:
-        if len(metric_categories) > 1:
-            st.sidebar.markdown("**指标分类**")
-            selected_category = st.sidebar.radio(
-                "选择指标类别",
-                options=list(metric_categories.keys()),
-                label_visibility="collapsed"
-            )
-            available_metrics = metric_categories[selected_category]
-        else:
-            available_metrics = metric_types
+        st.success(f"✅ 已加载 {len(df)} 条数据记录")
 
-        selected_metric = st.sidebar.selectbox(
-            "选择具体指标",
-            options=available_metrics,
-            index=0
-        )
+        quick_metric_groups = build_quick_metric_groups(metric_types)
+        category_options = list(metric_categories.keys())
+        chart_options = ['line', 'area', 'scatter']
+        pending_metric = st.session_state.pop("etf_pending_metric", None)
+        pending_metric_category = st.session_state.pop("etf_pending_metric_category", None)
 
-        metric_df = df[df['metric_type'] == selected_metric].copy()
-        has_aggregate = metric_df['is_aggregate'].any()
-        contains_total_market_value = '总市值' in selected_metric if selected_metric else False
+        if pending_metric in metric_types:
+            resolved_pending_category = resolve_metric_category(pending_metric)
+            if (
+                pending_metric_category in category_options and
+                pending_metric in metric_categories.get(pending_metric_category, [])
+            ):
+                resolved_pending_category = pending_metric_category
+            st.session_state["etf_selected_metric"] = pending_metric
+            st.session_state["etf_metric_category"] = resolved_pending_category
 
-        if has_aggregate and contains_total_market_value:
-            st.sidebar.info("📊 当前显示所有ETF的总和")
-            selected_etfs = None
-        else:
-            etf_names = sorted(metric_df[metric_df['is_aggregate'] == False]['name'].unique())
-            selected_etfs = st.sidebar.multiselect(
-                "选择ETF",
-                options=etf_names,
-                default=etf_names
+        if st.session_state.get("etf_selected_metric") not in metric_types:
+            st.session_state["etf_selected_metric"] = metric_types[0]
+
+        if st.session_state.get("etf_metric_category") not in category_options:
+            st.session_state["etf_metric_category"] = resolve_metric_category(
+                st.session_state["etf_selected_metric"]
             )
 
-        min_date = metric_df['date'].min().date()
-        max_date = metric_df['date'].max().date()
+        if st.session_state.get("etf_chart_type") not in chart_options:
+            st.session_state["etf_chart_type"] = chart_options[0]
 
-        if min_date == max_date:
-            st.sidebar.info(f"📅 当前数据日期: {min_date}")
-            date_range = (min_date, max_date)
-        else:
-            date_range = st.sidebar.slider(
-                "选择日期范围",
-                min_value=min_date,
-                max_value=max_date,
-                value=(min_date, max_date),
-                format="YYYY-MM-DD"
-            )
+        with st.container(key="ws-page-toolbar-etf"):
+            toolbar_category_col, toolbar_metric_col, toolbar_chart_col = st.columns([1.0, 1.2, 0.9])
+            with toolbar_category_col:
+                selected_category = st.selectbox(
+                    "指标分类",
+                    options=category_options,
+                    index=category_options.index(st.session_state["etf_metric_category"]),
+                    key="etf_metric_category",
+                    disabled=len(category_options) == 1
+                )
 
-        st.sidebar.header("📊 图表设置")
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("**快速切换**")
+            available_metrics = metric_categories.get(selected_category, metric_types)
+            if st.session_state.get("etf_selected_metric") not in available_metrics:
+                st.session_state["etf_selected_metric"] = available_metrics[0]
 
-        quick_metrics = {
-            "总市值": [m for m in metric_types if "总市值" in m],
-            "份额": [m for m in metric_types if "份额" in m and "总市值" not in m],
-            "涨跌幅": [m for m in metric_types if "涨跌" in m]
-        }
+            with toolbar_metric_col:
+                selected_metric = st.selectbox(
+                    "选择具体指标",
+                    options=available_metrics,
+                    index=available_metrics.index(st.session_state["etf_selected_metric"]),
+                    key="etf_selected_metric"
+                )
 
-        quick_cols = st.sidebar.columns(3)
-        for idx, (label, metrics) in enumerate(quick_metrics.items()):
-            if metrics and quick_cols[idx].button(label, use_container_width=True):
-                selected_metric = metrics[0]
-                st.rerun()
+            with toolbar_chart_col:
+                chart_type = st.selectbox(
+                    "图表类型",
+                    options=chart_options,
+                    index=chart_options.index(st.session_state["etf_chart_type"]),
+                    format_func=lambda x: {'line': '📈 平滑曲线', 'area': '📊 面积图', 'scatter': '⚫ 散点图'}[x],
+                    key="etf_chart_type"
+                )
 
-        chart_type = st.sidebar.radio(
-            "图表类型",
-            options=['line', 'area', 'scatter'],
-            format_func=lambda x: {'line': '📈 平滑曲线', 'area': '📊 面积图', 'scatter': '⚫ 散点图'}[x],
-            index=0,
-            help="平滑曲线：清晰的线条，适合查看趋势\n面积图：填充区域，适合对比数量\n散点图：仅显示数据点，适合查看离散数据"
-        )
+            st.markdown("**快速切换**")
+            quick_cols = st.columns(len(quick_metric_groups))
+            quick_button_keys = {
+                "总市值": "etf_quick_market",
+                "份额": "etf_quick_share",
+                "涨跌幅": "etf_quick_change",
+            }
+            for idx, (label, metrics) in enumerate(quick_metric_groups.items()):
+                if quick_cols[idx].button(
+                    label,
+                    use_container_width=True,
+                    key=quick_button_keys[label],
+                    disabled=not metrics
+                ):
+                    target_metric = metrics[0]
+                    st.session_state["etf_pending_metric"] = target_metric
+                    st.session_state["etf_pending_metric_category"] = resolve_metric_category(target_metric)
+                    st.rerun()
+
+            metric_df = df[df['metric_type'] == selected_metric].copy()
+            has_aggregate = metric_df['is_aggregate'].any()
+            contains_total_market_value = '总市值' in selected_metric if selected_metric else False
+
+            with st.expander("更多筛选", expanded=False):
+                if has_aggregate and contains_total_market_value:
+                    st.info("📊 当前显示所有ETF的总和")
+                    selected_etfs = None
+                else:
+                    etf_names = sorted(metric_df[metric_df['is_aggregate'] == False]['name'].unique())
+                    current_selected_etfs = st.session_state.get("etf_selected_etfs")
+                    if not isinstance(current_selected_etfs, list):
+                        current_selected_etfs = etf_names
+                    else:
+                        current_selected_etfs = [etf for etf in current_selected_etfs if etf in etf_names]
+                        if not current_selected_etfs:
+                            current_selected_etfs = etf_names
+                    st.session_state["etf_selected_etfs"] = current_selected_etfs
+                    selected_etfs = st.multiselect(
+                        "选择ETF",
+                        options=etf_names,
+                        default=current_selected_etfs,
+                        key="etf_selected_etfs"
+                    )
+
+                min_date = metric_df['date'].min().date()
+                max_date = metric_df['date'].max().date()
+
+                if min_date == max_date:
+                    st.info(f"📅 当前数据日期: {min_date}")
+                    date_range = (min_date, max_date)
+                    st.session_state["etf_date_range"] = date_range
+                else:
+                    current_date_range = st.session_state.get("etf_date_range")
+                    valid_date_range = (
+                        isinstance(current_date_range, (tuple, list)) and
+                        len(current_date_range) == 2 and
+                        min_date <= current_date_range[0] <= current_date_range[1] <= max_date
+                    )
+                    if not valid_date_range:
+                        st.session_state["etf_date_range"] = (min_date, max_date)
+                    date_range = st.slider(
+                        "选择日期范围",
+                        min_value=min_date,
+                        max_value=max_date,
+                        value=st.session_state["etf_date_range"],
+                        format="YYYY-MM-DD",
+                        key="etf_date_range"
+                    )
 
     # 主区域 - 图表和统计信息
     # 筛选数据
@@ -6555,6 +6767,19 @@ def render_etf_trend_tab():
 
     primary_options = ['全部'] + sorted(category_tree.keys())
 
+    try:
+        available = get_available_dates(limit=1000)
+    except Exception as e:
+        st.error(f"获取可用日期失败: {e}")
+        return
+
+    if not available:
+        st.warning("暂无可用交易日数据")
+        return
+
+    all_dates = sorted([datetime.strptime(d, '%Y-%m-%d').date() for d in available])
+    min_d, max_d = all_dates[0], all_dates[-1]
+
     if iphone_mode:
         with st.expander("📂 分类趋势筛选", expanded=True):
             selected_primary = st.selectbox(
@@ -6590,20 +6815,6 @@ def render_etf_trend_tab():
             )
             metric_col = 'total_share_yi' if '份额' in metric else 'total_size_yi'
 
-            try:
-                available = get_available_dates(limit=1000)
-            except Exception as e:
-                st.error(f"获取可用日期失败: {e}")
-                return
-
-            if not available:
-                st.warning("暂无可用交易日数据")
-                return
-
-            from datetime import datetime as dt
-            all_dates = sorted([dt.strptime(d, '%Y-%m-%d').date() for d in available])
-            min_d, max_d = all_dates[0], all_dates[-1]
-
             date_range = st.slider(
                 "时间范围",
                 min_value=min_d,
@@ -6613,66 +6824,45 @@ def render_etf_trend_tab():
                 key="iphone_trend_date_range"
             )
     else:
-        # 侧边栏筛选器
-        st.sidebar.header("📂 分类趋势筛选")
-
-        selected_primary = st.sidebar.selectbox(
-            "一级分类",
-            options=primary_options,
-            index=0,
-            key="trend_primary"
-        )
-
-        # 二级分类联动
-        category_key = selected_primary
-        if selected_primary != '全部' and category_tree.get(selected_primary):
-            secondary_list = category_tree[selected_primary]
-            secondary_options = ['全部(小计)'] + secondary_list
-            selected_secondary = st.sidebar.selectbox(
-                "二级分类",
-                options=secondary_options,
-                index=0,
-                key="trend_secondary"
-            )
-            if selected_secondary == '全部(小计)':
-                category_key = selected_primary
-            else:
-                category_key = f"{selected_primary}-{selected_secondary}"
-        elif selected_primary == '全部':
-            category_key = '全部'
-
-        # 指标选择
-        metric = st.sidebar.radio(
-            "查看指标",
-            options=['总份额(亿份)', '总规模(亿元)'],
-            index=0,
-            key="trend_metric"
-        )
-        metric_col = 'total_share_yi' if '份额' in metric else 'total_size_yi'
-
-        # 日期范围
-        try:
-            available = get_available_dates(limit=1000)
-        except Exception as e:
-            st.error(f"获取可用日期失败: {e}")
-            return
-
-        if not available:
-            st.warning("暂无可用交易日数据")
-            return
-
-        from datetime import datetime as dt
-        all_dates = sorted([dt.strptime(d, '%Y-%m-%d').date() for d in available])
-        min_d, max_d = all_dates[0], all_dates[-1]
-
-        date_range = st.sidebar.slider(
-            "时间范围",
-            min_value=min_d,
-            max_value=max_d,
-            value=(min_d, max_d),
-            format="YYYY-MM-DD",
-            key="trend_date_range"
-        )
+        with st.container(key="ws-page-toolbar-trend"):
+            toolbar_primary_col, toolbar_secondary_col, toolbar_metric_col = st.columns([1.05, 1.05, 0.95])
+            with toolbar_primary_col:
+                selected_primary = st.selectbox(
+                    "一级分类",
+                    options=primary_options,
+                    index=0,
+                    key="trend_primary"
+                )
+            secondary_options = build_secondary_category_options(selected_primary, category_tree)
+            with toolbar_secondary_col:
+                if secondary_options:
+                    selected_secondary = st.selectbox(
+                        "二级分类",
+                        options=secondary_options,
+                        index=0,
+                        key="trend_secondary"
+                    )
+                else:
+                    selected_secondary = None
+                    st.caption("当前一级分类没有二级分类可选")
+            with toolbar_metric_col:
+                metric = st.radio(
+                    "查看指标",
+                    options=['总份额(亿份)', '总规模(亿元)'],
+                    index=0,
+                    key="trend_metric"
+                )
+            metric_col = 'total_share_yi' if '份额' in metric else 'total_size_yi'
+            category_key = resolve_trend_category_key(selected_primary, selected_secondary, category_tree)
+            with st.expander("更多筛选", expanded=False):
+                date_range = st.slider(
+                    "时间范围",
+                    min_value=min_d,
+                    max_value=max_d,
+                    value=(min_d, max_d),
+                    format="YYYY-MM-DD",
+                    key="trend_date_range"
+                )
 
     # 查询时序数据
     try:
