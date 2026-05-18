@@ -129,6 +129,10 @@ from src.factor_workbench import (
     get_score_preset,
     load_factor_workbench_frame,
 )
+from src.page_filter_utils import (
+    build_secondary_category_options,
+    resolve_trend_category_key,
+)
 from src.ml_reco_candidate_scores import (
     load_candidate_scores_from_snapshot,
     compute_candidate_scores as compute_ml_reco_candidate_scores,
@@ -3498,29 +3502,30 @@ def render_volume_tab():
                 key="iphone_vol_sectors"
             )
     else:
-        st.sidebar.header("📅 成交量日期筛选")
-
-        if vol_min_date == vol_max_date:
-            st.sidebar.info(f"📅 当前数据日期: {vol_min_date}")
-            vol_date_range = (vol_min_date, vol_max_date)
-        else:
-            vol_date_range = st.sidebar.slider(
-                "选择日期范围（成交量）",
-                min_value=vol_min_date,
-                max_value=vol_max_date,
-                value=(vol_min_date, vol_max_date),
-                format="YYYY-MM-DD",
-                key="vol_date_range"
+        st.markdown('<div class="ws-page-toolbar">', unsafe_allow_html=True)
+        toolbar_date_col, toolbar_sector_col = st.columns([1.0, 1.4])
+        with toolbar_date_col:
+            if vol_min_date == vol_max_date:
+                st.info(f"📅 当前数据日期: {vol_min_date}")
+                vol_date_range = (vol_min_date, vol_max_date)
+            else:
+                vol_date_range = st.slider(
+                    "选择日期范围（成交量）",
+                    min_value=vol_min_date,
+                    max_value=vol_max_date,
+                    value=(vol_min_date, vol_max_date),
+                    format="YYYY-MM-DD",
+                    key="vol_date_range"
+                )
+        with toolbar_sector_col:
+            all_sectors = sorted(vol_df['ts_name'].unique())
+            selected_sectors = st.multiselect(
+                "选择板块",
+                options=all_sectors,
+                default=all_sectors,
+                key="vol_sectors"
             )
-
-        # 板块筛选
-        all_sectors = sorted(vol_df['ts_name'].unique())
-        selected_sectors = st.sidebar.multiselect(
-            "选择板块",
-            options=all_sectors,
-            default=all_sectors,
-            key="vol_sectors"
-        )
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # 筛选数据
     filtered_vol = vol_df[
@@ -6707,6 +6712,19 @@ def render_etf_trend_tab():
 
     primary_options = ['全部'] + sorted(category_tree.keys())
 
+    try:
+        available = get_available_dates(limit=1000)
+    except Exception as e:
+        st.error(f"获取可用日期失败: {e}")
+        return
+
+    if not available:
+        st.warning("暂无可用交易日数据")
+        return
+
+    all_dates = sorted([datetime.strptime(d, '%Y-%m-%d').date() for d in available])
+    min_d, max_d = all_dates[0], all_dates[-1]
+
     if iphone_mode:
         with st.expander("📂 分类趋势筛选", expanded=True):
             selected_primary = st.selectbox(
@@ -6742,20 +6760,6 @@ def render_etf_trend_tab():
             )
             metric_col = 'total_share_yi' if '份额' in metric else 'total_size_yi'
 
-            try:
-                available = get_available_dates(limit=1000)
-            except Exception as e:
-                st.error(f"获取可用日期失败: {e}")
-                return
-
-            if not available:
-                st.warning("暂无可用交易日数据")
-                return
-
-            from datetime import datetime as dt
-            all_dates = sorted([dt.strptime(d, '%Y-%m-%d').date() for d in available])
-            min_d, max_d = all_dates[0], all_dates[-1]
-
             date_range = st.slider(
                 "时间范围",
                 min_value=min_d,
@@ -6765,66 +6769,46 @@ def render_etf_trend_tab():
                 key="iphone_trend_date_range"
             )
     else:
-        # 侧边栏筛选器
-        st.sidebar.header("📂 分类趋势筛选")
-
-        selected_primary = st.sidebar.selectbox(
-            "一级分类",
-            options=primary_options,
-            index=0,
-            key="trend_primary"
-        )
-
-        # 二级分类联动
-        category_key = selected_primary
-        if selected_primary != '全部' and category_tree.get(selected_primary):
-            secondary_list = category_tree[selected_primary]
-            secondary_options = ['全部(小计)'] + secondary_list
-            selected_secondary = st.sidebar.selectbox(
-                "二级分类",
-                options=secondary_options,
+        st.markdown('<div class="ws-page-toolbar">', unsafe_allow_html=True)
+        toolbar_primary_col, toolbar_secondary_col, toolbar_metric_col = st.columns([1.05, 1.05, 0.95])
+        with toolbar_primary_col:
+            selected_primary = st.selectbox(
+                "一级分类",
+                options=primary_options,
                 index=0,
-                key="trend_secondary"
+                key="trend_primary"
             )
-            if selected_secondary == '全部(小计)':
-                category_key = selected_primary
+        secondary_options = build_secondary_category_options(selected_primary, category_tree)
+        with toolbar_secondary_col:
+            if secondary_options:
+                selected_secondary = st.selectbox(
+                    "二级分类",
+                    options=secondary_options,
+                    index=0,
+                    key="trend_secondary"
+                )
             else:
-                category_key = f"{selected_primary}-{selected_secondary}"
-        elif selected_primary == '全部':
-            category_key = '全部'
-
-        # 指标选择
-        metric = st.sidebar.radio(
-            "查看指标",
-            options=['总份额(亿份)', '总规模(亿元)'],
-            index=0,
-            key="trend_metric"
-        )
+                selected_secondary = None
+                st.caption("当前一级分类没有二级分类可选")
+        with toolbar_metric_col:
+            metric = st.radio(
+                "查看指标",
+                options=['总份额(亿份)', '总规模(亿元)'],
+                index=0,
+                key="trend_metric"
+            )
         metric_col = 'total_share_yi' if '份额' in metric else 'total_size_yi'
-
-        # 日期范围
-        try:
-            available = get_available_dates(limit=1000)
-        except Exception as e:
-            st.error(f"获取可用日期失败: {e}")
-            return
-
-        if not available:
-            st.warning("暂无可用交易日数据")
-            return
-
-        from datetime import datetime as dt
-        all_dates = sorted([dt.strptime(d, '%Y-%m-%d').date() for d in available])
-        min_d, max_d = all_dates[0], all_dates[-1]
-
-        date_range = st.sidebar.slider(
-            "时间范围",
-            min_value=min_d,
-            max_value=max_d,
-            value=(min_d, max_d),
-            format="YYYY-MM-DD",
-            key="trend_date_range"
-        )
+        category_key = resolve_trend_category_key(selected_primary, selected_secondary, category_tree)
+        with st.expander("更多筛选", expanded=False):
+            date_range = st.slider(
+                "时间范围",
+                min_value=min_d,
+                max_value=max_d,
+                value=(min_d, max_d),
+                format="YYYY-MM-DD",
+                key="trend_date_range"
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # 查询时序数据
     try:
