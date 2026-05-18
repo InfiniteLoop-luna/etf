@@ -34,6 +34,17 @@ class PageToolbarLayoutTests(unittest.TestCase):
         self.assertIn("build_metric_categories", chunk)
         self.assertIn("build_quick_metric_groups", chunk)
 
+    def test_render_etf_tab_uses_pending_quick_metric_state_before_widget_keys(self):
+        chunk = function_chunk("render_etf_tab")
+
+        self.assertIn('st.session_state["etf_pending_metric"]', chunk)
+        self.assertIn('st.session_state["etf_pending_metric_category"]', chunk)
+        self.assertNotIn('st.session_state["etf_selected_metric"] = target_metric', chunk)
+        self.assertNotIn(
+            'st.session_state["etf_metric_category"] = resolve_metric_category(target_metric)',
+            chunk,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6012,6 +6012,18 @@ def render_etf_tab():
         quick_metric_groups = build_quick_metric_groups(metric_types)
         category_options = list(metric_categories.keys())
         chart_options = ['line', 'area', 'scatter']
+        pending_metric = st.session_state.pop("etf_pending_metric", None)
+        pending_metric_category = st.session_state.pop("etf_pending_metric_category", None)
+
+        if pending_metric in metric_types:
+            resolved_pending_category = resolve_metric_category(pending_metric)
+            if (
+                pending_metric_category in category_options and
+                pending_metric in metric_categories.get(pending_metric_category, [])
+            ):
+                resolved_pending_category = pending_metric_category
+            st.session_state["etf_selected_metric"] = pending_metric
+            st.session_state["etf_metric_category"] = resolved_pending_category
 
         if st.session_state.get("etf_selected_metric") not in metric_types:
             st.session_state["etf_selected_metric"] = metric_types[0]
@@ -6072,8 +6084,8 @@ def render_etf_tab():
                 disabled=not metrics
             ):
                 target_metric = metrics[0]
-                st.session_state["etf_selected_metric"] = target_metric
-                st.session_state["etf_metric_category"] = resolve_metric_category(target_metric)
+                st.session_state["etf_pending_metric"] = target_metric
+                st.session_state["etf_pending_metric_category"] = resolve_metric_category(target_metric)
                 st.rerun()
 
         metric_df = df[df['metric_type'] == selected_metric].copy()
