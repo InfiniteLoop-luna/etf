@@ -591,11 +591,8 @@ div[data-testid="stExpander"] details summary {{
     font-weight: 620 !important;
 }}
 
-.ws-page-toolbar {{
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.85rem;
+.ws-page-toolbar,
+[class*="st-key-ws-page-toolbar"] {{
     margin: 0.4rem 0 1.1rem 0;
     padding: 0.95rem 1.05rem;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 248, 0.92) 100%);
@@ -604,8 +601,23 @@ div[data-testid="stExpander"] details summary {{
     box-shadow: var(--ws-shadow);
 }}
 
+.ws-page-toolbar {{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.85rem;
+}}
+
 .ws-page-toolbar > * {{
     flex: 0 1 auto;
+}}
+
+[class*="st-key-ws-page-toolbar"] > div[data-testid="stVerticalBlock"] {{
+    gap: 0.85rem;
+}}
+
+[class*="st-key-ws-page-toolbar"] [data-testid="stHorizontalBlock"] {{
+    align-items: flex-end;
 }}
 
 div[data-testid="stExpanderDetails"] {{
