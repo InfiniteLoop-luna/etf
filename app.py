@@ -1785,6 +1785,10 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
         for module_label in module_labels
         for page_label in get_page_labels(module_label)
     ]
+    stale_quick_jump_keys = st.session_state.pop("sidebar_quick_jump_stale_keys", [])
+    if isinstance(stale_quick_jump_keys, list):
+        for stale_key in stale_quick_jump_keys:
+            st.session_state.pop(stale_key, None)
 
     st.sidebar.markdown(
         """
@@ -1806,22 +1810,26 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
         """,
         unsafe_allow_html=True,
     )
+    quick_jump_version = st.session_state.get("sidebar_quick_jump_version", 0)
+    if not isinstance(quick_jump_version, int) or quick_jump_version < 0:
+        quick_jump_version = 0
+        st.session_state["sidebar_quick_jump_version"] = 0
+    quick_jump_key = f"sidebar_quick_jump_{quick_jump_version}"
     quick_jump_page = st.sidebar.selectbox(
         "快速跳转",
         all_page_labels,
         index=None,
         placeholder="选择页面…",
-        key="sidebar_quick_jump",
+        key=quick_jump_key,
     )
     if quick_jump_page:
-        last_applied_quick_jump = st.session_state.get("sidebar_quick_jump_applied")
-        if quick_jump_page != last_applied_quick_jump:
-            jump_module = get_module_label_for_page(quick_jump_page)
-            jump_module_config = get_module_by_label(jump_module)
-            st.session_state["sidebar_nav_group"] = jump_module
-            st.session_state[jump_module_config.session_key] = quick_jump_page
-            st.session_state["sidebar_quick_jump_applied"] = quick_jump_page
-            st.rerun()
+        jump_module = get_module_label_for_page(quick_jump_page)
+        jump_module_config = get_module_by_label(jump_module)
+        st.session_state["sidebar_nav_group"] = jump_module
+        st.session_state[jump_module_config.session_key] = quick_jump_page
+        st.session_state["sidebar_quick_jump_stale_keys"] = [quick_jump_key]
+        st.session_state["sidebar_quick_jump_version"] = quick_jump_version + 1
+        st.rerun()
 
     st.sidebar.markdown(
         """
