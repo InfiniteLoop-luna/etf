@@ -130,6 +130,8 @@ from src.factor_workbench import (
     load_factor_workbench_frame,
 )
 from src.page_filter_utils import (
+    build_metric_categories,
+    build_quick_metric_groups,
     build_secondary_category_options,
     resolve_trend_category_key,
 )
@@ -5916,9 +5918,6 @@ def render_etf_tab():
     # 显示数据加载信息
     if iphone_mode:
         st.success(f"✅ 已加载 {len(df)} 条数据记录")
-    else:
-        st.sidebar.success(f"✅ 已加载 {len(df)} 条数据记录")
-        st.sidebar.header("🔍 数据筛选")
 
     # 1. 指标选择器
     metric_types = sorted(df['metric_type'].unique())
@@ -5928,15 +5927,13 @@ def render_etf_tab():
         st.info("Excel文件应包含section标题行，标题中应包含关键词：市值、份额、变动、申赎、比例、涨跌幅")
         st.stop()
 
-    metric_categories = {
-        "市值类": [m for m in metric_types if "市值" in m],
-        "份额类": [m for m in metric_types if "份额" in m],
-        "变动类": [m for m in metric_types if "变动" in m or "申赎" in m],
-        "比例类": [m for m in metric_types if "比例" in m],
-        "涨跌类": [m for m in metric_types if "涨跌" in m],
-        "其他": [m for m in metric_types if not any(keyword in m for keyword in ["市值", "份额", "变动", "申赎", "比例", "涨跌"])]
-    }
-    metric_categories = {k: v for k, v in metric_categories.items() if v}
+    metric_categories = build_metric_categories(metric_types)
+
+    def resolve_metric_category(metric_name: str | None) -> str:
+        for category_name, metrics in metric_categories.items():
+            if metric_name in metrics:
+                return category_name
+        return next(iter(metric_categories))
 
     if iphone_mode:
         with st.expander("🔍 ETF筛选条件", expanded=True):
@@ -6010,76 +6007,124 @@ def render_etf_tab():
                 key="iphone_etf_chart_type"
             )
     else:
-        if len(metric_categories) > 1:
-            st.sidebar.markdown("**指标分类**")
-            selected_category = st.sidebar.radio(
-                "选择指标类别",
-                options=list(metric_categories.keys()),
-                label_visibility="collapsed"
-            )
-            available_metrics = metric_categories[selected_category]
-        else:
-            available_metrics = metric_types
+        st.success(f"✅ 已加载 {len(df)} 条数据记录")
 
-        selected_metric = st.sidebar.selectbox(
-            "选择具体指标",
-            options=available_metrics,
-            index=0
-        )
+        quick_metric_groups = build_quick_metric_groups(metric_types)
+        category_options = list(metric_categories.keys())
+        chart_options = ['line', 'area', 'scatter']
+
+        if st.session_state.get("etf_selected_metric") not in metric_types:
+            st.session_state["etf_selected_metric"] = metric_types[0]
+
+        if st.session_state.get("etf_metric_category") not in category_options:
+            st.session_state["etf_metric_category"] = resolve_metric_category(
+                st.session_state["etf_selected_metric"]
+            )
+
+        if st.session_state.get("etf_chart_type") not in chart_options:
+            st.session_state["etf_chart_type"] = chart_options[0]
+
+        st.markdown('<div class="ws-page-toolbar">', unsafe_allow_html=True)
+        toolbar_category_col, toolbar_metric_col, toolbar_chart_col = st.columns([1.0, 1.2, 0.9])
+        with toolbar_category_col:
+            selected_category = st.selectbox(
+                "指标分类",
+                options=category_options,
+                index=category_options.index(st.session_state["etf_metric_category"]),
+                key="etf_metric_category",
+                disabled=len(category_options) == 1
+            )
+
+        available_metrics = metric_categories.get(selected_category, metric_types)
+        if st.session_state.get("etf_selected_metric") not in available_metrics:
+            st.session_state["etf_selected_metric"] = available_metrics[0]
+
+        with toolbar_metric_col:
+            selected_metric = st.selectbox(
+                "选择具体指标",
+                options=available_metrics,
+                index=available_metrics.index(st.session_state["etf_selected_metric"]),
+                key="etf_selected_metric"
+            )
+
+        with toolbar_chart_col:
+            chart_type = st.selectbox(
+                "图表类型",
+                options=chart_options,
+                index=chart_options.index(st.session_state["etf_chart_type"]),
+                format_func=lambda x: {'line': '📈 平滑曲线', 'area': '📊 面积图', 'scatter': '⚫ 散点图'}[x],
+                key="etf_chart_type"
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown("**快速切换**")
+        quick_cols = st.columns(len(quick_metric_groups))
+        quick_button_keys = {
+            "总市值": "etf_quick_market",
+            "份额": "etf_quick_share",
+            "涨跌幅": "etf_quick_change",
+        }
+        for idx, (label, metrics) in enumerate(quick_metric_groups.items()):
+            if quick_cols[idx].button(
+                label,
+                use_container_width=True,
+                key=quick_button_keys[label],
+                disabled=not metrics
+            ):
+                target_metric = metrics[0]
+                st.session_state["etf_selected_metric"] = target_metric
+                st.session_state["etf_metric_category"] = resolve_metric_category(target_metric)
+                st.rerun()
 
         metric_df = df[df['metric_type'] == selected_metric].copy()
         has_aggregate = metric_df['is_aggregate'].any()
         contains_total_market_value = '总市值' in selected_metric if selected_metric else False
 
-        if has_aggregate and contains_total_market_value:
-            st.sidebar.info("📊 当前显示所有ETF的总和")
-            selected_etfs = None
-        else:
-            etf_names = sorted(metric_df[metric_df['is_aggregate'] == False]['name'].unique())
-            selected_etfs = st.sidebar.multiselect(
-                "选择ETF",
-                options=etf_names,
-                default=etf_names
-            )
+        with st.expander("更多筛选", expanded=False):
+            if has_aggregate and contains_total_market_value:
+                st.info("📊 当前显示所有ETF的总和")
+                selected_etfs = None
+            else:
+                etf_names = sorted(metric_df[metric_df['is_aggregate'] == False]['name'].unique())
+                current_selected_etfs = st.session_state.get("etf_selected_etfs")
+                if not isinstance(current_selected_etfs, list):
+                    current_selected_etfs = etf_names
+                else:
+                    current_selected_etfs = [etf for etf in current_selected_etfs if etf in etf_names]
+                    if not current_selected_etfs:
+                        current_selected_etfs = etf_names
+                st.session_state["etf_selected_etfs"] = current_selected_etfs
+                selected_etfs = st.multiselect(
+                    "选择ETF",
+                    options=etf_names,
+                    default=current_selected_etfs,
+                    key="etf_selected_etfs"
+                )
 
-        min_date = metric_df['date'].min().date()
-        max_date = metric_df['date'].max().date()
+            min_date = metric_df['date'].min().date()
+            max_date = metric_df['date'].max().date()
 
-        if min_date == max_date:
-            st.sidebar.info(f"📅 当前数据日期: {min_date}")
-            date_range = (min_date, max_date)
-        else:
-            date_range = st.sidebar.slider(
-                "选择日期范围",
-                min_value=min_date,
-                max_value=max_date,
-                value=(min_date, max_date),
-                format="YYYY-MM-DD"
-            )
-
-        st.sidebar.header("📊 图表设置")
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("**快速切换**")
-
-        quick_metrics = {
-            "总市值": [m for m in metric_types if "总市值" in m],
-            "份额": [m for m in metric_types if "份额" in m and "总市值" not in m],
-            "涨跌幅": [m for m in metric_types if "涨跌" in m]
-        }
-
-        quick_cols = st.sidebar.columns(3)
-        for idx, (label, metrics) in enumerate(quick_metrics.items()):
-            if metrics and quick_cols[idx].button(label, use_container_width=True):
-                selected_metric = metrics[0]
-                st.rerun()
-
-        chart_type = st.sidebar.radio(
-            "图表类型",
-            options=['line', 'area', 'scatter'],
-            format_func=lambda x: {'line': '📈 平滑曲线', 'area': '📊 面积图', 'scatter': '⚫ 散点图'}[x],
-            index=0,
-            help="平滑曲线：清晰的线条，适合查看趋势\n面积图：填充区域，适合对比数量\n散点图：仅显示数据点，适合查看离散数据"
-        )
+            if min_date == max_date:
+                st.info(f"📅 当前数据日期: {min_date}")
+                date_range = (min_date, max_date)
+                st.session_state["etf_date_range"] = date_range
+            else:
+                current_date_range = st.session_state.get("etf_date_range")
+                valid_date_range = (
+                    isinstance(current_date_range, (tuple, list)) and
+                    len(current_date_range) == 2 and
+                    min_date <= current_date_range[0] <= current_date_range[1] <= max_date
+                )
+                if not valid_date_range:
+                    st.session_state["etf_date_range"] = (min_date, max_date)
+                date_range = st.slider(
+                    "选择日期范围",
+                    min_value=min_date,
+                    max_value=max_date,
+                    value=st.session_state["etf_date_range"],
+                    format="YYYY-MM-DD",
+                    key="etf_date_range"
+                )
 
     # 主区域 - 图表和统计信息
     # 筛选数据

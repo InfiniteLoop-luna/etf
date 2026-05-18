@@ -26,6 +26,14 @@ class PageToolbarLayoutTests(unittest.TestCase):
         self.assertNotIn("st.sidebar", chunk)
         self.assertIn("更多筛选", chunk)
 
+    def test_render_etf_tab_moves_desktop_filters_into_page_toolbar(self):
+        chunk = function_chunk("render_etf_tab")
+
+        self.assertNotIn("st.sidebar", chunk)
+        self.assertIn("更多筛选", chunk)
+        self.assertIn("build_metric_categories", chunk)
+        self.assertIn("build_quick_metric_groups", chunk)
+
 
 if __name__ == "__main__":
     unittest.main()
