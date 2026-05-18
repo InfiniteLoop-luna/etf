@@ -1,11 +1,31 @@
 import unittest
 
 from src.navigation_config import (
+    DECISION_DAILY_RECO_PAGE_LABEL,
+    DECISION_ML_PAGE_LABEL,
     DECISION_PAGE_OPTIONS,
+    DECISION_RECO_EVAL_PAGE_LABEL,
+    DECISION_TODAY_PAGE_LABEL,
+    ETF_FUND_MONITOR_PAGE_LABEL,
+    ETF_MAIN_PAGE_LABEL,
     ETF_PAGE_OPTIONS,
+    ETF_RATIO_PAGE_LABEL,
+    ETF_TREND_PAGE_LABEL,
+    ETF_WIDE_INDEX_PAGE_LABEL,
+    MACRO_DEPOSIT_PAGE_LABEL,
+    MACRO_INDEX_MONITOR_PAGE_LABEL,
+    MACRO_MAIN_PAGE_LABEL,
     MACRO_PAGE_OPTIONS,
+    MONEY_FLOW_PAGE_LABEL,
+    MONEY_FUND_HOT_PAGE_LABEL,
+    MONEY_HOTMONEY_PAGE_LABEL,
+    MONEY_LIMITUP_PAGE_LABEL,
     MONEY_PAGE_OPTIONS,
+    MONEY_VOLUME_PAGE_LABEL,
+    STOCK_COMPANY_SCREENER_LABEL,
     STOCK_PAGE_OPTIONS,
+    STOCK_SECURITY_SEARCH_LABEL,
+    STOCK_TECH_PICKER_LABEL,
 )
 from src.sidebar_navigation import (
     MAX_RECENT_PAGES,
@@ -31,6 +51,32 @@ class SidebarNavigationTests(unittest.TestCase):
         self.assertEqual(get_page_labels("个股"), STOCK_PAGE_OPTIONS)
         self.assertEqual(get_page_labels("资金"), MONEY_PAGE_OPTIONS)
         self.assertEqual(get_page_labels("宏观"), MACRO_PAGE_OPTIONS)
+
+    def test_navigation_config_label_constants_stay_stable(self):
+        self.assertEqual(DECISION_TODAY_PAGE_LABEL, "💼 今日机会清单")
+        self.assertEqual(DECISION_DAILY_RECO_PAGE_LABEL, "⭐ 每日趋势推荐")
+        self.assertEqual(DECISION_RECO_EVAL_PAGE_LABEL, "🧪 推荐评估")
+        self.assertEqual(DECISION_ML_PAGE_LABEL, "🧠 ML预测升级")
+
+        self.assertEqual(ETF_MAIN_PAGE_LABEL, "📈 主要宽基ETF份额")
+        self.assertEqual(ETF_RATIO_PAGE_LABEL, "🥧 ETF分类占比")
+        self.assertEqual(ETF_TREND_PAGE_LABEL, "📈 ETF分类趋势")
+        self.assertEqual(ETF_WIDE_INDEX_PAGE_LABEL, "📊 宽基指数ETF")
+        self.assertEqual(ETF_FUND_MONITOR_PAGE_LABEL, "📈 基金监测")
+
+        self.assertEqual(STOCK_SECURITY_SEARCH_LABEL, "🔎 个股/指数查询")
+        self.assertEqual(STOCK_COMPANY_SCREENER_LABEL, "🏢 公司筛选")
+        self.assertEqual(STOCK_TECH_PICKER_LABEL, "🎯 技术选股")
+
+        self.assertEqual(MONEY_FLOW_PAGE_LABEL, "💹 资金流向")
+        self.assertEqual(MONEY_VOLUME_PAGE_LABEL, "📊 每日成交量")
+        self.assertEqual(MONEY_FUND_HOT_PAGE_LABEL, "🏦 公募持仓热股")
+        self.assertEqual(MONEY_LIMITUP_PAGE_LABEL, "🔥 打板情绪")
+        self.assertEqual(MONEY_HOTMONEY_PAGE_LABEL, "🧾 游资名录")
+
+        self.assertEqual(MACRO_MAIN_PAGE_LABEL, "🌏 宏观经济")
+        self.assertEqual(MACRO_DEPOSIT_PAGE_LABEL, "🏦 本外币存款")
+        self.assertEqual(MACRO_INDEX_MONITOR_PAGE_LABEL, "📊 指数监测")
 
     def test_get_page_by_label_exposes_toolbar_variant(self):
         page = get_page_by_label("个股", "🧠 因子选股工作台")
