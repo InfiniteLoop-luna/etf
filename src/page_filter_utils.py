@@ -15,17 +15,25 @@ def build_metric_categories(metric_types: Sequence[str]) -> dict[str, list[str]]
     }
 
     for metric in metric_types:
+        matched = False
+
         if "市值" in metric:
             categories["市值类"].append(metric)
-        elif "变动" in metric or "申赎" in metric:
-            categories["变动类"].append(metric)
-        elif "份额" in metric:
+            matched = True
+        if "份额" in metric:
             categories["份额类"].append(metric)
-        elif "比例" in metric:
+            matched = True
+        if "变动" in metric or "申赎" in metric:
+            categories["变动类"].append(metric)
+            matched = True
+        if "比例" in metric:
             categories["比例类"].append(metric)
-        elif "涨跌" in metric:
+            matched = True
+        if "涨跌" in metric:
             categories["涨跌类"].append(metric)
-        else:
+            matched = True
+
+        if not matched:
             categories["其他"].append(metric)
 
     return {category: values for category, values in categories.items() if values}

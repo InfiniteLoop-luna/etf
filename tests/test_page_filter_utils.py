@@ -9,12 +9,19 @@ from src.page_filter_utils import (
 
 
 class PageFilterUtilsTests(unittest.TestCase):
-    def test_build_metric_categories_groups_known_keywords(self):
-        categories = build_metric_categories(["总市值", "基金份额", "份额变动", "涨跌幅", "跟踪误差"])
+    def test_build_metric_categories_allows_overlapping_keyword_membership(self):
+        categories = build_metric_categories([
+            "总市值",
+            "基金份额",
+            "份额变动",
+            "申赎份额",
+            "涨跌幅",
+            "跟踪误差",
+        ])
 
         self.assertEqual(categories["市值类"], ["总市值"])
-        self.assertEqual(categories["份额类"], ["基金份额"])
-        self.assertEqual(categories["变动类"], ["份额变动"])
+        self.assertEqual(categories["份额类"], ["基金份额", "份额变动", "申赎份额"])
+        self.assertEqual(categories["变动类"], ["份额变动", "申赎份额"])
         self.assertEqual(categories["涨跌类"], ["涨跌幅"])
         self.assertEqual(categories["其他"], ["跟踪误差"])
 
