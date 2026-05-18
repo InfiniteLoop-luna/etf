@@ -1,3 +1,4 @@
+from src.sidebar_navigation import SIDEBAR_MODULES
 from src.sidebar_navigation import get_page_labels
 
 
@@ -7,27 +8,39 @@ STOCK_PAGE_OPTIONS = get_page_labels("个股")
 MONEY_PAGE_OPTIONS = get_page_labels("资金")
 MACRO_PAGE_OPTIONS = get_page_labels("宏观")
 
-DECISION_TODAY_PAGE_LABEL = "💼 今日机会清单"
-DECISION_DAILY_RECO_PAGE_LABEL = "⭐ 每日趋势推荐"
-DECISION_RECO_EVAL_PAGE_LABEL = "🧪 推荐评估"
-DECISION_ML_PAGE_LABEL = "🧠 ML预测升级"
 
-ETF_MAIN_PAGE_LABEL = "📈 主要宽基ETF份额"
-ETF_RATIO_PAGE_LABEL = "🥧 ETF分类占比"
-ETF_TREND_PAGE_LABEL = "📈 ETF分类趋势"
-ETF_WIDE_INDEX_PAGE_LABEL = "📊 宽基指数ETF"
-ETF_FUND_MONITOR_PAGE_LABEL = "📈 基金监测"
+def _page_label(module_label: str, page_id: str) -> str:
+    for module in SIDEBAR_MODULES:
+        if module.label != module_label:
+            continue
+        for page in module.pages:
+            if page.id == page_id:
+                return page.label
+        raise KeyError(f"Unknown page id {page_id!r} for module {module_label!r}")
+    raise KeyError(f"Unknown module {module_label!r}")
 
-STOCK_SECURITY_SEARCH_LABEL = "🔎 个股/指数查询"
-STOCK_COMPANY_SCREENER_LABEL = "🏢 公司筛选"
-STOCK_TECH_PICKER_LABEL = "🎯 技术选股"
 
-MONEY_FLOW_PAGE_LABEL = "💹 资金流向"
-MONEY_VOLUME_PAGE_LABEL = "📊 每日成交量"
-MONEY_FUND_HOT_PAGE_LABEL = "🏦 公募持仓热股"
-MONEY_LIMITUP_PAGE_LABEL = "🔥 打板情绪"
-MONEY_HOTMONEY_PAGE_LABEL = "🧾 游资名录"
+DECISION_TODAY_PAGE_LABEL = _page_label("决策", "commercial_mvp")
+DECISION_DAILY_RECO_PAGE_LABEL = _page_label("决策", "daily_trend_reco")
+DECISION_RECO_EVAL_PAGE_LABEL = _page_label("决策", "reco_eval")
+DECISION_ML_PAGE_LABEL = _page_label("决策", "ml_upgrade")
 
-MACRO_MAIN_PAGE_LABEL = "🌏 宏观经济"
-MACRO_DEPOSIT_PAGE_LABEL = "🏦 本外币存款"
-MACRO_INDEX_MONITOR_PAGE_LABEL = "📊 指数监测"
+ETF_MAIN_PAGE_LABEL = _page_label("基金", "etf_main")
+ETF_RATIO_PAGE_LABEL = _page_label("基金", "etf_ratio")
+ETF_TREND_PAGE_LABEL = _page_label("基金", "etf_trend")
+ETF_WIDE_INDEX_PAGE_LABEL = _page_label("基金", "wide_index")
+ETF_FUND_MONITOR_PAGE_LABEL = _page_label("基金", "fund_monitor")
+
+STOCK_SECURITY_SEARCH_LABEL = _page_label("个股", "security_search")
+STOCK_COMPANY_SCREENER_LABEL = _page_label("个股", "company_screener")
+STOCK_TECH_PICKER_LABEL = _page_label("个股", "tech_picker")
+
+MONEY_FLOW_PAGE_LABEL = _page_label("资金", "moneyflow")
+MONEY_VOLUME_PAGE_LABEL = _page_label("资金", "volume")
+MONEY_FUND_HOT_PAGE_LABEL = _page_label("资金", "fund_hot_stocks")
+MONEY_LIMITUP_PAGE_LABEL = _page_label("资金", "limitup")
+MONEY_HOTMONEY_PAGE_LABEL = _page_label("资金", "hotmoney")
+
+MACRO_MAIN_PAGE_LABEL = _page_label("宏观", "macro")
+MACRO_DEPOSIT_PAGE_LABEL = _page_label("宏观", "deposit")
+MACRO_INDEX_MONITOR_PAGE_LABEL = _page_label("宏观", "index_monitor")

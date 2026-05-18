@@ -124,6 +124,8 @@ def ensure_sidebar_state(session_state: MutableMapping[str, object]) -> None:
 
 
 def record_recent_visit(session_state: MutableMapping[str, object], module_label: str, page_label: str) -> None:
+    get_module_by_label(module_label)
+    get_page_by_label(module_label, page_label)
     ensure_sidebar_state(session_state)
     latest = {"module": module_label, "page": page_label}
     existing = [item for item in session_state[RECENT_VISITS_KEY] if item != latest]
@@ -132,4 +134,4 @@ def record_recent_visit(session_state: MutableMapping[str, object], module_label
 
 def get_recent_visits(session_state: MutableMapping[str, object]) -> list[dict[str, str]]:
     ensure_sidebar_state(session_state)
-    return list(session_state[RECENT_VISITS_KEY])
+    return [dict(item) for item in session_state[RECENT_VISITS_KEY]]
