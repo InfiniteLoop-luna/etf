@@ -1760,8 +1760,8 @@ def hydrate_security_jump_from_query_params() -> None:
         st.session_state["security_search_type"] = "指数"
 
     if open_tab == "security":
-        # 方案B：通过 sidebar 一级导航 + 个股子导航完成跳转
-        st.session_state["sidebar_nav_group"] = "个股"
+        # 方案B：通过 sidebar 一级导航 + 股票子导航完成跳转
+        st.session_state["sidebar_nav_group"] = "股票"
         st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
         st.session_state["jump_to_security_tab"] = True
 
@@ -1770,11 +1770,11 @@ def hydrate_security_jump_from_query_params() -> None:
 
 
 def trigger_security_tab_jump_if_needed() -> None:
-    """若存在跳转请求，切到 sidebar 的“个股 -> 个股/指数查询”。"""
+    """若存在跳转请求，切到 sidebar 的“股票 -> 个股/指数查询”。"""
     if not st.session_state.get("jump_to_security_tab", False):
         return
 
-    st.session_state["sidebar_nav_group"] = "个股"
+    st.session_state["sidebar_nav_group"] = "股票"
     st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
     st.session_state["jump_to_security_tab"] = False
 
@@ -3727,7 +3727,7 @@ def main():
 
         mobile_group = st.radio(
             "模块",
-            ["决策", "基金", "个股", "资金", "宏观"],
+            ["决策", "基金", "股票", "资金", "宏观"],
             horizontal=True,
             key="iphone_group_radio",
         )
@@ -3765,13 +3765,13 @@ def main():
                 render_fund_monitor_tab()
             else:
                 render_wide_index_tab()
-        elif mobile_group == "个股":
+        elif mobile_group == "股票":
             mobile_page = st.selectbox(
                 "页面",
                 STOCK_PAGE_OPTIONS,
                 key="iphone_page_stock",
             )
-            st.caption(f"当前位置：个股 / {mobile_page}")
+            st.caption(f"当前位置：股票 / {mobile_page}")
             if mobile_page == STOCK_PAGE_OPTIONS[0]:
                 render_security_search_tab()
             elif mobile_page == STOCK_PAGE_OPTIONS[1]:

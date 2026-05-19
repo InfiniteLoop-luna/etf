@@ -4,7 +4,7 @@ from src.sidebar_navigation import get_page_labels
 
 DECISION_PAGE_OPTIONS = get_page_labels("决策")
 ETF_PAGE_OPTIONS = get_page_labels("基金")
-STOCK_PAGE_OPTIONS = get_page_labels("个股")
+STOCK_PAGE_OPTIONS = get_page_labels("股票")
 MONEY_PAGE_OPTIONS = get_page_labels("资金")
 MACRO_PAGE_OPTIONS = get_page_labels("宏观")
 
@@ -31,9 +31,9 @@ ETF_TREND_PAGE_LABEL = _page_label("基金", "etf_trend")
 ETF_WIDE_INDEX_PAGE_LABEL = _page_label("基金", "wide_index")
 ETF_FUND_MONITOR_PAGE_LABEL = _page_label("基金", "fund_monitor")
 
-STOCK_SECURITY_SEARCH_LABEL = _page_label("个股", "security_search")
-STOCK_COMPANY_SCREENER_LABEL = _page_label("个股", "company_screener")
-STOCK_TECH_PICKER_LABEL = _page_label("个股", "tech_picker")
+STOCK_SECURITY_SEARCH_LABEL = _page_label("股票", "security_search")
+STOCK_COMPANY_SCREENER_LABEL = _page_label("股票", "company_screener")
+STOCK_TECH_PICKER_LABEL = _page_label("股票", "tech_picker")
 
 MONEY_FLOW_PAGE_LABEL = _page_label("资金", "moneyflow")
 MONEY_VOLUME_PAGE_LABEL = _page_label("资金", "volume")

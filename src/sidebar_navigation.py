@@ -51,7 +51,7 @@ SIDEBAR_MODULES = (
     ),
     SidebarModule(
         id="stock",
-        label="个股",
+        label="股票",
         session_key="stock_subpage",
         pages=(
             SidebarPage("security_search", "🔎 个股/指数查询", "查询单只股票或指数", "heavy"),
