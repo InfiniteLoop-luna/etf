@@ -6103,7 +6103,6 @@ def render_etf_tab():
                 selected_category = st.selectbox(
                     "指标分类",
                     options=category_options,
-                    index=category_options.index(st.session_state["etf_metric_category"]),
                     key="etf_metric_category",
                     disabled=len(category_options) == 1
                 )
@@ -6116,7 +6115,6 @@ def render_etf_tab():
                 selected_metric = st.selectbox(
                     "选择具体指标",
                     options=available_metrics,
-                    index=available_metrics.index(st.session_state["etf_selected_metric"]),
                     key="etf_selected_metric"
                 )
 
@@ -6124,7 +6122,6 @@ def render_etf_tab():
                 chart_type = st.selectbox(
                     "图表类型",
                     options=chart_options,
-                    index=chart_options.index(st.session_state["etf_chart_type"]),
                     format_func=lambda x: {'line': '📈 平滑曲线', 'area': '📊 面积图', 'scatter': '⚫ 散点图'}[x],
                     key="etf_chart_type"
                 )
@@ -6169,7 +6166,6 @@ def render_etf_tab():
                     selected_etfs = st.multiselect(
                         "选择ETF",
                         options=etf_names,
-                        default=current_selected_etfs,
                         key="etf_selected_etfs"
                     )
 
@@ -6193,7 +6189,6 @@ def render_etf_tab():
                         "选择日期范围",
                         min_value=min_date,
                         max_value=max_date,
-                        value=st.session_state["etf_date_range"],
                         format="YYYY-MM-DD",
                         key="etf_date_range"
                     )
