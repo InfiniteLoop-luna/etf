@@ -8,7 +8,7 @@ class SidebarTreeThemeTest(unittest.TestCase):
         css = build_global_apple_theme_css()
 
         expected_selectors = [
-            '[data-testid="stSidebar"] .ws-sidebar-tree',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-tree"] > div',
             '[data-testid="stSidebar"] .ws-sidebar-page-description',
             '[data-testid="stSidebar"] .ws-sidebar-search-result-meta',
             '[data-testid="stSidebar"] .ws-sidebar-empty',

@@ -112,7 +112,6 @@ from src.navigation_config import (
 )
 from src.sidebar_navigation import (
     SIDEBAR_MODULES,
-    get_default_shortcuts,
     get_module_by_id,
     get_module_by_label,
     get_module_label_for_page,
@@ -178,17 +177,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# Keep these legacy source tokens inertly in the file so the pre-Task-3
-# source-regression tests stay green while the actual sidebar behavior moves on.
-_LEGACY_DESKTOP_SIDEBAR_TEST_TOKENS = """
-快速跳转
-蹇€熻烦杞?
-sidebar_quick_jump_version
-quick_jump_key = f"sidebar_quick_jump_{quick_jump_version}"
-st.session_state["sidebar_quick_jump_version"] = quick_jump_version + 1
-record_recent_visit(st.session_state, selected_module, selected_page)
-"""
 
 # 页面配置
 st.set_page_config(

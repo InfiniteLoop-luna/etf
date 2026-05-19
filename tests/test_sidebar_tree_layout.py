@@ -23,6 +23,7 @@ def test_render_desktop_sidebar_navigation_uses_tree_search_and_recent_visits():
     assert "get_recent_visits(st.session_state)" in function_source
     assert "resolve_expanded_module_id(" in function_source
     assert "SIDEBAR_MODULES" in function_source
+    assert 'st.container(key="ws-sidebar-tree")' in function_source
 
 
 def test_render_desktop_sidebar_navigation_removes_legacy_quick_jump_and_shortcuts():
@@ -40,3 +41,7 @@ def test_security_deep_links_expand_the_stock_module():
 
     assert 'st.session_state["sidebar_expanded_module_id"] = "stock"' in hydrate_source
     assert 'st.session_state["sidebar_expanded_module_id"] = "stock"' in trigger_source
+
+
+def test_app_py_does_not_keep_legacy_sidebar_token_block():
+    assert "_LEGACY_DESKTOP_SIDEBAR_TEST_TOKENS" not in APP_SOURCE

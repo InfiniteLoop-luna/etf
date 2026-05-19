@@ -3,7 +3,7 @@ from pathlib import Path
 from src.apple_theme import build_global_apple_theme_css
 
 
-APP_SOURCE = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+APP_SOURCE = Path("app.py").read_text(encoding="utf-8-sig", errors="ignore")
 
 
 def test_build_global_apple_theme_css_contains_desktop_sidebar_shell_selectors():
@@ -18,12 +18,14 @@ def test_build_global_apple_theme_css_contains_desktop_sidebar_shell_selectors()
 def test_app_py_contains_desktop_sidebar_navigation_shell_hooks():
     assert "def render_desktop_sidebar_navigation()" in APP_SOURCE
     assert "selected_module, selected_page = render_desktop_sidebar_navigation()" in APP_SOURCE
-    assert "record_recent_visit(st.session_state, selected_module, selected_page)" in APP_SOURCE
-    assert "快速跳转" in APP_SOURCE
+    assert 'st.container(key="ws-sidebar-tree")' in APP_SOURCE
+    assert 'key="sidebar_search_query"' in APP_SOURCE
+    assert "search_sidebar_pages(search_query)" in APP_SOURCE
+    assert "_LEGACY_DESKTOP_SIDEBAR_TEST_TOKENS" not in APP_SOURCE
 
 
-def test_app_py_quick_jump_uses_resettable_widget_key():
-    assert 'sidebar_quick_jump_version' in APP_SOURCE
-    assert 'quick_jump_key = f"sidebar_quick_jump_{quick_jump_version}"' in APP_SOURCE
-    assert 'st.session_state["sidebar_quick_jump_version"] = quick_jump_version + 1' in APP_SOURCE
-    assert 'sidebar_quick_jump_applied' not in APP_SOURCE
+def test_app_py_removes_legacy_desktop_quick_jump_flow():
+    assert "sidebar_quick_jump_" not in APP_SOURCE
+    assert "sidebar_shortcut_" not in APP_SOURCE
+    assert 'st.sidebar.selectbox(' not in APP_SOURCE
+    assert "sidebar_quick_jump_applied" not in APP_SOURCE

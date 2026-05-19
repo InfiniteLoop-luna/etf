@@ -433,7 +433,7 @@ button[aria-label="Close sidebar"]:hover {{
     line-height: 1.45;
 }}
 
-[data-testid="stSidebar"] .ws-sidebar-tree {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-tree"] > div {{
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
