@@ -279,8 +279,10 @@ def _coerce_page(module: SidebarModule, page_value: str) -> SidebarPage:
 
 def _build_recent_visit(module: SidebarModule, page: SidebarPage) -> dict[str, str]:
     return {
+        "module": module.label,
         "module_id": module.id,
         "module_label": module.label,
+        "page": page.label,
         "page_id": page.id,
         "page_label": page.label,
     }

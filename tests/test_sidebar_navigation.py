@@ -2,9 +2,13 @@ import unittest
 
 from src.sidebar_navigation import (
     MAX_RECENT_PAGES,
+    get_default_shortcuts,
     get_module_by_id,
     get_module_id_for_page_id,
+    get_module_label_for_page,
+    get_module_labels,
     get_page_by_id,
+    get_page_labels,
     get_recent_visits,
     record_recent_visit,
     resolve_expanded_module_id,
@@ -69,6 +73,8 @@ class SidebarNavigationTests(unittest.TestCase):
         self.assertEqual(visits[0]["page_id"], "security_search")
         self.assertIn("module_label", visits[0])
         self.assertIn("page_label", visits[0])
+        self.assertEqual(visits[0]["module"], visits[0]["module_label"])
+        self.assertEqual(visits[0]["page"], visits[0]["page_label"])
         self.assertEqual(
             [visit["page_id"] for visit in visits].count("security_search"),
             1,
@@ -92,14 +98,34 @@ class SidebarNavigationTests(unittest.TestCase):
             visits,
             [
                 {
+                    "module": module.label,
                     "module_id": "stock",
                     "module_label": module.label,
+                    "page": page.label,
                     "page_id": "security_search",
                     "page_label": page.label,
                 }
             ],
         )
         self.assertEqual(session_state["sidebar_recent_pages"], visits)
+
+    def test_public_label_apis_remain_navigation_compatible(self):
+        self.assertEqual(get_module_labels(), ["决策", "基金", "股票", "资金", "宏观"])
+        self.assertEqual(
+            get_default_shortcuts(),
+            ["💼 今日机会清单", "🔎 个股/指数查询", "💹 资金流向"],
+        )
+        self.assertEqual(get_module_label_for_page("💹 资金流向"), "资金")
+        self.assertEqual(
+            get_page_labels("股票"),
+            [
+                "🔎 个股/指数查询",
+                "🏢 公司筛选",
+                "🎯 技术选股",
+                "🧠 因子选股工作台",
+                "🧭 观点跟踪",
+            ],
+        )
 
     def test_resolve_expanded_module_id_falls_back_to_active_page_module(self):
         self.assertEqual(
