@@ -476,63 +476,96 @@ button[aria-label="Close sidebar"]:hover {{
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] {{
     margin: 0.15rem 0 0 0;
-    padding: 0.7rem 0.85rem;
-    background: linear-gradient(180deg, rgba(212, 175, 55, 0.14) 0%, rgba(255, 255, 255, 0.04) 100%);
-    border: 1px solid rgba(212, 175, 55, 0.2);
-    box-shadow: 0 14px 28px rgba(9, 15, 25, 0.14);
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] * {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button {{
+    width: 100%;
+    min-height: auto;
+    justify-content: flex-start;
+    white-space: normal;
+    text-align: left;
+    border-radius: 18px !important;
+    box-shadow: none !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button {{
+    padding: 0.7rem 0.85rem !important;
+    background: linear-gradient(180deg, rgba(212, 175, 55, 0.14) 0%, rgba(255, 255, 255, 0.04) 100%) !important;
+    border: 1px solid rgba(212, 175, 55, 0.2) !important;
+    box-shadow: 0 14px 28px rgba(9, 15, 25, 0.14) !important;
     color: var(--ws-text-inverse) !important;
-    font-weight: 650;
+    font-weight: 650 !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] > div button {{
+    background: linear-gradient(180deg, rgba(212, 175, 55, 0.22) 0%, rgba(255, 255, 255, 0.08) 100%) !important;
+    border-color: rgba(212, 175, 55, 0.32) !important;
+    box-shadow: inset 3px 0 0 var(--ws-color-primary), 0 16px 30px rgba(9, 15, 25, 0.18) !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] {{
     margin: 0;
-    padding: 0.58rem 0.72rem 0.62rem 1rem;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid transparent;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"]:hover {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button {{
+    padding: 0.58rem 0.72rem 0.62rem 1rem !important;
+    background: rgba(255, 255, 255, 0.03) !important;
+    border: 1px solid transparent !important;
+    color: var(--ws-text-inverse) !important;
+    font-weight: 600 !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button:hover {{
     transform: translateX(2px);
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.06) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][data-active="true"],
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][aria-current="page"],
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"].is-active {{
-    background: linear-gradient(135deg, rgba(212, 175, 55, 0.22) 0%, rgba(212, 175, 55, 0.12) 100%);
-    border-color: rgba(212, 175, 55, 0.3);
-    box-shadow: inset 3px 0 0 var(--ws-color-primary), 0 12px 24px rgba(9, 15, 25, 0.16);
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] > div button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] > div button {{
+    background: linear-gradient(135deg, rgba(212, 175, 55, 0.22) 0%, rgba(212, 175, 55, 0.12) 100%) !important;
+    border-color: rgba(212, 175, 55, 0.3) !important;
+    box-shadow: inset 3px 0 0 var(--ws-color-primary), 0 12px 24px rgba(9, 15, 25, 0.16) !important;
+    color: var(--ws-text-inverse) !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] {{
     margin: 0.2rem 0 0 0;
-    padding: 0.8rem 0.9rem;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.04) 100%);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 16px 28px rgba(9, 15, 25, 0.14);
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"]:hover {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button {{
+    padding: 0.8rem 0.9rem !important;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.04) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 16px 28px rgba(9, 15, 25, 0.14) !important;
+    color: var(--ws-text-inverse) !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button:hover {{
     transform: translateY(-1px);
-    border-color: rgba(212, 175, 55, 0.22);
-    box-shadow: 0 18px 32px rgba(9, 15, 25, 0.18);
+    border-color: rgba(212, 175, 55, 0.22) !important;
+    box-shadow: 0 18px 32px rgba(9, 15, 25, 0.18) !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] {{
     margin: 0;
-    padding: 0.45rem 0.72rem 0.48rem 1.25rem;
-    background: transparent;
-    border: 1px solid transparent;
     opacity: 0.82;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"]:hover {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button {{
+    padding: 0.45rem 0.72rem 0.48rem 1.25rem !important;
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    color: rgba(248, 250, 252, 0.8) !important;
+    font-weight: 500 !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button:hover {{
     opacity: 1;
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.04) !important;
 }}
 
 html body .stApp [data-testid="stAppViewContainer"] .main .block-container h1,

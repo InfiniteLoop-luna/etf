@@ -7,20 +7,23 @@ class SidebarTreeThemeTest(unittest.TestCase):
     def test_tree_navigation_hooks_exist_in_global_theme_css(self) -> None:
         css = build_global_apple_theme_css()
 
-        expected_hooks = [
-            ".ws-sidebar-tree",
-            ".ws-sidebar-page-description",
-            ".ws-sidebar-search-result-meta",
-            ".ws-sidebar-empty",
-            "st-key-ws-sidebar-module-",
-            "st-key-ws-sidebar-page-",
-            "st-key-ws-sidebar-search-result-",
-            "st-key-ws-sidebar-recent-link-",
+        expected_selectors = [
+            '[data-testid="stSidebar"] .ws-sidebar-tree',
+            '[data-testid="stSidebar"] .ws-sidebar-page-description',
+            '[data-testid="stSidebar"] .ws-sidebar-search-result-meta',
+            '[data-testid="stSidebar"] .ws-sidebar-empty',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] > div button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] > div button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] > div button',
         ]
 
-        for hook in expected_hooks:
-            with self.subTest(hook=hook):
-                self.assertIn(hook, css)
+        for selector in expected_selectors:
+            with self.subTest(selector=selector):
+                self.assertIn(selector, css)
 
 
 if __name__ == "__main__":
