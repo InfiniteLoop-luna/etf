@@ -1793,6 +1793,11 @@ def _build_sidebar_element_key(base_key: str, *suffixes: str) -> str:
     return key
 
 
+def _consume_pending_sidebar_search_reset() -> None:
+    if st.session_state.pop("sidebar_search_query_pending_reset", False):
+        st.session_state["sidebar_search_query"] = ""
+
+
 def _resolve_desktop_sidebar_selection():
     module_labels = get_module_labels()
     selected_module_label = st.session_state.get("sidebar_nav_group")
@@ -1828,7 +1833,7 @@ def _navigate_desktop_sidebar_to(
     st.session_state[module.session_key] = page.label
     st.session_state["sidebar_expanded_module_id"] = module.id
     if clear_search:
-        st.session_state["sidebar_search_query"] = ""
+        st.session_state["sidebar_search_query_pending_reset"] = True
 
 
 def render_desktop_sidebar_navigation() -> tuple[str, str]:
@@ -1853,6 +1858,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
     )
 
     with st.sidebar:
+        _consume_pending_sidebar_search_reset()
         st.markdown(
             """
             <div class="ws-sidebar-block">
@@ -1925,6 +1931,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                         page_key = _build_sidebar_element_key(
                             f"ws-sidebar-page-{page.id}",
                             "active" if is_active_page else "",
+                            "current" if is_active_page else "",
                         )
                         if st.button(
                             page.label,

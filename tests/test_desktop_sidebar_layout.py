@@ -21,6 +21,7 @@ def test_app_py_contains_desktop_sidebar_navigation_shell_hooks():
     assert 'st.container(key="ws-sidebar-tree")' in APP_SOURCE
     assert 'key="sidebar_search_query"' in APP_SOURCE
     assert "search_sidebar_pages(search_query)" in APP_SOURCE
+    assert '"current" if is_active_page else ""' in APP_SOURCE
     assert "_LEGACY_DESKTOP_SIDEBAR_TEST_TOKENS" not in APP_SOURCE
 
 
