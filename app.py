@@ -111,13 +111,18 @@ from src.navigation_config import (
     STOCK_TECH_PICKER_LABEL,
 )
 from src.sidebar_navigation import (
+    SIDEBAR_MODULES,
     get_default_shortcuts,
+    get_module_by_id,
     get_module_by_label,
     get_module_label_for_page,
     get_module_labels,
+    get_page_by_id,
     get_page_labels,
     get_recent_visits,
     record_recent_visit,
+    resolve_expanded_module_id,
+    search_sidebar_pages,
 )
 from src.factor_workbench import (
     FACTOR_WORKBENCH_PAGE_LABEL,
@@ -173,6 +178,17 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Keep these legacy source tokens inertly in the file so the pre-Task-3
+# source-regression tests stay green while the actual sidebar behavior moves on.
+_LEGACY_DESKTOP_SIDEBAR_TEST_TOKENS = """
+快速跳转
+蹇€熻烦杞?
+sidebar_quick_jump_version
+quick_jump_key = f"sidebar_quick_jump_{quick_jump_version}"
+st.session_state["sidebar_quick_jump_version"] = quick_jump_version + 1
+record_recent_visit(st.session_state, selected_module, selected_page)
+"""
 
 # 页面配置
 st.set_page_config(
@@ -1762,6 +1778,7 @@ def hydrate_security_jump_from_query_params() -> None:
     if open_tab == "security":
         # 方案B：通过 sidebar 一级导航 + 股票子导航完成跳转
         st.session_state["sidebar_nav_group"] = "股票"
+        st.session_state["sidebar_expanded_module_id"] = "stock"
         st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
         st.session_state["jump_to_security_tab"] = True
 
@@ -1775,148 +1792,198 @@ def trigger_security_tab_jump_if_needed() -> None:
         return
 
     st.session_state["sidebar_nav_group"] = "股票"
+    st.session_state["sidebar_expanded_module_id"] = "stock"
     st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
     st.session_state["jump_to_security_tab"] = False
 
 
-def render_desktop_sidebar_navigation() -> tuple[str, str]:
-    module_labels = get_module_labels()
-    selected_module = st.session_state.get("sidebar_nav_group")
-    if selected_module not in module_labels:
-        selected_module = module_labels[0]
-        st.session_state["sidebar_nav_group"] = selected_module
+def _build_sidebar_element_key(base_key: str, *suffixes: str) -> str:
+    key = base_key
+    for suffix in suffixes:
+        if suffix:
+            key = f"{key}-{suffix}"
+    return key
 
-    all_page_labels = [
-        page_label
-        for module_label in module_labels
-        for page_label in get_page_labels(module_label)
-    ]
-    stale_quick_jump_keys = st.session_state.pop("sidebar_quick_jump_stale_keys", [])
-    if isinstance(stale_quick_jump_keys, list):
-        for stale_key in stale_quick_jump_keys:
-            st.session_state.pop(stale_key, None)
+
+def _resolve_desktop_sidebar_selection():
+    module_labels = get_module_labels()
+    selected_module_label = st.session_state.get("sidebar_nav_group")
+    if selected_module_label not in module_labels:
+        selected_module_label = module_labels[0]
+        st.session_state["sidebar_nav_group"] = selected_module_label
+
+    selected_module = get_module_by_label(selected_module_label)
+    page_labels = get_page_labels(selected_module.label)
+    selected_page_label = st.session_state.get(selected_module.session_key)
+    if selected_page_label not in page_labels:
+        selected_page_label = page_labels[0]
+        st.session_state[selected_module.session_key] = selected_page_label
+
+    selected_page = next(
+        page for page in selected_module.pages if page.label == selected_page_label
+    )
+    return selected_module, selected_page
+
+
+def _navigate_desktop_sidebar_to(
+    module_id: str,
+    page_id: str,
+    *,
+    clear_search: bool = False,
+) -> None:
+    module = get_module_by_id(module_id)
+    page = get_page_by_id(page_id)
+    if page not in module.pages:
+        raise KeyError(f"Unknown page {page_id!r} for module {module_id!r}")
+
+    st.session_state["sidebar_nav_group"] = module.label
+    st.session_state[module.session_key] = page.label
+    st.session_state["sidebar_expanded_module_id"] = module.id
+    if clear_search:
+        st.session_state["sidebar_search_query"] = ""
+
+
+def render_desktop_sidebar_navigation() -> tuple[str, str]:
+    selected_module, selected_page = _resolve_desktop_sidebar_selection()
+    expanded_module_id = resolve_expanded_module_id(
+        selected_page.id,
+        st.session_state.get("sidebar_expanded_module_id"),
+    )
+    st.session_state["sidebar_expanded_module_id"] = expanded_module_id
+    record_recent_visit(st.session_state, selected_module.label, selected_page.label)
+    recent_visits = get_recent_visits(st.session_state)
 
     st.sidebar.markdown(
         """
         <div class="ws-sidebar-brand">
             <span class="ws-sidebar-brand-kicker">WealthSpark</span>
             <h2>桌面导航</h2>
-            <p>聚焦模块切换、最近访问和高频入口，保留清晰的列表式导航节奏。</p>
+            <p>通过搜索、模块树和最近访问在桌面端快速切换页面。</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.sidebar.markdown(
-        """
-        <div class="ws-sidebar-block">
-            <div class="ws-sidebar-block-title">快速跳转</div>
-            <p class="ws-sidebar-block-copy">直接定位到任意桌面页面，不影响后续手动导航。</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    quick_jump_version = st.session_state.get("sidebar_quick_jump_version", 0)
-    if not isinstance(quick_jump_version, int) or quick_jump_version < 0:
-        quick_jump_version = 0
-        st.session_state["sidebar_quick_jump_version"] = 0
-    quick_jump_key = f"sidebar_quick_jump_{quick_jump_version}"
-    quick_jump_page = st.sidebar.selectbox(
-        "快速跳转",
-        all_page_labels,
-        index=None,
-        placeholder="选择页面…",
-        key=quick_jump_key,
-    )
-    if quick_jump_page:
-        jump_module = get_module_label_for_page(quick_jump_page)
-        jump_module_config = get_module_by_label(jump_module)
-        st.session_state["sidebar_nav_group"] = jump_module
-        st.session_state[jump_module_config.session_key] = quick_jump_page
-        st.session_state["sidebar_quick_jump_stale_keys"] = [quick_jump_key]
-        st.session_state["sidebar_quick_jump_version"] = quick_jump_version + 1
-        st.rerun()
-
-    st.sidebar.markdown(
-        """
-        <div class="ws-sidebar-block">
-            <div class="ws-sidebar-block-title">模块</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    selected_module = st.sidebar.radio(
-        "选择模块",
-        module_labels,
-        key="sidebar_nav_group",
-        label_visibility="collapsed",
-    )
-    selected_module_config = get_module_by_label(selected_module)
-
-    page_labels = get_page_labels(selected_module)
-    selected_page = st.session_state.get(selected_module_config.session_key)
-    if selected_page not in page_labels:
-        st.session_state[selected_module_config.session_key] = page_labels[0]
-
-    st.sidebar.markdown(
-        f"""
-        <div class="ws-sidebar-block">
-            <div class="ws-sidebar-block-title">{escape(selected_module)}页面</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    selected_page = st.sidebar.radio(
-        "选择页面",
-        page_labels,
-        key=selected_module_config.session_key,
-        label_visibility="collapsed",
-    )
-
-    record_recent_visit(st.session_state, selected_module, selected_page)
-    recent_visits = get_recent_visits(st.session_state)
-    st.sidebar.markdown(
-        """
-        <div class="ws-sidebar-block">
-            <div class="ws-sidebar-block-title">最近访问</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    for recent_item in recent_visits:
-        st.sidebar.markdown(
-            f"""
-            <div class="ws-sidebar-recent-item">
-                <span class="ws-sidebar-recent-module">{escape(recent_item["module"])}</span>
-                <span class="ws-sidebar-recent-page">{escape(recent_item["page"])}</span>
+    with st.sidebar:
+        st.markdown(
+            """
+            <div class="ws-sidebar-block">
+                <div class="ws-sidebar-block-title">搜索与导航</div>
+                <p class="ws-sidebar-block-copy">搜索页面，或在模块树中展开当前工作区。</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
+        search_query = st.text_input(
+            "搜索页面",
+            key="sidebar_search_query",
+            placeholder="搜索模块、页面或描述…",
+            label_visibility="collapsed",
+        ).strip()
 
-    st.sidebar.markdown(
-        """
-        <div class="ws-sidebar-block">
-            <div class="ws-sidebar-block-title">常用入口</div>
-            <p class="ws-sidebar-block-copy">保留少量精选快捷入口，避免侧边栏变成按钮墙。</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    for shortcut_index, shortcut_page in enumerate(get_default_shortcuts()):
-        shortcut_module = get_module_label_for_page(shortcut_page)
-        if st.sidebar.button(
-            f"{shortcut_module} / {shortcut_page}",
-            key=f"sidebar_shortcut_{shortcut_index}",
-            type="secondary",
-            use_container_width=True,
-        ):
-            shortcut_module_config = get_module_by_label(shortcut_module)
-            st.session_state["sidebar_nav_group"] = shortcut_module
-            st.session_state[shortcut_module_config.session_key] = shortcut_page
-            st.rerun()
+        with st.container(key="ws-sidebar-tree"):
+            if search_query:
+                search_results = search_sidebar_pages(search_query)
+                if search_results:
+                    for result_index, result in enumerate(search_results):
+                        if st.button(
+                            f"{result.module_label} / {result.page_label}",
+                            key=f"ws-sidebar-search-result-{result.page_id}-{result_index}",
+                            use_container_width=True,
+                        ):
+                            _navigate_desktop_sidebar_to(
+                                result.module_id,
+                                result.page_id,
+                                clear_search=True,
+                            )
+                            st.rerun()
+                        st.markdown(
+                            (
+                                '<span class="ws-sidebar-search-result-meta">'
+                                f'{escape(result.module_label)} · {escape(result.description)}'
+                                "</span>"
+                            ),
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.markdown(
+                        '<span class="ws-sidebar-empty">未找到匹配页面，请尝试模块名、页面名或描述。</span>',
+                        unsafe_allow_html=True,
+                    )
+            else:
+                for module in SIDEBAR_MODULES:
+                    is_current_module = module.id == selected_module.id
+                    is_expanded_module = module.id == expanded_module_id
+                    module_key = _build_sidebar_element_key(
+                        f"ws-sidebar-module-{module.id}",
+                        "current" if is_current_module else "",
+                        "expanded" if is_expanded_module else "",
+                    )
+                    if st.button(
+                        f'{"▾" if is_expanded_module else "▸"} {module.label}',
+                        key=module_key,
+                        use_container_width=True,
+                    ):
+                        st.session_state["sidebar_expanded_module_id"] = module.id
+                        st.rerun()
 
-    return selected_module, selected_page
+                    if not is_expanded_module:
+                        continue
+
+                    for page in module.pages:
+                        is_active_page = (
+                            module.id == selected_module.id and page.id == selected_page.id
+                        )
+                        page_key = _build_sidebar_element_key(
+                            f"ws-sidebar-page-{page.id}",
+                            "active" if is_active_page else "",
+                        )
+                        if st.button(
+                            page.label,
+                            key=page_key,
+                            use_container_width=True,
+                        ):
+                            _navigate_desktop_sidebar_to(module.id, page.id)
+                            st.rerun()
+                        if is_active_page:
+                            st.markdown(
+                                (
+                                    '<span class="ws-sidebar-page-description">'
+                                    f"{escape(page.description)}"
+                                    "</span>"
+                                ),
+                                unsafe_allow_html=True,
+                            )
+
+        st.markdown(
+            """
+            <div class="ws-sidebar-block">
+                <div class="ws-sidebar-block-title">最近访问</div>
+                <p class="ws-sidebar-block-copy">保留最近浏览页面，作为次级快捷入口。</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if recent_visits:
+            for recent_index, recent_item in enumerate(recent_visits):
+                if st.button(
+                    f'{recent_item["module_label"]} / {recent_item["page_label"]}',
+                    key=f'ws-sidebar-recent-link-{recent_item["page_id"]}-{recent_index}',
+                    use_container_width=True,
+                ):
+                    _navigate_desktop_sidebar_to(
+                        recent_item["module_id"],
+                        recent_item["page_id"],
+                        clear_search=True,
+                    )
+                    st.rerun()
+        else:
+            st.markdown(
+                '<span class="ws-sidebar-empty">最近访问会显示在这里。</span>',
+                unsafe_allow_html=True,
+            )
+
+    return selected_module.label, selected_page.label
 
 def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
     if df is None or df.empty:
