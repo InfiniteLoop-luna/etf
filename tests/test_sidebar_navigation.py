@@ -33,8 +33,18 @@ class SidebarNavigationTests(unittest.TestCase):
         results = search_sidebar_pages("stock")
 
         self.assertGreater(len(results), 0)
-        self.assertTrue(all(result.module_id == "stock" for result in results))
-        self.assertIn("security_search", [result.page_id for result in results])
+        stock_page_ids = [result.page_id for result in results if result.module_id == "stock"]
+        self.assertIn("security_search", stock_page_ids)
+        self.assertIn("company_screener", stock_page_ids)
+
+    def test_module_matches_do_not_suppress_higher_ranked_page_hits_from_other_modules(self):
+        results = search_sidebar_pages("fund")
+
+        self.assertGreater(len(results), 0)
+        result_page_ids = [result.page_id for result in results]
+        self.assertIn("fund_hot_stocks", result_page_ids)
+        self.assertIn("etf_main", result_page_ids)
+        self.assertLess(result_page_ids.index("fund_hot_stocks"), result_page_ids.index("etf_main"))
 
     def test_record_recent_visit_deduplicates_trims_and_exposes_labels(self):
         session_state = {}

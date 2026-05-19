@@ -347,15 +347,6 @@ def search_sidebar_pages(query: str) -> list[SidebarSearchResult]:
     if not normalized_query:
         return []
 
-    matched_module_ids = {
-        module.id
-        for module in SIDEBAR_MODULES
-        if _normalize_query(module.id).startswith(normalized_query)
-        or normalized_query in _normalize_query(module.id)
-        or _normalize_query(module.label).startswith(normalized_query)
-        or normalized_query in _normalize_query(module.label)
-    }
-
     ranked_results: list[tuple[int, int, int, SidebarSearchResult]] = []
     for module_index, module in enumerate(SIDEBAR_MODULES):
         module_id_text = _normalize_query(module.id)
@@ -366,8 +357,6 @@ def search_sidebar_pages(query: str) -> list[SidebarSearchResult]:
             or module_label_text.startswith(normalized_query)
             or normalized_query in module_label_text
         )
-        if matched_module_ids and module.id not in matched_module_ids:
-            continue
 
         for page_index, page in enumerate(module.pages):
             page_id_text = _normalize_query(page.id)
