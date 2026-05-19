@@ -1,138 +1,101 @@
 import unittest
 
-from src.navigation_config import (
-    DECISION_DAILY_RECO_PAGE_LABEL,
-    DECISION_ML_PAGE_LABEL,
-    DECISION_PAGE_OPTIONS,
-    DECISION_RECO_EVAL_PAGE_LABEL,
-    DECISION_TODAY_PAGE_LABEL,
-    ETF_FUND_MONITOR_PAGE_LABEL,
-    ETF_MAIN_PAGE_LABEL,
-    ETF_PAGE_OPTIONS,
-    ETF_RATIO_PAGE_LABEL,
-    ETF_TREND_PAGE_LABEL,
-    ETF_WIDE_INDEX_PAGE_LABEL,
-    MACRO_DEPOSIT_PAGE_LABEL,
-    MACRO_INDEX_MONITOR_PAGE_LABEL,
-    MACRO_MAIN_PAGE_LABEL,
-    MACRO_PAGE_OPTIONS,
-    MONEY_FLOW_PAGE_LABEL,
-    MONEY_FUND_HOT_PAGE_LABEL,
-    MONEY_HOTMONEY_PAGE_LABEL,
-    MONEY_LIMITUP_PAGE_LABEL,
-    MONEY_PAGE_OPTIONS,
-    MONEY_VOLUME_PAGE_LABEL,
-    STOCK_COMPANY_SCREENER_LABEL,
-    STOCK_PAGE_OPTIONS,
-    STOCK_SECURITY_SEARCH_LABEL,
-    STOCK_TECH_PICKER_LABEL,
-)
 from src.sidebar_navigation import (
     MAX_RECENT_PAGES,
-    RECENT_VISITS_KEY,
-    ensure_sidebar_state,
-    get_default_shortcuts,
-    get_module_label_for_page,
-    get_module_labels,
-    get_page_by_label,
-    get_page_labels,
+    get_module_by_id,
+    get_module_id_for_page_id,
+    get_page_by_id,
     get_recent_visits,
     record_recent_visit,
+    resolve_expanded_module_id,
+    search_sidebar_pages,
 )
 
 
 class SidebarNavigationTests(unittest.TestCase):
-    def test_module_labels_keep_expected_order(self):
-        self.assertEqual(get_module_labels(), ["决策", "基金", "股票", "资金", "宏观"])
+    def test_lookup_helpers_return_expected_stock_page_metadata(self):
+        module = get_module_by_id("stock")
+        page = get_page_by_id("security_search")
 
-    def test_legacy_option_exports_match_structured_catalog(self):
-        self.assertEqual(get_page_labels("决策"), DECISION_PAGE_OPTIONS)
-        self.assertEqual(get_page_labels("基金"), ETF_PAGE_OPTIONS)
-        self.assertEqual(get_page_labels("股票"), STOCK_PAGE_OPTIONS)
-        self.assertEqual(get_page_labels("资金"), MONEY_PAGE_OPTIONS)
-        self.assertEqual(get_page_labels("宏观"), MACRO_PAGE_OPTIONS)
+        self.assertEqual(module.id, "stock")
+        self.assertEqual(page.id, "security_search")
+        self.assertEqual(get_module_id_for_page_id("security_search"), "stock")
+        self.assertIn(page, module.pages)
 
-    def test_navigation_config_label_constants_stay_stable(self):
-        self.assertEqual(DECISION_TODAY_PAGE_LABEL, get_page_by_label("决策", "💼 今日机会清单").label)
-        self.assertEqual(DECISION_DAILY_RECO_PAGE_LABEL, get_page_by_label("决策", "⭐ 每日趋势推荐").label)
-        self.assertEqual(DECISION_RECO_EVAL_PAGE_LABEL, get_page_by_label("决策", "🧪 推荐评估").label)
-        self.assertEqual(DECISION_ML_PAGE_LABEL, get_page_by_label("决策", "🧠 ML预测升级").label)
+    def test_search_prefers_page_hits_for_security_query(self):
+        results = search_sidebar_pages("security")
 
-        self.assertEqual(ETF_MAIN_PAGE_LABEL, get_page_by_label("基金", "📈 主要宽基ETF份额").label)
-        self.assertEqual(ETF_RATIO_PAGE_LABEL, get_page_by_label("基金", "🥧 ETF分类占比").label)
-        self.assertEqual(ETF_TREND_PAGE_LABEL, get_page_by_label("基金", "📈 ETF分类趋势").label)
-        self.assertEqual(ETF_WIDE_INDEX_PAGE_LABEL, get_page_by_label("基金", "📊 宽基指数ETF").label)
-        self.assertEqual(ETF_FUND_MONITOR_PAGE_LABEL, get_page_by_label("基金", "📈 基金监测").label)
+        self.assertGreater(len(results), 0)
+        self.assertEqual(results[0].page_id, "security_search")
+        self.assertEqual(results[0].module_id, "stock")
 
-        self.assertEqual(STOCK_SECURITY_SEARCH_LABEL, get_page_by_label("股票", "🔎 个股/指数查询").label)
-        self.assertEqual(STOCK_COMPANY_SCREENER_LABEL, get_page_by_label("股票", "🏢 公司筛选").label)
-        self.assertEqual(STOCK_TECH_PICKER_LABEL, get_page_by_label("股票", "🎯 技术选股").label)
+    def test_module_query_returns_module_pages_including_security_search(self):
+        results = search_sidebar_pages("stock")
 
-        self.assertEqual(MONEY_FLOW_PAGE_LABEL, get_page_by_label("资金", "💹 资金流向").label)
-        self.assertEqual(MONEY_VOLUME_PAGE_LABEL, get_page_by_label("资金", "📊 每日成交量").label)
-        self.assertEqual(MONEY_FUND_HOT_PAGE_LABEL, get_page_by_label("资金", "🏦 公募持仓热股").label)
-        self.assertEqual(MONEY_LIMITUP_PAGE_LABEL, get_page_by_label("资金", "🔥 打板情绪").label)
-        self.assertEqual(MONEY_HOTMONEY_PAGE_LABEL, get_page_by_label("资金", "🧾 游资名录").label)
+        self.assertGreater(len(results), 0)
+        self.assertTrue(all(result.module_id == "stock" for result in results))
+        self.assertIn("security_search", [result.page_id for result in results])
 
-        self.assertEqual(MACRO_MAIN_PAGE_LABEL, get_page_by_label("宏观", "🌏 宏观经济").label)
-        self.assertEqual(MACRO_DEPOSIT_PAGE_LABEL, get_page_by_label("宏观", "🏦 本外币存款").label)
-        self.assertEqual(MACRO_INDEX_MONITOR_PAGE_LABEL, get_page_by_label("宏观", "📊 指数监测").label)
+    def test_record_recent_visit_deduplicates_trims_and_exposes_labels(self):
+        session_state = {}
 
-    def test_get_page_by_label_exposes_toolbar_variant(self):
-        page = get_page_by_label("股票", "🧠 因子选股工作台")
+        page_ids = [
+            "commercial_mvp",
+            "daily_trend_reco",
+            "reco_eval",
+            "ml_upgrade",
+            "security_search",
+            "company_screener",
+            "tech_picker",
+        ]
+        for page_id in page_ids:
+            record_recent_visit(session_state, get_module_id_for_page_id(page_id), page_id)
+        record_recent_visit(session_state, "stock", "security_search")
 
-        self.assertEqual(page.id, "factor_workbench")
-        self.assertEqual(page.toolbar_variant, "heavy")
+        visits = get_recent_visits(session_state)
 
-    def test_get_module_label_for_page_supports_quick_jump(self):
-        self.assertEqual(get_module_label_for_page("💹 资金流向"), "资金")
-        self.assertEqual(get_module_label_for_page("🌏 宏观经济"), "宏观")
-
-    def test_default_shortcuts_stay_curated_and_stable(self):
+        self.assertEqual(len(visits), MAX_RECENT_PAGES)
+        self.assertEqual(visits[0]["module_id"], "stock")
+        self.assertEqual(visits[0]["page_id"], "security_search")
+        self.assertIn("module_label", visits[0])
+        self.assertIn("page_label", visits[0])
         self.assertEqual(
-            get_default_shortcuts(),
-            ["💼 今日机会清单", "🔎 个股/指数查询", "💹 资金流向"],
+            [visit["page_id"] for visit in visits].count("security_search"),
+            1,
         )
 
-    def test_get_recent_visits_returns_copies(self):
-        session_state = {}
-        ensure_sidebar_state(session_state)
-        record_recent_visit(session_state, "决策", "💼 今日机会清单")
+    def test_get_recent_visits_upgrades_legacy_label_entry(self):
+        module = get_module_by_id("stock")
+        page = get_page_by_id("security_search")
+        session_state = {
+            "sidebar_recent_pages": [
+                {
+                    "module": module.label,
+                    "page": page.label,
+                }
+            ]
+        }
 
-        recent = get_recent_visits(session_state)
-        recent[0]["page"] = "mutated"
+        visits = get_recent_visits(session_state)
 
-        self.assertEqual(get_recent_visits(session_state)[0]["page"], "💼 今日机会清单")
-        self.assertIsNot(recent[0], session_state[RECENT_VISITS_KEY][0])
+        self.assertEqual(
+            visits,
+            [
+                {
+                    "module_id": "stock",
+                    "module_label": module.label,
+                    "page_id": "security_search",
+                    "page_label": page.label,
+                }
+            ],
+        )
+        self.assertEqual(session_state["sidebar_recent_pages"], visits)
 
-    def test_record_recent_visit_validates_module_and_page_membership(self):
-        session_state = {}
-
-        with self.assertRaises(KeyError):
-            record_recent_visit(session_state, "不存在", "💼 今日机会清单")
-
-        with self.assertRaises(KeyError):
-            record_recent_visit(session_state, "资金", "💼 今日机会清单")
-
-        self.assertNotIn(RECENT_VISITS_KEY, session_state)
-
-    def test_record_recent_visit_deduplicates_and_trims(self):
-        session_state = {}
-        ensure_sidebar_state(session_state)
-
-        record_recent_visit(session_state, "决策", "💼 今日机会清单")
-        record_recent_visit(session_state, "基金", "📈 基金监测")
-        record_recent_visit(session_state, "决策", "💼 今日机会清单")
-        record_recent_visit(session_state, "股票", "🔎 个股/指数查询")
-        record_recent_visit(session_state, "资金", "💹 资金流向")
-        record_recent_visit(session_state, "宏观", "🌏 宏观经济")
-
-        recent = get_recent_visits(session_state)
-
-        self.assertEqual(session_state[RECENT_VISITS_KEY], recent)
-        self.assertEqual(len(recent), MAX_RECENT_PAGES)
-        self.assertEqual(recent[0], {"module": "宏观", "page": "🌏 宏观经济"})
-        self.assertEqual(sum(1 for item in recent if item["page"] == "💼 今日机会清单"), 1)
+    def test_resolve_expanded_module_id_falls_back_to_active_page_module(self):
+        self.assertEqual(
+            resolve_expanded_module_id("security_search", "not-a-module"),
+            "stock",
+        )
 
 
 if __name__ == "__main__":
