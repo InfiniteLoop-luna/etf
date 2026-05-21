@@ -29,7 +29,11 @@ echo "[$(date -Is)] etf-data-update: run sync_tushare_security_data.py"
 python src/sync_tushare_security_data.py --datasets stock_basic stock_company namechange daily daily_basic index_dailybasic stk_week_month_adj
 
 echo "[$(date -Is)] etf-data-update: run fetch_etf_share_size.py"
-python src/fetch_etf_share_size.py
+ETF_SHARE_SIZE_ARGS=()
+if [[ "${ETF_SHARE_SIZE_SKIP_VERIFY:-0}" == "1" ]]; then
+  ETF_SHARE_SIZE_ARGS+=(--skip-verify)
+fi
+python src/fetch_etf_share_size.py "${ETF_SHARE_SIZE_ARGS[@]}"
 
 echo "[$(date -Is)] etf-data-update: run update_moneyflow.py (incremental)"
 python update_moneyflow.py --datasets moneyflow,moneyflow_hsgt,moneyflow_ind_ths,moneyflow_dc_ind --lookback-days 1
@@ -39,7 +43,8 @@ python update_limitup_monitor.py --datasets limit_list_d,limit_step,limit_cpt_li
 
 echo "[$(date -Is)] etf-data-update: run update_hotmoney.py (safe incremental)"
 python update_hotmoney.py --datasets hm_list
-python update_hotmoney.py --datasets hm_detail --detail-batch-days 1 --detail-sleep 35 --detail-lookback-days 0
+HOTMONEY_DETAIL_BATCH_DAYS="${ETF_HM_DETAIL_BATCH_DAYS:-1}"
+python update_hotmoney.py --datasets hm_detail --detail-batch-days "$HOTMONEY_DETAIL_BATCH_DAYS" --detail-sleep 35 --detail-lookback-days 0
 
 
 echo "[$(date -Is)] etf-data-update: run generate_daily_trend_reco_from_pyc.py"
