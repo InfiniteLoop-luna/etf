@@ -242,6 +242,14 @@ def _build_security_jump_link(
     )
 
 
+def _build_original_post_link(guba_code: Any, post_id: Any) -> str:
+    guba_code_text = str(guba_code or "").strip()
+    post_id_text = str(post_id or "").strip()
+    if not guba_code_text or not post_id_text:
+        return ""
+    return f"https://guba.eastmoney.com/news,{guba_code_text},{post_id_text}.html#原帖"
+
+
 def build_dashboard_payload(
     rows: list[dict],
     metadata: dict[str, Any] | None = None,
@@ -344,6 +352,7 @@ def _to_cycle_display_df(rows: list[dict]) -> pd.DataFrame:
             {
                 "周期ID": row.get("cycle_id"),
                 "股票名称": _build_security_jump_link(ts_code, security_name),
+                "作者原帖": _build_original_post_link(row.get("origin_post_guba_code"), row.get("origin_post_id")),
                 "代码": ts_code,
                 "状态": _format_cycle_status(row.get("cycle_status")),
                 "开始时间": row.get("cycle_open_time"),
@@ -746,7 +755,12 @@ def render_author_tracking_tab(engine=None) -> None:
                     "股票名称",
                     help="点击后跳转到个股/指数查询",
                     display_text=r".*#(.*)$",
-                )
+                ),
+                "作者原帖": st.column_config.LinkColumn(
+                    "作者原帖",
+                    help="点击打开东方财富原帖",
+                    display_text="原帖",
+                ),
             },
         )
 
@@ -765,7 +779,12 @@ def render_author_tracking_tab(engine=None) -> None:
                     "股票名称",
                     help="点击后跳转到个股/指数查询",
                     display_text=r".*#(.*)$",
-                )
+                ),
+                "作者原帖": st.column_config.LinkColumn(
+                    "作者原帖",
+                    help="点击打开东方财富原帖",
+                    display_text="原帖",
+                ),
             },
         )
 

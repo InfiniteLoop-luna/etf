@@ -203,16 +203,22 @@ class TrackerUiPayloadTests(unittest.TestCase):
                 "security_name": NAME_ZX,
                 "latest_direction": "bullish",
                 "latest_reason_text": "\u7ee7\u7eed\u770b\u597d",
+                "origin_post_id": 1001,
+                "origin_post_guba_code": "600030",
             }
         ]
 
         df = _to_cycle_display_df(rows)
 
+        security_link = str(df.iloc[0]["股票名称"])
+        original_post_link = str(df.iloc[0]["作者原帖"])
+
         row_values = list(df.iloc[0].astype(str).values)
-        link = next(value for value in row_values if value.startswith("?security_query="))
-        self.assertIn(f"#{NAME_ZX}", link)
-        query = parse_qs(urlparse(link).query).get("security_query", [""])[0]
+        self.assertIn(f"#{NAME_ZX}", security_link)
+        query = parse_qs(urlparse(security_link).query).get("security_query", [""])[0]
         self.assertEqual(unquote(query), "600030.SH")
+        self.assertEqual(urlparse(original_post_link)._replace(fragment="", query="").geturl(), "https://guba.eastmoney.com/news,600030,1001.html")
+        self.assertIn("#原帖", original_post_link)
         self.assertIn("600030.SH", row_values)
 
     def test_format_cycle_option_prefers_security_name(self):

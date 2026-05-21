@@ -699,6 +699,8 @@ def list_cycles_with_scores(engine: Engine) -> list[dict[str, Any]]:
                 SELECT c.cycle_id, c.author_uid, c.ts_code, c.cycle_open_time, c.cycle_close_time,
                        c.cycle_status, c.open_mention_id, c.close_mention_id, c.close_reason,
                        COALESCE(NULLIF(basic.name, ''), NULLIF(le.latest_security_name, ''), c.ts_code) AS security_name,
+                       open_mention.post_id AS origin_post_id,
+                       open_post.post_guba_code AS origin_post_guba_code,
                        s.total_return, s.benchmark_return, s.excess_return, s.max_drawdown, s.hold_days,
                        s.exit_quality_2d, s.exit_quality_5d, s.exit_quality_10d, s.exit_quality_20d,
                        COALESCE(es.event_count, 0) AS event_count,
@@ -707,6 +709,8 @@ def list_cycles_with_scores(engine: Engine) -> list[dict[str, Any]]:
                 LEFT JOIN em_cycle_scores s ON s.cycle_id = c.cycle_id
                 LEFT JOIN event_stats es ON es.cycle_id = c.cycle_id
                 LEFT JOIN latest_events le ON le.cycle_id = c.cycle_id
+                LEFT JOIN em_stock_mentions open_mention ON open_mention.mention_id = c.open_mention_id
+                LEFT JOIN em_author_posts open_post ON open_post.post_id = open_mention.post_id
                 LEFT JOIN vw_ts_stock_basic basic ON basic.ts_code = c.ts_code
                 ORDER BY c.cycle_open_time DESC, c.cycle_id DESC
                 """

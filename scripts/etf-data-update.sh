@@ -57,7 +57,7 @@ fi
 
 AUTHOR_UID="${EASTMONEY_AUTHOR_UID:-4348595203199492}"
 echo "[$(date -Is)] etf-data-update: run sync_eastmoney_author.py for uid=${AUTHOR_UID}"
-if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/sync_eastmoney_author.py --author-uid "$AUTHOR_UID" --max-pages 5 --page-size 20 --unchanged-post-stop-count 10; then
+if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/sync_eastmoney_author.py --author-uid "$AUTHOR_UID" --max-pages 30 --page-size 20 --unchanged-post-stop-count 10 --reply-cutoff-date 2026-04-01; then
   echo "[$(date -Is)] etf-data-update: warning - sync_eastmoney_author.py failed, skip and continue"
 fi
 

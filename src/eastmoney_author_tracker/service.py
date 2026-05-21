@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Callable
 
-from .client import fetch_userdynamiclist_page
+from .client import fetch_post_author_replies, fetch_userdynamiclist_page
 from .cycles import DEFAULT_BENCHMARK_TS_CODE, build_stock_cycles, score_cycles
 from .extract import extract_stock_mentions
 from .models import normalize_timestamp, normalize_ts_code
@@ -130,6 +130,86 @@ def _merge_image_records(
     return merged_records
 
 
+def _resolve_post_activity_time(post: dict[str, Any]) -> datetime | None:
+    for key in ("post_last_time", "post_publish_time"):
+        value = post.get(key)
+        if not value:
+            continue
+        try:
+            return normalize_timestamp(value)
+        except Exception:
+            continue
+    return None
+
+
+def _resolve_cutoff_date(value: str | date | datetime | None) -> date | None:
+    if value in {None, ""}:
+        return None
+    return normalize_timestamp(value).date()
+
+
+def _post_is_on_or_after_cutoff(post: dict[str, Any], cutoff_date: date | None) -> bool:
+    if cutoff_date is None:
+        return True
+    activity_time = _resolve_post_activity_time(post)
+    return bool(activity_time and activity_time.date() >= cutoff_date)
+
+
+def _page_reaches_cutoff(page_posts: list[dict[str, Any]], cutoff_date: date | None) -> bool:
+    if cutoff_date is None:
+        return True
+    activity_dates = [
+        activity_time.date()
+        for post in page_posts
+        for activity_time in [_resolve_post_activity_time(post)]
+        if activity_time is not None
+    ]
+    return bool(activity_dates) and min(activity_dates) <= cutoff_date
+
+
+def _merge_author_replies_into_post(
+    post: dict[str, Any],
+    author_uid: str,
+    *,
+    max_reply_pages: int = 10,
+    fetch_replies_fn: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
+    stockbar_code = str((post.get("post_guba") or {}).get("stockbar_code") or "").strip()
+    if not stockbar_code:
+        return post
+
+    merged_post = dict(post)
+    existing_reply_list = [dict(item) for item in post.get("reply_list") or [] if isinstance(item, dict)]
+    if fetch_replies_fn is not None:
+        fetched_reply_list = fetch_replies_fn(post)
+    else:
+        fetched_reply_list = fetch_post_author_replies(
+            post.get("post_id"),
+            stockbar_code,
+            author_uid=author_uid,
+            max_pages=max_reply_pages,
+        )
+    reply_by_id: dict[int, dict[str, Any]] = {}
+    for reply in existing_reply_list + fetched_reply_list:
+        try:
+            reply_id = int(reply.get("reply_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        normalized = dict(reply)
+        normalized["reply_is_author"] = bool(normalized.get("reply_is_author")) or str(normalized.get("user_id") or "").strip() == str(author_uid).strip()
+        reply_by_id[reply_id] = normalized
+
+    merged_replies = sorted(
+        reply_by_id.values(),
+        key=lambda item: (str(item.get("reply_time") or ""), int(item.get("reply_id") or 0)),
+    )
+    merged_post["reply_list"] = merged_replies
+    raw_payload = dict(post.get("raw_payload") or post)
+    raw_payload["reply_list"] = merged_replies
+    merged_post["raw_payload"] = raw_payload
+    return merged_post
+
+
 def rebuild_author_tracking_from_archive(
     engine,
     author_uid: str,
@@ -243,6 +323,7 @@ def sync_author_activity(
     author_uid: str,
     fetch_page_fn: Callable[[int], list[dict[str, Any]]] | None = None,
     *,
+    fetch_replies_fn: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None,
     stock_name_aliases: dict[str, dict] | None = None,
     price_history_by_code: dict[str, list[dict[str, Any]]] | None = None,
     snapshot_date: str | None = None,
@@ -250,23 +331,32 @@ def sync_author_activity(
     page_size: int = 20,
     ocr_provider=None,
     unchanged_post_stop_count: int = 10,
+    reply_cutoff_date: str | date | datetime | None = None,
 ) -> dict[str, Any]:
     ensure_storage_objects(engine)
     page_fetcher = fetch_page_fn or (lambda page_num: fetch_userdynamiclist_page(author_uid, page_num=page_num, page_size=page_size))
     resolved_ocr_provider = ocr_provider or DeferredOcrProvider()
+    resolved_reply_cutoff_date = _resolve_cutoff_date(reply_cutoff_date)
 
-    fetched_posts: list[dict[str, Any]] = []
+    fetched_posts_by_id: dict[int, dict[str, Any]] = {}
     fetched_image_records_by_post: dict[int, list[dict[str, Any]]] = {}
     consecutive_known_unchanged = 0
-    for page_num in range(1, int(max_pages) + 1):
+    page_num = 1
+    cutoff_reached = resolved_reply_cutoff_date is None
+
+    while page_num <= int(max_pages):
         page_posts = page_fetcher(page_num)
         if not page_posts:
             break
         existing_payloads = load_existing_post_payloads(engine, author_uid, [post.get("post_id") for post in page_posts])
         existing_image_records_by_post = load_post_image_records_map(engine, [post.get("post_id") for post in page_posts])
-        for post in page_posts:
+        for raw_post in page_posts:
+            post = dict(raw_post)
+            if _post_is_on_or_after_cutoff(post, resolved_reply_cutoff_date):
+                post = _merge_author_replies_into_post(post, author_uid, fetch_replies_fn=fetch_replies_fn)
+
             post_id = int(post.get("post_id") or 0)
-            fetched_posts.append(post)
+            fetched_posts_by_id[post_id] = post
             fresh_image_records = resolved_ocr_provider.extract_post_images(post)
             fetched_image_records_by_post[post_id] = _merge_image_records(
                 fresh_image_records,
@@ -278,10 +368,20 @@ def sync_author_activity(
                 consecutive_known_unchanged += 1
             else:
                 consecutive_known_unchanged = 0
-        if int(unchanged_post_stop_count or 0) > 0 and consecutive_known_unchanged >= int(unchanged_post_stop_count):
-            break
 
-    replace_author_activity(engine, author_uid, fetched_posts, image_records_by_post=fetched_image_records_by_post)
+        cutoff_reached = cutoff_reached or _page_reaches_cutoff(page_posts, resolved_reply_cutoff_date)
+        if cutoff_reached and int(unchanged_post_stop_count or 0) > 0 and consecutive_known_unchanged >= int(unchanged_post_stop_count):
+            break
+        if resolved_reply_cutoff_date is not None and cutoff_reached:
+            break
+        page_num += 1
+
+    replace_author_activity(
+        engine,
+        author_uid,
+        list(fetched_posts_by_id.values()),
+        image_records_by_post=fetched_image_records_by_post,
+    )
     return rebuild_author_tracking_from_archive(
         engine,
         author_uid,

@@ -62,6 +62,8 @@ class SyncAuthorCliTests(unittest.TestCase):
                 "30",
                 "--unchanged-post-stop-count",
                 "2",
+                "--reply-cutoff-date",
+                "2026-04-01",
                 "--ocr-limit",
                 "60",
                 "--use-tesseract",
@@ -79,6 +81,7 @@ class SyncAuthorCliTests(unittest.TestCase):
             page_size=30,
             ocr_provider=provider,
             unchanged_post_stop_count=2,
+            reply_cutoff_date="2026-04-01",
         )
         mock_enrich_pending_author_images.assert_called_once_with(
             "engine",
@@ -86,6 +89,11 @@ class SyncAuthorCliTests(unittest.TestCase):
             ocr_provider=provider,
             limit=60,
         )
+
+    def test_nightly_update_script_passes_reply_cutoff_date(self):
+        script_source = Path("scripts/etf-data-update.sh").read_text(encoding="utf-8")
+
+        self.assertIn("--reply-cutoff-date 2026-04-01", script_source)
 
 
 if __name__ == "__main__":

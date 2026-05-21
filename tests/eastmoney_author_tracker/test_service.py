@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
@@ -9,11 +10,11 @@ from src.eastmoney_author_tracker.service import enrich_pending_author_images
 from src.eastmoney_author_tracker.service import rebuild_author_tracking_from_archive
 from src.eastmoney_author_tracker.service import sync_author_activity
 from src.eastmoney_author_tracker.store import (
+    load_author_posts,
     list_author_score_snapshots,
     replace_author_activity,
     upsert_mention_override,
 )
-from src.eastmoney_author_tracker.store import replace_author_activity
 
 
 def _build_sqlite_engine():
@@ -401,6 +402,79 @@ class SyncAuthorActivityTests(unittest.TestCase):
         self.assertEqual(result["mention_count"], 2)
         self.assertEqual(result["cycle_count"], 2)
 
+    def test_sync_author_activity_pages_until_reply_cutoff_is_covered_and_refreshes_recent_replies(self):
+        engine = _build_sqlite_engine()
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE vw_ts_stock_basic (ts_code TEXT, name TEXT)"))
+            conn.execute(text("CREATE TABLE vw_ts_stock_daily (ts_code TEXT, trade_date TEXT, close REAL)"))
+
+        recent_post = {
+            "post_id": 1001,
+            "post_title": "看好 600030",
+            "post_content": "继续观察。",
+            "post_publish_time": "2026-05-08 14:57:43",
+            "post_last_time": "2026-05-09 09:35:00",
+            "post_type": 0,
+            "post_pic_url": [],
+            "post_guba": {"stockbar_code": "600030", "stockbar_name": "中信证券吧"},
+            "post_user": {"user_id": "4348595203199492"},
+            "reply_list": [],
+        }
+        older_post = {
+            "post_id": 1000,
+            "post_title": "看好 000001",
+            "post_content": "先放着。",
+            "post_publish_time": "2026-03-31 10:00:00",
+            "post_last_time": "2026-03-31 10:00:00",
+            "post_type": 0,
+            "post_pic_url": [],
+            "post_guba": {"stockbar_code": "000001", "stockbar_name": "平安银行吧"},
+            "post_user": {"user_id": "4348595203199492"},
+            "reply_list": [],
+        }
+        replace_author_activity(engine, "4348595203199492", [recent_post])
+
+        seen_pages = []
+        seen_reply_posts = []
+
+        def fake_fetch_page(page_num: int):
+            seen_pages.append(page_num)
+            if page_num == 1:
+                return [recent_post]
+            if page_num == 2:
+                return [older_post]
+            return []
+
+        def fake_fetch_replies(post: dict):
+            seen_reply_posts.append(int(post["post_id"]))
+            return [
+                {
+                    "reply_id": 9001,
+                    "reply_is_author": True,
+                    "reply_text": "今天先出货。",
+                    "reply_time": "2026-05-12 10:00:00",
+                }
+            ]
+
+        result = sync_author_activity(
+            engine,
+            "4348595203199492",
+            fetch_page_fn=fake_fetch_page,
+            fetch_replies_fn=fake_fetch_replies,
+            reply_cutoff_date="2026-04-01",
+            max_pages=3,
+            unchanged_post_stop_count=1,
+        )
+
+        archived_posts = load_author_posts(engine, "4348595203199492")
+        refreshed_post = next(post for post in archived_posts if int(post["post_id"]) == 1001)
+
+        self.assertEqual(seen_pages, [1, 2])
+        self.assertEqual(seen_reply_posts, [1001])
+        self.assertEqual(result["mention_count"], 3)
+        self.assertEqual([reply["reply_id"] for reply in refreshed_post["reply_list"]], [9001])
+        self.assertTrue(refreshed_post["reply_list"][0]["reply_is_author"])
+
     def test_rebuild_author_tracking_from_archive_applies_direction_override(self):
         engine = _build_sqlite_engine()
         with engine.begin() as conn:
@@ -543,6 +617,92 @@ class SyncAuthorActivityTests(unittest.TestCase):
         self.assertEqual(rows[0]["cycle_count"], 1)
         self.assertEqual(rows[0]["closed_count"], 1)
         self.assertAlmostEqual(rows[0]["win_rate"], 1.0)
+
+    @patch("src.eastmoney_author_tracker.service.fetch_post_author_replies")
+    def test_sync_author_activity_backfills_author_replies_since_cutoff_and_pages_until_cutoff(
+        self,
+        mock_fetch_post_author_replies,
+    ):
+        engine = _build_sqlite_engine()
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE vw_ts_stock_basic (ts_code TEXT, name TEXT)"))
+            conn.execute(text("CREATE TABLE vw_ts_stock_daily (ts_code TEXT, trade_date TEXT, close REAL)"))
+
+        may_post = {
+            "post_id": 1001,
+            "post_title": "看好 600030",
+            "post_content": "5月继续观察。",
+            "post_publish_time": "2026-05-08 14:57:43",
+            "post_last_time": "2026-05-08 14:57:43",
+            "post_type": 0,
+            "post_pic_url": [],
+            "post_guba": {"stockbar_code": "600030", "stockbar_name": "中信证券吧"},
+            "post_user": {"user_id": "4348595203199492"},
+            "reply_list": [],
+        }
+        april_post = {
+            "post_id": 1002,
+            "post_title": "继续看好 000001",
+            "post_content": "4月还在跟。",
+            "post_publish_time": "2026-04-03 09:00:00",
+            "post_last_time": "2026-04-03 09:00:00",
+            "post_type": 0,
+            "post_pic_url": [],
+            "post_guba": {"stockbar_code": "000001", "stockbar_name": "平安银行吧"},
+            "post_user": {"user_id": "4348595203199492"},
+            "reply_list": [],
+        }
+        march_post = {
+            "post_id": 1003,
+            "post_title": "3月旧帖 600010",
+            "post_content": "这个不用补回复。",
+            "post_publish_time": "2026-03-29 10:00:00",
+            "post_last_time": "2026-03-29 10:00:00",
+            "post_type": 0,
+            "post_pic_url": [],
+            "post_guba": {"stockbar_code": "600010", "stockbar_name": "包钢股份吧"},
+            "post_user": {"user_id": "4348595203199492"},
+            "reply_list": [],
+        }
+
+        seen_pages: list[int] = []
+
+        def fake_fetch_page(page_num: int):
+            seen_pages.append(page_num)
+            if page_num == 1:
+                return [may_post]
+            if page_num == 2:
+                return [april_post, march_post]
+            return []
+
+        mock_fetch_post_author_replies.side_effect = lambda post_id, stockbar_code, **kwargs: [
+            {
+                "reply_id": 9000 + int(post_id),
+                "reply_is_author": True,
+                "user_id": "4348595203199492",
+                "reply_text": f"作者回复 {post_id}",
+                "reply_time": "2026-05-12 10:00:00" if int(post_id) == 1001 else "2026-04-04 09:30:00",
+                "source_post_code": stockbar_code,
+                "source_post_id": post_id,
+            }
+        ]
+
+        result = sync_author_activity(
+            engine,
+            "4348595203199492",
+            fetch_page_fn=fake_fetch_page,
+            max_pages=5,
+            reply_cutoff_date="2026-04-01",
+        )
+
+        self.assertEqual(seen_pages, [1, 2])
+        self.assertEqual(result["post_count"], 3)
+        self.assertGreaterEqual(result["mention_count"], 5)
+        saved_posts = {int(post["post_id"]): post for post in load_author_posts(engine, "4348595203199492")}
+        self.assertEqual(len(saved_posts[1001]["reply_list"]), 1)
+        self.assertEqual(len(saved_posts[1002]["reply_list"]), 1)
+        self.assertEqual(saved_posts[1003]["reply_list"], [])
+        self.assertEqual(mock_fetch_post_author_replies.call_count, 2)
 
 
 if __name__ == "__main__":

@@ -34,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop paging after this many consecutive known unchanged posts",
     )
     parser.add_argument(
+        "--reply-cutoff-date",
+        default=None,
+        help="Only backfill per-post author replies for posts whose activity time is on/after this date (YYYY-MM-DD)",
+    )
+    parser.add_argument(
         "--use-tesseract",
         action="store_true",
         help="Enable local Tesseract OCR for --ocr-inline or --enrich-pending-ocr",
@@ -67,6 +72,7 @@ def main() -> int:
             page_size=args.page_size,
             ocr_provider=sync_ocr_provider,
             unchanged_post_stop_count=args.unchanged_post_stop_count,
+            reply_cutoff_date=args.reply_cutoff_date,
         )
 
     if args.enrich_pending_ocr:
