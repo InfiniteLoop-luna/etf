@@ -56,6 +56,15 @@ if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/
   echo "[$(date -Is)] etf-data-update: warning - sync_eastmoney_author.py failed, skip and continue"
 fi
 
+if command -v tesseract >/dev/null 2>&1 && TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" -c "import pytesseract" >/dev/null 2>&1; then
+  echo "[$(date -Is)] etf-data-update: enrich pending OCR for uid=${AUTHOR_UID}"
+  if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/sync_eastmoney_author.py --author-uid "$AUTHOR_UID" --use-tesseract --enrich-pending-ocr --skip-sync --ocr-limit 50; then
+    echo "[$(date -Is)] etf-data-update: warning - OCR enrichment failed, skip and continue"
+  fi
+else
+  echo "[$(date -Is)] etf-data-update: OCR prerequisites missing, skip OCR enrichment"
+fi
+
 echo "[$(date -Is)] etf-data-update: restart streamlit"
 systemctl restart etf-streamlit
 
