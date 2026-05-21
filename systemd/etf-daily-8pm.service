@@ -1,0 +1,9 @@
+[Unit]
+Description=ETF daily 20:00 data pull and deploy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/etf-daily-8pm.sh

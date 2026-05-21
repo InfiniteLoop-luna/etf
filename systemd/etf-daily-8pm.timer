@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ETF daily data/deploy at 20:00 Asia/Shanghai
+
+[Timer]
+OnCalendar=*-*-* 12:00:00 UTC
+Persistent=true
+Unit=etf-daily-8pm.service
+
+[Install]
+WantedBy=timers.target
