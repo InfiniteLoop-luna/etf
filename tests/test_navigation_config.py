@@ -111,6 +111,9 @@ class NavigationConfigTests(unittest.TestCase):
     def test_stock_page_options_include_factor_workbench(self):
         self.assertIn("🧠 因子选股工作台", STOCK_PAGE_OPTIONS)
 
+    def test_stock_page_options_include_user_watchlist(self):
+        self.assertIn("⭐ 自选管理", STOCK_PAGE_OPTIONS)
+
     def test_navigation_option_labels_remain_stable(self):
         self.assertEqual(
             ETF_PAGE_OPTIONS,
@@ -118,7 +121,7 @@ class NavigationConfigTests(unittest.TestCase):
         )
         self.assertEqual(
             STOCK_PAGE_OPTIONS,
-            ["🔎 个股/指数查询", "🏢 公司筛选", "🎯 技术选股", "🧠 因子选股工作台", "🧭 观点跟踪"],
+            ["🔎 个股/指数查询", "⭐ 自选管理", "🏢 公司筛选", "🎯 技术选股", "🧠 因子选股工作台", "🧭 观点跟踪"],
         )
 
 

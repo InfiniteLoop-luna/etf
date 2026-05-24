@@ -39,6 +39,7 @@ class SidebarNavigationTests(unittest.TestCase):
         self.assertGreater(len(results), 0)
         stock_page_ids = [result.page_id for result in results if result.module_id == "stock"]
         self.assertIn("security_search", stock_page_ids)
+        self.assertIn("user_watchlist", stock_page_ids)
         self.assertIn("company_screener", stock_page_ids)
 
     def test_module_matches_do_not_suppress_higher_ranked_page_hits_from_other_modules(self):
@@ -120,6 +121,7 @@ class SidebarNavigationTests(unittest.TestCase):
             get_page_labels("股票"),
             [
                 "🔎 个股/指数查询",
+                "⭐ 自选管理",
                 "🏢 公司筛选",
                 "🎯 技术选股",
                 "🧠 因子选股工作台",

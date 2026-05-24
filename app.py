@@ -109,6 +109,7 @@ from src.navigation_config import (
     STOCK_PAGE_OPTIONS,
     STOCK_SECURITY_SEARCH_LABEL,
     STOCK_TECH_PICKER_LABEL,
+    STOCK_USER_WATCHLIST_LABEL,
 )
 from src.sidebar_navigation import (
     SIDEBAR_MODULES,
@@ -161,6 +162,13 @@ from src.ml_stock_train_v1 import (
     run_walk_forward_evaluation,
 )
 from src.eastmoney_author_tracker.ui import TRACKING_PAGE_LABEL, render_author_tracking_tab
+from src.user_watchlist_store import (
+    add_watchlist_item,
+    is_in_watchlist,
+    list_watchlist_items,
+    normalize_username,
+    remove_watchlist_item,
+)
 
 try:
     from src.security_trend_model import (
@@ -310,6 +318,49 @@ def grant_pro_access(password: str) -> bool:
 
 def clear_pro_access() -> None:
     st.session_state["is_pro_user"] = False
+
+
+def get_logged_in_username() -> str:
+    return normalize_username(st.session_state.get("logged_in_username", ""))
+
+
+def is_user_logged_in() -> bool:
+    return bool(get_logged_in_username())
+
+
+def login_app_user(username: str) -> bool:
+    normalized_username = normalize_username(username)
+    st.session_state["logged_in_username"] = normalized_username
+    return bool(normalized_username)
+
+
+def logout_app_user() -> None:
+    st.session_state["logged_in_username"] = ""
+
+
+def render_user_login_status() -> None:
+    current_username = get_logged_in_username()
+    with st.expander("👤 用户登录", expanded=not bool(current_username)):
+        if current_username:
+            status_cols = st.columns([3, 1])
+            status_cols[0].success(f"当前登录用户：{current_username}")
+            if status_cols[1].button("退出登录", key="btn_user_logout"):
+                logout_app_user()
+                st.rerun()
+            st.caption("当前版本为轻量登录：只需要用户名，不校验密码。")
+        else:
+            login_cols = st.columns([3, 1])
+            username_input = login_cols[0].text_input(
+                "用户名",
+                placeholder="输入用户名后登录",
+                key="app_login_username_input",
+            )
+            if login_cols[1].button("登录", type="primary", key="btn_user_login"):
+                if login_app_user(username_input):
+                    st.success(f"登录成功，欢迎你：{get_logged_in_username()}")
+                    st.rerun()
+                st.error("用户名不能为空")
+            st.caption("登录后可使用自选管理，并在个股查询页把股票加入自选。")
 
 
 def parse_watchlist_input(raw: str) -> list[str]:
@@ -3795,6 +3846,8 @@ def main():
             unsafe_allow_html=True,
         )
 
+        render_user_login_status()
+
         mobile_group = st.radio(
             "模块",
             ["决策", "基金", "股票", "资金", "宏观"],
@@ -3842,16 +3895,20 @@ def main():
                 key="iphone_page_stock",
             )
             st.caption(f"当前位置：股票 / {mobile_page}")
-            if mobile_page == STOCK_PAGE_OPTIONS[0]:
+            if mobile_page == STOCK_SECURITY_SEARCH_LABEL:
                 render_security_search_tab()
-            elif mobile_page == STOCK_PAGE_OPTIONS[1]:
+            elif mobile_page == STOCK_USER_WATCHLIST_LABEL:
+                render_user_watchlist_tab()
+            elif mobile_page == STOCK_COMPANY_SCREENER_LABEL:
                 render_company_screener_tab()
             elif mobile_page == FACTOR_WORKBENCH_PAGE_LABEL:
                 render_factor_workbench_tab()
             elif mobile_page == TRACKING_PAGE_LABEL:
                 render_author_tracking_tab()
-            else:
+            elif mobile_page == STOCK_TECH_PICKER_LABEL:
                 render_tech_picker_tab()
+            else:
+                render_security_search_tab()
 
         elif mobile_group == "资金":
             mobile_page = st.selectbox(
@@ -3891,6 +3948,7 @@ def main():
 
     # ===== 方案B进阶版：desktop sidebar 导航壳层 =====
     selected_module, selected_page = render_desktop_sidebar_navigation()
+    render_user_login_status()
     st.caption(f"当前位置：{selected_module} / {selected_page}")
 
     decision_module_label = get_module_label_for_page(DECISION_TODAY_PAGE_LABEL)
@@ -3928,6 +3986,8 @@ def main():
     elif selected_module == stock_module_label:
         if selected_page == STOCK_SECURITY_SEARCH_LABEL:
             render_security_search_tab()
+        elif selected_page == STOCK_USER_WATCHLIST_LABEL:
+            render_user_watchlist_tab()
         elif selected_page == STOCK_COMPANY_SCREENER_LABEL:
             render_company_screener_tab()
         elif selected_page == FACTOR_WORKBENCH_PAGE_LABEL:
@@ -7299,6 +7359,74 @@ def _render_top10_shareholder_panel(top10_holders, top10_floatholders, stock_tit
 
 
 
+def render_user_watchlist_tab() -> None:
+    st.subheader("⭐ 自选管理")
+    st.caption("登录后管理自己的自选股票，支持从个股查询页一键加入。")
+
+    current_username = get_logged_in_username()
+    if not current_username:
+        st.info("请先登录用户名，再查看和管理你的自选。")
+        return
+
+    st.success(f"当前用户：{current_username}")
+
+    try:
+        watchlist_df = list_watchlist_items(current_username)
+    except Exception as exc:
+        st.error(f"加载自选列表失败：{exc}")
+        return
+
+    if watchlist_df is None or watchlist_df.empty:
+        st.info("你的自选还是空的，先去个股/指数查询页加几只吧～")
+        return
+
+    display_df = watchlist_df.copy()
+    if "updated_at" in display_df.columns:
+        display_df["updated_at"] = pd.to_datetime(display_df["updated_at"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
+    if "created_at" in display_df.columns:
+        display_df["created_at"] = pd.to_datetime(display_df["created_at"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
+
+    display_df = display_df.rename(
+        columns={
+            "security_name": "名称",
+            "ts_code": "代码",
+            "security_type": "类型",
+            "created_at": "创建时间",
+            "updated_at": "更新时间",
+        }
+    )
+
+    st.metric("自选数量", f"{len(display_df):,}")
+    st.dataframe(
+        display_df[[col for col in ["名称", "代码", "类型", "更新时间", "创建时间"] if col in display_df.columns]],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    options_df = watchlist_df.copy()
+    options_df["label"] = options_df.apply(
+        lambda row: f"{str(row.get('security_name') or row.get('ts_code') or '').strip()}（{str(row.get('ts_code') or '').strip()}）",
+        axis=1,
+    )
+    option_labels = options_df["label"].tolist()
+    if option_labels:
+        selected_label = st.selectbox("移除自选", options=option_labels, key="user_watchlist_remove_select")
+        selected_row = options_df.iloc[option_labels.index(selected_label)]
+        remove_cols = st.columns([1, 3])
+        if remove_cols[0].button("删除", key="btn_remove_watchlist_item"):
+            removed_count = remove_watchlist_item(
+                current_username,
+                str(selected_row.get("ts_code") or ""),
+                str(selected_row.get("security_type") or "stock"),
+            )
+            if removed_count > 0:
+                st.success("已从自选中删除")
+                st.rerun()
+            st.warning("未删除任何记录，可能已被移除。")
+        remove_cols[1].caption("后续也可以补成批量管理、备注、分组。")
+
+
+
 def render_security_search_tab():
     st.subheader("🔎 个股 / 指数查询")
     st.caption("支持按代码、简称、拼音检索个股或指数，查看最新快照与历史趋势")
@@ -7442,6 +7570,34 @@ def render_security_search_tab():
     st.caption(" | ".join(subtitle_parts))
     if selected_type == 'stock' and bool(profile.get('has_ever_st')):
         st.warning("🏷️ 标签：曾经ST")
+
+    if selected_type == 'stock':
+        current_username = get_logged_in_username()
+        watchlist_cols = st.columns([1.4, 2.2])
+        if current_username:
+            already_in_watchlist = False
+            try:
+                already_in_watchlist = is_in_watchlist(current_username, selected_code, selected_type)
+            except Exception as watchlist_check_exc:
+                st.warning(f"检查自选状态失败：{watchlist_check_exc}")
+
+            button_label = "✅ 已在自选" if already_in_watchlist else "⭐ 加入自选"
+            if watchlist_cols[0].button(button_label, key=f"btn_add_watchlist_{selected_type}_{selected_code}", disabled=already_in_watchlist):
+                try:
+                    add_watchlist_item(
+                        current_username,
+                        selected_code,
+                        security_name=title_name,
+                        security_type=selected_type,
+                    )
+                    st.success(f"已将 {title_name} 加入 {current_username} 的自选")
+                    st.rerun()
+                except Exception as add_watchlist_exc:
+                    st.error(f"加入自选失败：{add_watchlist_exc}")
+            watchlist_cols[1].caption(f"当前登录用户：{current_username}｜加入后可在“{STOCK_USER_WATCHLIST_LABEL}”查看")
+        else:
+            watchlist_cols[0].button("⭐ 加入自选", key=f"btn_add_watchlist_disabled_{selected_type}_{selected_code}", disabled=True)
+            watchlist_cols[1].info("先登录用户名，才能把股票加入个人自选。")
 
     latest_trade_date = format_optional_date(profile.get('latest_trade_date'))
     if selected_type == 'stock':

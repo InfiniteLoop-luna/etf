@@ -116,6 +116,12 @@ SIDEBAR_MODULES = (
                 "heavy",
             ),
             SidebarPage(
+                "user_watchlist",
+                "\u2b50 \u81ea\u9009\u7ba1\u7406",
+                "\u767b\u5f55\u540e\u7ba1\u7406\u4e2a\u4eba\u81ea\u9009\u80a1\u7968",
+                "standard",
+            ),
+            SidebarPage(
                 "company_screener",
                 "\U0001f3e2 \u516c\u53f8\u7b5b\u9009",
                 "\u6309\u516c\u53f8\u7ef4\u5ea6\u7b5b\u9009",

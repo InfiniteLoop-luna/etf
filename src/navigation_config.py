@@ -32,6 +32,7 @@ ETF_WIDE_INDEX_PAGE_LABEL = _page_label("基金", "wide_index")
 ETF_FUND_MONITOR_PAGE_LABEL = _page_label("基金", "fund_monitor")
 
 STOCK_SECURITY_SEARCH_LABEL = _page_label("股票", "security_search")
+STOCK_USER_WATCHLIST_LABEL = _page_label("股票", "user_watchlist")
 STOCK_COMPANY_SCREENER_LABEL = _page_label("股票", "company_screener")
 STOCK_TECH_PICKER_LABEL = _page_label("股票", "tech_picker")
 

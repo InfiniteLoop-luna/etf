@@ -62,6 +62,7 @@ test_*.py
 !tests/test_sync_tushare_security_data.py
 !tests/test_ml_stock_dataset.py
 !tests/test_factor_workbench.py
+!tests/test_user_watchlist_store.py
 !tests/eastmoney_author_tracker/test_store.py
 !tests/eastmoney_author_tracker/test_ui.py
 verify_*.py
