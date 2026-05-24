@@ -7535,7 +7535,7 @@ def render_user_watchlist_tab() -> None:
     # Filters and sorting
     ctrl1, ctrl2, ctrl3 = st.columns([1, 1.5, 2.5])
     with ctrl1:
-        view_mode = st.radio("视图模式", ["表格", "看板"], horizontal=True)
+        view_mode = st.radio("视图模式", ["表格", "看板"], index=1, horizontal=True)
     with ctrl2:
         sort_by = st.selectbox("排序方式", ["趋势得分", "涨跌幅(%)", "总市值(亿)"], index=0)
     with ctrl3:
