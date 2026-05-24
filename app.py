@@ -7364,17 +7364,100 @@ def _render_top10_shareholder_panel(top10_holders, top10_floatholders, stock_tit
             st.info("当前报告期暂无前十大流通股东数据。")
 
 
+@st.cache_data(ttl=300)
+def load_watchlist_enriched_data(ts_codes: tuple, security_types: tuple) -> pd.DataFrame:
+    rows = []
+    for code, sec_type in zip(ts_codes, security_types):
+        try:
+            profile_df = load_security_profile(code, sec_type)
+            ts_df = load_security_timeseries(code, sec_type)
+            
+            profile = profile_df.iloc[0] if profile_df is not None and len(profile_df) > 0 else {}
+            
+            close = profile.get("close")
+            name = profile.get("name") or code
+            pe_ttm = profile.get("pe_ttm")
+            pb = profile.get("pb")
+            total_mv = profile.get("total_mv", 0) / 100000000.0 if profile.get("total_mv") else None
+            roe = profile.get("roe")
+            
+            ret_1d, ret_5d, ret_20d = np.nan, np.nan, np.nan
+            trend_score = np.nan
+            trend_label = ""
+            rsi14 = np.nan
+            macd_hist = np.nan
+            support = np.nan
+            resistance = np.nan
+            signal_label = ""
+            
+            if ts_df is not None and not ts_df.empty and 'close' in ts_df.columns:
+                trend = build_security_trend_analysis(ts_df, sec_type)
+                if trend:
+                    trend_score = trend.get("trend_score", np.nan)
+                    trend_label = trend.get("trend", "")
+                    
+                    ts_sorted = ts_df.sort_values('trade_date').reset_index(drop=True)
+                    if len(ts_sorted) >= 2:
+                        prev_close = ts_sorted['close'].iloc[-2]
+                        curr_close = ts_sorted['close'].iloc[-1]
+                        if prev_close and prev_close > 0:
+                            ret_1d = (curr_close / prev_close - 1) * 100
+                    
+                    ret_5d = trend.get("ret_5", np.nan) * 100
+                    ret_20d = trend.get("ret_20", np.nan) * 100
+                    rsi14 = trend.get("rsi14", np.nan)
+                    macd_hist = trend.get("macd_hist", np.nan)
+                    support = trend.get("support", np.nan)
+                    resistance = trend.get("resistance", np.nan)
+                    
+                    if pd.notna(trend_score):
+                        if trend_score >= 72:
+                            signal_label = "🔥 强势"
+                        elif trend_score >= 58:
+                            signal_label = "⚡ 偏强"
+                        elif trend_score >= 45:
+                            signal_label = "⚠️ 震荡"
+                        else:
+                            signal_label = "🔻 弱势"
+                            
+                    if pd.notna(rsi14):
+                        if rsi14 > 80:
+                            signal_label += " (超买)"
+                        elif rsi14 < 30:
+                            signal_label += " (超跌)"
+            
+            rows.append({
+                "ts_code": code,
+                "security_type": sec_type,
+                "名称": name,
+                "代码": code,
+                "最新价": close,
+                "涨跌幅(%)": ret_1d,
+                "5日涨跌(%)": ret_5d,
+                "20日涨跌(%)": ret_20d,
+                "PE_TTM": pe_ttm,
+                "PB": pb,
+                "总市值(亿)": total_mv,
+                "ROE(%)": roe,
+                "趋势得分": trend_score,
+                "RSI14": rsi14,
+                "操作信号": signal_label,
+            })
+        except Exception as e:
+            logger.warning(f"Error loading enriched data for {code}: {e}")
+            continue
+            
+    return pd.DataFrame(rows)
+
 
 def render_user_watchlist_tab() -> None:
     st.subheader("⭐ 自选管理")
-    st.caption("登录后管理自己的自选股票，支持从个股查询页一键加入。")
+    st.caption("登录后管理自己的自选股票，支持从个股查询页一键加入。全景数据总览，辅助投资决策。")
 
     current_username = get_logged_in_username()
     if not current_username:
         st.info("请先登录用户名，再查看和管理你的自选。")
         return
-
-    st.success(f"当前用户：{current_username}")
 
     try:
         watchlist_df = list_watchlist_items(current_username)
@@ -7386,50 +7469,116 @@ def render_user_watchlist_tab() -> None:
         st.info("你的自选还是空的，先去个股/指数查询页加几只吧～")
         return
 
-    display_df = watchlist_df.copy()
-    if "updated_at" in display_df.columns:
-        display_df["updated_at"] = pd.to_datetime(display_df["updated_at"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
-    if "created_at" in display_df.columns:
-        display_df["created_at"] = pd.to_datetime(display_df["created_at"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
+    ts_codes = tuple(watchlist_df['ts_code'].tolist())
+    security_types = tuple(watchlist_df['security_type'].tolist())
+    
+    with st.spinner("正在加载自选股深度数据..."):
+        enriched_df = load_watchlist_enriched_data(ts_codes, security_types)
+        
+    if enriched_df.empty:
+        st.warning("数据加载失败，请稍后再试。")
+        return
 
-    display_df = display_df.rename(
-        columns={
-            "security_name": "名称",
-            "ts_code": "代码",
-            "security_type": "类型",
-            "created_at": "创建时间",
-            "updated_at": "更新时间",
-        }
-    )
+    # Metrics Overview
+    up_count = len(enriched_df[enriched_df['涨跌幅(%)'] > 0])
+    down_count = len(enriched_df[enriched_df['涨跌幅(%)'] < 0])
+    avg_trend = enriched_df['趋势得分'].mean()
+    
+    # 找最大涨跌幅
+    valid_ret = enriched_df.dropna(subset=['涨跌幅(%)'])
+    if not valid_ret.empty:
+        max_up = valid_ret.loc[valid_ret['涨跌幅(%)'].idxmax()]
+        max_down = valid_ret.loc[valid_ret['涨跌幅(%)'].idxmin()]
+    else:
+        max_up, max_down = None, None
 
-    st.metric("自选数量", f"{len(display_df):,}")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("自选总数", f"{len(enriched_df)} 只")
+    col2.metric("今日表现", f"📈 {up_count}上涨 / 📉 {down_count}下跌")
+    col3.metric("平均趋势得分", f"{avg_trend:.1f}" if pd.notna(avg_trend) else "-")
+    if max_up is not None and max_up['涨跌幅(%)'] > 0:
+        col4.metric("最大领涨", f"{max_up['名称']}", f"{max_up['涨跌幅(%)']:.2f}%")
+    elif max_down is not None:
+        col4.metric("最大领跌", f"{max_down['名称']}", f"{max_down['涨跌幅(%)']:.2f}%")
+        
+    st.divider()
+
+    # Filters and sorting
+    ctrl1, ctrl2 = st.columns([1, 3])
+    with ctrl1:
+        sort_by = st.selectbox("排序方式", ["趋势得分", "涨跌幅(%)", "总市值(亿)"], index=0)
+    with ctrl2:
+        filter_signal = st.radio("信号筛选", ["全部", "🔥 强势", "🔻 弱势"], horizontal=True)
+
+    display_df = enriched_df.copy()
+    
+    if filter_signal == "🔥 强势":
+        display_df = display_df[display_df['操作信号'].str.contains("🔥", na=False)]
+    elif filter_signal == "🔻 弱势":
+        display_df = display_df[display_df['操作信号'].str.contains("🔻", na=False)]
+        
+    display_df = display_df.sort_values(by=sort_by, ascending=False).reset_index(drop=True)
+
+    st.markdown("### 📊 自选数据总览")
     st.dataframe(
-        display_df[[col for col in ["名称", "代码", "类型", "更新时间", "创建时间"] if col in display_df.columns]],
+        display_df.drop(columns=['ts_code', 'security_type']),
+        column_config={
+            "名称": st.column_config.TextColumn("名称", width="medium"),
+            "代码": st.column_config.TextColumn("代码", width="small"),
+            "最新价": st.column_config.NumberColumn("最新价", format="%.2f"),
+            "涨跌幅(%)": st.column_config.NumberColumn("今日涨跌", format="%+.2f%%"),
+            "5日涨跌(%)": st.column_config.NumberColumn("5日涨跌", format="%+.2f%%"),
+            "20日涨跌(%)": st.column_config.NumberColumn("20日涨跌", format="%+.2f%%"),
+            "PE_TTM": st.column_config.NumberColumn("PE(TTM)", format="%.1f"),
+            "PB": st.column_config.NumberColumn("PB", format="%.2f"),
+            "总市值(亿)": st.column_config.NumberColumn("市值(亿)", format="%.0f"),
+            "ROE(%)": st.column_config.NumberColumn("ROE", format="%.1f%%"),
+            "趋势得分": st.column_config.ProgressColumn(
+                "趋势得分", min_value=0, max_value=100, format="%d"
+            ),
+            "RSI14": st.column_config.NumberColumn("RSI14", format="%.1f"),
+            "操作信号": st.column_config.TextColumn("操作信号", width="medium"),
+        },
         use_container_width=True,
         hide_index=True,
     )
 
-    options_df = watchlist_df.copy()
-    options_df["label"] = options_df.apply(
-        lambda row: f"{str(row.get('security_name') or row.get('ts_code') or '').strip()}（{str(row.get('ts_code') or '').strip()}）",
-        axis=1,
-    )
-    option_labels = options_df["label"].tolist()
-    if option_labels:
-        selected_label = st.selectbox("移除自选", options=option_labels, key="user_watchlist_remove_select")
-        selected_row = options_df.iloc[option_labels.index(selected_label)]
-        remove_cols = st.columns([1, 3])
-        if remove_cols[0].button("删除", key="btn_remove_watchlist_item"):
-            removed_count = remove_watchlist_item(
-                current_username,
-                str(selected_row.get("ts_code") or ""),
-                str(selected_row.get("security_type") or "stock"),
-            )
-            if removed_count > 0:
-                st.success("已从自选中删除")
+    # 跳转到个股详情
+    st.markdown("### 🔍 跳转与管理")
+    action_cols = st.columns([2, 2, 2])
+    with action_cols[0]:
+        options = display_df['名称'] + " (" + display_df['代码'] + ")"
+        selected_for_detail = st.selectbox("选择跳转至详情", options=options.tolist(), key="watchlist_detail_select")
+        if st.button("查看详情", type="primary"):
+            if selected_for_detail:
+                # 提取代码
+                code = selected_for_detail.split("(")[-1].strip(")")
+                # 寻找类型
+                sec_row = display_df[display_df['代码'] == code].iloc[0]
+                st.session_state["pending_security_search_keyword"] = code
+                st.session_state["pending_security_search_type"] = "股票" if sec_row['security_type'] == 'stock' else "指数"
                 st.rerun()
-            st.warning("未删除任何记录，可能已被移除。")
-        remove_cols[1].caption("后续也可以补成批量管理、备注、分组。")
+
+    with action_cols[1]:
+        all_options = watchlist_df.apply(
+            lambda row: f"{str(row.get('security_name') or row.get('ts_code') or '').strip()}（{str(row.get('ts_code') or '').strip()}）",
+            axis=1,
+        ).tolist()
+        if all_options:
+            selected_label = st.selectbox("移除自选", options=all_options, key="user_watchlist_remove_select")
+            if st.button("删除"):
+                idx = all_options.index(selected_label)
+                selected_row = watchlist_df.iloc[idx]
+                removed_count = remove_watchlist_item(
+                    current_username,
+                    str(selected_row.get("ts_code") or ""),
+                    str(selected_row.get("security_type") or "stock"),
+                )
+                if removed_count > 0:
+                    st.success("已从自选中删除")
+                    st.rerun()
+                else:
+                    st.warning("未删除任何记录，可能已被移除。")
 
 
 
