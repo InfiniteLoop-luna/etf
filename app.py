@@ -7504,10 +7504,12 @@ def render_user_watchlist_tab() -> None:
     st.divider()
 
     # Filters and sorting
-    ctrl1, ctrl2 = st.columns([1, 3])
+    ctrl1, ctrl2, ctrl3 = st.columns([1, 1.5, 2.5])
     with ctrl1:
-        sort_by = st.selectbox("排序方式", ["趋势得分", "涨跌幅(%)", "总市值(亿)"], index=0)
+        view_mode = st.radio("视图模式", ["表格", "看板"], horizontal=True)
     with ctrl2:
+        sort_by = st.selectbox("排序方式", ["趋势得分", "涨跌幅(%)", "总市值(亿)"], index=0)
+    with ctrl3:
         filter_signal = st.radio("信号筛选", ["全部", "🔥 强势", "🔻 弱势"], horizontal=True)
 
     display_df = enriched_df.copy()
@@ -7520,28 +7522,109 @@ def render_user_watchlist_tab() -> None:
     display_df = display_df.sort_values(by=sort_by, ascending=False).reset_index(drop=True)
 
     st.markdown("### 📊 自选数据总览")
-    st.dataframe(
-        display_df.drop(columns=['ts_code', 'security_type']),
-        column_config={
-            "名称": st.column_config.TextColumn("名称", width="medium"),
-            "代码": st.column_config.TextColumn("代码", width="small"),
-            "最新价": st.column_config.NumberColumn("最新价", format="%.2f"),
-            "涨跌幅(%)": st.column_config.NumberColumn("今日涨跌", format="%+.2f%%"),
-            "5日涨跌(%)": st.column_config.NumberColumn("5日涨跌", format="%+.2f%%"),
-            "20日涨跌(%)": st.column_config.NumberColumn("20日涨跌", format="%+.2f%%"),
-            "PE_TTM": st.column_config.NumberColumn("PE(TTM)", format="%.1f"),
-            "PB": st.column_config.NumberColumn("PB", format="%.2f"),
-            "总市值(亿)": st.column_config.NumberColumn("市值(亿)", format="%.0f"),
-            "ROE(%)": st.column_config.NumberColumn("ROE", format="%.1f%%"),
-            "趋势得分": st.column_config.ProgressColumn(
-                "趋势得分", min_value=0, max_value=100, format="%d"
-            ),
-            "RSI14": st.column_config.NumberColumn("RSI14", format="%.1f"),
-            "操作信号": st.column_config.TextColumn("操作信号", width="medium"),
-        },
-        use_container_width=True,
-        hide_index=True,
-    )
+    
+    if view_mode == "表格":
+        st.dataframe(
+            display_df.drop(columns=['ts_code', 'security_type']),
+            column_config={
+                "名称": st.column_config.TextColumn("名称", width="medium"),
+                "代码": st.column_config.TextColumn("代码", width="small"),
+                "最新价": st.column_config.NumberColumn("最新价", format="%.2f"),
+                "涨跌幅(%)": st.column_config.NumberColumn("今日涨跌", format="%+.2f%%"),
+                "5日涨跌(%)": st.column_config.NumberColumn("5日涨跌", format="%+.2f%%"),
+                "20日涨跌(%)": st.column_config.NumberColumn("20日涨跌", format="%+.2f%%"),
+                "PE_TTM": st.column_config.NumberColumn("PE(TTM)", format="%.1f"),
+                "PB": st.column_config.NumberColumn("PB", format="%.2f"),
+                "总市值(亿)": st.column_config.NumberColumn("市值(亿)", format="%.0f"),
+                "ROE(%)": st.column_config.NumberColumn("ROE", format="%.1f%%"),
+                "趋势得分": st.column_config.ProgressColumn(
+                    "趋势得分", min_value=0, max_value=100, format="%d"
+                ),
+                "RSI14": st.column_config.NumberColumn("RSI14", format="%.1f"),
+                "操作信号": st.column_config.TextColumn("操作信号", width="medium"),
+            },
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        # 看板模式
+        num_cols = 4
+        cols = st.columns(num_cols)
+        for idx, row in display_df.iterrows():
+            col = cols[idx % num_cols]
+            with col:
+                ret_1d = row['涨跌幅(%)']
+                ret_5d = row['5日涨跌(%)']
+                ret_20d = row['20日涨跌(%)']
+                trend_score = row['趋势得分']
+                
+                color_1d = 'var(--ws-color-up)' if pd.notna(ret_1d) and ret_1d > 0 else ('var(--ws-color-down)' if pd.notna(ret_1d) and ret_1d < 0 else 'var(--ws-text-main)')
+                color_5d = 'var(--ws-color-up)' if pd.notna(ret_5d) and ret_5d > 0 else ('var(--ws-color-down)' if pd.notna(ret_5d) and ret_5d < 0 else 'var(--ws-text-main)')
+                color_20d = 'var(--ws-color-up)' if pd.notna(ret_20d) and ret_20d > 0 else ('var(--ws-color-down)' if pd.notna(ret_20d) and ret_20d < 0 else 'var(--ws-text-main)')
+                
+                trend_color = 'var(--ws-color-up)' if pd.notna(trend_score) and trend_score >= 50 else 'var(--ws-color-down)'
+                trend_width = min(100, max(0, trend_score)) if pd.notna(trend_score) else 0
+                
+                str_5d = f"{ret_5d:+.2f}%" if pd.notna(ret_5d) else "-"
+                str_20d = f"{ret_20d:+.2f}%" if pd.notna(ret_20d) else "-"
+                str_mv = f"{row['总市值(亿)']:.0f}亿" if pd.notna(row['总市值(亿)']) else "-"
+                str_pe = f"{row['PE_TTM']:.1f}" if pd.notna(row['PE_TTM']) else "-"
+                str_trend = f"{trend_score:.0f}" if pd.notna(trend_score) else "-"
+                str_signal = row['操作信号'] if row['操作信号'] else "-"
+                str_price = f"{row['最新价']:.2f}" if pd.notna(row['最新价']) else "-"
+                str_1d = f"{ret_1d:+.2f}%" if pd.notna(ret_1d) else "-"
+                
+                card_html = f"""
+                <div style="
+                    border: 1px solid var(--ws-border-soft);
+                    border-radius: 12px;
+                    padding: 16px;
+                    margin-bottom: 16px;
+                    background: var(--ws-bg-surface);
+                    box-shadow: var(--ws-shadow-sm);
+                ">
+                    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
+                        <span style="font-size: 16px; font-weight: 600; color: var(--ws-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['名称']}</span>
+                        <span style="font-size: 12px; color: var(--ws-text-muted);">{row['代码']}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;">
+                        <span style="font-size: 24px; font-weight: 700; color: {color_1d};">{str_price}</span>
+                        <span style="font-size: 14px; font-weight: 600; color: {color_1d};">{str_1d}</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; font-size: 12px;">
+                        <div>
+                            <div style="color: var(--ws-text-muted);">5日涨跌</div>
+                            <div style="color: {color_5d}; font-weight: 500;">{str_5d}</div>
+                        </div>
+                        <div>
+                            <div style="color: var(--ws-text-muted);">20日涨跌</div>
+                            <div style="color: {color_20d}; font-weight: 500;">{str_20d}</div>
+                        </div>
+                        <div>
+                            <div style="color: var(--ws-text-muted);">市值</div>
+                            <div style="font-weight: 500; color: var(--ws-text-main);">{str_mv}</div>
+                        </div>
+                        <div>
+                            <div style="color: var(--ws-text-muted);">PE(TTM)</div>
+                            <div style="font-weight: 500; color: var(--ws-text-main);">{str_pe}</div>
+                        </div>
+                    </div>
+                    <div style="border-top: 1px solid var(--ws-border-soft); padding-top: 12px; margin-bottom: 8px;">
+                        <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+                            <span style="color: var(--ws-text-muted);">趋势得分</span>
+                            <span style="font-weight: 600; color: var(--ws-text-main);">{str_trend}</span>
+                        </div>
+                        <div style="width: 100%; background-color: var(--ws-border-soft); border-radius: 4px; height: 6px;">
+                            <div style="width: {trend_width}%; background-color: {trend_color}; height: 100%; border-radius: 4px;"></div>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+                        <span style="color: var(--ws-text-muted);">信号</span>
+                        <span style="font-weight: 600; color: var(--ws-text-main);">{str_signal}</span>
+                    </div>
+                </div>
+                """
+                st.markdown(card_html, unsafe_allow_html=True)
 
     # 跳转到个股详情
     st.markdown("### 🔍 跳转与管理")
