@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """ETF份额变动可视化 - Streamlit Web应用"""
 
 # Version: 2.0 - Fixed data_only issue for formula cells
@@ -31,7 +31,8 @@ from src.etf_stats import (
     search_security, get_security_profile, get_security_timeseries,
     get_security_financial_timeseries, get_security_kline_timeseries, get_stock_basic_summary,
     export_stock_basic_summary_excel, search_companies, update_stock_custom_info,
-    validate_stock_custom_info_inputs
+    validate_stock_custom_info_inputs,
+    get_stock_holder_number_timeseries
 )
 from src.security_intraday_store import (
     get_engine as get_security_intraday_engine,
@@ -684,6 +685,11 @@ def load_security_financial_timeseries(ts_code: str, security_type: str) -> pd.D
 @st.cache_data(ttl=300)
 def load_security_kline_timeseries(ts_code: str, security_type: str) -> pd.DataFrame:
     return get_security_kline_timeseries(ts_code=ts_code, security_type=security_type)
+
+
+@st.cache_data(ttl=300)
+def load_stock_holder_number_timeseries(ts_code: str) -> pd.DataFrame:
+    return get_stock_holder_number_timeseries(ts_code=ts_code)
 
 
 @st.cache_data(ttl=300)
@@ -7677,6 +7683,164 @@ def render_security_search_tab():
             top10_errors=top10_pack.get("errors", {}) or {},
             expanded=False,
         )
+
+        # ── 股价 & 股东人数趋势图 ──────────────────────────────────────────
+        with st.expander("📊 股价与股东人数趋势", expanded=False):
+            try:
+                holder_ts_df = load_stock_holder_number_timeseries(selected_code)
+            except Exception as holder_ts_exc:
+                logger.warning(f"load holder number timeseries failed: {holder_ts_exc}", exc_info=True)
+                holder_ts_df = pd.DataFrame()
+
+            if holder_ts_df is not None and not holder_ts_df.empty:
+                holder_ts_df = holder_ts_df.copy()
+                holder_ts_df['end_date'] = pd.to_datetime(holder_ts_df['end_date'], errors='coerce')
+                holder_ts_df['holder_num'] = pd.to_numeric(holder_ts_df['holder_num'], errors='coerce')
+                holder_ts_df = holder_ts_df.dropna(subset=['end_date', 'holder_num']).sort_values('end_date')
+
+                if len(holder_ts_df) >= 2:
+                    # Prepare price data aligned to holder_num date range
+                    holder_min_date = holder_ts_df['end_date'].min()
+                    holder_max_date = holder_ts_df['end_date'].max()
+                    price_for_holder = filtered_df[
+                        (filtered_df['trade_date'] >= holder_min_date) &
+                        (filtered_df['trade_date'] <= holder_max_date + pd.Timedelta(days=30))
+                    ].copy() if not filtered_df.empty else pd.DataFrame()
+                    if price_for_holder.empty:
+                        price_for_holder = ts_df[
+                            (ts_df['trade_date'] >= holder_min_date) &
+                            (ts_df['trade_date'] <= holder_max_date + pd.Timedelta(days=30))
+                        ].copy()
+
+                    fig_holder_trend = make_subplots(specs=[[{"secondary_y": True}]])
+
+                    # Stock price line (left Y)
+                    if not price_for_holder.empty:
+                        price_for_holder['close'] = pd.to_numeric(price_for_holder['close'], errors='coerce')
+                        price_plot = price_for_holder.dropna(subset=['close'])
+                        fig_holder_trend.add_trace(
+                            go.Scatter(
+                                x=price_plot['trade_date'],
+                                y=price_plot['close'],
+                                mode='lines',
+                                name='收盘价(元)',
+                                line=dict(width=2.2, shape='spline', color=THEME_NAVY),
+                                fill='tozeroy',
+                                fillcolor=CHART_NAVY_SOFT_FILL,
+                                hovertemplate='%{x|%Y-%m-%d}<br>收盘价: %{y:,.2f}元<extra></extra>',
+                            ),
+                            secondary_y=False,
+                        )
+
+                    # Holder number bar + line (right Y)
+                    holder_num_values = holder_ts_df['holder_num'].values
+                    holder_colors = []
+                    for i, val in enumerate(holder_num_values):
+                        if i == 0:
+                            holder_colors.append(THEME_NEUTRAL)
+                        elif val > holder_num_values[i - 1]:
+                            holder_colors.append(THEME_DOWN)  # green = more holders (bearish signal)
+                        elif val < holder_num_values[i - 1]:
+                            holder_colors.append(THEME_UP)    # red = fewer holders (bullish signal)
+                        else:
+                            holder_colors.append(THEME_NEUTRAL)
+
+                    fig_holder_trend.add_trace(
+                        go.Bar(
+                            x=holder_ts_df['end_date'],
+                            y=holder_ts_df['holder_num'],
+                            name='股东人数',
+                            marker=dict(color=holder_colors, opacity=0.5),
+                            hovertemplate='%{x|%Y-%m-%d}<br>股东人数: %{y:,.0f}<extra></extra>',
+                            width=86400000 * 20,  # ~20 days in ms
+                        ),
+                        secondary_y=True,
+                    )
+                    fig_holder_trend.add_trace(
+                        go.Scatter(
+                            x=holder_ts_df['end_date'],
+                            y=holder_ts_df['holder_num'],
+                            mode='lines+markers',
+                            name='股东人数趋势',
+                            line=dict(width=2, shape='spline', color=THEME_PURPLE, dash='dot'),
+                            marker=dict(size=6, color=THEME_PURPLE),
+                            hovertemplate='%{x|%Y-%m-%d}<br>股东人数: %{y:,.0f}<extra></extra>',
+                        ),
+                        secondary_y=True,
+                    )
+
+                    fig_holder_trend.update_layout(
+                        title=dict(
+                            text=f'{title_name} — 股价与股东人数趋势',
+                            x=0.02,
+                            font=dict(size=18, color=THEME_TEXT),
+                        ),
+                        hovermode='x unified',
+                        height=480,
+                        template='plotly_white',
+                        plot_bgcolor=CHART_BG,
+                        paper_bgcolor=CHART_PAPER_BG,
+                        font=dict(family='Inter, PingFang SC, sans-serif'),
+                        margin=dict(l=20, r=20, t=55, b=20),
+                        legend=dict(
+                            orientation='h', yanchor='bottom', y=1.02,
+                            xanchor='left', x=0,
+                            font=dict(size=12),
+                        ),
+                        barmode='overlay',
+                    )
+                    fig_holder_trend.update_xaxes(
+                        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+                    )
+                    fig_holder_trend.update_yaxes(
+                        title_text='收盘价(元)', secondary_y=False,
+                        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+                    )
+                    fig_holder_trend.update_yaxes(
+                        title_text='股东人数', secondary_y=True,
+                        showgrid=False,
+                    )
+                    st.plotly_chart(fig_holder_trend, use_container_width=True)
+
+                    # Summary metrics
+                    latest_holder = holder_ts_df.iloc[-1]
+                    prev_holder = holder_ts_df.iloc[-2] if len(holder_ts_df) >= 2 else None
+                    hm_cols = st.columns(4)
+                    hm_cols[0].metric(
+                        '最新股东人数',
+                        f"{int(latest_holder['holder_num']):,}",
+                        f"截止 {latest_holder['end_date'].strftime('%Y-%m-%d')}",
+                    )
+                    if prev_holder is not None:
+                        delta_num = int(latest_holder['holder_num'] - prev_holder['holder_num'])
+                        delta_pct = (
+                            (latest_holder['holder_num'] - prev_holder['holder_num'])
+                            / prev_holder['holder_num'] * 100
+                            if prev_holder['holder_num'] > 0 else 0
+                        )
+                        sign = '+' if delta_num >= 0 else ''
+                        hm_cols[1].metric(
+                            '较上期变动',
+                            f"{sign}{delta_num:,}",
+                            f"{sign}{delta_pct:.2f}%",
+                            delta_color='inverse',  # fewer holders = bullish = green
+                        )
+                    hm_cols[2].metric('数据期数', f"{len(holder_ts_df)} 期")
+                    holder_range_min = holder_ts_df['holder_num'].min()
+                    holder_range_max = holder_ts_df['holder_num'].max()
+                    hm_cols[3].metric(
+                        '区间极值',
+                        f"{int(holder_range_min):,} ~ {int(holder_range_max):,}",
+                    )
+                    st.caption(
+                        '💡 股东人数减少通常表示筹码集中（看多信号），增加则表示筹码分散。'
+                        '红色柱=人数减少，绿色柱=人数增加。'
+                    )
+                else:
+                    st.info('股东人数历史数据不足（少于 2 期），暂无法绘制趋势图。')
+            else:
+                st.info('暂无股东人数历史数据。')
+
         
         with st.expander("📝 订正主营与产品信息"):
             configured_password = get_stock_info_edit_password()

@@ -1364,6 +1364,30 @@ def get_stock_profile(ts_code: str, engine=None) -> pd.DataFrame:
     return pd.read_sql(text(sql), engine, params={'ts_code': ts_code})
 
 
+def get_stock_holder_number_timeseries(ts_code: str, engine=None) -> pd.DataFrame:
+    """Return historical holder-number records for *ts_code*, ordered by end_date ascending.
+
+    Each row contains ``end_date``, ``ann_date`` and ``holder_num``.
+    Duplicates per ``end_date`` are removed (keep the latest ``ann_date``).
+    """
+    if engine is None:
+        engine = _get_engine()
+
+    sql = f"""
+        SELECT DISTINCT ON (end_date)
+            ts_code,
+            holder_num,
+            ann_date,
+            end_date
+        FROM {STOCK_HOLDERNUMBER_VIEW}
+        WHERE ts_code = :ts_code
+          AND holder_num IS NOT NULL
+          AND end_date IS NOT NULL
+        ORDER BY end_date, ann_date DESC NULLS LAST
+    """
+    return pd.read_sql(text(sql), engine, params={'ts_code': ts_code})
+
+
 def get_latest_stock_holder_number(ts_code: str, engine=None) -> pd.DataFrame:
     if engine is None:
         engine = _get_engine()
