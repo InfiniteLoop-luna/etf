@@ -291,6 +291,7 @@ AGG_TABLE = 'etf_category_daily_agg'
 WIDE_INDEX_TABLE = 'etf_wide_index_daily_agg'
 STOCK_BASIC_VIEW = 'vw_ts_stock_basic'
 STOCK_COMPANY_VIEW = 'vw_ts_stock_company'
+STOCK_HOLDERNUMBER_VIEW = 'vw_ts_stock_holdernumber'
 STOCK_INCOME_VIEW = 'vw_ts_stock_income'
 STOCK_BALANCE_VIEW = 'vw_ts_stock_balancesheet'
 STOCK_CASHFLOW_VIEW = 'vw_ts_stock_cashflow'
@@ -1266,6 +1267,17 @@ def get_stock_profile(ts_code: str, engine=None) -> pd.DataFrame:
             WHERE ts_code = :ts_code
             LIMIT 1
         ),
+        holdernumber AS (
+            SELECT
+                ts_code,
+                holder_num,
+                ann_date AS holder_ann_date,
+                end_date AS holder_end_date
+            FROM {STOCK_HOLDERNUMBER_VIEW}
+            WHERE ts_code = :ts_code
+            ORDER BY end_date DESC NULLS LAST, ann_date DESC NULLS LAST
+            LIMIT 1
+        ),
         daily AS (
             SELECT * FROM {STOCK_DAILY_VIEW}
             WHERE ts_code = :ts_code
@@ -1312,6 +1324,9 @@ def get_stock_profile(ts_code: str, engine=None) -> pd.DataFrame:
             company.main_business,
             company.business_scope,
             company.website,
+            holdernumber.holder_num,
+            holdernumber.holder_ann_date,
+            holdernumber.holder_end_date,
             daily.trade_date AS latest_trade_date,
             daily.close,
             daily.turnover_rate,
@@ -1338,12 +1353,31 @@ def get_stock_profile(ts_code: str, engine=None) -> pd.DataFrame:
         FROM (SELECT 1 AS anchor) AS seed
         LEFT JOIN basic ON TRUE
         LEFT JOIN company ON TRUE
+        LEFT JOIN holdernumber ON TRUE
         LEFT JOIN daily ON TRUE
         LEFT JOIN fina ON TRUE
         LEFT JOIN income ON TRUE
         LEFT JOIN balance ON TRUE
         LEFT JOIN cashflow ON TRUE
         WHERE basic.ts_code IS NOT NULL
+    """
+    return pd.read_sql(text(sql), engine, params={'ts_code': ts_code})
+
+
+def get_latest_stock_holder_number(ts_code: str, engine=None) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine()
+
+    sql = f"""
+        SELECT
+            ts_code,
+            holder_num,
+            ann_date AS holder_ann_date,
+            end_date AS holder_end_date
+        FROM {STOCK_HOLDERNUMBER_VIEW}
+        WHERE ts_code = :ts_code
+        ORDER BY end_date DESC NULLS LAST, ann_date DESC NULLS LAST
+        LIMIT 1
     """
     return pd.read_sql(text(sql), engine, params={'ts_code': ts_code})
 

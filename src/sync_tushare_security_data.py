@@ -48,6 +48,7 @@ STOCK_BASIC_CACHE: pd.DataFrame | None = None
 STOCK_CHANGE_LOG_TABLE = "tushare_stock_sync_change_log"
 DELISTED_PURGE_TARGETS = [
     {"table_name": "ts_stock_company", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stock_holdernumber", "join_expr": "t.ts_code = d.ts_code"},
     {"table_name": "ts_stock_namechange", "join_expr": "t.ts_code = d.ts_code"},
     {"table_name": "ts_stock_custom_info", "join_expr": "t.ts_code = d.ts_code"},
     {"table_name": "ts_stock_daily", "join_expr": "t.ts_code = d.ts_code"},
@@ -77,6 +78,7 @@ DELISTED_PURGE_TARGETS = [
 DATASET_TABLES = {
     "stock_basic": "ts_stock_basic",
     "stock_company": "ts_stock_company",
+    "stock_holdernumber": "ts_stock_holdernumber",
     "income": "ts_stock_income",
     "balancesheet": "ts_stock_balancesheet",
     "cashflow": "ts_stock_cashflow",
@@ -158,6 +160,12 @@ NORMALIZED_VIEW_SPECS = {
             ("text", "excel_main_business|excel_main_business"),
             ("text", "excel_product|excel_product"),
             ("text", "introduction"),
+        ],
+    },
+    "stock_holdernumber": {
+        "view_name": "vw_ts_stock_holdernumber",
+        "columns": [
+            ("integral_numeric", "holder_num"),
         ],
     },
     "income": {
@@ -455,6 +463,7 @@ logger = logging.getLogger(__name__)
 FINANCIAL_DATASETS = {"income", "balancesheet", "cashflow", "fina_indicator"}
 DAILY_DATASETS = {"daily", "daily_basic", "index_dailybasic", "stk_week_month_adj"}
 MACRO_DATASETS = {"cn_gdp", "cn_cpi", "cn_ppi", "cn_m", "shibor", "shibor_lpr"}
+ANNOUNCEMENT_DATASETS = {"stock_holdernumber"}
 BACKFILL_SKIP_TS_CODES = {
     "ts_stock_income": {
         "302132.SZ",
@@ -615,6 +624,14 @@ def build_json_integer_expr(field_name: str) -> str:
     )
 
 
+def build_json_integral_numeric_expr(field_name: str) -> str:
+    key, alias = field_name.split("|") if "|" in field_name else (field_name, field_name)
+    return (
+        f"CASE WHEN NULLIF(payload->>'{key}', '') ~ '^[-+]?(\\d+(\\.0+)?|\\.0+)$' "
+        f"THEN ((payload->>'{key}')::numeric)::integer END AS {alias}"
+    )
+
+
 def build_json_date_expr(field_name: str) -> str:
     key, alias = field_name.split("|") if "|" in field_name else (field_name, field_name)
     return (
@@ -636,6 +653,7 @@ def build_view_column_expr(column_type: str, field_name: str) -> str:
         "text": build_json_text_expr,
         "numeric": build_json_numeric_expr,
         "integer": build_json_integer_expr,
+        "integral_numeric": build_json_integral_numeric_expr,
         "date": build_json_date_expr,
         "coalesce_text": build_json_coalesce_text_expr,
     }
@@ -858,6 +876,7 @@ def resolve_business_key(dataset_name: str, payload: dict) -> str:
     preferred_keys = {
         "stock_basic": ["ts_code"],
         "stock_company": ["ts_code"],
+        "stock_holdernumber": ["ts_code", "end_date", "ann_date"],
         "daily": ["ts_code", "trade_date"],
         "daily_basic": ["ts_code", "trade_date"],
         "index_dailybasic": ["ts_code", "trade_date"],
@@ -1230,6 +1249,51 @@ def fetch_namechange(pro) -> pd.DataFrame:
             logger.warning(f"fetch_namechange failed at offset {offset}: {e}")
             break
     return combine_frames(frames)
+
+
+def _iter_date_chunks(start_date: str, end_date: str, chunk_days: int = 14) -> list[tuple[str, str]]:
+    start = datetime.strptime(start_date, "%Y%m%d").date()
+    end = datetime.strptime(end_date, "%Y%m%d").date()
+    if start > end:
+        return []
+    if (end - start).days <= 31:
+        return [(start_date, end_date)]
+
+    windows = []
+    current = start
+    step = max(1, int(chunk_days))
+    while current <= end:
+        chunk_end = min(current + timedelta(days=step - 1), end)
+        windows.append((current.strftime("%Y%m%d"), chunk_end.strftime("%Y%m%d")))
+        current = chunk_end + timedelta(days=1)
+    return windows
+
+
+def _filter_dataframe_date_column(df: pd.DataFrame, column_name: str, start_date: str, end_date: str) -> pd.DataFrame:
+    if df is None or df.empty or column_name not in df.columns:
+        return pd.DataFrame() if df is None else df.copy()
+
+    normalized = df[column_name].astype(str).str.replace("-", "", regex=False).str.slice(0, 8)
+    mask = normalized.str.fullmatch(r"\d{8}") & (normalized >= start_date) & (normalized <= end_date)
+    return df.loc[mask].copy()
+
+
+def fetch_stock_holdernumber(pro, start_date: str, end_date: str) -> pd.DataFrame:
+    frames = []
+    for window_start, window_end in _iter_date_chunks(start_date, end_date, chunk_days=14):
+        df = pro.stk_holdernumber(start_date=window_start, end_date=window_end)
+        df = _filter_dataframe_date_column(df, "ann_date", window_start, window_end)
+        if df is not None and not df.empty:
+            frames.append(df)
+        time.sleep(DEFAULT_API_SLEEP)
+
+    result = combine_frames(frames)
+    if result.empty:
+        return result
+    subset_cols = [col for col in ["ts_code", "end_date", "ann_date"] if col in result.columns]
+    if subset_cols:
+        result = result.drop_duplicates(subset=subset_cols, keep="last")
+    return result.reset_index(drop=True)
 
 
 def filter_active_stock_basic(stock_basic_df: pd.DataFrame) -> pd.DataFrame:
@@ -1935,6 +1999,14 @@ def fetch_index_dailybasic(pro, start_date: str, end_date: str, index_codes: lis
 
 
 def resolve_sync_window(engine: Engine, dataset_name: str, table_name: str, args, run_end_date: str) -> tuple[str | None, str]:
+    if dataset_name in ANNOUNCEMENT_DATASETS:
+        start_date = resolve_incremental_start_date(
+            args.financial_start,
+            get_max_date(engine, table_name, "ann_date"),
+            next_day=True,
+        )
+        return start_date, run_end_date
+
     if dataset_name in FINANCIAL_DATASETS:
         start_date = resolve_incremental_start_date(
             args.financial_start,
@@ -1969,6 +2041,11 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
             raw_df = fetch_stock_company(pro)
         elif dataset_name == "namechange":
             raw_df = fetch_namechange(pro)
+        elif dataset_name == "stock_holdernumber":
+            if start_date is None or start_date > end_date:
+                raw_df = pd.DataFrame()
+            else:
+                raw_df = fetch_stock_holdernumber(pro, start_date, end_date)
         elif dataset_name in FINANCIAL_DATASETS:
             if args.backfill_missing_history:
                 written = fetch_financial_dataset_missing_history(pro, engine, dataset_name, table_name, run_end_date)

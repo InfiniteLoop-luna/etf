@@ -7444,12 +7444,13 @@ def render_security_search_tab():
         metric_cols_top[3].metric("PB", format_optional_number(profile.get('pb')))
         metric_cols_top[4].metric("总市值(亿元)", format_optional_number(profile.get('total_mv'), scale=10000.0))
 
-        metric_cols_bottom = st.columns(5)
+        metric_cols_bottom = st.columns(6)
         metric_cols_bottom[0].metric("ROE(%)", format_optional_number(profile.get('roe')))
         metric_cols_bottom[1].metric("ROA(%)", format_optional_number(profile.get('roa')))
         metric_cols_bottom[2].metric("毛利率(%)", format_optional_number(profile.get('gross_margin')))
         metric_cols_bottom[3].metric("净利润(亿元)", format_optional_number(profile.get('n_income'), scale=100000000.0))
         metric_cols_bottom[4].metric("经营现金流(亿元)", format_optional_number(profile.get('n_cashflow_act'), scale=100000000.0))
+        metric_cols_bottom[5].metric("最新股东人数", format_optional_number(profile.get('holder_num'), digits=0))
 
         render_security_trend_analysis(trend_analysis, selected_type)
 
@@ -7472,6 +7473,8 @@ def render_security_search_tab():
                     {"字段": "最近财报期", "值": format_optional_date(profile.get('fina_end_date'))},
                     {"字段": "最近利润期", "值": format_optional_date(profile.get('income_end_date'))},
                     {"字段": "最近资产负债表期", "值": format_optional_date(profile.get('balance_end_date'))},
+                    {"字段": "股东人数截止日", "值": format_optional_date(profile.get('holder_end_date'))},
+                    {"字段": "股东人数公告日", "值": format_optional_date(profile.get('holder_ann_date'))},
                     {"字段": "总资产(亿元)", "值": format_optional_number(profile.get('total_assets'), scale=100000000.0)},
                     {"字段": "总负债(亿元)", "值": format_optional_number(profile.get('total_liab'), scale=100000000.0)},
                 ]),
