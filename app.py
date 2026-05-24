@@ -7526,9 +7526,9 @@ def render_user_watchlist_tab() -> None:
     col2.metric("今日表现", f"📈 {up_count}上涨 / 📉 {down_count}下跌")
     col3.metric("平均趋势得分", f"{avg_trend:.1f}" if pd.notna(avg_trend) else "-")
     if max_up is not None and max_up['涨跌幅(%)'] > 0:
-        col4.metric("最大领涨", f"{max_up['名称']}", f"{max_up['涨跌幅(%)']:.2f}%")
+        col4.metric("最大领涨", f"{max_up['名称']}", f"{max_up['涨跌幅(%)']:.2f}%", delta_color="inverse")
     elif max_down is not None:
-        col4.metric("最大领跌", f"{max_down['名称']}", f"{max_down['涨跌幅(%)']:.2f}%")
+        col4.metric("最大领跌", f"{max_down['名称']}", f"{max_down['涨跌幅(%)']:.2f}%", delta_color="inverse")
         
     st.divider()
 
