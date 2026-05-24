@@ -2169,6 +2169,14 @@ def format_optional_date(value) -> str:
     return pd.to_datetime(value).strftime('%Y-%m-%d')
 
 
+def format_holder_number_metric(value, end_date) -> tuple[str, str | None]:
+    value_text = format_optional_number(value, digits=0)
+    end_date_text = format_optional_date(end_date)
+    if end_date_text == "-":
+        return value_text, None
+    return value_text, f"截止 {end_date_text}"
+
+
 def clamp_value(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
@@ -7450,7 +7458,11 @@ def render_security_search_tab():
         metric_cols_bottom[2].metric("毛利率(%)", format_optional_number(profile.get('gross_margin')))
         metric_cols_bottom[3].metric("净利润(亿元)", format_optional_number(profile.get('n_income'), scale=100000000.0))
         metric_cols_bottom[4].metric("经营现金流(亿元)", format_optional_number(profile.get('n_cashflow_act'), scale=100000000.0))
-        metric_cols_bottom[5].metric("最新股东人数", format_optional_number(profile.get('holder_num'), digits=0))
+        holder_metric_value, holder_metric_delta = format_holder_number_metric(
+            profile.get('holder_num'),
+            profile.get('holder_end_date'),
+        )
+        metric_cols_bottom[5].metric("最新股东人数", holder_metric_value, holder_metric_delta)
 
         render_security_trend_analysis(trend_analysis, selected_type)
 

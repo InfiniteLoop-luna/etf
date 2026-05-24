@@ -139,5 +139,23 @@ class StockProfileHolderNumberTests(unittest.TestCase):
         self.assertIn("vw_ts_stock_holdernumber", captured["sql"])
 
 
+class HolderNumberDisplayTests(unittest.TestCase):
+    def test_format_holder_number_metric_appends_end_date(self):
+        from app import format_holder_number_metric
+
+        value_text, delta_text = format_holder_number_metric(457610, "2026-03-31")
+
+        self.assertEqual(value_text, "457,610")
+        self.assertEqual(delta_text, "截止 2026-03-31")
+
+    def test_format_holder_number_metric_handles_missing_date(self):
+        from app import format_holder_number_metric
+
+        value_text, delta_text = format_holder_number_metric(59942, None)
+
+        self.assertEqual(value_text, "59,942")
+        self.assertIsNone(delta_text)
+
+
 if __name__ == "__main__":
     unittest.main()
