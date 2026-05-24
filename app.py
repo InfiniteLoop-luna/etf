@@ -7389,6 +7389,7 @@ def load_watchlist_enriched_data(ts_codes: tuple, security_types: tuple) -> pd.D
             support = np.nan
             resistance = np.nan
             signal_label = ""
+            sparkline_prices = []
             
             if ts_df is not None and not ts_df.empty and 'close' in ts_df.columns:
                 trend = build_security_trend_analysis(ts_df, sec_type)
@@ -7402,6 +7403,9 @@ def load_watchlist_enriched_data(ts_codes: tuple, security_types: tuple) -> pd.D
                         curr_close = ts_sorted['close'].iloc[-1]
                         if prev_close and prev_close > 0:
                             ret_1d = (curr_close / prev_close - 1) * 100
+                            
+                    if len(ts_sorted) > 0:
+                        sparkline_prices = ts_sorted['close'].tail(20).tolist()
                     
                     ret_5d = trend.get("ret_5", np.nan) * 100
                     ret_20d = trend.get("ret_20", np.nan) * 100
@@ -7442,12 +7446,37 @@ def load_watchlist_enriched_data(ts_codes: tuple, security_types: tuple) -> pd.D
                 "趋势得分": trend_score,
                 "RSI14": rsi14,
                 "操作信号": signal_label,
+                "sparkline_prices": sparkline_prices,
             })
         except Exception as e:
             logger.warning(f"Error loading enriched data for {code}: {e}")
             continue
             
     return pd.DataFrame(rows)
+
+def generate_sparkline_svg(prices, is_up=True):
+    if not prices or len(prices) < 2:
+        return ""
+    w = 120
+    h = 30
+    min_p = min(prices)
+    max_p = max(prices)
+    
+    color = "var(--ws-color-up)" if is_up else "var(--ws-color-down)"
+    
+    if max_p == min_p:
+        points = f"0,{h/2} {w},{h/2}"
+    else:
+        pts = []
+        for i, p in enumerate(prices):
+            x = i / (len(prices) - 1) * w
+            y = h - ((p - min_p) / (max_p - min_p) * h)
+            pts.append(f"{x:.1f},{y:.1f}")
+        points = " ".join(pts)
+        
+    return f'''<svg viewBox="0 0 {w} {h}" width="100%" height="30px" preserveAspectRatio="none">
+        <polyline points="{points}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>'''
 
 
 def render_user_watchlist_tab() -> None:
@@ -7574,6 +7603,10 @@ def render_user_watchlist_tab() -> None:
                 str_price = f"{row['最新价']:.2f}" if pd.notna(row['最新价']) else "-"
                 str_1d = f"{ret_1d:+.2f}%" if pd.notna(ret_1d) else "-"
                 
+                sparkline_html = ""
+                if isinstance(row.get('sparkline_prices'), list) and len(row.get('sparkline_prices')) > 0:
+                    sparkline_html = generate_sparkline_svg(row['sparkline_prices'], is_up=(pd.notna(ret_1d) and ret_1d >= 0))
+                
                 card_html = f"""
                 <div style="
                     border: 1px solid var(--ws-border-soft);
@@ -7590,6 +7623,9 @@ def render_user_watchlist_tab() -> None:
                     <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;">
                         <span style="font-size: 24px; font-weight: 700; color: {color_1d};">{str_price}</span>
                         <span style="font-size: 14px; font-weight: 600; color: {color_1d};">{str_1d}</span>
+                    </div>
+                    <div style="margin-bottom: 12px; opacity: 0.85;">
+                        {sparkline_html}
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; font-size: 12px;">
                         <div>
