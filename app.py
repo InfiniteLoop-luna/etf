@@ -7378,7 +7378,7 @@ def load_watchlist_enriched_data(ts_codes: tuple, security_types: tuple) -> pd.D
             name = profile.get("name") or code
             pe_ttm = profile.get("pe_ttm")
             pb = profile.get("pb")
-            total_mv = profile.get("total_mv", 0) / 100000000.0 if profile.get("total_mv") else None
+            total_mv = profile.get("total_mv", 0) / 10000.0 if profile.get("total_mv") else None
             roe = profile.get("roe")
             
             ret_1d, ret_5d, ret_20d = np.nan, np.nan, np.nan
