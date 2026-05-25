@@ -271,7 +271,8 @@ def generate_detailed_report(ts_code: str, stock_name: str, engine=None) -> str:
     if engine is not None:
         from src.distribution_report_store import get_daily_report, save_daily_report
         cached = get_daily_report(engine, symbol, today_str)
-        if cached:
+        # 如果缓存是不包含实质性数据的错误报告，则作废缓存重新拉取
+        if cached and "无K线数据" not in cached:
             return cached
 
     md = [f"# {stock_name} ({ts_code}) 主力出货深度分析报告",
