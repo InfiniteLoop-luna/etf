@@ -333,6 +333,15 @@ def is_user_logged_in() -> bool:
 def login_app_user(username: str) -> bool:
     normalized_username = normalize_username(username)
     st.session_state["logged_in_username"] = normalized_username
+    
+    if normalized_username:
+        try:
+            engine = get_security_intraday_engine_cached()
+            if engine is not None:
+                preload_watchlist_reports_bg(normalized_username, engine)
+        except Exception as e:
+            logger.warning(f"Failed to start preload background task: {e}")
+            
     return bool(normalized_username)
 
 
@@ -7478,6 +7487,59 @@ def generate_sparkline_svg(prices, is_up=True):
     return f'''<svg viewBox="0 0 {w} {h}" width="100%" height="30px" preserveAspectRatio="none">
         <polyline points="{points}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>'''
+
+
+def preload_watchlist_reports_bg(username: str, engine) -> None:
+    """在后台静默为用户的自选股自动生成并缓存深度出货报告"""
+    import threading
+    import time
+    from datetime import datetime
+
+    def _worker():
+        try:
+            logger.info(f"Started background report preload for {username}")
+            from src.user_watchlist_store import list_watchlist_items
+            df = list_watchlist_items(username, engine)
+            if df.empty:
+                return
+
+            from src.distribution_analyzer import generate_detailed_report
+            from src.distribution_report_store import get_daily_report
+            
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            
+            for _, row in df.iterrows():
+                ts_code = row.get('ts_code', '')
+                if not ts_code:
+                    continue
+                
+                # 简单过滤：跳过明显是ETF/指数的代码
+                if ts_code.startswith("51") or ts_code.startswith("15") or ts_code.startswith("000001.SH"):
+                    continue
+                    
+                symbol = ts_code.split('.')[0]
+                stock_name = row.get('name', symbol)
+                
+                # 如果今日已缓存，则跳过
+                if get_daily_report(engine, symbol, today_str):
+                    continue
+                
+                try:
+                    logger.info(f"Preloading distribution report for {ts_code}")
+                    generate_detailed_report(ts_code, stock_name, engine=engine)
+                except Exception as e:
+                    logger.debug(f"Preload failed for {ts_code}: {e}")
+                
+                # 适当休眠，避免请求过于密集触发服务端封禁
+                time.sleep(3)
+                
+            logger.info(f"Finished background report preload for {username}")
+        except Exception as e:
+            logger.error(f"Background preload crashed: {e}")
+
+    # 启动守护线程，不阻塞主程序
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
 
 
 @st.dialog("📄 主力出货深度分析报告", width="large")
