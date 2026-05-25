@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import logging
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 
 from src.sync_tushare_security_data import build_db_url
@@ -20,21 +20,11 @@ def get_engine() -> Engine:
 
 
 def _column_exists(engine: Engine, table_name: str, column_name: str) -> bool:
-    sql = text(
-        """
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = :table_name
-          AND column_name = :column_name
-        LIMIT 1
-        """
-    )
-    with engine.connect() as conn:
-        return conn.execute(
-            sql,
-            {"table_name": table_name, "column_name": column_name},
-        ).scalar() is not None
+    try:
+        inspector = inspect(engine)
+        return any(str(column.get("name") or "") == column_name for column in inspector.get_columns(table_name))
+    except Exception:
+        return False
 
 
 def _ensure_report_table_schema(engine: Engine):
@@ -103,6 +93,11 @@ def _normalize_trade_date(trade_date: str | None) -> str:
     if len(trade_date_text) == 8 and trade_date_text.isdigit():
         return f"{trade_date_text[:4]}-{trade_date_text[4:6]}-{trade_date_text[6:]}"
     return trade_date_text[:10]
+
+
+def _compact_trade_date(trade_date: str | None) -> str:
+    normalized = _normalize_trade_date(trade_date)
+    return normalized.replace("-", "") if normalized else ""
 
 
 def get_daily_report(engine: Engine, ts_code: str, trade_date: str) -> str | None:
@@ -315,9 +310,22 @@ def get_compressed_ticks(engine: Engine, ts_code: str, trade_date: str) -> pd.Da
     try:
         ensure_tables(engine)
         trade_date_key = _normalize_trade_date(trade_date)
-        sql = text(f"SELECT parquet_data FROM {TICKS_TABLE} WHERE ts_code = :ts AND trade_date = :td")
+        compact_trade_date_key = _compact_trade_date(trade_date)
+        sql = text(
+            f"""
+            SELECT parquet_data
+            FROM {TICKS_TABLE}
+            WHERE ts_code = :ts
+              AND (trade_date = :td OR trade_date = :compact_td)
+            ORDER BY CASE WHEN trade_date = :td THEN 0 ELSE 1 END, created_at DESC
+            LIMIT 1
+            """
+        )
         with engine.connect() as conn:
-            result = conn.execute(sql, {"ts": ts_code, "td": trade_date_key}).fetchone()
+            result = conn.execute(
+                sql,
+                {"ts": ts_code, "td": trade_date_key, "compact_td": compact_trade_date_key},
+            ).fetchone()
             if result and result[0]:
                 buf = io.BytesIO(result[0])
                 df = pd.read_pickle(buf, compression='gzip')

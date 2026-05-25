@@ -133,7 +133,7 @@ def refresh_watchlist_distribution_reports(
                 stock_name,
                 engine=engine,
                 asof_trade_date=latest_source_trade_date,
-                allow_live_fetch=False,
+                allow_live_fetch=True,
             )
             save_daily_report(engine, ts_code, latest_source_trade_date, report_md)
             duration_ms = int((time.time() - started_at) * 1000)

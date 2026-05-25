@@ -3,6 +3,8 @@ from datetime import date
 from unittest.mock import Mock, patch
 
 import pandas as pd
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 
 from src.distribution_analyzer import (
     analyze_tick_data,
@@ -20,6 +22,13 @@ from app import (
 
 
 class DistributionAnalyzerTests(unittest.TestCase):
+    def _build_sqlite_engine(self):
+        return create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+
     def test_analyze_tick_data_exposes_big_order_pct(self):
         tick_df = pd.DataFrame(
             {
@@ -218,6 +227,26 @@ class DistributionAnalyzerTests(unittest.TestCase):
         self.assertEqual(mock_fetch_minutes.call_count, 4)
         called_dates = [call.args[1] for call in mock_fetch_transactions.call_args_list]
         self.assertEqual(called_dates, sorted(called_dates)[-4:])
+
+    @patch("src.distribution_analyzer.create_client", side_effect=AssertionError("client should not be created"))
+    def test_fetch_transactions_reads_compact_date_ticks_from_db_cache(self, _mock_create_client):
+        from src.distribution_report_store import ensure_tables, save_compressed_ticks
+
+        engine = self._build_sqlite_engine()
+        ensure_tables(engine)
+        tick_df = pd.DataFrame(
+            {
+                "price": [10.0, 10.1],
+                "vol": [100, 200],
+                "buyorsell": [0, 1],
+            }
+        )
+        save_compressed_ticks(engine, "000733", "20260522", tick_df)
+
+        result = fetch_transactions("000733.SZ", "20260522", engine=engine, allow_live_fetch=False)
+
+        self.assertEqual(len(result), 2)
+        self.assertListEqual(list(result["price"]), [10.0, 10.1])
 
     @patch("src.distribution_analyzer.create_client", side_effect=AssertionError("client should not be created"))
     def test_fetch_transactions_skips_live_fallback_for_stale_dates(self, _mock_create_client):
