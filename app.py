@@ -7685,7 +7685,20 @@ def render_user_watchlist_tab() -> None:
                     {f'<div style="margin-top: 8px; font-size: 12px; color: #ff4b4b; font-weight: bold; padding: 6px; border: 1px solid rgba(255, 75, 75, 0.3); border-radius: 6px; background-color: rgba(255, 75, 75, 0.05); line-height: 1.4;">{row.get("主力异动")}</div>' if row.get("主力异动") else ""}
                 </div>
                 """
-                st.markdown(card_html, unsafe_allow_html=True)
+                st.html(card_html)
+                
+                report_key = f"dist_report_kanban_{row['代码']}"
+                if st.button("🔮 深度出货分析", key=f"btn_dist_kanban_{row['代码']}", use_container_width=True):
+                    with st.spinner("🚀 拉取数据中(需~15秒)..."):
+                        try:
+                            from src.distribution_analyzer import generate_detailed_report
+                            st.session_state[report_key] = generate_detailed_report(row['代码'], row['名称'])
+                        except Exception as e:
+                            st.error(f"生成失败: {e}")
+                
+                if report_key in st.session_state:
+                    with st.expander("📄 查看详细报告", expanded=True):
+                        st.markdown(st.session_state[report_key])
 
     # 跳转到个股详情
     st.markdown("### 🔍 跳转与管理")
@@ -7952,6 +7965,22 @@ def render_security_search_tab():
         st.markdown("##### 📜 主营与产品")
         st.info(f"**主要业务**：{profile.get('main_business') or '-'}")
         st.info(f"**产品及业务范围**：{profile.get('business_scope') or '-'}")
+
+        st.markdown("##### 🚨 主力出货深度分析")
+        st.info("通过分析近半年的日K线、近期分时和逐笔大单数据，诊断该股是否有主力出逃迹象。需要下载大量明细数据，**大约耗时 15~30 秒**。")
+        report_key = f"dist_report_{selected_code}"
+        if st.button(f"🔮 生成【{title_name}】深度出货报告", key=f"btn_dist_{selected_code}"):
+            with st.spinner("🚀 正在全力拉取分时和分笔成交数据，请耐心等待..."):
+                try:
+                    from src.distribution_analyzer import generate_detailed_report
+                    st.session_state[report_key] = generate_detailed_report(selected_code, title_name)
+                except Exception as e:
+                    st.error(f"生成报告时发生错误: {e}")
+        
+        if report_key in st.session_state:
+            with st.expander("📄 查看详细分析报告", expanded=True):
+                st.markdown(st.session_state[report_key])
+
 
         top10_cache = st.session_state.setdefault("security_top10_cache", {})
         top10_pack = top10_cache.get(selected_code)
