@@ -7699,7 +7699,8 @@ def render_user_watchlist_tab() -> None:
                             from src.distribution_analyzer import generate_detailed_report
                             st.session_state[report_key] = generate_detailed_report(row['代码'], row['名称'])
                         except Exception as e:
-                            st.error(f"生成失败: {e}")
+                            import traceback
+                            st.error(f"生成失败: {e}\n\n```python\n{traceback.format_exc()}\n```")
                 
                 if report_key in st.session_state:
                     with st.expander("📄 查看详细报告", expanded=True):
@@ -7980,7 +7981,8 @@ def render_security_search_tab():
                     from src.distribution_analyzer import generate_detailed_report
                     st.session_state[report_key] = generate_detailed_report(selected_code, title_name)
                 except Exception as e:
-                    st.error(f"生成报告时发生错误: {e}")
+                    import traceback
+                    st.error(f"生成报告时发生错误: {e}\n\n```python\n{traceback.format_exc()}\n```")
         
         if report_key in st.session_state:
             with st.expander("📄 查看详细分析报告", expanded=True):
