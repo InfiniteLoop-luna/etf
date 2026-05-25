@@ -20,7 +20,7 @@ warnings.filterwarnings("ignore")
 
 def create_client():
     from mootdx.quotes import Quotes
-    client = Quotes.factory(market='std', timeout=10, heartbeat=True, auto_retry=True)
+    client = Quotes.factory(market='std', timeout=10)
     return client
 
 def close_client(client):

@@ -7639,7 +7639,11 @@ def render_user_watchlist_tab() -> None:
                     margin-bottom: 16px;
                     background: var(--ws-bg-surface);
                     box-shadow: var(--ws-shadow-sm);
+                    min-height: 330px;
+                    display: flex;
+                    flex-direction: column;
                 ">
+                    <div style="flex-grow: 1;">
                     <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
                         <span style="font-size: 16px; font-weight: 600; color: var(--ws-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['名称']}</span>
                         <span style="font-size: 12px; color: var(--ws-text-muted);">{row['代码']}</span>
@@ -7682,7 +7686,8 @@ def render_user_watchlist_tab() -> None:
                         <span style="color: var(--ws-text-muted);">信号</span>
                         <span style="font-weight: 600; color: var(--ws-text-main);">{str_signal}</span>
                     </div>
-                    {f'<div style="margin-top: 8px; font-size: 12px; color: #ff4b4b; font-weight: bold; padding: 6px; border: 1px solid rgba(255, 75, 75, 0.3); border-radius: 6px; background-color: rgba(255, 75, 75, 0.05); line-height: 1.4;">{row.get("主力异动")}</div>' if row.get("主力异动") else ""}
+                    </div>
+                    {f'<div style="margin-top: auto; font-size: 12px; color: #ff4b4b; font-weight: bold; padding: 6px; border: 1px solid rgba(255, 75, 75, 0.3); border-radius: 6px; background-color: rgba(255, 75, 75, 0.05); line-height: 1.4;">{row.get("主力异动")}</div>' if row.get("主力异动") else ""}
                 </div>
                 """
                 st.html(card_html)
