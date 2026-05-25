@@ -75,6 +75,11 @@ if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/
   echo "[$(date -Is)] etf-data-update: warning - update_distribution_alerts.py failed, skip and continue"
 fi
 
+echo "[$(date -Is)] etf-data-update: run update_watchlist_distribution_reports.py"
+if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/update_watchlist_distribution_reports.py; then
+  echo "[$(date -Is)] etf-data-update: warning - update_watchlist_distribution_reports.py failed, skip and continue"
+fi
+
 echo "[$(date -Is)] etf-data-update: restart streamlit"
 systemctl restart etf-streamlit
 

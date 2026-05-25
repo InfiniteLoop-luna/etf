@@ -171,6 +171,8 @@ from src.user_watchlist_store import (
     remove_watchlist_item,
 )
 from src.distribution_alert_store import get_latest_alerts_for_stocks
+from src.distribution_report_store import get_daily_report, get_report_status
+from src.watchlist_distribution_refresh import refresh_watchlist_distribution_reports
 
 try:
     from src.security_trend_model import (
@@ -360,17 +362,20 @@ def render_user_login_status() -> None:
                 st.rerun()
             st.caption("当前版本为轻量登录：只需要用户名，不校验密码。")
         else:
-            login_cols = st.columns([3, 1])
-            username_input = login_cols[0].text_input(
-                "用户名",
-                placeholder="输入用户名后登录",
-                key="app_login_username_input",
-            )
-            if login_cols[1].button("登录", type="primary", key="btn_user_login"):
-                if login_app_user(username_input):
+            with st.form("app_user_login_form", clear_on_submit=False):
+                username_input = st.text_input(
+                    "用户名",
+                    placeholder="输入用户名后登录",
+                    key="app_login_username_input",
+                )
+                submitted = st.form_submit_button("登录", type="primary")
+            if submitted:
+                login_value = st.session_state.get("app_login_username_input", username_input)
+                if login_app_user(login_value):
                     st.success(f"登录成功，欢迎你：{get_logged_in_username()}")
                     st.rerun()
-                st.error("用户名不能为空")
+                else:
+                    st.error("用户名不能为空")
             st.caption("登录后可使用自选管理，并在个股查询页把股票加入自选。")
 
 
@@ -7490,50 +7495,14 @@ def generate_sparkline_svg(prices, is_up=True):
 
 
 def preload_watchlist_reports_bg(username: str, engine) -> None:
-    """在后台静默为用户的自选股自动生成并缓存深度出货报告"""
+    """在后台静默触发全站自选股深度出货缓存增量刷新。"""
     import threading
-    import time
-    from datetime import datetime
 
     def _worker():
         try:
-            logger.info(f"Started background report preload for {username}")
-            from src.user_watchlist_store import list_watchlist_items
-            df = list_watchlist_items(username, engine)
-            if df.empty:
-                return
-
-            from src.distribution_analyzer import generate_detailed_report
-            from src.distribution_report_store import get_daily_report
-            
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            
-            for _, row in df.iterrows():
-                ts_code = row.get('ts_code', '')
-                if not ts_code:
-                    continue
-                
-                # 简单过滤：跳过明显是ETF/指数的代码
-                if ts_code.startswith("51") or ts_code.startswith("15") or ts_code.startswith("000001.SH"):
-                    continue
-                    
-                symbol = ts_code.split('.')[0]
-                stock_name = row.get('name', symbol)
-                
-                # 如果今日已缓存，则跳过
-                if get_daily_report(engine, symbol, today_str):
-                    continue
-                
-                try:
-                    logger.info(f"Preloading distribution report for {ts_code}")
-                    generate_detailed_report(ts_code, stock_name, engine=engine)
-                except Exception as e:
-                    logger.debug(f"Preload failed for {ts_code}: {e}")
-                
-                # 适当休眠，避免请求过于密集触发服务端封禁
-                time.sleep(3)
-                
-            logger.info(f"Finished background report preload for {username}")
+            logger.info(f"Started background watchlist distribution refresh for {username}")
+            refresh_watchlist_distribution_reports(engine)
+            logger.info(f"Finished background watchlist distribution refresh for {username}")
         except Exception as e:
             logger.error(f"Background preload crashed: {e}")
 
@@ -7545,6 +7514,23 @@ def preload_watchlist_reports_bg(username: str, engine) -> None:
 @st.dialog("📄 主力出货深度分析报告", width="large")
 def show_distribution_report_dialog(report_md: str):
     st.markdown(report_md)
+
+
+def _get_distribution_report_state(ts_code: str, engine) -> dict:
+    ts_code_key = str(ts_code or "").strip().upper()
+    if not ts_code_key or engine is None:
+        return {"status": "missing", "ready": False, "trade_date": None, "report_md": None}
+
+    status = get_report_status(engine, ts_code_key) or {}
+    ready_trade_date = status.get("latest_ready_trade_date")
+    report_md = get_daily_report(engine, ts_code_key, ready_trade_date) if ready_trade_date else None
+    return {
+        "status": str(status.get("status") or "idle"),
+        "ready": bool(report_md),
+        "trade_date": ready_trade_date,
+        "report_md": report_md,
+        "error_message": status.get("error_message"),
+    }
 
 def render_user_watchlist_tab() -> None:
     st.subheader("⭐ 自选管理")
@@ -7560,6 +7546,8 @@ def render_user_watchlist_tab() -> None:
     except Exception as exc:
         st.error(f"加载自选列表失败：{exc}")
         return
+
+    report_engine = get_security_intraday_engine_cached()
 
     if watchlist_df is None or watchlist_df.empty:
         st.info("你的自选还是空的，先去个股/指数查询页加几只吧～")
@@ -7758,31 +7746,23 @@ def render_user_watchlist_tab() -> None:
                 """
                 st.html(card_html)
                 
-                if st.button("🔮 深度出货分析", key=f"btn_dist_kanban_{row['代码']}", use_container_width=True):
-                    try:
-                        from src.distribution_analyzer import generate_detailed_report
-                        from src.distribution_report_store import get_daily_report
-                        from datetime import datetime as _dt
-                        engine = get_security_intraday_engine_cached()
-                        symbol = row['代码'].split('.')[0]
-                        today_str = _dt.now().strftime("%Y-%m-%d")
-                        
-                        # 先查缓存，有缓存直接秒开
-                        cached_md = None
-                        if engine is not None:
-                            cached_md = get_daily_report(engine, symbol, today_str)
-                            if cached_md and "无K线数据" in cached_md:
-                                cached_md = None
-                        
-                        if cached_md:
-                            show_distribution_report_dialog(cached_md)
-                        else:
-                            with st.spinner("🚀 首次生成中(需~15秒)，后续点击将秒开..."):
-                                report_md = generate_detailed_report(row['代码'], row['名称'], engine=engine)
-                                show_distribution_report_dialog(report_md)
-                    except Exception as e:
-                        import traceback
-                        st.error(f"生成失败: {e}\n\n```python\n{traceback.format_exc()}\n```")
+                report_state = _get_distribution_report_state(row["代码"], report_engine)
+                status_text = "后台等待刷新"
+                if report_state["ready"]:
+                    status_text = f"最近报告: {report_state['trade_date']}"
+                elif report_state["status"] == "running":
+                    status_text = "后台更新中"
+                elif report_state["status"] == "failed":
+                    status_text = "生成失败"
+                st.caption(status_text)
+
+                if st.button(
+                    "🔮 深度出货分析",
+                    key=f"btn_dist_kanban_{row['代码']}",
+                    use_container_width=True,
+                    disabled=not report_state["ready"],
+                ):
+                    show_distribution_report_dialog(report_state["report_md"])
 
     # 跳转到个股详情
     st.markdown("### 🔍 跳转与管理")
@@ -8051,31 +8031,23 @@ def render_security_search_tab():
         st.info(f"**产品及业务范围**：{profile.get('business_scope') or '-'}")
 
         st.markdown("##### 🚨 主力出货深度分析")
-        st.info("通过分析近半年的日K线、近期分时和逐笔大单数据，诊断该股是否有主力出逃迹象。**已缓存时秒开，首次生成约需15~30秒。**")
-        if st.button(f"🔮 生成【{title_name}】深度出货报告", key=f"btn_dist_{selected_code}"):
-            try:
-                from src.distribution_analyzer import generate_detailed_report
-                from src.distribution_report_store import get_daily_report
-                from datetime import datetime as _dt
-                engine = get_security_intraday_engine_cached()
-                symbol = selected_code.split('.')[0]
-                today_str = _dt.now().strftime("%Y-%m-%d")
-                
-                cached_md = None
-                if engine is not None:
-                    cached_md = get_daily_report(engine, symbol, today_str)
-                    if cached_md and "无K线数据" in cached_md:
-                        cached_md = None
-                
-                if cached_md:
-                    show_distribution_report_dialog(cached_md)
-                else:
-                    with st.spinner("🚀 首次生成中(需~15秒)，后续点击将秒开..."):
-                        report_md = generate_detailed_report(selected_code, title_name, engine=engine)
-                        show_distribution_report_dialog(report_md)
-            except Exception as e:
-                import traceback
-                st.error(f"生成报告时发生错误: {e}\n\n```python\n{traceback.format_exc()}\n```")
+        st.info("报告改为后台增量刷新后生成。按钮仅在数据库中已有可用缓存时启用，点击后直接秒开缓存报告。")
+        detail_report_state = _get_distribution_report_state(selected_code, get_security_intraday_engine_cached())
+        if detail_report_state["ready"]:
+            st.caption(f"最近报告日期：{detail_report_state['trade_date']}")
+        elif detail_report_state["status"] == "running":
+            st.caption("后台更新中")
+        elif detail_report_state["status"] == "failed":
+            st.caption("最近一次生成失败，等待后台重试")
+        else:
+            st.caption("后台尚未生成可用报告")
+
+        if st.button(
+            f"🔮 查看【{title_name}】深度出货报告",
+            key=f"btn_dist_{selected_code}",
+            disabled=not detail_report_state["ready"],
+        ):
+            show_distribution_report_dialog(detail_report_state["report_md"])
 
 
         top10_cache = st.session_state.setdefault("security_top10_cache", {})
