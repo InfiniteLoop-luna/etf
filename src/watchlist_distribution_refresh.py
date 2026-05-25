@@ -11,6 +11,7 @@ from sqlalchemy.engine import Engine
 from src.distribution_analyzer import generate_detailed_report
 from src.distribution_report_store import (
     ensure_tables,
+    get_daily_report,
     get_report_status,
     save_daily_report,
     upsert_report_status,
@@ -95,9 +96,12 @@ def refresh_watchlist_distribution_reports(
             continue
 
         current_status = get_report_status(engine, ts_code) or {}
+        cached_report = get_daily_report(engine, ts_code, latest_source_trade_date)
+        has_cached_report = bool(cached_report)
         if (
             current_status.get("status") == "ready"
             and current_status.get("latest_ready_trade_date") == latest_source_trade_date
+            and has_cached_report
         ):
             upsert_report_status(
                 engine,
