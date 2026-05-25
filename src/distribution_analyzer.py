@@ -20,8 +20,21 @@ warnings.filterwarnings("ignore")
 
 def create_client():
     from mootdx.quotes import Quotes
-    client = Quotes.factory(market='std', timeout=10)
-    return client
+    
+    try:
+        # 尝试默认自动优选服务器（如果在某些系统权限下测速失败会导致 unpack 错误）
+        client = Quotes.factory(market='std', timeout=10)
+        return client
+    except ValueError as e:
+        if 'unpack' in str(e):
+            # 自动寻址失败，回退到固定服务器列表
+            from mootdx.consts import HQ_HOSTS
+            import random
+            # 从前 10 个服务器中随机选一个
+            host = random.choice(HQ_HOSTS[:10])
+            client = Quotes.factory(market='std', server=(host[1], host[2]), timeout=10)
+            return client
+        raise e
 
 def close_client(client):
     try:
