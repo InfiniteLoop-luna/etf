@@ -12,7 +12,11 @@ from src.distribution_analyzer import (
     generate_detailed_report,
     find_volume_price_signals,
 )
-from app import _get_distribution_report_state
+from app import (
+    _get_distribution_report_state,
+    queue_security_search_navigation,
+    should_show_distribution_report_section,
+)
 
 
 class DistributionAnalyzerTests(unittest.TestCase):
@@ -252,6 +256,24 @@ class DistributionAnalyzerTests(unittest.TestCase):
         self.assertEqual(state["report_md"], "# report")
         mock_get_report_status.assert_called_once_with(engine, "000733.SZ")
         mock_get_daily_report.assert_called_once_with(engine, "000733.SZ", "2026-05-23")
+
+    def test_queue_security_search_navigation_sets_sidebar_and_pending_keyword(self):
+        import app
+
+        with patch.object(app.st, "session_state", {}, create=True):
+            queue_security_search_navigation("000733.SZ", "stock")
+
+            self.assertEqual(app.st.session_state["pending_security_search_keyword"], "000733.SZ")
+            self.assertEqual(app.st.session_state["pending_security_search_type"], "股票")
+            self.assertEqual(app.st.session_state["sidebar_nav_group"], "股票")
+            self.assertEqual(app.st.session_state["sidebar_expanded_module_id"], "stock")
+            self.assertEqual(app.st.session_state["stock_subpage"], app.STOCK_SECURITY_SEARCH_LABEL)
+            self.assertTrue(app.st.session_state["jump_to_security_tab"])
+
+    def test_should_show_distribution_report_section_requires_stock_watchlist(self):
+        self.assertTrue(should_show_distribution_report_section("stock", True))
+        self.assertFalse(should_show_distribution_report_section("stock", False))
+        self.assertFalse(should_show_distribution_report_section("index", True))
 
 
 if __name__ == "__main__":

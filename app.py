@@ -7532,6 +7532,25 @@ def _get_distribution_report_state(ts_code: str, engine) -> dict:
         "error_message": status.get("error_message"),
     }
 
+
+def queue_security_search_navigation(ts_code: str, security_type: str) -> None:
+    code = str(ts_code or "").strip().upper()
+    if not code:
+        return
+
+    normalized_type = str(security_type or "").strip().lower()
+    st.session_state["pending_security_search_keyword"] = code
+    st.session_state["pending_security_search_type"] = "股票" if normalized_type == "stock" else "指数"
+    st.session_state["sidebar_nav_group"] = "股票"
+    st.session_state["sidebar_expanded_module_id"] = "stock"
+    st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
+    st.session_state["jump_to_security_tab"] = True
+
+
+def should_show_distribution_report_section(security_type: str, already_in_watchlist: bool) -> bool:
+    return str(security_type or "").strip().lower() == "stock" and bool(already_in_watchlist)
+
+
 def render_user_watchlist_tab() -> None:
     st.subheader("⭐ 自选管理")
     st.caption("登录后管理自己的自选股票，支持从个股查询页一键加入。全景数据总览，辅助投资决策。")
@@ -7776,8 +7795,7 @@ def render_user_watchlist_tab() -> None:
                 code = selected_for_detail.split("(")[-1].strip(")")
                 # 寻找类型
                 sec_row = display_df[display_df['代码'] == code].iloc[0]
-                st.session_state["pending_security_search_keyword"] = code
-                st.session_state["pending_security_search_type"] = "股票" if sec_row['security_type'] == 'stock' else "指数"
+                queue_security_search_navigation(code, sec_row["security_type"])
                 st.rerun()
 
     with action_cols[1]:
@@ -7947,11 +7965,11 @@ def render_security_search_tab():
     if selected_type == 'stock' and bool(profile.get('has_ever_st')):
         st.warning("🏷️ 标签：曾经ST")
 
+    already_in_watchlist = False
     if selected_type == 'stock':
         current_username = get_logged_in_username()
         watchlist_cols = st.columns([1.4, 2.2])
         if current_username:
-            already_in_watchlist = False
             try:
                 already_in_watchlist = is_in_watchlist(current_username, selected_code, selected_type)
             except Exception as watchlist_check_exc:
@@ -8030,24 +8048,25 @@ def render_security_search_tab():
         st.info(f"**主要业务**：{profile.get('main_business') or '-'}")
         st.info(f"**产品及业务范围**：{profile.get('business_scope') or '-'}")
 
-        st.markdown("##### 🚨 主力出货深度分析")
-        st.info("报告改为后台增量刷新后生成。按钮仅在数据库中已有可用缓存时启用，点击后直接秒开缓存报告。")
-        detail_report_state = _get_distribution_report_state(selected_code, get_security_intraday_engine_cached())
-        if detail_report_state["ready"]:
-            st.caption(f"最近报告日期：{detail_report_state['trade_date']}")
-        elif detail_report_state["status"] == "running":
-            st.caption("后台更新中")
-        elif detail_report_state["status"] == "failed":
-            st.caption("最近一次生成失败，等待后台重试")
-        else:
-            st.caption("后台尚未生成可用报告")
+        if should_show_distribution_report_section(selected_type, already_in_watchlist):
+            st.markdown("##### 🚨 主力出货深度分析")
+            st.info("报告改为后台增量刷新后生成。按钮仅在数据库中已有可用缓存时启用，点击后直接秒开缓存报告。")
+            detail_report_state = _get_distribution_report_state(selected_code, get_security_intraday_engine_cached())
+            if detail_report_state["ready"]:
+                st.caption(f"最近报告日期：{detail_report_state['trade_date']}")
+            elif detail_report_state["status"] == "running":
+                st.caption("后台更新中")
+            elif detail_report_state["status"] == "failed":
+                st.caption("最近一次生成失败，等待后台重试")
+            else:
+                st.caption("后台尚未生成可用报告")
 
-        if st.button(
-            f"🔮 查看【{title_name}】深度出货报告",
-            key=f"btn_dist_{selected_code}",
-            disabled=not detail_report_state["ready"],
-        ):
-            show_distribution_report_dialog(detail_report_state["report_md"])
+            if st.button(
+                f"🔮 查看【{title_name}】深度出货报告",
+                key=f"btn_dist_{selected_code}",
+                disabled=not detail_report_state["ready"],
+            ):
+                show_distribution_report_dialog(detail_report_state["report_md"])
 
 
         top10_cache = st.session_state.setdefault("security_top10_cache", {})
