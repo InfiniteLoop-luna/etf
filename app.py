@@ -7480,6 +7480,10 @@ def generate_sparkline_svg(prices, is_up=True):
     </svg>'''
 
 
+@st.dialog("📄 主力出货深度分析报告", width="large")
+def show_distribution_report_dialog(report_md: str):
+    st.markdown(report_md)
+
 def render_user_watchlist_tab() -> None:
     st.subheader("⭐ 自选管理")
     st.caption("登录后管理自己的自选股票，支持从个股查询页一键加入。全景数据总览，辅助投资决策。")
@@ -7692,20 +7696,16 @@ def render_user_watchlist_tab() -> None:
                 """
                 st.html(card_html)
                 
-                report_key = f"dist_report_kanban_{row['代码']}"
                 if st.button("🔮 深度出货分析", key=f"btn_dist_kanban_{row['代码']}", use_container_width=True):
                     with st.spinner("🚀 拉取数据中(需~15秒)..."):
                         try:
                             from src.distribution_analyzer import generate_detailed_report
                             engine = get_security_intraday_engine_cached()
-                            st.session_state[report_key] = generate_detailed_report(row['代码'], row['名称'], engine=engine)
+                            report_md = generate_detailed_report(row['代码'], row['名称'], engine=engine)
+                            show_distribution_report_dialog(report_md)
                         except Exception as e:
                             import traceback
                             st.error(f"生成失败: {e}\n\n```python\n{traceback.format_exc()}\n```")
-                
-                if report_key in st.session_state:
-                    with st.expander("📄 查看详细报告", expanded=True):
-                        st.markdown(st.session_state[report_key])
 
     # 跳转到个股详情
     st.markdown("### 🔍 跳转与管理")
@@ -7975,20 +7975,16 @@ def render_security_search_tab():
 
         st.markdown("##### 🚨 主力出货深度分析")
         st.info("通过分析近半年的日K线、近期分时和逐笔大单数据，诊断该股是否有主力出逃迹象。需要下载大量明细数据，**大约耗时 15~30 秒**。")
-        report_key = f"dist_report_{selected_code}"
         if st.button(f"🔮 生成【{title_name}】深度出货报告", key=f"btn_dist_{selected_code}"):
             with st.spinner("🚀 正在全力拉取分时和分笔成交数据，请耐心等待..."):
                 try:
                     from src.distribution_analyzer import generate_detailed_report
                     engine = get_security_intraday_engine_cached()
-                    st.session_state[report_key] = generate_detailed_report(selected_code, title_name, engine=engine)
+                    report_md = generate_detailed_report(selected_code, title_name, engine=engine)
+                    show_distribution_report_dialog(report_md)
                 except Exception as e:
                     import traceback
                     st.error(f"生成报告时发生错误: {e}\n\n```python\n{traceback.format_exc()}\n```")
-        
-        if report_key in st.session_state:
-            with st.expander("📄 查看详细分析报告", expanded=True):
-                st.markdown(st.session_state[report_key])
 
 
         top10_cache = st.session_state.setdefault("security_top10_cache", {})
