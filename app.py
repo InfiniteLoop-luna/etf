@@ -7759,15 +7759,30 @@ def render_user_watchlist_tab() -> None:
                 st.html(card_html)
                 
                 if st.button("🔮 深度出货分析", key=f"btn_dist_kanban_{row['代码']}", use_container_width=True):
-                    with st.spinner("🚀 拉取数据中(需~15秒)..."):
-                        try:
-                            from src.distribution_analyzer import generate_detailed_report
-                            engine = get_security_intraday_engine_cached()
-                            report_md = generate_detailed_report(row['代码'], row['名称'], engine=engine)
-                            show_distribution_report_dialog(report_md)
-                        except Exception as e:
-                            import traceback
-                            st.error(f"生成失败: {e}\n\n```python\n{traceback.format_exc()}\n```")
+                    try:
+                        from src.distribution_analyzer import generate_detailed_report
+                        from src.distribution_report_store import get_daily_report
+                        from datetime import datetime as _dt
+                        engine = get_security_intraday_engine_cached()
+                        symbol = row['代码'].split('.')[0]
+                        today_str = _dt.now().strftime("%Y-%m-%d")
+                        
+                        # 先查缓存，有缓存直接秒开
+                        cached_md = None
+                        if engine is not None:
+                            cached_md = get_daily_report(engine, symbol, today_str)
+                            if cached_md and "无K线数据" in cached_md:
+                                cached_md = None
+                        
+                        if cached_md:
+                            show_distribution_report_dialog(cached_md)
+                        else:
+                            with st.spinner("🚀 首次生成中(需~15秒)，后续点击将秒开..."):
+                                report_md = generate_detailed_report(row['代码'], row['名称'], engine=engine)
+                                show_distribution_report_dialog(report_md)
+                    except Exception as e:
+                        import traceback
+                        st.error(f"生成失败: {e}\n\n```python\n{traceback.format_exc()}\n```")
 
     # 跳转到个股详情
     st.markdown("### 🔍 跳转与管理")
@@ -8036,17 +8051,31 @@ def render_security_search_tab():
         st.info(f"**产品及业务范围**：{profile.get('business_scope') or '-'}")
 
         st.markdown("##### 🚨 主力出货深度分析")
-        st.info("通过分析近半年的日K线、近期分时和逐笔大单数据，诊断该股是否有主力出逃迹象。需要下载大量明细数据，**大约耗时 15~30 秒**。")
+        st.info("通过分析近半年的日K线、近期分时和逐笔大单数据，诊断该股是否有主力出逃迹象。**已缓存时秒开，首次生成约需15~30秒。**")
         if st.button(f"🔮 生成【{title_name}】深度出货报告", key=f"btn_dist_{selected_code}"):
-            with st.spinner("🚀 正在全力拉取分时和分笔成交数据，请耐心等待..."):
-                try:
-                    from src.distribution_analyzer import generate_detailed_report
-                    engine = get_security_intraday_engine_cached()
-                    report_md = generate_detailed_report(selected_code, title_name, engine=engine)
-                    show_distribution_report_dialog(report_md)
-                except Exception as e:
-                    import traceback
-                    st.error(f"生成报告时发生错误: {e}\n\n```python\n{traceback.format_exc()}\n```")
+            try:
+                from src.distribution_analyzer import generate_detailed_report
+                from src.distribution_report_store import get_daily_report
+                from datetime import datetime as _dt
+                engine = get_security_intraday_engine_cached()
+                symbol = selected_code.split('.')[0]
+                today_str = _dt.now().strftime("%Y-%m-%d")
+                
+                cached_md = None
+                if engine is not None:
+                    cached_md = get_daily_report(engine, symbol, today_str)
+                    if cached_md and "无K线数据" in cached_md:
+                        cached_md = None
+                
+                if cached_md:
+                    show_distribution_report_dialog(cached_md)
+                else:
+                    with st.spinner("🚀 首次生成中(需~15秒)，后续点击将秒开..."):
+                        report_md = generate_detailed_report(selected_code, title_name, engine=engine)
+                        show_distribution_report_dialog(report_md)
+            except Exception as e:
+                import traceback
+                st.error(f"生成报告时发生错误: {e}\n\n```python\n{traceback.format_exc()}\n```")
 
 
         top10_cache = st.session_state.setdefault("security_top10_cache", {})
