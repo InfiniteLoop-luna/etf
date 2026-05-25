@@ -70,6 +70,11 @@ else
   echo "[$(date -Is)] etf-data-update: OCR prerequisites missing, skip OCR enrichment"
 fi
 
+echo "[$(date -Is)] etf-data-update: run update_distribution_alerts.py"
+if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/update_distribution_alerts.py; then
+  echo "[$(date -Is)] etf-data-update: warning - update_distribution_alerts.py failed, skip and continue"
+fi
+
 echo "[$(date -Is)] etf-data-update: restart streamlit"
 systemctl restart etf-streamlit
 

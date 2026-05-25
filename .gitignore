@@ -77,3 +77,5 @@ full_*.py
 
 # Runtime task outputs
 /tasks/etf-prediction-upgrade/outputs/runtime/
+.streamlit/secrets.toml
+.streamlit/secrets.toml

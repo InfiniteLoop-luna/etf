@@ -170,6 +170,7 @@ from src.user_watchlist_store import (
     normalize_username,
     remove_watchlist_item,
 )
+from src.distribution_alert_store import get_latest_alerts_for_stocks
 
 try:
     from src.security_trend_model import (
@@ -7508,6 +7509,28 @@ def render_user_watchlist_tab() -> None:
         st.warning("数据加载失败，请稍后再试。")
         return
 
+    # 获取并合并预警数据
+    try:
+        alerts_df = get_latest_alerts_for_stocks(list(ts_codes))
+        if not alerts_df.empty:
+            alerts_dict = {}
+            for _, r in alerts_df.iterrows():
+                if r['alert_level'] != 'NONE':
+                    try:
+                        details = json.loads(r['alert_details']) if isinstance(r['alert_details'], str) else r.get('alert_details', {})
+                        signals = details.get('signals', [])
+                        if signals:
+                            alerts_dict[r['ts_code']] = f"🚨 {', '.join(signals)}"
+                    except:
+                        pass
+            enriched_df['主力异动'] = enriched_df['ts_code'].map(lambda x: alerts_dict.get(x, ""))
+        else:
+            enriched_df['主力异动'] = ""
+    except Exception as e:
+        import logging
+        logging.warning(f"Failed to load distribution alerts: {e}")
+        enriched_df['主力异动'] = ""
+
     # Metrics Overview
     up_count = len(enriched_df[enriched_df['涨跌幅(%)'] > 0])
     down_count = len(enriched_df[enriched_df['涨跌幅(%)'] < 0])
@@ -7571,6 +7594,7 @@ def render_user_watchlist_tab() -> None:
                 ),
                 "RSI14": st.column_config.NumberColumn("RSI14", format="%.1f"),
                 "操作信号": st.column_config.TextColumn("操作信号", width="medium"),
+                "主力异动": st.column_config.TextColumn("主力出货预警", width="large"),
             },
             use_container_width=True,
             hide_index=True,
@@ -7658,6 +7682,7 @@ def render_user_watchlist_tab() -> None:
                         <span style="color: var(--ws-text-muted);">信号</span>
                         <span style="font-weight: 600; color: var(--ws-text-main);">{str_signal}</span>
                     </div>
+                    {f'<div style="margin-top: 8px; font-size: 12px; color: #ff4b4b; font-weight: bold; padding: 6px; border: 1px solid rgba(255, 75, 75, 0.3); border-radius: 6px; background-color: rgba(255, 75, 75, 0.05); line-height: 1.4;">{row.get("主力异动")}</div>' if row.get("主力异动") else ""}
                 </div>
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
