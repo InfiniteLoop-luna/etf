@@ -22,19 +22,36 @@ def create_client():
     from mootdx.quotes import Quotes
     
     try:
-        # 尝试默认自动优选服务器（如果在某些系统权限下测速失败会导致 unpack 错误）
+        # 尝试默认优选
         client = Quotes.factory(market='std', timeout=10)
-        return client
-    except ValueError as e:
-        if 'unpack' in str(e):
-            # 自动寻址失败，回退到固定服务器列表
-            from mootdx.consts import HQ_HOSTS
-            import random
-            # 从前 10 个服务器中随机选一个
-            host = random.choice(HQ_HOSTS[:10])
-            client = Quotes.factory(market='std', server=(host[1], host[2]), timeout=10)
+        # 验证连接是否真正可用且能返回数据
+        test_df = client.bars(symbol='000001', frequency=9, offset=1)
+        if test_df is not None and not test_df.empty:
             return client
-        raise e
+        client.close()
+    except Exception:
+        pass
+
+    # 备选的高可用服务器列表（电信/联通官方主力节点）
+    good_servers = [
+        ('119.147.212.81', 7709),  # 深圳电信
+        ('121.14.110.194', 7709),  # 东莞电信
+        ('114.115.234.141', 7709), # 华为云
+        ('120.24.149.49', 7709)    # 阿里云
+    ]
+    
+    for host, port in good_servers:
+        try:
+            client = Quotes.factory(market='std', server=(host, port), timeout=5)
+            test_df = client.bars(symbol='000001', frequency=9, offset=1)
+            if test_df is not None and not test_df.empty:
+                return client
+            client.close()
+        except Exception:
+            pass
+            
+    # 如果全部失败，强制返回第一个
+    return Quotes.factory(market='std', server=good_servers[0], timeout=10)
 
 def close_client(client):
     try:
