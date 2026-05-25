@@ -256,7 +256,6 @@ def analyze_intraday(minutes_df: pd.DataFrame, date_str: str) -> dict:
         spikes = (vols > vols.mean() * 3).sum()
         if spikes >= 5: patterns.append(f"多次脉冲放量({spikes}次)")
     
-    return {"patterns": patterns, "day_return": day_ret, "open": prices.iloc[0], "close": prices.iloc[-1]}
     return {"patterns": patterns, "day_return": day_ret, "open": prices.iloc[0], "close": prices.iloc[-1], "high_position": high_pos}
 
 # ============================================================================
@@ -328,16 +327,32 @@ def generate_detailed_report(ts_code: str, stock_name: str, engine=None) -> str:
         md.append("## 🚨 Step 2: 量价异动信号识别")
         signals = find_volume_price_signals(analyzed)
         
+        # 信号名称到字段名的映射 (每种信号的tuple结构: date, pct_change, metric, close)
+        signal_labels = {
+            "放量滞涨": ("涨跌幅", "量比", "收盘"),
+            "放量下跌": ("涨跌幅", "量比", "收盘"),
+            "天量天价": ("涨跌幅", "成交量", "收盘"),
+            "量价背离_顶部": ("涨跌幅", "量缩幅度", "收盘"),
+            "高位长上影": ("涨跌幅", "上影线比率", "收盘"),
+            "破位下跌": ("涨跌幅", "MA20", "收盘"),
+            "连续缩量阴跌": ("涨跌幅", "指标", "收盘"),
+        }
+        
         total_signals = sum(len(v) for v in signals.values())
         if total_signals == 0:
             md.append("\nℹ️ 未发现明显的量价异动信号")
         else:
             for signal_name, items in signals.items():
                 if items:
+                    labels = signal_labels.get(signal_name, ("涨跌幅", "指标", "收盘"))
                     md.append(f"\n**⚠️ {signal_name}（{len(items)} 个信号）**：")
                     for item in items[-10:]:
-                        details = " | ".join(f"{k}: {v}" for k, v in item.items())
-                        md.append(f"- {details}")
+                        # item is tuple: (date, pct_change, metric, close)
+                        date_s = item[0]
+                        pct_s = f"{item[1]:+.2f}%" if isinstance(item[1], (int, float)) else str(item[1])
+                        metric_s = f"{item[2]:,.2f}" if isinstance(item[2], (int, float)) else str(item[2])
+                        close_s = f"{item[3]:.2f}" if isinstance(item[3], (int, float)) else str(item[3])
+                        md.append(f"- 日期: {date_s} | {labels[0]}: {pct_s} | {labels[1]}: {metric_s} | {labels[2]}: {close_s}")
 
         # ========== STEP 3: 出货阶段识别 ==========
         md.append("\n---")
@@ -360,7 +375,7 @@ def generate_detailed_report(ts_code: str, stock_name: str, engine=None) -> str:
         target_dates = set()
         for signal_name, items in signals.items():
             for item in items[-5:]:
-                target_dates.add(item["日期"])
+                target_dates.add(item[0])  # item is tuple, [0] is date
         for phase in phases[:3]:
             target_dates.add(phase["peak_date"])
         for _, row in analyzed.tail(5).iterrows():
@@ -425,25 +440,26 @@ def generate_detailed_report(ts_code: str, stock_name: str, engine=None) -> str:
         md.append("\n---")
         md.append("## 📋 Step 6: 综合分析结论\n")
         
+        # item is tuple: (date, pct_change, metric, close)
         distribution_evidence = []
         if signals.get("天量天价"):
-            latest = signals["天量天价"][-1]
-            distribution_evidence.append(f"🔸 **天量天价信号**: {latest['日期']} (量={latest.get('成交量','')}, 收盘={latest.get('收盘','')})")
+            t = signals["天量天价"][-1]
+            distribution_evidence.append(f"🔸 **天量天价信号**: {t[0]} (量={t[2]:,.0f}, 收盘={t[3]:.2f})")
         if signals.get("放量滞涨"):
-            for item in signals["放量滞涨"][-3:]:
-                distribution_evidence.append(f"🔸 **放量滞涨**: {item['日期']} (量比={item.get('量比','')}, 涨跌={item.get('涨跌幅','')})")
+            for t in signals["放量滞涨"][-3:]:
+                distribution_evidence.append(f"🔸 **放量滞涨**: {t[0]} (量比={t[2]:.2f}, 涨跌={t[1]:+.2f}%)")
         if signals.get("放量下跌"):
-            for item in signals["放量下跌"][-3:]:
-                distribution_evidence.append(f"🔸 **放量下跌**: {item['日期']} (量比={item.get('量比','')}, 涨跌={item.get('涨跌幅','')})")
+            for t in signals["放量下跌"][-3:]:
+                distribution_evidence.append(f"🔸 **放量下跌**: {t[0]} (量比={t[2]:.2f}, 涨跌={t[1]:+.2f}%)")
         if signals.get("高位长上影"):
-            for item in signals["高位长上影"][-3:]:
-                distribution_evidence.append(f"🔸 **高位长上影**: {item['日期']} (上影比={item.get('上影线比率','')})")
+            for t in signals["高位长上影"][-3:]:
+                distribution_evidence.append(f"🔸 **高位长上影**: {t[0]} (上影比={t[2]:.1%})")
         if signals.get("量价背离_顶部"):
-            for item in signals["量价背离_顶部"][-3:]:
-                distribution_evidence.append(f"🔸 **量价背离**: {item['日期']} (量缩={item.get('量缩幅度','')})")
+            for t in signals["量价背离_顶部"][-3:]:
+                distribution_evidence.append(f"🔸 **量价背离**: {t[0]} (量缩={t[2]:.1f}%)")
         if signals.get("破位下跌"):
-            for item in signals["破位下跌"][-3:]:
-                distribution_evidence.append(f"🔸 **破均线**: {item['日期']} (跌破MA20={item.get('MA20','')})")
+            for t in signals["破位下跌"][-3:]:
+                distribution_evidence.append(f"🔸 **破均线**: {t[0]} (跌破MA20={t[2]:.2f})")
 
         if distribution_evidence:
             md.append("### 🚨 出货信号汇总：")
