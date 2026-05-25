@@ -19,6 +19,37 @@ def get_engine() -> Engine:
     return create_engine(build_db_url(), pool_pre_ping=True)
 
 
+def _column_exists(engine: Engine, table_name: str, column_name: str) -> bool:
+    sql = text(
+        """
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = :table_name
+          AND column_name = :column_name
+        LIMIT 1
+        """
+    )
+    with engine.connect() as conn:
+        return conn.execute(
+            sql,
+            {"table_name": table_name, "column_name": column_name},
+        ).scalar() is not None
+
+
+def _ensure_report_table_schema(engine: Engine):
+    patch_sql: list[str] = []
+    if not _column_exists(engine, REPORT_TABLE, "source_updated_at"):
+        patch_sql.append(f"ALTER TABLE {REPORT_TABLE} ADD COLUMN source_updated_at TIMESTAMPTZ")
+    if not _column_exists(engine, REPORT_TABLE, "report_version"):
+        patch_sql.append(f"ALTER TABLE {REPORT_TABLE} ADD COLUMN report_version VARCHAR(32) NOT NULL DEFAULT 'v1'")
+
+    if patch_sql:
+        with engine.begin() as conn:
+            for stmt in patch_sql:
+                conn.execute(text(stmt))
+
+
 def ensure_tables(engine: Engine):
     sql = f"""
     CREATE TABLE IF NOT EXISTS {REPORT_TABLE} (
@@ -60,6 +91,8 @@ def ensure_tables(engine: Engine):
     with engine.begin() as conn:
         for stmt in [s.strip() for s in sql.split(";") if s.strip()]:
             conn.execute(text(stmt))
+
+    _ensure_report_table_schema(engine)
 
 
 def _normalize_trade_date(trade_date: str | None) -> str:
@@ -120,6 +153,7 @@ def save_daily_report(
             )
     except Exception as e:
         logger.error(f"Failed to save report cache for {ts_code}: {e}")
+        raise
 
 
 def get_latest_report_record(engine: Engine, ts_code: str) -> dict | None:
