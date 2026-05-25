@@ -12,11 +12,38 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 
+from src.etf_stats import get_stock_kline_timeseries
+from src.security_intraday_store import (
+    fetch_stock_intraday_from_mootdx,
+    get_stock_intraday_timeseries,
+    upsert_stock_intraday_timeseries,
+)
+
 warnings.filterwarnings("ignore")
 
 # ============================================================================
 # mootdx 客户端
 # ============================================================================
+
+def fetch_daily_kline(ts_code: str, engine=None) -> pd.DataFrame:
+    df = get_stock_kline_timeseries(ts_code, engine=engine)
+    if df is None or df.empty:
+        client = create_client()
+        try:
+            symbol = ts_code.split('.')[0]
+            df = client.bars(symbol=symbol, frequency=9, offset=200)
+        finally:
+            close_client(client)
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.copy()
+    if "trade_date" in df.columns:
+        df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+        df = df.dropna(subset=["trade_date"]).sort_values("trade_date")
+        df.index = df["trade_date"].dt.strftime("%Y-%m-%d")
+    return df
 
 def create_client():
     from mootdx.quotes import Quotes
@@ -119,6 +146,22 @@ def find_volume_price_signals(df: pd.DataFrame) -> dict:
             df.iloc[idx]["vol"] < df.iloc[idx-1]["vol"] < df.iloc[idx-2]["vol"] and df.iloc[idx].get("near_high", False)):
             signals["量价背离_顶部"].append((date_label, df.iloc[idx-2:idx+1]['pct_change'].sum(), (1 - df.iloc[idx]['vol']/df.iloc[idx-2]['vol'])*100, df.iloc[idx]['close']))
 
+    for idx in range(22, len(df)):
+        if (
+            df.iloc[idx]["pct_change"] < 0
+            and df.iloc[idx - 1]["pct_change"] < 0
+            and df.iloc[idx - 2]["pct_change"] < 0
+            and df.iloc[idx]["vol_ratio"] < 0.8
+        ):
+            signals["连续缩量阴跌"].append(
+                (
+                    str(df.iloc[idx].name).split()[0],
+                    df.iloc[idx - 2 : idx + 1]["pct_change"].sum(),
+                    df.iloc[idx]["vol_ratio"],
+                    df.iloc[idx]["close"],
+                )
+            )
+
     return signals
 
 def identify_distribution_phase(df: pd.DataFrame) -> list[dict]:
@@ -168,14 +211,19 @@ def identify_distribution_phase(df: pd.DataFrame) -> list[dict]:
     phases.sort(key=lambda x: x["decline_pct"])
     return phases
 
-def fetch_transactions(client, symbol: str, trade_date_str: str, max_count=2000, engine=None):
+def fetch_transactions(ts_code: str, trade_date_str: str, max_count=2000, engine=None, client=None):
     try:
         if engine is not None:
             from src.distribution_report_store import get_compressed_ticks, save_compressed_ticks
+            symbol = ts_code.split('.')[0]
             df = get_compressed_ticks(engine, symbol, trade_date_str)
             if df is not None and not df.empty:
                 return df
-                
+
+        symbol = ts_code.split('.')[0]
+        own_client = client is None
+        if own_client:
+            client = create_client()
         raw = client.transactions(symbol=symbol, start=0, offset=max_count, date=trade_date_str)
         if raw is not None and not raw.empty:
             if engine is not None:
@@ -184,6 +232,9 @@ def fetch_transactions(client, symbol: str, trade_date_str: str, max_count=2000,
         return pd.DataFrame()
     except Exception:
         return pd.DataFrame()
+    finally:
+        if client is not None and "own_client" in locals() and own_client:
+            close_client(client)
 
 def analyze_tick_data(tick_df: pd.DataFrame) -> dict:
     if tick_df is None or tick_df.empty: return {"status": "no_data"}
@@ -207,6 +258,7 @@ def analyze_tick_data(tick_df: pd.DataFrame) -> dict:
         "status": "ok", "total_vol": total_vol,
         "big_order_count": len(big_orders), "big_pct": big_vol / total_vol * 100 if total_vol > 0 else 0,
     }
+    res["big_order_pct"] = res["big_pct"]
     if "direction" in col_map:
         df["_dir"] = pd.to_numeric(df[col_map["direction"]], errors="coerce")
         res["sell_ratio"] = df[df["_dir"] == 1]["_vol"].sum() / total_vol * 100 if total_vol > 0 else 50
@@ -218,10 +270,16 @@ def analyze_tick_data(tick_df: pd.DataFrame) -> dict:
             res["big_sell_ratio"] = big_sell / big_vol * 100 if big_vol > 0 else 50
     return res
 
-def fetch_minutes(client, symbol: str, trade_date_str: str):
+def fetch_minutes(ts_code: str, trade_date_str: str, engine=None):
     try:
-        data = client.minutes(symbol=symbol, date=trade_date_str)
-        if data is not None and not data.empty: return data
+        df = get_stock_intraday_timeseries(ts_code, trade_date_str, freq="1min", engine=engine)
+        if df is not None and not df.empty:
+            return df
+        fetched_df = fetch_stock_intraday_from_mootdx(ts_code, trade_date_str, freq="1min")
+        if fetched_df is not None and not fetched_df.empty:
+            if engine is not None:
+                upsert_stock_intraday_timeseries(engine, fetched_df, source="mootdx.minutes")
+            return fetched_df
         return pd.DataFrame()
     except Exception:
         return pd.DataFrame()
@@ -280,211 +338,184 @@ def generate_detailed_report(ts_code: str, stock_name: str, engine=None) -> str:
         f"> 数据来源: mootdx (通达信协议)",
         ""
     ]
-    
-    client = create_client()
-    try:
-        # ========== STEP 1: 日K线分析 ==========
-        md.append("---")
-        md.append("## 📈 Step 1: 日K线量价分析")
-        
-        kline = pd.DataFrame()
-        try:
-            kline = client.bars(symbol=symbol, frequency=9, offset=200)
-        except Exception as e:
-            md.append(f"❌ 获取K线数据失败: {e}")
-            return "\n".join(md)
-            
-        if kline is None or kline.empty:
-            md.append("❌ 无K线数据")
-            return "\n".join(md)
-            
-        analyzed = analyze_daily_kline(kline)
-        
-        md.append("📊 近期行情概况（最近30个交易日）：\n")
-        recent = analyzed.tail(30)
-        for _, row in recent.iterrows():
-            date_str = str(row.name)
-            pct = row["pct_change"]
-            vol_r = row.get("vol_ratio", 1.0)
-            arrow = "🟢" if pct >= 0 else "🔴"
-            
-            vol_tag = ""
-            if vol_r > 2:
-                vol_tag = " 📢放量"
-            elif vol_r > 1.5:
-                vol_tag = " 📈量增"
-            elif vol_r < 0.6:
-                vol_tag = " 📉缩量"
-                
-            shadow_tag = ""
-            if row.get("upper_shadow_ratio", 0) > 0.5:
-                shadow_tag = " ⛳长上影"
-                
-            md.append(f"- **{date_str}** | 开 {row['open']:>7.2f} | 高 {row['high']:>7.2f} | 低 {row['low']:>7.2f} | 收 {row['close']:>7.2f} | {arrow} {pct:>+6.2f}% | 量比 {vol_r:>5.2f}{vol_tag}{shadow_tag}")
+    # ========== STEP 1: 日K线分析 ==========
+    md.append("---")
+    md.append("## 📈 Step 1: 日K线量价分析")
 
-        # ========== STEP 2: 量价异动信号识别 ==========
-        md.append("\n---")
-        md.append("## 🚨 Step 2: 量价异动信号识别")
-        signals = find_volume_price_signals(analyzed)
-        
-        # 信号名称到字段名的映射 (每种信号的tuple结构: date, pct_change, metric, close)
-        signal_labels = {
-            "放量滞涨": ("涨跌幅", "量比", "收盘"),
-            "放量下跌": ("涨跌幅", "量比", "收盘"),
-            "天量天价": ("涨跌幅", "成交量", "收盘"),
-            "量价背离_顶部": ("涨跌幅", "量缩幅度", "收盘"),
-            "高位长上影": ("涨跌幅", "上影线比率", "收盘"),
-            "破位下跌": ("涨跌幅", "MA20", "收盘"),
-            "连续缩量阴跌": ("涨跌幅", "指标", "收盘"),
-        }
-        
-        total_signals = sum(len(v) for v in signals.values())
-        if total_signals == 0:
-            md.append("\nℹ️ 未发现明显的量价异动信号")
-        else:
-            for signal_name, items in signals.items():
-                if items:
-                    labels = signal_labels.get(signal_name, ("涨跌幅", "指标", "收盘"))
-                    md.append(f"\n**⚠️ {signal_name}（{len(items)} 个信号）**：")
-                    for item in items[-10:]:
-                        # item is tuple: (date, pct_change, metric, close)
-                        date_s = item[0]
-                        pct_s = f"{item[1]:+.2f}%" if isinstance(item[1], (int, float)) else str(item[1])
-                        metric_s = f"{item[2]:,.2f}" if isinstance(item[2], (int, float)) else str(item[2])
-                        close_s = f"{item[3]:.2f}" if isinstance(item[3], (int, float)) else str(item[3])
-                        md.append(f"- 日期: {date_s} | {labels[0]}: {pct_s} | {labels[1]}: {metric_s} | {labels[2]}: {close_s}")
+    analyzed = fetch_daily_kline(ts_code, engine=engine)
+    if analyzed is None or analyzed.empty:
+        md.append("❌ 无K线数据")
+        return "\n".join(md)
 
-        # ========== STEP 3: 出货阶段识别 ==========
-        md.append("\n---")
-        md.append("## 📅 Step 3: 出货阶段识别")
-        phases = identify_distribution_phase(analyzed)
-        
-        if not phases:
-            md.append("\nℹ️ 未识别到明显的出货阶段")
-        else:
-            md.append(f"\n⚠️ 发现 {len(phases)} 个可疑出货/下跌阶段：\n")
-            for i, phase in enumerate(phases, 1):
-                md.append(f"**阶段 {i}:**")
-                md.append(f"- 📍 见顶日: {phase['peak_date']} | 最高价: {phase['peak_price']:.2f}")
-                md.append(f"- 📍 结束日: {phase['end_date']} | 最低价: {phase['low_price']:.2f}")
-                md.append(f"- 📉 跌幅: **{phase['decline_pct']:.2f}%** | 持续: {phase['duration_days']} 个交易日")
-                md.append(f"- 📊 日均成交: {phase['avg_vol']:,.0f}")
-                md.append("")
+    analyzed = analyze_daily_kline(analyzed)
 
-        # 收集目标日期 (Target Dates)
-        target_dates = set()
+    md.append("📊 近期行情概况（最近30个交易日）：\n")
+    for _, row in analyzed.tail(30).iterrows():
+        date_str = str(row.name)
+        pct = row["pct_change"]
+        vol_r = row.get("vol_ratio", 1.0)
+        arrow = "🟢" if pct >= 0 else "🔴"
+        vol_tag = " 📢放量" if vol_r > 2 else (" 📈量增" if vol_r > 1.5 else (" 📉缩量" if vol_r < 0.6 else ""))
+        shadow_tag = " ⛳长上影" if row.get("upper_shadow_ratio", 0) > 0.5 else ""
+        md.append(
+            f"- **{date_str}** | 开 {row['open']:>7.2f} | 高 {row['high']:>7.2f} | 低 {row['low']:>7.2f} | 收 {row['close']:>7.2f} | {arrow} {pct:>+6.2f}% | 量比 {vol_r:>5.2f}{vol_tag}{shadow_tag}"
+        )
+
+    # ========== STEP 2: 量价异动信号识别 ==========
+    md.append("\n---")
+    md.append("## 🚨 Step 2: 量价异动信号识别")
+    signals = find_volume_price_signals(analyzed)
+    signal_labels = {
+        "放量滞涨": ("涨跌幅", "量比", "收盘"),
+        "放量下跌": ("涨跌幅", "量比", "收盘"),
+        "天量天价": ("涨跌幅", "成交量", "收盘"),
+        "量价背离_顶部": ("涨跌幅", "量缩幅度", "收盘"),
+        "高位长上影": ("涨跌幅", "上影线比率", "收盘"),
+        "破位下跌": ("涨跌幅", "MA20", "收盘"),
+        "连续缩量阴跌": ("涨跌幅", "指标", "收盘"),
+    }
+
+    total_signals = sum(len(v) for v in signals.values())
+    if total_signals == 0:
+        md.append("\nℹ️ 未发现明显的量价异动信号")
+    else:
         for signal_name, items in signals.items():
-            for item in items[-5:]:
-                target_dates.add(item[0])  # item is tuple, [0] is date
-        for phase in phases[:3]:
-            target_dates.add(phase["peak_date"])
-        for _, row in analyzed.tail(5).iterrows():
-            target_dates.add(str(row.name))
-            
-        valid_dates = []
-        for d in sorted(target_dates):
-            d_clean = str(d).replace("-", "")
-            if len(d_clean) >= 8 and d_clean[:8].isdigit():
-                valid_dates.append(d_clean[:8])
+            if items:
+                labels = signal_labels.get(signal_name, ("涨跌幅", "指标", "收盘"))
+                md.append(f"\n**⚠️ {signal_name}（{len(items)} 个信号）**：")
+                for item in items[-10:]:
+                    date_s = item[0]
+                    pct_s = f"{item[1]:+.2f}%"
+                    metric_s = f"{item[2]:,.2f}"
+                    close_s = f"{item[3]:.2f}"
+                    md.append(f"- 日期: {date_s} | {labels[0]}: {pct_s} | {labels[1]}: {metric_s} | {labels[2]}: {close_s}")
 
-        # ========== STEP 4: 分笔成交（大单追踪） ==========
-        md.append("\n---")
-        md.append("## 💰 Step 4: 关键日期分笔成交分析（大单追踪）")
-        
-        if valid_dates:
-            md.append(f"\n分析 {len(valid_dates)} 个关键日期的分笔成交...\n")
-            for dt in sorted(valid_dates)[-15:]:
-                dt_fmt = f"{dt[:4]}-{dt[4:6]}-{dt[6:]}"
-                tick_df = fetch_transactions(client, symbol, dt, engine=engine)
-                if not tick_df.empty:
-                    result = analyze_tick_data(tick_df)
-                    if result["status"] == "ok":
-                        sell_info = ""
-                        if "sell_ratio" in result:
-                            sell_info = f" | 卖出占比: {result['sell_ratio']:.1f}%"
-                            if "big_sell_ratio" in result:
-                                sell_info += f" | 大单卖出占比: {result['big_sell_ratio']:.1f}%"
-                            if "big_net" in result:
-                                net_tag = "🟢" if result["big_net"] > 0 else "🔴"
-                                sell_info += f" | 大单净量: {net_tag}{result['big_net']:+.0f}"
-                        md.append(f"- **{dt_fmt}**: 总成交 {result.get('total_vol', 0):>10,.0f}手 | 大单 {result.get('big_order_count', 0)}笔 ({result.get('big_order_pct', 0):.1f}%){sell_info}")
-                    elif result["status"] == "columns_not_found":
-                        md.append(f"- **{dt_fmt}**: 缺失列名")
-                else:
-                    md.append(f"- **{dt_fmt}**: 无分笔数据")
-        else:
-            md.append("\nℹ️ 没有需要分析的目标日期")
+    # ========== STEP 3: 出货阶段识别 ==========
+    md.append("\n---")
+    md.append("## 📅 Step 3: 出货阶段识别")
+    phases = identify_distribution_phase(analyzed)
 
-        # ========== STEP 5: 分时走势分析 ==========
-        md.append("\n---")
-        md.append("## ⏱️ Step 5: 关键日期分时走势分析")
-        
-        if valid_dates:
-            md.append(f"\n分析 {min(len(valid_dates), 15)} 个关键日期的分时数据...\n")
-            for dt in sorted(valid_dates)[-15:]:
-                dt_fmt = f"{dt[:4]}-{dt[4:6]}-{dt[6:]}"
-                mins_df = fetch_minutes(client, symbol, dt)
-                if not mins_df.empty:
-                    result = analyze_intraday(mins_df, dt)
-                    patterns_str = " | ".join(result["patterns"])
-                    price_info = ""
-                    if "day_return" in result:
-                        price_info = f"开 {result['open']:.2f} | 收 {result['close']:.2f} | 涨跌 {result['day_return']:+.2f}% | 高点位置 {result.get('high_position', 0):.0%}"
-                    md.append(f"- **{dt_fmt}**: {price_info}\n  > 🏷️ {patterns_str}")
-                else:
-                    md.append(f"- **{dt_fmt}**: 无分时数据")
-        else:
-            md.append("\nℹ️ 没有需要分析的目标日期")
+    if not phases:
+        md.append("\nℹ️ 未识别到明显的出货阶段")
+    else:
+        md.append(f"\n⚠️ 发现 {len(phases)} 个可疑出货/下跌阶段：\n")
+        for i, phase in enumerate(phases, 1):
+            md.append(f"**阶段 {i}:**")
+            md.append(f"- 📍 见顶日: {phase['peak_date']} | 最高价: {phase['peak_price']:.2f}")
+            md.append(f"- 📍 结束日: {phase['end_date']} | 最低价: {phase['low_price']:.2f}")
+            md.append(f"- 📉 跌幅: **{phase['decline_pct']:.2f}%** | 持续: {phase['duration_days']} 个交易日")
+            md.append(f"- 📊 日均成交: {phase['avg_vol']:,.0f}")
+            md.append("")
 
-        # ========== STEP 6: 综合结论 ==========
-        md.append("\n---")
-        md.append("## 📋 Step 6: 综合分析结论\n")
-        
-        # item is tuple: (date, pct_change, metric, close)
-        distribution_evidence = []
-        if signals.get("天量天价"):
-            t = signals["天量天价"][-1]
-            distribution_evidence.append(f"🔸 **天量天价信号**: {t[0]} (量={t[2]:,.0f}, 收盘={t[3]:.2f})")
-        if signals.get("放量滞涨"):
-            for t in signals["放量滞涨"][-3:]:
-                distribution_evidence.append(f"🔸 **放量滞涨**: {t[0]} (量比={t[2]:.2f}, 涨跌={t[1]:+.2f}%)")
-        if signals.get("放量下跌"):
-            for t in signals["放量下跌"][-3:]:
-                distribution_evidence.append(f"🔸 **放量下跌**: {t[0]} (量比={t[2]:.2f}, 涨跌={t[1]:+.2f}%)")
-        if signals.get("高位长上影"):
-            for t in signals["高位长上影"][-3:]:
-                distribution_evidence.append(f"🔸 **高位长上影**: {t[0]} (上影比={t[2]:.1%})")
-        if signals.get("量价背离_顶部"):
-            for t in signals["量价背离_顶部"][-3:]:
-                distribution_evidence.append(f"🔸 **量价背离**: {t[0]} (量缩={t[2]:.1f}%)")
-        if signals.get("破位下跌"):
-            for t in signals["破位下跌"][-3:]:
-                distribution_evidence.append(f"🔸 **破均线**: {t[0]} (跌破MA20={t[2]:.2f})")
+    target_dates = set()
+    for items in signals.values():
+        for item in items[-5:]:
+            target_dates.add(item[0])
+    for phase in phases[:3]:
+        target_dates.add(phase["peak_date"])
+    for _, row in analyzed.tail(5).iterrows():
+        target_dates.add(str(row.name))
 
-        if distribution_evidence:
-            md.append("### 🚨 出货信号汇总：")
-            for ev in distribution_evidence:
-                md.append(f"- {ev}")
-                
-        if phases:
-            md.append("\n### 📅 最可能的主力出货窗口：")
-            for i, phase in enumerate(phases[:3], 1):
-                md.append(f"{i}. **{phase['peak_date']} ~ {phase['end_date']}**")
-                md.append(f"   - 从 {phase['peak_price']:.2f} 跌至 {phase['low_price']:.2f}，跌幅 **{phase['decline_pct']:.2f}%**，持续 {phase['duration_days']} 天")
-        else:
-            md.append("\n✅ 未发现明显的阶段性出货行为")
+    valid_dates = []
+    for d in sorted(target_dates):
+        d_clean = str(d).replace("-", "")
+        if len(d_clean) >= 8 and d_clean[:8].isdigit():
+            valid_dates.append(d_clean[:8])
 
-        md.append("\n### 📊 最终结论")
-        if not distribution_evidence and not phases:
-            md.append("> [!TIP]\n> **当前未发现明显的主力集中出货迹象。**")
-        elif len(distribution_evidence) >= 3 or (phases and phases[0].get("decline_pct", 0) < -10):
-            md.append("> [!CAUTION]\n> **存在较强的主力出货迹象，建议谨慎关注风险！**")
-        else:
-            md.append("> [!WARNING]\n> **存在一些出货信号，但尚不构成明确的系统性出货，需持续跟踪。**")
+    # ========== STEP 4: 分笔成交（大单追踪） ==========
+    md.append("\n---")
+    md.append("## 💰 Step 4: 关键日期分笔成交分析（大单追踪）")
+    if valid_dates:
+        md.append(f"\n分析 {len(valid_dates)} 个关键日期的分笔成交...\n")
+        for dt in sorted(valid_dates)[-15:]:
+            dt_fmt = f"{dt[:4]}-{dt[4:6]}-{dt[6:]}"
+            tick_df = fetch_transactions(ts_code, dt, engine=engine)
+            if not tick_df.empty:
+                result = analyze_tick_data(tick_df)
+                if result["status"] == "ok":
+                    sell_info = ""
+                    if "sell_ratio" in result:
+                        sell_info = f" | 卖出占比: {result['sell_ratio']:.1f}%"
+                        if "big_sell_ratio" in result:
+                            sell_info += f" | 大单卖出占比: {result['big_sell_ratio']:.1f}%"
+                        if "big_net" in result:
+                            net_tag = "🟢" if result["big_net"] > 0 else "🔴"
+                            sell_info += f" | 大单净量: {net_tag}{result['big_net']:+.0f}"
+                    md.append(f"- **{dt_fmt}**: 总成交 {result.get('total_vol', 0):>10,.0f}手 | 大单 {result.get('big_order_count', 0)}笔 ({result.get('big_order_pct', 0):.1f}%){sell_info}")
+                elif result["status"] == "columns_not_found":
+                    md.append(f"- **{dt_fmt}**: 缺失列名")
+            else:
+                md.append(f"- **{dt_fmt}**: 无分笔数据")
+    else:
+        md.append("\nℹ️ 没有需要分析的目标日期")
 
-        final_md = "\n".join(md)
-        if engine is not None:
-            save_daily_report(engine, symbol, today_str, final_md)
-        return final_md
-    finally:
-        close_client(client)
+    # ========== STEP 5: 分时走势分析 ==========
+    md.append("\n---")
+    md.append("## ⏱️ Step 5: 关键日期分时走势分析")
+    if valid_dates:
+        md.append(f"\n分析 {min(len(valid_dates), 15)} 个关键日期的分时数据...\n")
+        for dt in sorted(valid_dates)[-15:]:
+            dt_fmt = f"{dt[:4]}-{dt[4:6]}-{dt[6:]}"
+            mins_df = fetch_minutes(ts_code, dt, engine=engine)
+            if not mins_df.empty:
+                result = analyze_intraday(mins_df, dt)
+                patterns_str = " | ".join(result["patterns"])
+                price_info = ""
+                if "day_return" in result:
+                    price_info = f"开 {result['open']:.2f} | 收 {result['close']:.2f} | 涨跌 {result['day_return']:+.2f}% | 高点位置 {result.get('high_position', 0):.0%}"
+                md.append(f"- **{dt_fmt}**: {price_info}\n  > 🏷️ {patterns_str}")
+            else:
+                md.append(f"- **{dt_fmt}**: 无分时数据")
+    else:
+        md.append("\nℹ️ 没有需要分析的目标日期")
+
+    # ========== STEP 6: 综合结论 ==========
+    md.append("\n---")
+    md.append("## 📋 Step 6: 综合分析结论\n")
+
+    distribution_evidence = []
+    if signals.get("天量天价"):
+        t = signals["天量天价"][-1]
+        distribution_evidence.append(f"🔸 **天量天价信号**: {t[0]} (量={t[2]:,.0f}, 收盘={t[3]:.2f})")
+    if signals.get("放量滞涨"):
+        for t in signals["放量滞涨"][-3:]:
+            distribution_evidence.append(f"🔸 **放量滞涨**: {t[0]} (量比={t[2]:.2f}, 涨跌={t[1]:+.2f}%)")
+    if signals.get("放量下跌"):
+        for t in signals["放量下跌"][-3:]:
+            distribution_evidence.append(f"🔸 **放量下跌**: {t[0]} (量比={t[2]:.2f}, 涨跌={t[1]:+.2f}%)")
+    if signals.get("高位长上影"):
+        for t in signals["高位长上影"][-3:]:
+            distribution_evidence.append(f"🔸 **高位长上影**: {t[0]} (上影比={t[2]:.1%})")
+    if signals.get("量价背离_顶部"):
+        for t in signals["量价背离_顶部"][-3:]:
+            distribution_evidence.append(f"🔸 **量价背离**: {t[0]} (量缩={t[2]:.1f}%)")
+    if signals.get("破位下跌"):
+        for t in signals["破位下跌"][-3:]:
+            distribution_evidence.append(f"🔸 **破均线**: {t[0]} (跌破MA20={t[2]:.2f})")
+
+    if distribution_evidence:
+        md.append("### 🚨 出货信号汇总：")
+        for ev in distribution_evidence:
+            md.append(f"- {ev}")
+
+    if phases:
+        md.append("\n### 📅 最可能的主力出货窗口：")
+        for i, phase in enumerate(phases[:3], 1):
+            md.append(f"{i}. **{phase['peak_date']} ~ {phase['end_date']}**")
+            md.append(f"   - 从 {phase['peak_price']:.2f} 跌至 {phase['low_price']:.2f}，跌幅 **{phase['decline_pct']:.2f}%**，持续 {phase['duration_days']} 天")
+    else:
+        md.append("\n✅ 未发现明显的阶段性出货行为")
+
+    md.append("\n### 📊 最终结论")
+    if not distribution_evidence and not phases:
+        md.append("> [!TIP]\n> **当前未发现明显的主力集中出货迹象。**")
+    elif len(distribution_evidence) >= 3 or (phases and phases[0].get("decline_pct", 0) < -10):
+        md.append("> [!CAUTION]\n> **存在较强的主力出货迹象，建议谨慎关注风险！**")
+    else:
+        md.append("> [!WARNING]\n> **存在一些出货信号，但尚不构成明确的系统性出货，需持续跟踪。**")
+
+    final_md = "\n".join(md)
+    if engine is not None:
+        from src.distribution_report_store import save_daily_report
+        save_daily_report(engine, symbol, today_str, final_md)
+    return final_md
