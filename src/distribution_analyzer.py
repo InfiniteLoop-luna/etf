@@ -168,10 +168,18 @@ def identify_distribution_phase(df: pd.DataFrame) -> list[dict]:
     phases.sort(key=lambda x: x["decline_pct"])
     return phases
 
-def fetch_transactions(client, symbol: str, trade_date_str: str, max_count=2000):
+def fetch_transactions(client, symbol: str, trade_date_str: str, max_count=2000, engine=None):
     try:
+        if engine is not None:
+            from src.distribution_report_store import get_compressed_ticks, save_compressed_ticks
+            df = get_compressed_ticks(engine, symbol, trade_date_str)
+            if df is not None and not df.empty:
+                return df
+                
         raw = client.transactions(symbol=symbol, start=0, offset=max_count, date=trade_date_str)
         if raw is not None and not raw.empty:
+            if engine is not None:
+                save_compressed_ticks(engine, symbol, trade_date_str, raw)
             return raw
         return pd.DataFrame()
     except Exception:
@@ -254,9 +262,18 @@ def analyze_intraday(minutes_df: pd.DataFrame, date_str: str) -> dict:
 # Markdown 报告生成器
 # ============================================================================
 
-def generate_detailed_report(ts_code: str, stock_name: str) -> str:
+def generate_detailed_report(ts_code: str, stock_name: str, engine=None) -> str:
     """生成深度 Markdown 出货分析报告"""
     symbol = ts_code.split('.')[0]
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    
+    # 尝试读取当日缓存
+    if engine is not None:
+        from src.distribution_report_store import get_daily_report, save_daily_report
+        cached = get_daily_report(engine, symbol, today_str)
+        if cached:
+            return cached
+
     md = [f"# {stock_name} ({ts_code}) 主力出货深度分析报告",
           f"> **生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ""]
     
@@ -330,7 +347,7 @@ def generate_detailed_report(ts_code: str, stock_name: str) -> str:
         
         for dt in valid_dates:
             dt_fmt = f"{dt[:4]}-{dt[4:6]}-{dt[6:]}"
-            tick = fetch_transactions(client, symbol, dt)
+            tick = fetch_transactions(client, symbol, dt, engine=engine)
             mins = fetch_minutes(client, symbol, dt)
             
             t_res = analyze_tick_data(tick)
@@ -352,6 +369,9 @@ def generate_detailed_report(ts_code: str, stock_name: str) -> str:
         else:
             md.append("> [!TIP]\n> **当前未发现明显的主力集中出货迹象。**")
 
-        return "\n".join(md)
+        final_md = "\n".join(md)
+        if engine is not None:
+            save_daily_report(engine, symbol, today_str, final_md)
+        return final_md
     finally:
         close_client(client)

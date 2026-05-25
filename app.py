@@ -7697,7 +7697,8 @@ def render_user_watchlist_tab() -> None:
                     with st.spinner("🚀 拉取数据中(需~15秒)..."):
                         try:
                             from src.distribution_analyzer import generate_detailed_report
-                            st.session_state[report_key] = generate_detailed_report(row['代码'], row['名称'])
+                            engine = get_security_intraday_engine_cached()
+                            st.session_state[report_key] = generate_detailed_report(row['代码'], row['名称'], engine=engine)
                         except Exception as e:
                             import traceback
                             st.error(f"生成失败: {e}\n\n```python\n{traceback.format_exc()}\n```")
@@ -7979,7 +7980,8 @@ def render_security_search_tab():
             with st.spinner("🚀 正在全力拉取分时和分笔成交数据，请耐心等待..."):
                 try:
                     from src.distribution_analyzer import generate_detailed_report
-                    st.session_state[report_key] = generate_detailed_report(selected_code, title_name)
+                    engine = get_security_intraday_engine_cached()
+                    st.session_state[report_key] = generate_detailed_report(selected_code, title_name, engine=engine)
                 except Exception as e:
                     import traceback
                     st.error(f"生成报告时发生错误: {e}\n\n```python\n{traceback.format_exc()}\n```")
