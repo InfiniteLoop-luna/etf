@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import logging
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 REPORT_TABLE = "ts_distribution_reports"
 REPORT_STATUS_TABLE = "ts_distribution_report_status"
 TICKS_TABLE = "ts_stock_ticks_compressed"
+REFRESH_LOCK_TABLE = "ts_distribution_refresh_locks"
 
 
 def get_engine() -> Engine:
@@ -77,6 +79,15 @@ def ensure_tables(engine: Engine):
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (ts_code, trade_date)
     );
+
+    CREATE TABLE IF NOT EXISTS {REFRESH_LOCK_TABLE} (
+        lock_name VARCHAR(64) PRIMARY KEY,
+        owner_id VARCHAR(64) NOT NULL,
+        acquired_at VARCHAR(40) NOT NULL,
+        expires_at VARCHAR(40) NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_{REFRESH_LOCK_TABLE}_expires_at
+        ON {REFRESH_LOCK_TABLE} (expires_at);
     """
     with engine.begin() as conn:
         for stmt in [s.strip() for s in sql.split(";") if s.strip()]:
@@ -98,6 +109,61 @@ def _normalize_trade_date(trade_date: str | None) -> str:
 def _compact_trade_date(trade_date: str | None) -> str:
     normalized = _normalize_trade_date(trade_date)
     return normalized.replace("-", "") if normalized else ""
+
+
+def _utc_iso(value: datetime | None = None) -> str:
+    current = (value or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return current.isoformat(timespec="seconds")
+
+
+def try_acquire_refresh_lock(
+    engine: Engine,
+    lock_name: str,
+    *,
+    owner_id: str,
+    timeout_seconds: int = 1800,
+    now: datetime | None = None,
+) -> bool:
+    try:
+        ensure_tables(engine)
+        now_dt = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        now_iso = _utc_iso(now_dt)
+        expires_iso = _utc_iso(now_dt + timedelta(seconds=max(int(timeout_seconds or 0), 1)))
+        delete_sql = text(
+            f"DELETE FROM {REFRESH_LOCK_TABLE} WHERE lock_name = :lock_name AND expires_at < :now_iso"
+        )
+        insert_sql = text(
+            f"""
+            INSERT INTO {REFRESH_LOCK_TABLE} (lock_name, owner_id, acquired_at, expires_at)
+            VALUES (:lock_name, :owner_id, :acquired_at, :expires_at)
+            ON CONFLICT (lock_name) DO NOTHING
+            """
+        )
+        with engine.begin() as conn:
+            conn.execute(delete_sql, {"lock_name": lock_name, "now_iso": now_iso})
+            result = conn.execute(
+                insert_sql,
+                {
+                    "lock_name": lock_name,
+                    "owner_id": owner_id,
+                    "acquired_at": now_iso,
+                    "expires_at": expires_iso,
+                },
+            )
+        return bool(getattr(result, "rowcount", 0))
+    except Exception as exc:
+        logger.warning("Failed to acquire refresh lock %s: %s", lock_name, exc)
+        return False
+
+
+def release_refresh_lock(engine: Engine, lock_name: str, *, owner_id: str) -> None:
+    try:
+        ensure_tables(engine)
+        sql = text(f"DELETE FROM {REFRESH_LOCK_TABLE} WHERE lock_name = :lock_name AND owner_id = :owner_id")
+        with engine.begin() as conn:
+            conn.execute(sql, {"lock_name": lock_name, "owner_id": owner_id})
+    except Exception as exc:
+        logger.warning("Failed to release refresh lock %s: %s", lock_name, exc)
 
 
 def get_daily_report(engine: Engine, ts_code: str, trade_date: str) -> str | None:
