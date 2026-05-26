@@ -18,6 +18,12 @@ from src.security_intraday_store import (
     upsert_stock_intraday_timeseries,
 )
 
+from src.distribution_llm_analysis import (
+    analyze_distribution_payload,
+    render_distribution_llm_markdown,
+    should_require_llm_refresh,
+)
+
 warnings.filterwarnings("ignore")
 
 MAX_EXPENSIVE_TARGET_DATES = 4
@@ -433,6 +439,83 @@ def analyze_intraday(minutes_df: pd.DataFrame, date_str: str) -> dict:
     }
 
 
+def _serialize_signal_items(items: list[tuple]) -> list[dict[str, float | str]]:
+    serialized: list[dict[str, float | str]] = []
+    for date_s, pct_s, metric_s, close_s in items:
+        serialized.append(
+            {
+                "date": str(date_s),
+                "pct_change": float(pct_s),
+                "metric": float(metric_s),
+                "close": float(close_s),
+            }
+        )
+    return serialized
+
+
+def build_distribution_report_payload(
+    ts_code: str,
+    stock_name: str,
+    *,
+    analyzed: pd.DataFrame,
+    signals: dict[str, list[tuple]],
+    phases: list[dict[str, float | str | int]],
+    expensive_dates: list[str],
+    tick_results: dict[str, dict],
+    intraday_results: dict[str, dict],
+    report_trade_date: str,
+    allow_live_fetch: bool,
+) -> dict:
+    recent_daily_rows: list[dict[str, float | str]] = []
+    for _, row in analyzed.tail(30).iterrows():
+        date_str = str(row.name).split()[0]
+        recent_daily_rows.append(
+            {
+                "date": date_str,
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "pct_change": float(row["pct_change"]) if pd.notna(row["pct_change"]) else 0.0,
+                "vol_ratio": float(row.get("vol_ratio", 1.0)) if pd.notna(row.get("vol_ratio", 1.0)) else 1.0,
+                "upper_shadow_ratio": float(row.get("upper_shadow_ratio", 0.0)) if pd.notna(row.get("upper_shadow_ratio", 0.0)) else 0.0,
+            }
+        )
+
+    signal_payload = {
+        str(signal_name): _serialize_signal_items(items[-10:])
+        for signal_name, items in signals.items()
+        if items
+    }
+    phase_payload = [dict(phase) for phase in phases]
+    tick_coverage = {
+        "available_dates": [dt for dt, result in tick_results.items() if result.get("status") == "ok"],
+        "missing_dates": [dt for dt, result in tick_results.items() if result.get("status") != "ok"],
+    }
+    intraday_coverage = {
+        "available_dates": [dt for dt, result in intraday_results.items() if result.get("patterns") and result.get("patterns") != ["无数据"]],
+        "missing_dates": [dt for dt, result in intraday_results.items() if not result.get("patterns") or result.get("patterns") == ["无数据"]],
+    }
+    return {
+        "security": {
+            "ts_code": ts_code,
+            "stock_name": stock_name,
+            "report_trade_date": report_trade_date,
+            "data_source": "数据库缓存" if not allow_live_fetch else "数据库缓存 + 近期缺口实时补齐",
+        },
+        "coverage": {
+            "tick": tick_coverage,
+            "intraday": intraday_coverage,
+            "expensive_dates": list(expensive_dates),
+        },
+        "daily_overview": recent_daily_rows,
+        "signals": signal_payload,
+        "phases": phase_payload,
+        "tick_analysis": dict(tick_results),
+        "intraday_analysis": dict(intraday_results),
+    }
+
+
 def generate_detailed_report(
     ts_code: str,
     stock_name: str,
@@ -447,7 +530,7 @@ def generate_detailed_report(
         from src.distribution_report_store import get_daily_report
 
         cached = get_daily_report(engine, ts_code, report_trade_date)
-        if cached and "无K线数据" not in cached:
+        if cached and "无K线数据" not in cached and not should_require_llm_refresh(cached):
             return cached
 
     analyzed = fetch_daily_kline(
@@ -537,6 +620,7 @@ def generate_detailed_report(
             valid_dates.append(compact[:8])
     expensive_dates = select_expensive_target_dates(valid_dates)
 
+    tick_results: dict[str, dict] = {}
     md.extend(["", "---", "## 💰 Step 4: 关键日期分笔成交分析（大单追踪）"])
     if not expensive_dates:
         md.extend(["", "ℹ️ 没有需要分析的目标日期"])
@@ -551,9 +635,11 @@ def generate_detailed_report(
                 allow_live_fetch=allow_live_fetch,
             )
             if tick_df is None or tick_df.empty:
+                tick_results[dt_fmt] = {"status": "no_data"}
                 md.append(f"- **{dt_fmt}**: 无分笔数据")
                 continue
             result = analyze_tick_data(tick_df)
+            tick_results[dt_fmt] = dict(result)
             if result.get("status") != "ok":
                 md.append(f"- **{dt_fmt}**: 分笔数据不可用")
                 continue
@@ -570,6 +656,7 @@ def generate_detailed_report(
                 f"- **{dt_fmt}**: 总成交 {result.get('total_vol', 0):,.0f}手 | 大单 {result.get('big_order_count', 0)}笔 ({result.get('big_order_pct', 0):.1f}%){extra}"
             )
 
+    intraday_results: dict[str, dict] = {}
     md.extend(["", "---", "## ⏱️ Step 5: 关键日期分时走势分析"])
     if not expensive_dates:
         md.extend(["", "ℹ️ 没有需要分析的目标日期"])
@@ -584,9 +671,11 @@ def generate_detailed_report(
                 allow_live_fetch=allow_live_fetch,
             )
             if mins_df is None or mins_df.empty:
+                intraday_results[dt_fmt] = {"date": dt_fmt, "patterns": ["无数据"]}
                 md.append(f"- **{dt_fmt}**: 无分时数据")
                 continue
             result = analyze_intraday(mins_df, dt)
+            intraday_results[dt_fmt] = dict(result)
             patterns_str = " | ".join(result.get("patterns", []))
             if "day_return" in result:
                 md.append(
@@ -638,6 +727,21 @@ def generate_detailed_report(
         md.append("> [!CAUTION]\n> **存在较强的主力出货迹象，建议谨慎关注风险！**")
     else:
         md.append("> [!WARNING]\n> **存在一些出货信号，但尚不构成明确的系统性出货，需持续跟踪。**")
+
+    payload = build_distribution_report_payload(
+        ts_code,
+        stock_name,
+        analyzed=analyzed,
+        signals=signals,
+        phases=phases,
+        expensive_dates=[f"{dt[:4]}-{dt[4:6]}-{dt[6:]}" for dt in expensive_dates],
+        tick_results=tick_results,
+        intraday_results=intraday_results,
+        report_trade_date=report_trade_date,
+        allow_live_fetch=allow_live_fetch,
+    )
+    llm_result = analyze_distribution_payload(payload)
+    md.extend(render_distribution_llm_markdown(llm_result))
 
     final_md = "\n".join(md)
     if engine is not None:

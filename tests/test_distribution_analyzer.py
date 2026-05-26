@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from src.distribution_analyzer import (
     analyze_tick_data,
+    build_distribution_report_payload,
     fetch_daily_kline,
     fetch_minutes,
     fetch_transactions,
@@ -106,12 +107,14 @@ class DistributionAnalyzerTests(unittest.TestCase):
         self.assertTrue(result.empty)
         mock_get_kline.assert_called_once()
 
+    @patch("src.distribution_analyzer.should_require_llm_refresh", return_value=False)
     @patch("src.distribution_analyzer.fetch_daily_kline")
     @patch("src.distribution_report_store.get_daily_report", return_value="# cached report")
     def test_generate_detailed_report_prefers_cached_report_for_asof_trade_date(
         self,
         mock_get_daily_report,
         mock_fetch_daily_kline,
+        _mock_should_require_llm_refresh,
     ):
         report = generate_detailed_report(
             "000733.SZ",
@@ -124,6 +127,45 @@ class DistributionAnalyzerTests(unittest.TestCase):
         self.assertEqual(report, "# cached report")
         mock_get_daily_report.assert_called_once()
         mock_fetch_daily_kline.assert_not_called()
+
+    @patch("src.distribution_analyzer.render_distribution_llm_markdown", return_value=["", "## 🧠 大模型二次综合分析", "- **综合判断**：疑似出货"])
+    @patch("src.distribution_analyzer.analyze_distribution_payload", return_value={"verdict": "疑似出货"})
+    @patch("src.distribution_analyzer.fetch_minutes", return_value=pd.DataFrame())
+    @patch("src.distribution_analyzer.fetch_transactions", return_value=pd.DataFrame())
+    @patch("src.distribution_analyzer.identify_distribution_phase", return_value=[])
+    @patch("src.distribution_analyzer.find_volume_price_signals", return_value={})
+    @patch("src.distribution_analyzer.fetch_daily_kline")
+    def test_generate_detailed_report_appends_llm_section_when_available(
+        self,
+        mock_fetch_daily_kline,
+        _mock_signals,
+        _mock_phases,
+        _mock_fetch_transactions,
+        _mock_fetch_minutes,
+        mock_analyze_distribution_payload,
+        _mock_render_distribution_llm_markdown,
+    ):
+        daily_df = pd.DataFrame(
+            [
+                {
+                    "trade_date": date(2026, 5, 1 + idx),
+                    "open": 46.0 + idx * 0.1,
+                    "high": 46.5 + idx * 0.1,
+                    "low": 45.8 + idx * 0.1,
+                    "close": 46.1 + idx * 0.1,
+                    "vol": 100000 + idx * 1000,
+                    "amount": 4600000 + idx * 10000,
+                }
+                for idx in range(30)
+            ]
+        )
+        daily_df.index = pd.to_datetime(daily_df["trade_date"])
+        mock_fetch_daily_kline.return_value = daily_df
+
+        report = generate_detailed_report("000733.SZ", "振华科技", engine=None)
+
+        self.assertIn("大模型二次综合分析", report)
+        mock_analyze_distribution_payload.assert_called_once()
 
     @patch("src.distribution_analyzer.create_client", side_effect=AssertionError("client should not be created"))
     @patch("src.distribution_analyzer.fetch_minutes")
@@ -287,6 +329,39 @@ class DistributionAnalyzerTests(unittest.TestCase):
 
         self.assertEqual(len(result), 2)
         self.assertListEqual(list(result["price"]), [10.0, 10.1])
+
+    def test_build_distribution_report_payload_marks_tick_and_intraday_coverage(self):
+        analyzed = pd.DataFrame(
+            [
+                {
+                    "open": 10.0,
+                    "high": 10.5,
+                    "low": 9.8,
+                    "close": 10.2,
+                    "pct_change": 1.5,
+                    "vol_ratio": 1.8,
+                    "upper_shadow_ratio": 0.2,
+                }
+            ],
+            index=["2026-05-26"],
+        )
+        payload = build_distribution_report_payload(
+            "000733.SZ",
+            "振华科技",
+            analyzed=analyzed,
+            signals={"放量滞涨": [("2026-05-26", 1.5, 1.8, 10.2)]},
+            phases=[{"peak_date": "2026-05-20", "end_date": "2026-05-26", "peak_price": 11.0, "low_price": 10.0, "decline_pct": -9.1, "duration_days": 4, "avg_vol": 12345.0}],
+            expensive_dates=["2026-05-25", "2026-05-26"],
+            tick_results={"2026-05-25": {"status": "ok"}, "2026-05-26": {"status": "no_data"}},
+            intraday_results={"2026-05-25": {"patterns": ["高开低走"]}, "2026-05-26": {"patterns": ["无数据"]}},
+            report_trade_date="2026-05-26",
+            allow_live_fetch=True,
+        )
+
+        self.assertEqual(payload["coverage"]["tick"]["available_dates"], ["2026-05-25"])
+        self.assertEqual(payload["coverage"]["tick"]["missing_dates"], ["2026-05-26"])
+        self.assertEqual(payload["coverage"]["intraday"]["available_dates"], ["2026-05-25"])
+        self.assertEqual(payload["coverage"]["intraday"]["missing_dates"], ["2026-05-26"])
 
     @patch("src.distribution_analyzer.create_client", side_effect=AssertionError("client should not be created"))
     def test_fetch_transactions_skips_live_fallback_for_stale_dates(self, _mock_create_client):
