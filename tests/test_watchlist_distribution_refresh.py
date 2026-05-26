@@ -94,6 +94,15 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
 
         self.assertEqual(symbols, ["000001.SZ", "000733.SZ"])
 
+    def test_watchlist_symbols_can_scope_to_single_user(self):
+        self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
+        self._insert_watchlist_row("alice", "000001.SZ", security_name="\u5e73\u5b89\u94f6\u884c")
+        self._insert_watchlist_row("bob", "300274.SZ", security_name="\u9633\u5149\u7535\u6e90")
+
+        symbols = load_watchlist_stock_symbols(self.engine, username="alice")
+
+        self.assertEqual(symbols, ["000001.SZ", "000733.SZ"])
+
     def test_ready_reports_skip_recompute(self):
         self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
         self._insert_daily_row("000733.SZ", "2026-05-23")
@@ -155,6 +164,26 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
         self.assertEqual(summary["processed"], 0)
         report_generator.assert_not_called()
         release_refresh_lock(self.engine, "watchlist_distribution_refresh", owner_id="holder-1")
+
+    def test_refresh_can_scope_to_single_user_watchlist(self):
+        self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
+        self._insert_watchlist_row("alice", "000001.SZ", security_name="\u5e73\u5b89\u94f6\u884c")
+        self._insert_watchlist_row("bob", "300274.SZ", security_name="\u9633\u5149\u7535\u6e90")
+        self._insert_daily_row("000733.SZ", "2026-05-23")
+        self._insert_daily_row("000001.SZ", "2026-05-23")
+        self._insert_daily_row("300274.SZ", "2026-05-23")
+        report_generator = Mock(return_value="# generated report")
+
+        summary = refresh_watchlist_distribution_reports(
+            self.engine,
+            report_generator=report_generator,
+            username="alice",
+        )
+
+        self.assertEqual(summary["processed"], 2)
+        self.assertEqual(summary["generated"], 2)
+        called_codes = [call.args[0] for call in report_generator.call_args_list]
+        self.assertEqual(called_codes, ["000001.SZ", "000733.SZ"])
 
 
 if __name__ == "__main__":

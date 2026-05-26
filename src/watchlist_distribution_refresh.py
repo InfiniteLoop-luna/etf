@@ -21,33 +21,48 @@ from src.distribution_report_store import (
 )
 
 
-def load_watchlist_stock_symbols(engine: Engine) -> list[str]:
+WATCHLIST_REFRESH_LOCK_NAME = "watchlist_distribution_refresh"
+
+
+def load_watchlist_stock_symbols(engine: Engine, username: str | None = None) -> list[str]:
+    params: dict[str, str] = {}
+    username_filter = ""
+    normalized_username = str(username or "").strip()
+    if normalized_username:
+        username_filter = " AND username = :username"
+        params["username"] = normalized_username
     sql = text(
-        """
+        f"""
         SELECT DISTINCT ts_code
         FROM app_user_watchlist
-        WHERE LOWER(COALESCE(security_type, 'stock')) = 'stock'
+        WHERE LOWER(COALESCE(security_type, 'stock')) = 'stock'{username_filter}
         ORDER BY ts_code
         """
     )
     with engine.connect() as conn:
-        rows = conn.execute(sql).fetchall()
+        rows = conn.execute(sql, params).fetchall()
     return [str(row[0]).strip().upper() for row in rows if row and str(row[0]).strip()]
 
 
-def load_watchlist_stock_names(engine: Engine) -> dict[str, str]:
+def load_watchlist_stock_names(engine: Engine, username: str | None = None) -> dict[str, str]:
+    params: dict[str, str] = {}
+    username_filter = ""
+    normalized_username = str(username or "").strip()
+    if normalized_username:
+        username_filter = " AND username = :username"
+        params["username"] = normalized_username
     sql = text(
-        """
+        f"""
         SELECT
             ts_code,
             MAX(COALESCE(NULLIF(security_name, ''), ts_code)) AS security_name
         FROM app_user_watchlist
-        WHERE LOWER(COALESCE(security_type, 'stock')) = 'stock'
+        WHERE LOWER(COALESCE(security_type, 'stock')) = 'stock'{username_filter}
         GROUP BY ts_code
         """
     )
     with engine.connect() as conn:
-        rows = conn.execute(sql).fetchall()
+        rows = conn.execute(sql, params).fetchall()
     return {
         str(row[0]).strip().upper(): str(row[1] or row[0]).strip()
         for row in rows
@@ -75,15 +90,19 @@ def get_latest_source_trade_date(engine: Engine, ts_code: str) -> str | None:
 def refresh_watchlist_distribution_reports(
     engine: Engine,
     report_generator: Callable[..., str] | None = None,
+    *,
+    username: str | None = None,
 ) -> dict[str, int]:
     ensure_tables(engine)
     report_generator = report_generator or generate_detailed_report
+    scope_username = str(username or "").strip() or None
     owner_id = f"watchlist-refresh-{uuid.uuid4().hex[:12]}"
-    if not try_acquire_refresh_lock(engine, "watchlist_distribution_refresh", owner_id=owner_id, timeout_seconds=1800):
+    lock_name = WATCHLIST_REFRESH_LOCK_NAME if scope_username is None else f"{WATCHLIST_REFRESH_LOCK_NAME}:{scope_username}"
+    if not try_acquire_refresh_lock(engine, lock_name, owner_id=owner_id, timeout_seconds=1800):
         return {"processed": 0, "generated": 0, "skipped": 0, "failed": 0, "locked": 1}
 
-    symbols = load_watchlist_stock_symbols(engine)
-    names = load_watchlist_stock_names(engine)
+    symbols = load_watchlist_stock_symbols(engine, username=scope_username)
+    names = load_watchlist_stock_names(engine, username=scope_username)
     summary = {"processed": 0, "generated": 0, "skipped": 0, "failed": 0, "locked": 0}
 
     try:
@@ -173,6 +192,6 @@ def refresh_watchlist_distribution_reports(
                 )
                 summary["failed"] += 1
     finally:
-        release_refresh_lock(engine, "watchlist_distribution_refresh", owner_id=owner_id)
+        release_refresh_lock(engine, lock_name, owner_id=owner_id)
 
     return summary

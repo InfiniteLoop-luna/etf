@@ -7495,13 +7495,13 @@ def generate_sparkline_svg(prices, is_up=True):
 
 
 def preload_watchlist_reports_bg(username: str, engine) -> None:
-    """在后台静默触发全站自选股深度出货缓存增量刷新。"""
+    """在后台静默触发当前登录用户自选股深度出货缓存增量刷新。"""
     import threading
 
     def _worker():
         try:
             logger.info(f"Started background watchlist distribution refresh for {username}")
-            refresh_watchlist_distribution_reports(engine)
+            refresh_watchlist_distribution_reports(engine, username=username)
             logger.info(f"Finished background watchlist distribution refresh for {username}")
         except Exception as e:
             logger.error(f"Background preload crashed: {e}")
