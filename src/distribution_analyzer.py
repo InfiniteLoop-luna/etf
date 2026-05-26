@@ -58,33 +58,42 @@ def select_expensive_target_dates(valid_dates: list[str]) -> list[str]:
 def create_client():
     from mootdx.quotes import Quotes
 
-    try:
-        client = Quotes.factory(market="std", timeout=10)
-        test_df = client.bars(symbol="000001", frequency=9, offset=1)
-        if test_df is not None and not test_df.empty:
-            return client
-        client.close()
-    except Exception:
-        pass
-
-    good_servers = [
+    preferred_servers = [
+        ("110.41.147.114", 7709),
         ("119.147.212.81", 7709),
         ("121.14.110.194", 7709),
         ("114.115.234.141", 7709),
         ("120.24.149.49", 7709),
     ]
 
-    for host, port in good_servers:
+    def _probe_transactions(client) -> bool:
+        try:
+            bars_df = client.bars(symbol="000001", frequency=9, offset=1)
+            if bars_df is None or bars_df.empty:
+                return False
+            tick_df = client.transactions(symbol="000733", start=0, offset=10, date="20260520")
+            return tick_df is not None and not tick_df.empty
+        except Exception:
+            return False
+
+    try:
+        client = Quotes.factory(market="std", timeout=10)
+        if _probe_transactions(client):
+            return client
+        client.close()
+    except Exception:
+        pass
+
+    for host, port in preferred_servers:
         try:
             client = Quotes.factory(market="std", server=(host, port), timeout=5)
-            test_df = client.bars(symbol="000001", frequency=9, offset=1)
-            if test_df is not None and not test_df.empty:
+            if _probe_transactions(client):
                 return client
             client.close()
         except Exception:
             pass
 
-    return Quotes.factory(market="std", server=good_servers[0], timeout=10)
+    return Quotes.factory(market="std", server=preferred_servers[0], timeout=10)
 
 
 def close_client(client):

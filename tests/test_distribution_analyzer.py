@@ -228,6 +228,46 @@ class DistributionAnalyzerTests(unittest.TestCase):
         called_dates = [call.args[1] for call in mock_fetch_transactions.call_args_list]
         self.assertEqual(called_dates, sorted(called_dates)[-4:])
 
+    def test_create_client_prefers_server_with_live_tick_data(self):
+        from src.distribution_analyzer import create_client
+
+        class FakeClient:
+            def __init__(self, bars_ok: bool, tick_ok: bool):
+                self.bars_ok = bars_ok
+                self.tick_ok = tick_ok
+                self.closed = False
+
+            def bars(self, symbol, frequency, offset):
+                return pd.DataFrame([{"close": 1}]) if self.bars_ok else pd.DataFrame()
+
+            def transactions(self, symbol, start, offset, date):
+                return pd.DataFrame([{"price": 1, "vol": 1}]) if self.tick_ok else pd.DataFrame()
+
+            def close(self):
+                self.closed = True
+
+        default_client = FakeClient(bars_ok=True, tick_ok=False)
+        good_client = FakeClient(bars_ok=True, tick_ok=True)
+
+        class FakeQuotes:
+            calls = []
+
+            @staticmethod
+            def factory(*args, **kwargs):
+                FakeQuotes.calls.append(kwargs)
+                if len(FakeQuotes.calls) == 1:
+                    return default_client
+                if len(FakeQuotes.calls) == 2:
+                    return good_client
+                raise AssertionError("unexpected extra factory call")
+
+        with patch.dict("sys.modules", {"mootdx.quotes": Mock(Quotes=FakeQuotes)}):
+            client = create_client()
+
+        self.assertIs(client, good_client)
+        self.assertTrue(default_client.closed)
+        self.assertEqual(len(FakeQuotes.calls), 2)
+
     @patch("src.distribution_analyzer.create_client", side_effect=AssertionError("client should not be created"))
     def test_fetch_transactions_reads_compact_date_ticks_from_db_cache(self, _mock_create_client):
         from src.distribution_report_store import ensure_tables, save_compressed_ticks
