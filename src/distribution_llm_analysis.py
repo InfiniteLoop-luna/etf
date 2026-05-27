@@ -165,6 +165,55 @@ def _strip_json_fence(text: str) -> str:
     return raw
 
 
+def _extract_first_balanced_json_object(text: str) -> str | None:
+    raw = str(text or "")
+    start = raw.find("{")
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escape = False
+    for idx in range(start, len(raw)):
+        ch = raw[idx]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                return raw[start:idx + 1]
+    return None
+
+
+def parse_llm_json_object(text: str) -> dict[str, Any] | None:
+    raw = _strip_json_fence(text)
+    candidates = [raw]
+    extracted = _extract_first_balanced_json_object(raw)
+    if extracted and extracted not in candidates:
+        candidates.append(extracted)
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
 def make_json_safe(value: Any) -> Any:
     if value is None or isinstance(value, (str, bool, int)):
         return value
@@ -249,8 +298,9 @@ def analyze_distribution_payload(payload: dict[str, Any], config: DistributionLL
         if not content:
             logger.warning("Distribution LLM returned empty content")
             return None
-        parsed = json.loads(_strip_json_fence(content))
+        parsed = parse_llm_json_object(content)
         if not isinstance(parsed, dict):
+            logger.warning("Distribution LLM returned non-JSON object content")
             return None
         parsed["model"] = resolved.model
         return parsed

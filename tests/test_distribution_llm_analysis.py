@@ -8,7 +8,12 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from src.distribution_llm_analysis import LLM_SECTION_MARKER, make_json_safe, load_distribution_llm_config
+from src.distribution_llm_analysis import (
+    LLM_SECTION_MARKER,
+    make_json_safe,
+    load_distribution_llm_config,
+    parse_llm_json_object,
+)
 
 
 class DistributionLLMAnalysisTests(unittest.TestCase):
@@ -85,6 +90,18 @@ class DistributionLLMAnalysisTests(unittest.TestCase):
 
         self.assertTrue(should_require_llm_refresh('# cached report'))
         self.assertFalse(should_require_llm_refresh('# cached report\n\n' + LLM_SECTION_MARKER))
+
+    def test_parse_llm_json_object_accepts_fenced_json(self):
+        content = '```json\n{"verdict":"疑似出货","confidence":75}\n```'
+        parsed = parse_llm_json_object(content)
+        self.assertEqual(parsed['verdict'], '疑似出货')
+        self.assertEqual(parsed['confidence'], 75)
+
+    def test_parse_llm_json_object_extracts_first_balanced_object_from_noisy_text(self):
+        content = '先看结论如下：\n{"verdict":"中性","confidence":55,"summary":"震荡"}\n补充说明忽略'
+        parsed = parse_llm_json_object(content)
+        self.assertEqual(parsed['verdict'], '中性')
+        self.assertEqual(parsed['confidence'], 55)
 
 
 if __name__ == "__main__":
