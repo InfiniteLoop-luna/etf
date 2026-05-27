@@ -4,12 +4,14 @@ import tempfile
 import unittest
 from datetime import date, datetime
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import pandas as pd
 
 from src.distribution_llm_analysis import (
     LLM_SECTION_MARKER,
+    analyze_distribution_payload,
     make_json_safe,
     load_distribution_llm_config,
     parse_llm_json_object,
@@ -102,6 +104,61 @@ class DistributionLLMAnalysisTests(unittest.TestCase):
         parsed = parse_llm_json_object(content)
         self.assertEqual(parsed['verdict'], '中性')
         self.assertEqual(parsed['confidence'], 55)
+
+    @patch('src.distribution_llm_analysis.requests.post')
+    def test_analyze_distribution_payload_retries_once_on_non_json_then_succeeds(self, mock_post):
+        config = SimpleNamespace(
+            configured=True,
+            base_url='https://api.deepseek.com',
+            api_key='sk-test',
+            model='deepseek-v4-flash',
+            timeout_seconds=30,
+            temperature=0.2,
+            max_tokens=1200,
+        )
+
+        bad = Mock()
+        bad.raise_for_status.return_value = None
+        bad.json.return_value = {
+            'choices': [{'message': {'content': '结论如下：不是纯json'}}]
+        }
+        good = Mock()
+        good.raise_for_status.return_value = None
+        good.json.return_value = {
+            'choices': [{'message': {'content': '{"verdict":"疑似出货","confidence":71}'}}]
+        }
+        mock_post.side_effect = [bad, good]
+
+        result = analyze_distribution_payload({'ts_code': '000733.SZ'}, config=config)
+
+        self.assertEqual(result['verdict'], '疑似出货')
+        self.assertEqual(result['confidence'], 71)
+        self.assertEqual(mock_post.call_count, 2)
+
+    @patch('src.distribution_llm_analysis.requests.post')
+    def test_analyze_distribution_payload_returns_none_when_both_attempts_invalid(self, mock_post):
+        config = SimpleNamespace(
+            configured=True,
+            base_url='https://api.deepseek.com',
+            api_key='sk-test',
+            model='deepseek-v4-flash',
+            timeout_seconds=30,
+            temperature=0.2,
+            max_tokens=1200,
+        )
+
+        empty = Mock()
+        empty.raise_for_status.return_value = None
+        empty.json.return_value = {'choices': [{'message': {'content': ''}}]}
+        noisy = Mock()
+        noisy.raise_for_status.return_value = None
+        noisy.json.return_value = {'choices': [{'message': {'content': '不是json'}}]}
+        mock_post.side_effect = [empty, noisy]
+
+        result = analyze_distribution_payload({'ts_code': '000733.SZ'}, config=config)
+
+        self.assertIsNone(result)
+        self.assertEqual(mock_post.call_count, 2)
 
 
 if __name__ == "__main__":

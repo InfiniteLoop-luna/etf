@@ -267,46 +267,55 @@ def analyze_distribution_payload(payload: dict[str, Any], config: DistributionLL
         "其中 verdict 只能取：强出货、疑似出货、中性、偏洗盘。"
         "confidence 为 0-100 的整数。evidence_for / evidence_against / watch_items 都是 1-4 条字符串数组。"
     )
-    user_prompt = (
+    base_user_prompt = (
         "请基于下面这份结构化 payload 做二次综合分析。"
         "如果 tick/minute 缺失，要明确降低置信度。"
         "只输出 JSON，不要输出 markdown。\n\n"
         + json.dumps(make_json_safe(payload), ensure_ascii=False)
     )
-    request_payload = {
-        "model": resolved.model,
-        "temperature": resolved.temperature,
-        "max_tokens": resolved.max_tokens,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    }
+    retry_user_prompt = (
+        "请严格只返回单个 JSON 对象，不要输出解释、前缀、后缀、markdown、代码块。"
+        "字段只允许 verdict, confidence, summary, evidence_for, evidence_against, watch_items。\n\n"
+        + json.dumps(make_json_safe(payload), ensure_ascii=False)
+    )
     headers = {
         "Authorization": f"Bearer {resolved.api_key}",
         "Content-Type": "application/json",
     }
-    try:
-        response = requests.post(url, headers=headers, json=request_payload, timeout=resolved.timeout_seconds)
-        response.raise_for_status()
-        data = response.json()
-        content = (
-            ((data.get("choices") or [{}])[0].get("message") or {}).get("content")
-            if isinstance(data, dict)
-            else None
-        )
-        if not content:
-            logger.warning("Distribution LLM returned empty content")
-            return None
-        parsed = parse_llm_json_object(content)
-        if not isinstance(parsed, dict):
-            logger.warning("Distribution LLM returned non-JSON object content")
-            return None
-        parsed["model"] = resolved.model
-        return parsed
-    except Exception as exc:
-        logger.warning("Distribution LLM analysis failed: %s", exc)
-        return None
+
+    for attempt_index, user_prompt in enumerate((base_user_prompt, retry_user_prompt), start=1):
+        request_payload = {
+            "model": resolved.model,
+            "temperature": resolved.temperature,
+            "max_tokens": resolved.max_tokens,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        try:
+            response = requests.post(url, headers=headers, json=request_payload, timeout=resolved.timeout_seconds)
+            response.raise_for_status()
+            data = response.json()
+            content = (
+                ((data.get("choices") or [{}])[0].get("message") or {}).get("content")
+                if isinstance(data, dict)
+                else None
+            )
+            if not content:
+                logger.warning("Distribution LLM returned empty content")
+                continue
+            parsed = parse_llm_json_object(content)
+            if not isinstance(parsed, dict):
+                logger.warning("Distribution LLM returned non-JSON object content")
+                continue
+            parsed["model"] = resolved.model
+            return parsed
+        except Exception as exc:
+            logger.warning("Distribution LLM analysis failed: %s", exc)
+            if attempt_index >= 2:
+                return None
+    return None
 
 
 def render_distribution_llm_markdown(result: dict[str, Any] | None) -> list[str]:
