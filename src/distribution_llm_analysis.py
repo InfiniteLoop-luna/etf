@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -108,6 +110,45 @@ def _strip_json_fence(text: str) -> str:
     return raw
 
 
+def make_json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): make_json_safe(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [make_json_safe(item) for item in value]
+
+    try:
+        import numpy as np  # type: ignore
+
+        if isinstance(value, np.generic):
+            return make_json_safe(value.item())
+        if isinstance(value, np.ndarray):
+            return [make_json_safe(item) for item in value.tolist()]
+    except Exception:
+        pass
+
+    try:
+        import pandas as pd  # type: ignore
+
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+
+    if hasattr(value, "item"):
+        try:
+            return make_json_safe(value.item())
+        except Exception:
+            pass
+
+    return str(value)
+
+
 def analyze_distribution_payload(payload: dict[str, Any], config: DistributionLLMConfig | None = None) -> dict[str, Any] | None:
     resolved = config or load_distribution_llm_config()
     if not resolved.configured:
@@ -126,7 +167,7 @@ def analyze_distribution_payload(payload: dict[str, Any], config: DistributionLL
         "请基于下面这份结构化 payload 做二次综合分析。"
         "如果 tick/minute 缺失，要明确降低置信度。"
         "只输出 JSON，不要输出 markdown。\n\n"
-        + json.dumps(payload, ensure_ascii=False)
+        + json.dumps(make_json_safe(payload), ensure_ascii=False)
     )
     request_payload = {
         "model": resolved.model,
