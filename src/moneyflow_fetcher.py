@@ -41,7 +41,7 @@ DEFAULT_API_SLEEP = float(os.getenv("TUSHARE_MF_API_SLEEP", "0.4"))
 DEFAULT_INCREMENTAL_LOOKBACK_DAYS = int(os.getenv("TUSHARE_MF_LOOKBACK_DAYS", "1"))
 DEFAULT_MIN_COVERAGE_RATIO = float(os.getenv("TUSHARE_MF_MIN_COVERAGE_RATIO", "0.9"))
 DEFAULT_PUBLISH_CUTOFF_HOUR = int(os.getenv("TUSHARE_MF_PUBLISH_CUTOFF_HOUR", "20"))
-DEFAULT_DB_HOST = "67.216.207.73"
+DEFAULT_DB_HOST = "127.0.0.1"
 DEFAULT_DB_PORT = 5432
 DEFAULT_DB_NAME = "postgres"
 DEFAULT_DB_USER = "postgres"
@@ -103,53 +103,9 @@ ACTIVE_STOCK_COUNT_CACHE: Optional[int] = None
 # ---------------------------------------------------------------------------
 
 def build_db_url():
-    # 优先尝试从 sync_tushare_security_data 复用完全相同的凭证逻辑
-    try:
-        from src.sync_tushare_security_data import build_db_url as _sync_build_db_url
-        return _sync_build_db_url()
-    except (ImportError, RuntimeError):
-        pass
+    from src.sync_tushare_security_data import build_db_url as _sync_build_db_url
 
-    direct_url = os.getenv("ETF_PG_URL") or os.getenv("DATABASE_URL")
-    if direct_url:
-        return direct_url
-
-    password = os.getenv("ETF_PG_PASSWORD") or os.getenv("PGPASSWORD")
-    if not password:
-        # 最后尝试从 Streamlit secrets 读取
-        try:
-            import streamlit as st
-            password = (
-                st.secrets.get("ETF_PG_PASSWORD")
-                or st.secrets.get("PGPASSWORD")
-                or st.secrets.get("database", {}).get("password")
-            )
-            if password:
-                os.environ["ETF_PG_PASSWORD"] = str(password)
-            # 同时尝试读取其他连接参数
-            for key in ("ETF_PG_HOST", "ETF_PG_USER", "ETF_PG_DATABASE", "ETF_PG_URL"):
-                val = st.secrets.get(key)
-                if val and not os.environ.get(key):
-                    os.environ[key] = str(val)
-        except Exception:
-            pass
-
-    password = os.getenv("ETF_PG_PASSWORD") or os.getenv("PGPASSWORD")
-    if not password:
-        raise RuntimeError(
-            "未配置数据库密码，请设置环境变量 ETF_PG_PASSWORD 或 PGPASSWORD，"
-            "或在 .streamlit/secrets.toml 中配置"
-        )
-
-    return URL.create(
-        "postgresql+psycopg2",
-        username=os.getenv("ETF_PG_USER", DEFAULT_DB_USER),
-        password=password,
-        host=os.getenv("ETF_PG_HOST", DEFAULT_DB_HOST),
-        port=int(os.getenv("ETF_PG_PORT", str(DEFAULT_DB_PORT))),
-        database=os.getenv("ETF_PG_DATABASE", DEFAULT_DB_NAME),
-        query={"sslmode": os.getenv("ETF_PG_SSLMODE", DEFAULT_DB_SSLMODE)},
-    )
+    return _sync_build_db_url()
 
 
 def get_engine() -> Engine:

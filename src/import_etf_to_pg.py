@@ -2,11 +2,14 @@ import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.sync_tushare_security_data import build_db_url
 
 # Configuration
 excel_path = r'd:\sourcecode\etf\resources\ETF分类汇总_202603267.xlsx'
 sheet_name = 'ETF汇总表'
-db_url = 'postgresql://postgres:Zmx1018$@67.216.207.73:5432/postgres'
 table_name = 'etf_summary'
 
 # Column Mapping
@@ -71,7 +74,7 @@ def main():
     print("Connecting to PostgreSQL database...")
     # Use standard SQLAlchemy core types if needed but pandas `to_sql` derives them nicely
     try:
-        engine = create_engine(db_url)
+        engine = create_engine(build_db_url())
         print("Importing data to PostgreSQL table...")
         df.to_sql(table_name, engine, if_exists='replace', index=False, method='multi', chunksize=1000)
         print("Data imported successfully!")

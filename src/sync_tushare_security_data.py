@@ -21,7 +21,7 @@ if PROJECT_ROOT not in sys.path:
 
 from src.volume_fetcher import _init_tushare
 
-DEFAULT_DB_HOST = "67.216.207.73"
+DEFAULT_DB_HOST = "127.0.0.1"
 DEFAULT_DB_PORT = 5432
 DEFAULT_DB_NAME = "postgres"
 DEFAULT_DB_USER = "postgres"

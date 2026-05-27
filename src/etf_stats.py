@@ -15,7 +15,7 @@ from sqlalchemy.engine import URL
 
 from src.sync_tushare_security_data import build_active_stock_sql_clause
 
-DEFAULT_DB_HOST = '67.216.207.73'
+DEFAULT_DB_HOST = '127.0.0.1'
 DEFAULT_DB_PORT = 5432
 DEFAULT_DB_NAME = 'postgres'
 DEFAULT_DB_USER = 'postgres'
@@ -23,23 +23,9 @@ DEFAULT_DB_SSLMODE = 'require'
 
 
 def _build_db_url():
-    direct_url = os.getenv('ETF_PG_URL') or os.getenv('DATABASE_URL')
-    if direct_url:
-        return direct_url
+    from src.sync_tushare_security_data import build_db_url
 
-    password = os.getenv('ETF_PG_PASSWORD') or os.getenv('PGPASSWORD')
-    if not password:
-        raise RuntimeError('未配置数据库密码，请设置 ETF_PG_PASSWORD 或 PGPASSWORD')
-
-    return URL.create(
-        'postgresql+psycopg2',
-        username=os.getenv('ETF_PG_USER', DEFAULT_DB_USER),
-        password=password,
-        host=os.getenv('ETF_PG_HOST', DEFAULT_DB_HOST),
-        port=int(os.getenv('ETF_PG_PORT', str(DEFAULT_DB_PORT))),
-        database=os.getenv('ETF_PG_DATABASE', DEFAULT_DB_NAME),
-        query={'sslmode': os.getenv('ETF_PG_SSLMODE', DEFAULT_DB_SSLMODE)}
-    )
+    return build_db_url()
 
 
 def _get_engine():

@@ -24,40 +24,9 @@ logger = logging.getLogger(__name__)
 
 
 def build_db_url():
-    """Reuse the project's existing DB URL conventions when possible."""
-    try:
-        from src.sync_tushare_security_data import build_db_url as _sync_build_db_url
+    from src.sync_tushare_security_data import build_db_url as _sync_build_db_url
 
-        return _sync_build_db_url()
-    except Exception:
-        pass
-
-    try:
-        from src.hotmoney_sync import build_db_url as _hotmoney_build_db_url
-
-        return _hotmoney_build_db_url()
-    except Exception:
-        pass
-
-    direct_url = os.getenv("ETF_PG_URL") or os.getenv("DATABASE_URL")
-    if direct_url:
-        return direct_url
-
-    password = os.getenv("ETF_PG_PASSWORD") or os.getenv("PGPASSWORD")
-    if not password:
-        raise RuntimeError("未配置数据库密码，请设置 ETF_PG_PASSWORD 或 PGPASSWORD")
-
-    from sqlalchemy.engine import URL
-
-    return URL.create(
-        "postgresql+psycopg2",
-        username=os.getenv("ETF_PG_USER", "postgres"),
-        password=password,
-        host=os.getenv("ETF_PG_HOST", "67.216.207.73"),
-        port=int(os.getenv("ETF_PG_PORT", "5432")),
-        database=os.getenv("ETF_PG_DATABASE", "postgres"),
-        query={"sslmode": os.getenv("ETF_PG_SSLMODE", "disable")},
-    )
+    return _sync_build_db_url()
 
 
 def get_engine() -> Engine:

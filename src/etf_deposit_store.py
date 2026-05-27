@@ -49,45 +49,9 @@ NUMERIC_FIELDS = [
 
 
 def build_db_url():
-    try:
-        from src.sync_tushare_security_data import build_db_url as _sync_build_db_url
+    from src.sync_tushare_security_data import build_db_url as _sync_build_db_url
 
-        return _sync_build_db_url()
-    except Exception:
-        pass
-
-    direct_url = os.getenv("ETF_PG_URL") or os.getenv("DATABASE_URL")
-    if direct_url:
-        return direct_url
-
-    password = os.getenv("ETF_PG_PASSWORD") or os.getenv("PGPASSWORD")
-    if not password:
-        try:
-            import streamlit as st
-
-            password = (
-                st.secrets.get("ETF_PG_PASSWORD")
-                or st.secrets.get("PGPASSWORD")
-                or st.secrets.get("database", {}).get("password")
-            )
-            if password and not os.getenv("ETF_PG_PASSWORD"):
-                os.environ["ETF_PG_PASSWORD"] = str(password)
-        except Exception:
-            pass
-
-    password = os.getenv("ETF_PG_PASSWORD") or os.getenv("PGPASSWORD")
-    if not password:
-        raise RuntimeError("未配置数据库密码，请设置 ETF_PG_PASSWORD 或 PGPASSWORD")
-
-    return URL.create(
-        "postgresql+psycopg2",
-        username=os.getenv("ETF_PG_USER", "postgres"),
-        password=password,
-        host=os.getenv("ETF_PG_HOST", "67.216.207.73"),
-        port=int(os.getenv("ETF_PG_PORT", "5432")),
-        database=os.getenv("ETF_PG_DATABASE", "postgres"),
-        query={"sslmode": os.getenv("ETF_PG_SSLMODE", "disable")},
-    )
+    return _sync_build_db_url()
 
 
 def get_engine() -> Engine:

@@ -32,7 +32,7 @@ if PROJECT_ROOT not in sys.path:
 from src.volume_fetcher import _init_tushare
 from src.sync_tushare_security_data import build_active_stock_sql_clause
 
-DEFAULT_DB_HOST = "67.216.207.73"
+DEFAULT_DB_HOST = "127.0.0.1"
 DEFAULT_DB_PORT = 5432
 DEFAULT_DB_NAME = "postgres"
 DEFAULT_DB_USER = "postgres"
@@ -63,46 +63,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def build_db_url():
-    # 优先复用现有 sync 模块逻辑
-    try:
-        from src.sync_tushare_security_data import build_db_url as _sync_build_db_url
+    from src.sync_tushare_security_data import build_db_url as _sync_build_db_url
 
-        return _sync_build_db_url()
-    except Exception:
-        pass
-
-    direct_url = os.getenv("ETF_PG_URL") or os.getenv("DATABASE_URL")
-    if direct_url:
-        return direct_url
-
-    password = os.getenv("ETF_PG_PASSWORD") or os.getenv("PGPASSWORD")
-    if not password:
-        try:
-            import streamlit as st
-
-            password = (
-                st.secrets.get("ETF_PG_PASSWORD")
-                or st.secrets.get("PGPASSWORD")
-                or st.secrets.get("database", {}).get("password")
-            )
-            if password and not os.environ.get("ETF_PG_PASSWORD"):
-                os.environ["ETF_PG_PASSWORD"] = str(password)
-        except Exception:
-            pass
-
-    password = os.getenv("ETF_PG_PASSWORD") or os.getenv("PGPASSWORD")
-    if not password:
-        raise RuntimeError("未配置数据库密码，请设置 ETF_PG_PASSWORD 或 PGPASSWORD")
-
-    return URL.create(
-        "postgresql+psycopg2",
-        username=os.getenv("ETF_PG_USER", DEFAULT_DB_USER),
-        password=password,
-        host=os.getenv("ETF_PG_HOST", DEFAULT_DB_HOST),
-        port=int(os.getenv("ETF_PG_PORT", str(DEFAULT_DB_PORT))),
-        database=os.getenv("ETF_PG_DATABASE", DEFAULT_DB_NAME),
-        query={"sslmode": os.getenv("ETF_PG_SSLMODE", DEFAULT_DB_SSLMODE)},
-    )
+    return _sync_build_db_url()
 
 
 def get_engine() -> Engine:
