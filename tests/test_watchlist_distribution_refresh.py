@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 from sqlalchemy import create_engine, text
 
+from src.distribution_llm_analysis import LLM_SECTION_MARKER
 from src.distribution_report_store import (
     ensure_tables,
     get_daily_report,
@@ -106,7 +107,7 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
     def test_ready_reports_skip_recompute(self):
         self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
         self._insert_daily_row("000733.SZ", "2026-05-23")
-        save_daily_report(self.engine, "000733.SZ", "2026-05-23", "# cached report")
+        save_daily_report(self.engine, "000733.SZ", "2026-05-23", f"# cached report\n\n{LLM_SECTION_MARKER}")
         report_generator = Mock(side_effect=AssertionError("report generator should not run"))
 
         summary = refresh_watchlist_distribution_reports(
@@ -120,6 +121,32 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
         self.assertEqual(status["status"], "ready")
         self.assertEqual(status["latest_ready_trade_date"], "2026-05-23")
         report_generator.assert_not_called()
+
+    def test_ready_reports_missing_llm_section_are_recomputed(self):
+        self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
+        self._insert_daily_row("000733.SZ", "2026-05-23")
+        save_daily_report(self.engine, "000733.SZ", "2026-05-23", "# cached report")
+        report_generator = Mock(return_value=f"# regenerated report\n\n{LLM_SECTION_MARKER}")
+
+        summary = refresh_watchlist_distribution_reports(
+            self.engine,
+            report_generator=report_generator,
+        )
+
+        cached_report = get_daily_report(self.engine, "000733.SZ", "2026-05-23")
+        status = get_report_status(self.engine, "000733.SZ")
+        self.assertEqual(summary["skipped"], 0)
+        self.assertEqual(summary["generated"], 1)
+        self.assertIn(LLM_SECTION_MARKER, cached_report)
+        self.assertEqual(status["status"], "ready")
+        self.assertEqual(status["latest_ready_trade_date"], "2026-05-23")
+        report_generator.assert_called_once_with(
+            "000733.SZ",
+            "\u632f\u534e\u79d1\u6280",
+            engine=self.engine,
+            asof_trade_date="2026-05-23",
+            allow_live_fetch=True,
+        )
 
     def test_background_refresh_generates_report_and_marks_ready(self):
         self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
