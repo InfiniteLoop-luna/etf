@@ -116,26 +116,40 @@ def load_distribution_llm_config() -> DistributionLLMConfig:
     secrets = _load_secrets_toml()
     section = _get_secret_section(secrets, "distribution_llm")
 
-    def pick(name: str, default: Any = None) -> Any:
+    def iter_candidates(name: str):
         env_value = os.getenv(name)
         if env_value not in {None, ""}:
-            return env_value
-        if env_values.get(name) not in {None, ""}:
-            return env_values.get(name)
-        if name in secrets and secrets.get(name) not in {None, ""}:
-            return secrets.get(name)
-        if name in section and section.get(name) not in {None, ""}:
-            return section.get(name)
-        snake = name.lower()
-        if snake in section and section.get(snake) not in {None, ""}:
-            return section.get(snake)
-        if name == "DISTRIBUTION_LLM_API_KEY":
-            alt_env = os.getenv("DEEPSEEK_API_KEY") or env_values.get("DEEPSEEK_API_KEY")
-            if alt_env not in {None, ""}:
-                return alt_env
+            yield env_value
+        env_file_value = env_values.get(name)
+        if env_file_value not in {None, ""}:
+            yield env_file_value
+        secret_value = secrets.get(name)
+        if secret_value not in {None, ""}:
+            yield secret_value
+        section_value = section.get(name)
+        if section_value not in {None, ""}:
+            yield section_value
+        snake_value = section.get(name.lower())
+        if snake_value not in {None, ""}:
+            yield snake_value
+
+    def pick(name: str, default: Any = None) -> Any:
+        for candidate in iter_candidates(name):
+            return candidate
         return default
 
-    api_key_value = _normalize_api_key(pick("DISTRIBUTION_LLM_API_KEY", ""))
+    def pick_api_key(default: str = "") -> str:
+        for candidate in iter_candidates("DISTRIBUTION_LLM_API_KEY"):
+            normalized = _normalize_api_key(candidate)
+            if normalized:
+                return normalized
+        for candidate in iter_candidates("DEEPSEEK_API_KEY"):
+            normalized = _normalize_api_key(candidate)
+            if normalized:
+                return normalized
+        return default
+
+    api_key_value = pick_api_key("")
 
     return DistributionLLMConfig(
         enabled=_to_bool(pick("DISTRIBUTION_LLM_ENABLED", False), False),

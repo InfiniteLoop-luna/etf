@@ -68,6 +68,25 @@ class DistributionLLMAnalysisTests(unittest.TestCase):
         self.assertEqual(cfg.model, 'deepseek-v4-flash')
         self.assertEqual(cfg.api_key, 'sk-real-ascii-key')
 
+    def test_load_distribution_llm_config_skips_bad_primary_key_and_falls_back_to_alt_env_key(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / '.env').write_text(
+                'DISTRIBUTION_LLM_ENABLED=true\n'
+                'DISTRIBUTION_LLM_API_KEY=sk-bad…key\n'
+                'DEEPSEEK_API_KEY=sk-good-ascii-key\n',
+                encoding='utf-8',
+            )
+            with patch('src.distribution_llm_analysis.ENV_PATH', root / '.env'), \
+                 patch('src.distribution_llm_analysis.SECRETS_PATH', root / '.streamlit' / 'secrets.toml'), \
+                 patch.dict(os.environ, {}, clear=True):
+                from src import distribution_llm_analysis as module
+                module._load_env_file.cache_clear()
+                cfg = load_distribution_llm_config()
+
+        self.assertTrue(cfg.enabled)
+        self.assertEqual(cfg.api_key, 'sk-good-ascii-key')
+
     def test_load_distribution_llm_config_rejects_non_ascii_secret_key(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
