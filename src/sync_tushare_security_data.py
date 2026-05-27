@@ -579,23 +579,97 @@ def normalize_scalar(value):
     return value
 
 
+DB_ENV_FILE_KEYS = (
+    "ETF_PG_URL",
+    "DATABASE_URL",
+    "ETF_PG_HOST",
+    "ETF_PG_PORT",
+    "ETF_PG_DATABASE",
+    "ETF_PG_USER",
+    "ETF_PG_SSLMODE",
+    "ETF_PG_PASSWORD",
+    "PGPASSWORD",
+)
+DB_ENV_FILE_PREFERRED_KEYS = {
+    "ETF_PG_HOST",
+    "ETF_PG_PORT",
+    "ETF_PG_DATABASE",
+    "ETF_PG_USER",
+    "ETF_PG_SSLMODE",
+}
+
+
+def _load_repo_db_env() -> dict[str, str]:
+    env_path = os.path.join(PROJECT_ROOT, ".env")
+    env_values: dict[str, str] = {}
+    try:
+        with open(env_path, "r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                if key not in DB_ENV_FILE_KEYS:
+                    continue
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                    value = value[1:-1]
+                env_values[key] = value
+    except FileNotFoundError:
+        return {}
+    return env_values
+
+
+def _get_db_config_value(key, repo_env, default=None):
+    if key in DB_ENV_FILE_PREFERRED_KEYS and repo_env.get(key):
+        return repo_env[key]
+    return os.getenv(key) or repo_env.get(key) or default
+
+
+def _load_streamlit_secret_password():
+    try:
+        import streamlit as st
+
+        password = (
+            st.secrets.get("ETF_PG_PASSWORD")
+            or st.secrets.get("PGPASSWORD")
+            or st.secrets.get("database", {}).get("password")
+        )
+        if password:
+            return str(password)
+    except Exception:
+        pass
+    return None
+
+
 def build_db_url():
-    direct_url = os.getenv("ETF_PG_URL") or os.getenv("DATABASE_URL")
+    repo_env = _load_repo_db_env()
+
+    # Streamlit injects root-level secrets into os.environ once st.secrets is accessed.
+    # Keep the repo-local .env authoritative for non-secret DB routing keys so a stale
+    # secrets.toml host cannot override the deployed service config.
+    direct_url = repo_env.get("ETF_PG_URL") or repo_env.get("DATABASE_URL") or os.getenv("ETF_PG_URL") or os.getenv("DATABASE_URL")
     if direct_url:
         return direct_url
 
-    password = os.getenv("ETF_PG_PASSWORD") or os.getenv("PGPASSWORD")
+    password = _get_db_config_value("ETF_PG_PASSWORD", repo_env) or _get_db_config_value("PGPASSWORD", repo_env)
     if not password:
-        raise RuntimeError("未配置数据库密码，请设置 ETF_PG_PASSWORD 或 PGPASSWORD")
+        password = _load_streamlit_secret_password()
+        if password and not os.getenv("ETF_PG_PASSWORD"):
+            os.environ["ETF_PG_PASSWORD"] = str(password)
+
+    if not password:
+        raise RuntimeError("Database password not configured; set ETF_PG_PASSWORD or PGPASSWORD")
 
     return URL.create(
         "postgresql+psycopg2",
-        username=os.getenv("ETF_PG_USER", DEFAULT_DB_USER),
+        username=_get_db_config_value("ETF_PG_USER", repo_env, DEFAULT_DB_USER),
         password=password,
-        host=os.getenv("ETF_PG_HOST", DEFAULT_DB_HOST),
-        port=int(os.getenv("ETF_PG_PORT", str(DEFAULT_DB_PORT))),
-        database=os.getenv("ETF_PG_DATABASE", DEFAULT_DB_NAME),
-        query={"sslmode": os.getenv("ETF_PG_SSLMODE", DEFAULT_DB_SSLMODE)},
+        host=_get_db_config_value("ETF_PG_HOST", repo_env, DEFAULT_DB_HOST),
+        port=int(_get_db_config_value("ETF_PG_PORT", repo_env, str(DEFAULT_DB_PORT))),
+        database=_get_db_config_value("ETF_PG_DATABASE", repo_env, DEFAULT_DB_NAME),
+        query={"sslmode": _get_db_config_value("ETF_PG_SSLMODE", repo_env, DEFAULT_DB_SSLMODE)},
     )
 
 

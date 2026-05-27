@@ -1,3 +1,6 @@
+import os
+import sys
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -350,6 +353,71 @@ class RunSyncOnceTests(unittest.TestCase):
         self.assertEqual(total, 5)
         mock_purge.assert_not_called()
         self.assertEqual(mock_record_log.call_count, 2)
+
+
+class FakeSecrets(dict):
+    def get(self, key, default=None):
+        if key in {"ETF_PG_PASSWORD", "PGPASSWORD", "database"}:
+            os.environ["ETF_PG_HOST"] = "67.216.207.73"
+            os.environ["ETF_PG_PORT"] = "5432"
+        return super().get(key, default)
+
+
+class BuildDbUrlTests(unittest.TestCase):
+    def _write_env_file(self, directory: str) -> None:
+        with open(os.path.join(directory, ".env"), "w", encoding="utf-8") as handle:
+            handle.write(
+                "ETF_PG_HOST=127.0.0.1\n"
+                "ETF_PG_PORT=5432\n"
+                "ETF_PG_DATABASE=postgres\n"
+                "ETF_PG_USER=postgres\n"
+                "ETF_PG_SSLMODE=disable\n"
+            )
+
+    def test_build_db_url_prefers_repo_env_host_over_process_env(self):
+        from src.sync_tushare_security_data import build_db_url
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_env_file(temp_dir)
+            with patch("src.sync_tushare_security_data.PROJECT_ROOT", temp_dir), patch.dict(
+                os.environ,
+                {
+                    "ETF_PG_HOST": "67.216.207.73",
+                    "ETF_PG_PASSWORD": "unit-test-secret",
+                },
+                clear=True,
+            ):
+                url = build_db_url()
+                self.assertEqual(url.host, "127.0.0.1")
+                self.assertEqual(url.username, "postgres")
+                self.assertEqual(url.database, "postgres")
+                self.assertEqual(url.query.get("sslmode"), "disable")
+
+    def test_build_db_url_uses_streamlit_secret_password_without_overriding_repo_env(self):
+        from src.sync_tushare_security_data import build_db_url
+
+        fake_streamlit = SimpleNamespace(
+            secrets=FakeSecrets(
+                {
+                    "ETF_PG_PASSWORD": "secret-from-streamlit",
+                    "database": {"password": "secret-from-database"},
+                }
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_env_file(temp_dir)
+            with patch("src.sync_tushare_security_data.PROJECT_ROOT", temp_dir), patch.dict(
+                os.environ,
+                {"ETF_PG_HOST": "67.216.207.73"},
+                clear=True,
+            ), patch.dict(sys.modules, {"streamlit": fake_streamlit}):
+                url = build_db_url()
+                password_env = os.environ.get("ETF_PG_PASSWORD")
+
+        self.assertEqual(url.host, "127.0.0.1")
+        self.assertEqual(str(url.password), "secret-from-streamlit")
+        self.assertEqual(password_env, "secret-from-streamlit")
 
 
 if __name__ == "__main__":
