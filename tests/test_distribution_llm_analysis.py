@@ -1,10 +1,14 @@
 import json
+import os
+import tempfile
 import unittest
 from datetime import date, datetime
+from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
-from src.distribution_llm_analysis import make_json_safe
+from src.distribution_llm_analysis import LLM_SECTION_MARKER, make_json_safe, load_distribution_llm_config
 
 
 class DistributionLLMAnalysisTests(unittest.TestCase):
@@ -30,6 +34,57 @@ class DistributionLLMAnalysisTests(unittest.TestCase):
         self.assertIsNone(safe_payload["nested"][1]["neg_inf"])
 
         json.dumps(safe_payload, ensure_ascii=False)
+
+    def test_load_distribution_llm_config_prefers_env_file_key_over_secrets_fallback(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / '.env').write_text(
+                'DISTRIBUTION_LLM_ENABLED=true\n'
+                'DISTRIBUTION_LLM_API_KEY=sk-real-ascii-key\n',
+                encoding='utf-8',
+            )
+            (root / '.streamlit').mkdir(parents=True, exist_ok=True)
+            (root / '.streamlit' / 'secrets.toml').write_text(
+                'DISTRIBUTION_LLM_ENABLED = true\n'
+                'DISTRIBUTION_LLM_API_KEY = "sk-15b…271a"\n',
+                encoding='utf-8',
+            )
+            with patch('src.distribution_llm_analysis.ENV_PATH', root / '.env'), \
+                 patch('src.distribution_llm_analysis.SECRETS_PATH', root / '.streamlit' / 'secrets.toml'), \
+                 patch.dict(os.environ, {}, clear=True):
+                from src import distribution_llm_analysis as module
+                module._load_env_file.cache_clear()
+                cfg = load_distribution_llm_config()
+
+        self.assertTrue(cfg.enabled)
+        self.assertEqual(cfg.base_url, 'https://api.deepseek.com')
+        self.assertEqual(cfg.model, 'deepseek-v4-flash')
+        self.assertEqual(cfg.api_key, 'sk-real-ascii-key')
+
+    def test_load_distribution_llm_config_rejects_non_ascii_secret_key(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / '.streamlit').mkdir(parents=True, exist_ok=True)
+            (root / '.streamlit' / 'secrets.toml').write_text(
+                'DISTRIBUTION_LLM_ENABLED = true\n'
+                'DISTRIBUTION_LLM_API_KEY = "sk-15b…271a"\n',
+                encoding='utf-8',
+            )
+            with patch('src.distribution_llm_analysis.ENV_PATH', root / '.env'), \
+                 patch('src.distribution_llm_analysis.SECRETS_PATH', root / '.streamlit' / 'secrets.toml'), \
+                 patch.dict(os.environ, {}, clear=True):
+                from src import distribution_llm_analysis as module
+                module._load_env_file.cache_clear()
+                cfg = load_distribution_llm_config()
+
+        self.assertEqual(cfg.api_key, '')
+        self.assertFalse(cfg.configured)
+
+    def test_should_require_llm_refresh_only_checks_marker_presence(self):
+        from src.distribution_llm_analysis import should_require_llm_refresh
+
+        self.assertTrue(should_require_llm_refresh('# cached report'))
+        self.assertFalse(should_require_llm_refresh('# cached report\n\n' + LLM_SECTION_MARKER))
 
 
 if __name__ == "__main__":

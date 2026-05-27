@@ -6,6 +6,7 @@ import math
 import os
 from dataclasses import dataclass
 from datetime import date, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,13 @@ import requests
 logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SECRETS_PATH = PROJECT_ROOT / ".streamlit" / "secrets.toml"
+ENV_PATH = PROJECT_ROOT / ".env"
 LLM_SECTION_MARKER = "## 🧠 大模型二次综合分析"
+DEFAULT_DISTRIBUTION_LLM_BASE_URL = "https://api.deepseek.com"
+DEFAULT_DISTRIBUTION_LLM_MODEL = "deepseek-v4-flash"
+DEFAULT_DISTRIBUTION_LLM_TIMEOUT_SECONDS = 60
+DEFAULT_DISTRIBUTION_LLM_TEMPERATURE = 0.2
+DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS = 1200
 
 
 @dataclass
@@ -64,13 +71,57 @@ def _load_secrets_toml() -> dict[str, Any]:
         return {}
 
 
+@lru_cache(maxsize=1)
+def _load_env_file() -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not ENV_PATH.exists():
+        return values
+    try:
+        for raw_line in ENV_PATH.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                value = value[1:-1]
+            values[key] = value
+    except Exception as exc:
+        logger.warning("Failed to read %s: %s", ENV_PATH, exc)
+    return values
+
+
+def _get_secret_section(payload: dict[str, Any], name: str) -> dict[str, Any]:
+    value = payload.get(name)
+    return value if isinstance(value, dict) else {}
+
+
+def _is_ascii_text(value: str) -> bool:
+    return all(ord(ch) < 128 for ch in str(value or ""))
+
+
+def _normalize_api_key(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if not _is_ascii_text(text):
+        logger.warning("Distribution LLM API key contains non-ASCII characters; ignoring candidate value")
+        return ""
+    return text
+
+
 def load_distribution_llm_config() -> DistributionLLMConfig:
+    env_values = _load_env_file()
     secrets = _load_secrets_toml()
-    section = secrets.get("distribution_llm") if isinstance(secrets.get("distribution_llm"), dict) else {}
+    section = _get_secret_section(secrets, "distribution_llm")
 
     def pick(name: str, default: Any = None) -> Any:
-        if os.getenv(name) not in {None, ""}:
-            return os.getenv(name)
+        env_value = os.getenv(name)
+        if env_value not in {None, ""}:
+            return env_value
+        if env_values.get(name) not in {None, ""}:
+            return env_values.get(name)
         if name in secrets and secrets.get(name) not in {None, ""}:
             return secrets.get(name)
         if name in section and section.get(name) not in {None, ""}:
@@ -78,23 +129,27 @@ def load_distribution_llm_config() -> DistributionLLMConfig:
         snake = name.lower()
         if snake in section and section.get(snake) not in {None, ""}:
             return section.get(snake)
+        if name == "DISTRIBUTION_LLM_API_KEY":
+            alt_env = os.getenv("DEEPSEEK_API_KEY") or env_values.get("DEEPSEEK_API_KEY")
+            if alt_env not in {None, ""}:
+                return alt_env
         return default
 
+    api_key_value = _normalize_api_key(pick("DISTRIBUTION_LLM_API_KEY", ""))
+
     return DistributionLLMConfig(
-        enabled=_to_bool(pick("DISTRIBUTION_LLM_ENABLED", False)),
-        base_url=str(pick("DISTRIBUTION_LLM_BASE_URL", "")).strip(),
-        api_key=str(pick("DISTRIBUTION_LLM_API_KEY", "")).strip(),
-        model=str(pick("DISTRIBUTION_LLM_MODEL", "")).strip(),
-        timeout_seconds=int(pick("DISTRIBUTION_LLM_TIMEOUT_SECONDS", 30) or 30),
-        temperature=float(pick("DISTRIBUTION_LLM_TEMPERATURE", 0.2) or 0.2),
-        max_tokens=int(pick("DISTRIBUTION_LLM_MAX_TOKENS", 1200) or 1200),
+        enabled=_to_bool(pick("DISTRIBUTION_LLM_ENABLED", False), False),
+        base_url=str(pick("DISTRIBUTION_LLM_BASE_URL", DEFAULT_DISTRIBUTION_LLM_BASE_URL)).strip(),
+        api_key=api_key_value,
+        model=str(pick("DISTRIBUTION_LLM_MODEL", DEFAULT_DISTRIBUTION_LLM_MODEL)).strip(),
+        timeout_seconds=int(pick("DISTRIBUTION_LLM_TIMEOUT_SECONDS", DEFAULT_DISTRIBUTION_LLM_TIMEOUT_SECONDS) or DEFAULT_DISTRIBUTION_LLM_TIMEOUT_SECONDS),
+        temperature=float(pick("DISTRIBUTION_LLM_TEMPERATURE", DEFAULT_DISTRIBUTION_LLM_TEMPERATURE) or DEFAULT_DISTRIBUTION_LLM_TEMPERATURE),
+        max_tokens=int(pick("DISTRIBUTION_LLM_MAX_TOKENS", DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS) or DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS),
     )
 
 
 def should_require_llm_refresh(cached_report: str | None, config: DistributionLLMConfig | None = None) -> bool:
-    resolved = config or load_distribution_llm_config()
-    if not resolved.configured:
-        return False
+    _ = config or load_distribution_llm_config()
     return not cached_report or LLM_SECTION_MARKER not in str(cached_report)
 
 
