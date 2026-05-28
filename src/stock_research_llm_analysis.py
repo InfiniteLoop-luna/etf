@@ -310,6 +310,8 @@ def analyze_stock_research_payload(
     system_prompt = (
         "你是一个专业、审慎、证据驱动的A股个股深度研究员。"
         "你只能基于用户提供的结构化 FactPack 做分析，不能编造财务、价格、新闻、研报或行业数据。"
+        "FactPack 可能包含 supplemental 补充证据块，覆盖主营构成、新闻、研报、资金流、龙虎榜和行业参考。"
+        "只有当某个 supplemental 数据块 status=ok 时，才允许基于该块形成结论；status=empty/failed/disabled/missing 时只能作为数据缺口说明。"
         "当数据缺失、过期或口径不完整时必须明确降低置信度。"
         "不要给出确定性买卖指令，不要承诺收益。"
         "输出必须是单个 JSON 对象，字段固定为："
@@ -324,7 +326,9 @@ def analyze_stock_research_payload(
     base_user_prompt = (
         "请基于下面 FactPack 生成自选股深度研究结论。"
         "重点回答：公司质地如何、当前估值和位置是否匹配、主要风险是什么、后续应该跟踪哪些触发条件。"
-        "必须引用 FactPack 中已有的日期、指标和信号；不能引用不存在的外部事实。"
+        "必须引用 FactPack 中已有的日期、指标、补充证据和信号；不能引用不存在的外部事实。"
+        "如果 supplemental 中包含 status=ok 的资金流、新闻、研报或主营构成数据，请把它们作为 key_evidence、risk_factors 或 watch_items 的候选证据；"
+        "如果这些数据块不可用，请在结论里体现数据覆盖不足。"
         "只输出 JSON，不要输出 markdown。\n\n"
         + json.dumps(make_json_safe(fact_pack), ensure_ascii=False)
     )

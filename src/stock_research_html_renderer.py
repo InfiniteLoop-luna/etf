@@ -129,6 +129,129 @@ def _render_step_grid(llm_result: dict[str, Any]) -> str:
     return "".join(cards)
 
 
+def _supplemental_block(supplemental: dict[str, Any], name: str) -> dict[str, Any]:
+    block = supplemental.get(name) if isinstance(supplemental, dict) else None
+    return block if isinstance(block, dict) else {"status": "missing", "items": []}
+
+
+def _item_value(item: dict[str, Any], aliases: list[str], default: str = "") -> str:
+    for alias in aliases:
+        value = item.get(alias)
+        text = _raw_text(value, "")
+        if text:
+            return text
+    return default
+
+
+def _render_evidence_block(
+    title: str,
+    block: dict[str, Any],
+    headline_aliases: list[str],
+    detail_fields: list[tuple[str, list[str]]],
+    *,
+    empty: str = "暂无可用记录",
+    limit: int = 5,
+) -> str:
+    status = _raw_text(block.get("status"), "missing")
+    items = [item for item in (block.get("items") or []) if isinstance(item, dict)][:limit]
+    rows: list[str] = []
+    for item in items:
+        headline = _item_value(item, headline_aliases, "未命名记录")
+        details = []
+        for label, aliases in detail_fields:
+            value = _item_value(item, aliases, "")
+            if value:
+                details.append(f"{label}: {value}")
+        detail_text = " · ".join(details)
+        rows.append(
+            "<li>"
+            f"<strong>{escape(headline)}</strong>"
+            f"<small>{escape(detail_text)}</small>"
+            "</li>"
+        )
+    if not rows:
+        rows.append(f"<li><strong>{escape(empty)}</strong><small>{escape(_raw_text(block.get('error'), ''))}</small></li>")
+    return (
+        '<article class="evidence-card">'
+        f"<h3>{escape(title)}<span>{escape(status)}</span></h3>"
+        f"<ul>{''.join(rows)}</ul>"
+        "</article>"
+    )
+
+
+def _render_supplemental_grid(supplemental: dict[str, Any]) -> str:
+    business = _supplemental_block(supplemental, "business_composition")
+    news = _supplemental_block(supplemental, "news")
+    research = _supplemental_block(supplemental, "research_reports")
+    money_flow = _supplemental_block(supplemental, "money_flow")
+    lhb = _supplemental_block(supplemental, "lhb")
+    peers = _supplemental_block(supplemental, "industry_peer_hint")
+    return "".join(
+        [
+            _render_evidence_block(
+                "主营构成",
+                business,
+                ["分类", "项目名称", "产品名称", "业务名称", "主营构成", "报告期"],
+                [
+                    ("日期", ["报告日期", "报告期", "日期"]),
+                    ("收入", ["主营收入", "营业收入", "收入"]),
+                    ("占比", ["收入比例", "主营收入占比", "营业收入比例"]),
+                    ("毛利率", ["毛利率", "销售毛利率"]),
+                ],
+            ),
+            _render_evidence_block(
+                "近期新闻",
+                news,
+                ["新闻标题", "标题", "title"],
+                [
+                    ("时间", ["发布时间", "时间", "日期", "publish_time"]),
+                    ("来源", ["文章来源", "来源", "source"]),
+                ],
+            ),
+            _render_evidence_block(
+                "机构研报",
+                research,
+                ["报告名称", "标题", "研报标题", "title"],
+                [
+                    ("机构", ["机构", "研究机构", "org", "source"]),
+                    ("日期", ["发布日期", "报告日期", "日期", "publish_date"]),
+                    ("评级", ["评级", "投资评级", "rating"]),
+                ],
+            ),
+            _render_evidence_block(
+                "资金流",
+                money_flow,
+                ["日期", "交易日期"],
+                [
+                    ("主力净流入", ["主力净流入-净额", "主力净流入", "主力净额"]),
+                    ("主力占比", ["主力净流入-净占比", "主力净占比"]),
+                    ("涨跌幅", ["涨跌幅", "涨跌幅(%)"]),
+                ],
+            ),
+            _render_evidence_block(
+                "龙虎榜",
+                lhb,
+                ["上榜日", "日期", "交易日期"],
+                [
+                    ("原因", ["解读", "上榜原因", "类型"]),
+                    ("买入", ["买入金额", "买入总计"]),
+                    ("卖出", ["卖出金额", "卖出总计"]),
+                ],
+            ),
+            _render_evidence_block(
+                "行业成分参考",
+                peers,
+                ["名称", "股票简称", "代码"],
+                [
+                    ("代码", ["代码", "股票代码"]),
+                    ("涨跌幅", ["涨跌幅", "涨跌幅(%)"]),
+                    ("市值", ["总市值", "流通市值"]),
+                ],
+            ),
+        ]
+    )
+
+
 def render_stock_research_html(
     fact_pack: dict[str, Any] | None,
     llm_result: dict[str, Any] | None,
@@ -143,6 +266,7 @@ def render_stock_research_html(
     valuation = fact_pack.get("valuation_snapshot") or {}
     financial = (fact_pack.get("financial_metrics") or {}).get("latest") or {}
     quality = fact_pack.get("data_quality") or {}
+    supplemental = fact_pack.get("supplemental") or {}
 
     stock_name = _raw_text(fact_pack.get("stock_name") or profile.get("name") or fact_pack.get("ts_code"), "未知股票")
     ts_code = _raw_text(fact_pack.get("ts_code") or profile.get("ts_code"), "-")
@@ -156,6 +280,7 @@ def render_stock_research_html(
     financial_rows = _financial_history_rows(fact_pack)
     chart_data_json = _json_script(chart_rows)
     financial_data_json = _json_script(financial_rows)
+    supplemental_grid = _render_supplemental_grid(supplemental if isinstance(supplemental, dict) else {})
 
     metric_cards = "".join(
         [
@@ -203,6 +328,7 @@ def render_stock_research_html(
             ("K线序列", f"{int(quality.get('kline_rows') or 0)} 行"),
             ("财务序列", f"{int(quality.get('financial_rows') or 0)} 行"),
             ("实时抓取", "已启用" if quality.get("allow_live_fetch") else "未启用"),
+            ("补充证据", "已启用" if quality.get("supplemental_enabled") else "未启用"),
         ]
     )
 
@@ -331,6 +457,19 @@ def render_stock_research_html(
     .step-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }}
     .step-card {{ border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: #fbfcfd; }}
     .step-card span {{ color: var(--accent); font-size: 12px; font-weight: 700; }}
+    .evidence-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }}
+    .evidence-card {{ border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: #fbfcfd; }}
+    .evidence-card h3 {{ display: flex; justify-content: space-between; gap: 8px; align-items: center; }}
+    .evidence-card h3 span {{
+      color: var(--muted);
+      background: var(--surface-2);
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 700;
+    }}
+    .evidence-card li strong {{ display: block; font-size: 13px; }}
+    .evidence-card li small {{ display: block; color: var(--muted); font-size: 12px; }}
     .footer {{ color: var(--muted); font-size: 12px; margin-top: 18px; }}
     details {{ margin-top: 16px; }}
     summary {{ cursor: pointer; color: var(--accent); font-weight: 700; }}
@@ -345,7 +484,7 @@ def render_stock_research_html(
     @media (max-width: 980px) {{
       .hero, .grid-2, .grid-3 {{ grid-template-columns: 1fr; }}
       .metric-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-      .step-grid {{ grid-template-columns: 1fr; }}
+      .step-grid, .evidence-grid {{ grid-template-columns: 1fr; }}
       .score-panel {{ min-width: 0; }}
     }}
   </style>
@@ -412,6 +551,11 @@ def render_stock_research_html(
         <h2>后续跟踪清单</h2>
         <ul>{_list_items(normalized_llm.get("watch_items"))}</ul>
       </article>
+    </section>
+
+    <section class="section">
+      <h2>补充证据层</h2>
+      <div class="evidence-grid">{supplemental_grid}</div>
     </section>
 
     <section class="grid-2">

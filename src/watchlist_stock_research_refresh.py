@@ -8,6 +8,7 @@ from typing import Callable, Any
 
 from sqlalchemy.engine import Engine
 
+from src.stock_research_akshare_enrichment import should_enable_stock_research_akshare
 from src.stock_research_analyzer import generate_stock_research_report_bundle
 from src.stock_research_html_renderer import render_stock_research_html
 from src.stock_research_llm_analysis import should_require_stock_research_refresh
@@ -53,6 +54,28 @@ def _coerce_report_bundle(result: Any) -> dict[str, Any]:
     return {"report_md": str(result or ""), "report_html": None, "fact_pack": None, "llm_result": None}
 
 
+def _needs_enriched_fact_pack_refresh(cached_record: dict | None, live_fetch_enabled: bool) -> bool:
+    if not live_fetch_enabled:
+        return False
+    fact_pack = (cached_record or {}).get("fact_pack")
+    if not isinstance(fact_pack, dict):
+        return True
+    if fact_pack.get("schema_version") != "stock-research-fact-pack-v2":
+        return True
+    supplemental = fact_pack.get("supplemental")
+    if not isinstance(supplemental, dict) or not supplemental:
+        return True
+    quality = fact_pack.get("data_quality") or {}
+    if not quality.get("supplemental_enabled"):
+        return True
+    statuses = [
+        str((block or {}).get("status") or "missing")
+        for block in supplemental.values()
+        if isinstance(block, dict)
+    ]
+    return bool(statuses) and all(status in {"disabled", "missing"} for status in statuses)
+
+
 def refresh_watchlist_stock_research_reports(
     engine: Engine,
     report_generator: Callable[..., Any] | None = None,
@@ -61,6 +84,7 @@ def refresh_watchlist_stock_research_reports(
 ) -> dict[str, int]:
     ensure_tables(engine)
     report_generator = report_generator or generate_stock_research_report_bundle
+    live_fetch_enabled = should_enable_stock_research_akshare()
     scope_username = str(username or "").strip() or None
     owner_id = f"stock-research-refresh-{uuid.uuid4().hex[:12]}"
     lock_name = WATCHLIST_STOCK_RESEARCH_LOCK_NAME if scope_username is None else f"{WATCHLIST_STOCK_RESEARCH_LOCK_NAME}:{scope_username}"
@@ -95,6 +119,7 @@ def refresh_watchlist_stock_research_reports(
             has_cached_report = bool(cached_report)
             cache_needs_refresh = has_cached_report and (
                 should_require_stock_research_refresh(cached_report) or not cached_html
+                or _needs_enriched_fact_pack_refresh(cached_record, live_fetch_enabled)
             )
             if (
                 current_status.get("status") == "ready"
@@ -183,7 +208,7 @@ def refresh_watchlist_stock_research_reports(
                 call_kwargs = {
                     "engine": engine,
                     "asof_trade_date": latest_source_trade_date,
-                    "allow_live_fetch": False,
+                    "allow_live_fetch": live_fetch_enabled,
                 }
                 if _supports_kwarg(report_generator, "use_report_cache"):
                     call_kwargs["use_report_cache"] = False

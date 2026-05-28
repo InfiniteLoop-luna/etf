@@ -39,6 +39,11 @@ def inject_env_from_secrets():
         "STOCK_RESEARCH_LLM_ENABLED": secrets.get("STOCK_RESEARCH_LLM_ENABLED"),
         "STOCK_RESEARCH_LLM_BASE_URL": secrets.get("STOCK_RESEARCH_LLM_BASE_URL"),
         "STOCK_RESEARCH_LLM_MODEL": secrets.get("STOCK_RESEARCH_LLM_MODEL"),
+        "STOCK_RESEARCH_ENABLE_AKSHARE": secrets.get("STOCK_RESEARCH_ENABLE_AKSHARE"),
+        "STOCK_RESEARCH_NEWS_LIMIT": secrets.get("STOCK_RESEARCH_NEWS_LIMIT"),
+        "STOCK_RESEARCH_REPORT_LIMIT": secrets.get("STOCK_RESEARCH_REPORT_LIMIT"),
+        "STOCK_RESEARCH_MONEY_FLOW_LIMIT": secrets.get("STOCK_RESEARCH_MONEY_FLOW_LIMIT"),
+        "STOCK_RESEARCH_LHB_LIMIT": secrets.get("STOCK_RESEARCH_LHB_LIMIT"),
     }
     section = secrets.get("stock_research_llm")
     if isinstance(section, dict):
@@ -48,6 +53,17 @@ def inject_env_from_secrets():
                 "STOCK_RESEARCH_LLM_ENABLED": mapping.get("STOCK_RESEARCH_LLM_ENABLED") or section.get("STOCK_RESEARCH_LLM_ENABLED") or section.get("stock_research_llm_enabled"),
                 "STOCK_RESEARCH_LLM_BASE_URL": mapping.get("STOCK_RESEARCH_LLM_BASE_URL") or section.get("STOCK_RESEARCH_LLM_BASE_URL") or section.get("stock_research_llm_base_url"),
                 "STOCK_RESEARCH_LLM_MODEL": mapping.get("STOCK_RESEARCH_LLM_MODEL") or section.get("STOCK_RESEARCH_LLM_MODEL") or section.get("stock_research_llm_model"),
+            }
+        )
+    akshare_section = secrets.get("stock_research_akshare")
+    if isinstance(akshare_section, dict):
+        mapping.update(
+            {
+                "STOCK_RESEARCH_ENABLE_AKSHARE": mapping.get("STOCK_RESEARCH_ENABLE_AKSHARE") or akshare_section.get("STOCK_RESEARCH_ENABLE_AKSHARE") or akshare_section.get("stock_research_enable_akshare"),
+                "STOCK_RESEARCH_NEWS_LIMIT": mapping.get("STOCK_RESEARCH_NEWS_LIMIT") or akshare_section.get("STOCK_RESEARCH_NEWS_LIMIT") or akshare_section.get("stock_research_news_limit"),
+                "STOCK_RESEARCH_REPORT_LIMIT": mapping.get("STOCK_RESEARCH_REPORT_LIMIT") or akshare_section.get("STOCK_RESEARCH_REPORT_LIMIT") or akshare_section.get("stock_research_report_limit"),
+                "STOCK_RESEARCH_MONEY_FLOW_LIMIT": mapping.get("STOCK_RESEARCH_MONEY_FLOW_LIMIT") or akshare_section.get("STOCK_RESEARCH_MONEY_FLOW_LIMIT") or akshare_section.get("stock_research_money_flow_limit"),
+                "STOCK_RESEARCH_LHB_LIMIT": mapping.get("STOCK_RESEARCH_LHB_LIMIT") or akshare_section.get("STOCK_RESEARCH_LHB_LIMIT") or akshare_section.get("stock_research_lhb_limit"),
             }
         )
     for key, value in mapping.items():

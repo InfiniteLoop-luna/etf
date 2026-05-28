@@ -49,7 +49,23 @@ class StockResearchHtmlRendererTests(unittest.TestCase):
                 {"trade_date": "2026-05-23", "open": 10.5, "close": 10.7, "low": 10.4, "high": 11.0, "vol": 1200},
             ],
             "financial_tail": [{"end_date": "2026-03-31", "roe": 9.7}],
-            "data_quality": {"profile_rows": 1, "daily_rows": 90, "kline_rows": 90, "financial_rows": 4},
+            "supplemental": {
+                "news": {
+                    "status": "ok",
+                    "items": [{"发布时间": "2026-05-20", "新闻标题": "订单持续恢复", "文章来源": "测试源"}],
+                },
+                "money_flow": {
+                    "status": "ok",
+                    "items": [{"日期": "2026-05-23", "主力净流入-净额": 123456, "涨跌幅": 1.2}],
+                },
+            },
+            "data_quality": {
+                "profile_rows": 1,
+                "daily_rows": 90,
+                "kline_rows": 90,
+                "financial_rows": 4,
+                "supplemental_enabled": True,
+            },
         }
 
     def _sample_llm_result(self):
@@ -80,6 +96,8 @@ class StockResearchHtmlRendererTests(unittest.TestCase):
         self.assertIn("klineRows", html)
         self.assertIn("2026-05-23", html)
         self.assertIn("综合判断：重点跟踪", html)
+        self.assertIn("补充证据层", html)
+        self.assertIn("订单持续恢复", html)
         self.assertIn("Markdown 原文", html)
 
     def test_render_html_escapes_dynamic_text(self):

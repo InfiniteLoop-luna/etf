@@ -70,6 +70,27 @@ def _append_fact_pack_overview(md: list[str], fact_pack: dict[str, Any]) -> None
         md.append(f"- 数据缺口：{'; '.join(str(item) for item in errors[:4])}")
 
 
+def _append_supplemental_overview(md: list[str], fact_pack: dict[str, Any]) -> None:
+    supplemental = fact_pack.get("supplemental") or {}
+    if not isinstance(supplemental, dict) or not supplemental:
+        return
+    titles = {
+        "business_composition": "主营构成",
+        "news": "近期新闻",
+        "research_reports": "机构研报",
+        "money_flow": "资金流",
+        "lhb": "龙虎榜",
+        "industry_peer_hint": "行业成分参考",
+    }
+    md.extend(["", "### 补充证据覆盖", "", "| 数据块 | 状态 | 条数 |", "|---|---:|---:|"])
+    for key, title in titles.items():
+        block = supplemental.get(key) or {}
+        status = str(block.get("status") or "missing")
+        row_count = block.get("row_count")
+        item_count = len(block.get("items") or [])
+        md.append(f"| {title} | {status} | {row_count if row_count is not None else item_count} |")
+
+
 def render_stock_research_markdown(
     fact_pack: dict[str, Any],
     llm_result: dict[str, Any],
@@ -81,6 +102,7 @@ def render_stock_research_markdown(
         "",
     ]
     _append_fact_pack_overview(md, fact_pack)
+    _append_supplemental_overview(md, fact_pack)
     md.extend(render_stock_research_llm_markdown(llm_result))
     return "\n".join(md)
 

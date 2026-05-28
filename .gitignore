@@ -66,6 +66,8 @@ test_*.py
 !tests/test_user_watchlist_store.py
 !tests/test_watchlist_stock_research_refresh.py
 !tests/test_stock_research_html_renderer.py
+!tests/test_stock_research_akshare_enrichment.py
+!tests/test_stock_research_fact_pack.py
 !tests/eastmoney_author_tracker/test_store.py
 !tests/eastmoney_author_tracker/test_ui.py
 verify_*.py

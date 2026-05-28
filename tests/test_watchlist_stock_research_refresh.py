@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from sqlalchemy import create_engine, text
 
@@ -22,6 +22,12 @@ from src.watchlist_stock_research_refresh import refresh_watchlist_stock_researc
 class WatchlistStockResearchRefreshTests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite:///:memory:")
+        self.akshare_enabled_patcher = patch(
+            "src.watchlist_stock_research_refresh.should_enable_stock_research_akshare",
+            return_value=False,
+        )
+        self.mock_should_enable_akshare = self.akshare_enabled_patcher.start()
+        self.addCleanup(self.akshare_enabled_patcher.stop)
         with self.engine.begin() as conn:
             conn.execute(
                 text(
@@ -164,6 +170,43 @@ class WatchlistStockResearchRefreshTests(unittest.TestCase):
         self.assertEqual(summary["generated"], 1)
         self.assertIn("stock-research-html-v1", record["report_html"])
         report_generator.assert_not_called()
+
+    def test_akshare_enabled_recomputes_cached_v1_fact_pack(self):
+        self.mock_should_enable_akshare.return_value = True
+        self._insert_watchlist_row("alice", "000733.SZ", security_name="振华科技")
+        self._insert_daily_row("000733.SZ", "2026-05-23")
+        save_daily_report(
+            self.engine,
+            "000733.SZ",
+            "2026-05-23",
+            f"# cached\n\n{STOCK_RESEARCH_LLM_SECTION_MARKER}\n{STOCK_RESEARCH_LLM_SCHEMA_VERSION}",
+            report_html="<html>old</html>",
+            fact_pack={"schema_version": "stock-research-fact-pack-v1"},
+            llm_result={"verdict": "观察"},
+        )
+        report_generator = Mock(
+            return_value={
+                "report_md": f"# regenerated\n\n{STOCK_RESEARCH_LLM_SECTION_MARKER}\n{STOCK_RESEARCH_LLM_SCHEMA_VERSION}",
+                "report_html": "<html>new</html>",
+                "fact_pack": {"schema_version": "stock-research-fact-pack-v2", "supplemental": {"news": {"status": "ok"}}},
+                "llm_result": {"verdict": "观察"},
+            }
+        )
+
+        summary = refresh_watchlist_stock_research_reports(self.engine, report_generator=report_generator)
+
+        record = get_daily_report_record(self.engine, "000733.SZ", "2026-05-23")
+        self.assertEqual(summary["generated"], 1)
+        self.assertEqual(record["report_html"], "<html>new</html>")
+        report_generator.assert_called_once_with(
+            "000733.SZ",
+            "振华科技",
+            engine=self.engine,
+            asof_trade_date="2026-05-23",
+            allow_live_fetch=True,
+            use_report_cache=False,
+            save_report=False,
+        )
 
     def test_refresh_can_scope_to_single_user_watchlist(self):
         self._insert_watchlist_row("alice", "000733.SZ", security_name="振华科技")

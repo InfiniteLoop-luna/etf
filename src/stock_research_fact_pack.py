@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 from sqlalchemy.engine import Engine
@@ -13,6 +13,7 @@ from src.etf_stats import (
     get_stock_profile,
     get_stock_timeseries,
 )
+from src.stock_research_akshare_enrichment import build_stock_research_supplemental
 
 logger = logging.getLogger(__name__)
 
@@ -157,9 +158,9 @@ def build_stock_research_fact_pack(
     asof_trade_date: str | None = None,
     lookback_days: int = 420,
     allow_live_fetch: bool = False,
+    supplemental_builder: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a compact evidence payload for LLM-based watchlist stock research."""
-    _ = allow_live_fetch
     ts_code_key = _normalize_ts_code(ts_code)
     if not ts_code_key:
         raise ValueError("ts_code 不能为空")
@@ -204,9 +205,26 @@ def build_stock_research_fact_pack(
     profile = _profile_dict(profile_df, ts_code_key, stock_name)
     price_metrics = _build_price_metrics(ts_df, kline_df)
     actual_asof = end_date or price_metrics.get("latest_trade_date") or _normalize_trade_date(profile.get("latest_trade_date"))
+    supplemental_builder = supplemental_builder or build_stock_research_supplemental
+    try:
+        supplemental = supplemental_builder(
+            ts_code_key,
+            stock_name=profile.get("name") or stock_name or ts_code_key,
+            industry=profile.get("industry") or "",
+            enabled=allow_live_fetch,
+        )
+    except Exception as exc:
+        errors.append(f"supplemental: {exc}")
+        logger.warning("Failed to build stock research supplemental data for %s: %s", ts_code_key, exc)
+        supplemental = {}
+    supplemental_status = {
+        str(name): str((block or {}).get("status") or "missing")
+        for name, block in (supplemental or {}).items()
+        if isinstance(block, dict)
+    }
 
     return {
-        "schema_version": "stock-research-fact-pack-v1",
+        "schema_version": "stock-research-fact-pack-v2",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "asof_trade_date": actual_asof,
         "ts_code": ts_code_key,
@@ -240,11 +258,14 @@ def build_stock_research_fact_pack(
         "price_tail": _records(kline_df if kline_df is not None and not kline_df.empty else ts_df, limit=90),
         "daily_factor_tail": _records(ts_df, limit=60),
         "financial_tail": _records(financial_df, limit=8),
+        "supplemental": supplemental,
         "data_quality": {
             "profile_rows": int(len(profile_df)) if profile_df is not None else 0,
             "daily_rows": int(len(ts_df)) if ts_df is not None else 0,
             "kline_rows": int(len(kline_df)) if kline_df is not None else 0,
             "financial_rows": int(len(financial_df)) if financial_df is not None else 0,
+            "supplemental_enabled": bool(allow_live_fetch),
+            "supplemental_status": supplemental_status,
             "errors": errors,
             "allow_live_fetch": bool(allow_live_fetch),
         },
