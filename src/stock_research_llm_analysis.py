@@ -348,6 +348,7 @@ def analyze_stock_research_payload(
             "model": resolved.model,
             "temperature": resolved.temperature,
             "max_tokens": resolved.max_tokens,
+            "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
