@@ -83,7 +83,45 @@ ssh bw-kind-hats "curl -I -k -sS https://wealthspark.club/ | sed -n '1,8p'"
 2. 若 `mootdx` 暂时不可用，页面不会整体报错，股票分时会自动回退到 `Tushare`
 3. 北交所/非沪深分钟数据当前不会强行走 `mootdx minutes()`，会优雅降级
 
-### 4. 可选：Streamlit Community Cloud
+### 4. LLM API Key 部署说明
+
+生产 VPS 不要把 API key 写进 Git。当前脚本会优先读取 `/opt/etf-app/.env`，也支持 `.streamlit/secrets.toml`。推荐在 VPS 上创建本机 `.env`：
+
+```bash
+ssh bw-kind-hats
+cd /opt/etf-app
+umask 077
+cat > .env <<'EOF'
+DISTRIBUTION_LLM_ENABLED=true
+DISTRIBUTION_LLM_API_KEY=your_deepseek_api_key
+DISTRIBUTION_LLM_BASE_URL=https://api.deepseek.com
+DISTRIBUTION_LLM_MODEL=deepseek-chat
+DISTRIBUTION_LLM_TIMEOUT_SECONDS=60
+DISTRIBUTION_LLM_TEMPERATURE=0.2
+DISTRIBUTION_LLM_MAX_TOKENS=1200
+
+STOCK_RESEARCH_LLM_ENABLED=true
+STOCK_RESEARCH_LLM_API_KEY=your_deepseek_api_key
+STOCK_RESEARCH_LLM_BASE_URL=https://api.deepseek.com
+STOCK_RESEARCH_LLM_MODEL=deepseek-chat
+STOCK_RESEARCH_LLM_TIMEOUT_SECONDS=90
+STOCK_RESEARCH_LLM_TEMPERATURE=0.2
+STOCK_RESEARCH_LLM_MAX_TOKENS=3200
+EOF
+chmod 600 .env
+```
+
+配置后重启 Streamlit，并可手动跑一次后台报告任务：
+
+```bash
+systemctl restart etf-streamlit
+cd /opt/etf-app
+TZ=Asia/Shanghai PYTHONPATH=/opt/etf-app /opt/etf-app/.venv/bin/python scripts/update_watchlist_stock_research_reports.py
+```
+
+夜间定时任务 `scripts/etf-data-update.sh` 会自动刷新主力出货报告和个股深度研究报告。
+
+### 5. 可选：Streamlit Community Cloud
 
 1. **访问** [share.streamlit.io](https://share.streamlit.io)
 

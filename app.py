@@ -172,6 +172,11 @@ from src.user_watchlist_store import (
 )
 from src.distribution_alert_store import get_latest_alerts_for_stocks
 from src.distribution_report_store import get_daily_report, get_report_status, get_report_statuses
+from src.stock_research_report_store import (
+    get_daily_report as get_stock_research_daily_report,
+    get_report_status as get_stock_research_report_status,
+    get_report_statuses as get_stock_research_report_statuses,
+)
 from src.watchlist_distribution_refresh import refresh_watchlist_distribution_reports
 
 try:
@@ -7516,6 +7521,11 @@ def show_distribution_report_dialog(report_md: str):
     st.markdown(report_md)
 
 
+@st.dialog("🧠 个股深度研究报告", width="large")
+def show_stock_research_report_dialog(report_md: str):
+    st.markdown(report_md)
+
+
 def _build_distribution_report_state(ts_code: str, status: dict | None, report_md: str | None = None) -> dict:
     ready_trade_date = (status or {}).get("latest_ready_trade_date")
     return {
@@ -7536,6 +7546,44 @@ def _get_distribution_report_state(ts_code: str, engine, *, include_report_md: b
     ready_trade_date = status.get("latest_ready_trade_date")
     report_md = get_daily_report(engine, ts_code_key, ready_trade_date) if include_report_md and ready_trade_date else None
     return _build_distribution_report_state(ts_code_key, status, report_md)
+
+
+def _build_stock_research_report_state(ts_code: str, status: dict | None, report_md: str | None = None) -> dict:
+    ready_trade_date = (status or {}).get("latest_ready_trade_date")
+    return {
+        "status": str((status or {}).get("status") or "idle"),
+        "ready": bool(report_md) if report_md is not None else bool(ready_trade_date),
+        "trade_date": ready_trade_date,
+        "report_md": report_md,
+        "error_message": (status or {}).get("error_message"),
+    }
+
+
+def _get_stock_research_report_state(ts_code: str, engine, *, include_report_md: bool = True) -> dict:
+    ts_code_key = str(ts_code or "").strip().upper()
+    if not ts_code_key or engine is None:
+        return {"status": "missing", "ready": False, "trade_date": None, "report_md": None}
+
+    status = get_stock_research_report_status(engine, ts_code_key) or {}
+    ready_trade_date = status.get("latest_ready_trade_date")
+    report_md = (
+        get_stock_research_daily_report(engine, ts_code_key, ready_trade_date)
+        if include_report_md and ready_trade_date
+        else None
+    )
+    return _build_stock_research_report_state(ts_code_key, status, report_md)
+
+
+def _format_report_state_text(state: dict, *, ready_prefix: str = "最近报告") -> str:
+    if state.get("ready"):
+        return f"{ready_prefix}: {state.get('trade_date') or '-'}"
+    status = state.get("status")
+    if status == "running":
+        return "后台更新中"
+    if status == "failed":
+        error_message = str(state.get("error_message") or "").strip()
+        return f"生成失败：{error_message[:36]}" if error_message else "生成失败"
+    return "等待后台定时刷新"
 
 
 def queue_security_search_navigation(ts_code: str, security_type: str) -> None:
@@ -7580,6 +7628,7 @@ def render_user_watchlist_tab() -> None:
     ts_codes = tuple(watchlist_df['ts_code'].tolist())
     security_types = tuple(watchlist_df['security_type'].tolist())
     report_status_map: dict[str, dict] = {}
+    research_status_map: dict[str, dict] = {}
     if report_engine is not None:
         stock_report_codes = [
             str(code or "").strip().upper()
@@ -7591,6 +7640,11 @@ def render_user_watchlist_tab() -> None:
         except Exception as exc:
             logger.warning("Failed to load distribution report statuses: %s", exc)
             report_status_map = {}
+        try:
+            research_status_map = get_stock_research_report_statuses(report_engine, stock_report_codes)
+        except Exception as exc:
+            logger.warning("Failed to load stock research report statuses: %s", exc)
+            research_status_map = {}
     
     with st.spinner("正在加载自选股深度数据..."):
         enriched_df = load_watchlist_enriched_data(ts_codes, security_types)
@@ -7655,6 +7709,19 @@ def render_user_watchlist_tab() -> None:
         filter_signal = st.radio("信号筛选", ["全部", "🔥 强势", "🔻 弱势"], horizontal=True)
 
     display_df = enriched_df.copy()
+    if not display_df.empty:
+        display_df['个股研究'] = display_df.apply(
+            lambda row: _format_report_state_text(
+                _build_stock_research_report_state(
+                    str(row.get("代码") or "").strip().upper(),
+                    research_status_map.get(str(row.get("代码") or "").strip().upper()),
+                ),
+                ready_prefix="已生成",
+            )
+            if str(row.get("security_type") or "").strip().lower() == "stock"
+            else "-",
+            axis=1,
+        )
     
     if filter_signal == "🔥 强势":
         display_df = display_df[display_df['操作信号'].str.contains("🔥", na=False)]
@@ -7685,6 +7752,7 @@ def render_user_watchlist_tab() -> None:
                 "RSI14": st.column_config.NumberColumn("RSI14", format="%.1f"),
                 "操作信号": st.column_config.TextColumn("操作信号", width="medium"),
                 "主力异动": st.column_config.TextColumn("主力出货预警", width="large"),
+                "个股研究": st.column_config.TextColumn("个股深度研究", width="large"),
             },
             use_container_width=True,
             hide_index=True,
@@ -7805,8 +7873,26 @@ def render_user_watchlist_tab() -> None:
                     else:
                         st.warning("报告状态已变化，请等待后台刷新完成。")
 
+                research_state = _build_stock_research_report_state(
+                    report_code,
+                    research_status_map.get(report_code),
+                )
+                st.caption(_format_report_state_text(research_state, ready_prefix="个股研究"))
+                if st.button(
+                    "🧠 个股深度研究",
+                    key=f"btn_research_kanban_{row['代码']}",
+                    use_container_width=True,
+                    disabled=not research_state["ready"],
+                ):
+                    clicked_state = _get_stock_research_report_state(report_code, report_engine, include_report_md=True)
+                    if clicked_state["ready"]:
+                        show_stock_research_report_dialog(clicked_state["report_md"])
+                    else:
+                        st.warning("报告状态已变化，请等待后台定时刷新完成。")
+
     # 跳转到个股详情
     st.markdown("### 🔍 跳转与管理")
+    st.caption("个股深度研究报告只针对自选股票，由后台定时任务生成；页面仅展示缓存状态和已完成报告。")
     action_cols = st.columns([2, 2, 2])
     with action_cols[0]:
         options = display_df['名称'] + " (" + display_df['代码'] + ")"
@@ -7840,6 +7926,47 @@ def render_user_watchlist_tab() -> None:
                     st.rerun()
                 else:
                     st.warning("未删除任何记录，可能已被移除。")
+
+    with action_cols[2]:
+        stock_display_df = display_df[
+            display_df["security_type"].astype(str).str.lower().eq("stock")
+        ].copy()
+        if stock_display_df.empty:
+            st.info("当前自选中没有股票，暂无个股深度研究报告。")
+        else:
+            research_options = (
+                stock_display_df["名称"].astype(str)
+                + "（"
+                + stock_display_df["代码"].astype(str)
+                + "）"
+            ).tolist()
+            selected_research_label = st.selectbox(
+                "个股研究报告",
+                options=research_options,
+                key="user_watchlist_research_select",
+            )
+            selected_research_idx = research_options.index(selected_research_label)
+            selected_research_row = stock_display_df.iloc[selected_research_idx]
+            selected_research_code = str(selected_research_row.get("代码") or "").strip().upper()
+            selected_research_state = _build_stock_research_report_state(
+                selected_research_code,
+                research_status_map.get(selected_research_code),
+            )
+            st.caption(_format_report_state_text(selected_research_state, ready_prefix="最近生成"))
+            if st.button(
+                "查看个股研究",
+                key="btn_open_watchlist_stock_research",
+                disabled=not selected_research_state["ready"],
+            ):
+                clicked_state = _get_stock_research_report_state(
+                    selected_research_code,
+                    report_engine,
+                    include_report_md=True,
+                )
+                if clicked_state["ready"]:
+                    show_stock_research_report_dialog(clicked_state["report_md"])
+                else:
+                    st.warning("报告状态已变化，请等待后台定时刷新完成。")
 
 
 

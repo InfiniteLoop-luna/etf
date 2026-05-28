@@ -44,6 +44,7 @@ env/
 logs/
 
 # Config with secrets (local overrides)
+.env
 config.yaml
 config.yaml.local
 
@@ -63,6 +64,7 @@ test_*.py
 !tests/test_ml_stock_dataset.py
 !tests/test_factor_workbench.py
 !tests/test_user_watchlist_store.py
+!tests/test_watchlist_stock_research_refresh.py
 !tests/eastmoney_author_tracker/test_store.py
 !tests/eastmoney_author_tracker/test_ui.py
 verify_*.py

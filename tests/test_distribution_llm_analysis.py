@@ -68,7 +68,7 @@ class DistributionLLMAnalysisTests(unittest.TestCase):
 
         self.assertTrue(cfg.enabled)
         self.assertEqual(cfg.base_url, 'https://api.deepseek.com')
-        self.assertEqual(cfg.model, 'deepseek-v4-flash')
+        self.assertEqual(cfg.model, 'deepseek-chat')
         self.assertEqual(cfg.api_key, 'sk-real-ascii-key')
 
     def test_load_distribution_llm_config_skips_bad_primary_key_and_falls_back_to_alt_env_key(self):
