@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import time
 import uuid
 from datetime import datetime
@@ -26,6 +27,18 @@ from src.watchlist_distribution_refresh import (
 
 
 WATCHLIST_STOCK_RESEARCH_LOCK_NAME = "watchlist_stock_research_refresh"
+
+
+def _supports_kwarg(callable_obj: Callable[..., Any], kwarg_name: str) -> bool:
+    try:
+        sig = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return True
+
+    params = sig.parameters.values()
+    if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in params):
+        return True
+    return kwarg_name in sig.parameters
 
 
 def _coerce_report_bundle(result: Any) -> dict[str, Any]:
@@ -108,15 +121,21 @@ def refresh_watchlist_stock_research_reports(
                 error_message=None,
             )
             try:
+                call_kwargs = {
+                    "engine": engine,
+                    "asof_trade_date": latest_source_trade_date,
+                    "allow_live_fetch": False,
+                }
+                if _supports_kwarg(report_generator, "use_report_cache"):
+                    call_kwargs["use_report_cache"] = False
+                if _supports_kwarg(report_generator, "save_report"):
+                    call_kwargs["save_report"] = False
+
                 bundle = _coerce_report_bundle(
                     report_generator(
                         ts_code,
                         stock_name,
-                        engine=engine,
-                        asof_trade_date=latest_source_trade_date,
-                        allow_live_fetch=False,
-                        use_report_cache=False,
-                        save_report=False,
+                        **call_kwargs,
                     )
                 )
                 if not bundle["report_md"]:
