@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 RESEARCH_REPORT_TABLE = "ts_stock_research_reports"
 RESEARCH_STATUS_TABLE = "ts_stock_research_report_status"
 RESEARCH_REFRESH_LOCK_TABLE = "ts_stock_research_refresh_locks"
-RESEARCH_REPORT_VERSION = "v1"
+RESEARCH_REPORT_VERSION = "v2"
 
 
 def get_engine() -> Engine:
@@ -33,6 +33,7 @@ def _column_exists(engine: Engine, table_name: str, column_name: str) -> bool:
 def _ensure_report_table_schema(engine: Engine) -> None:
     patch_sql: list[str] = []
     for column_name, ddl in [
+        ("report_html", "TEXT"),
         ("fact_pack_json", "TEXT"),
         ("llm_result_json", "TEXT"),
         ("source_updated_at", "TIMESTAMPTZ"),
@@ -53,6 +54,7 @@ def ensure_tables(engine: Engine) -> None:
         ts_code VARCHAR(20) NOT NULL,
         trade_date VARCHAR(20) NOT NULL,
         report_md TEXT NOT NULL,
+        report_html TEXT,
         fact_pack_json TEXT,
         llm_result_json TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -186,6 +188,7 @@ def save_daily_report(
     trade_date: str,
     report_md: str,
     *,
+    report_html: str | None = None,
     fact_pack: dict[str, Any] | None = None,
     llm_result: dict[str, Any] | None = None,
     source_updated_at=None,
@@ -197,6 +200,7 @@ def save_daily_report(
             ts_code,
             trade_date,
             report_md,
+            report_html,
             fact_pack_json,
             llm_result_json,
             source_updated_at,
@@ -206,6 +210,7 @@ def save_daily_report(
             :ts_code,
             :trade_date,
             :report_md,
+            :report_html,
             :fact_pack_json,
             :llm_result_json,
             :source_updated_at,
@@ -213,6 +218,7 @@ def save_daily_report(
         )
         ON CONFLICT (ts_code, trade_date) DO UPDATE
         SET report_md = EXCLUDED.report_md,
+            report_html = COALESCE(EXCLUDED.report_html, {RESEARCH_REPORT_TABLE}.report_html),
             fact_pack_json = EXCLUDED.fact_pack_json,
             llm_result_json = EXCLUDED.llm_result_json,
             source_updated_at = COALESCE(EXCLUDED.source_updated_at, {RESEARCH_REPORT_TABLE}.source_updated_at),
@@ -227,6 +233,7 @@ def save_daily_report(
                 "ts_code": _normalize_ts_code(ts_code),
                 "trade_date": _normalize_trade_date(trade_date),
                 "report_md": str(report_md or ""),
+                "report_html": str(report_html or "") if report_html is not None else None,
                 "fact_pack_json": _json_dumps(fact_pack),
                 "llm_result_json": _json_dumps(llm_result),
                 "source_updated_at": source_updated_at,
@@ -255,7 +262,7 @@ def get_daily_report_record(engine: Engine, ts_code: str, trade_date: str) -> di
         ensure_tables(engine)
         sql = text(
             f"""
-            SELECT ts_code, trade_date, report_md, fact_pack_json, llm_result_json,
+            SELECT ts_code, trade_date, report_md, report_html, fact_pack_json, llm_result_json,
                    created_at, source_updated_at, report_version
             FROM {RESEARCH_REPORT_TABLE}
             WHERE ts_code = :ts_code AND trade_date = :trade_date
@@ -282,7 +289,7 @@ def get_latest_report_record(engine: Engine, ts_code: str) -> dict | None:
         ensure_tables(engine)
         sql = text(
             f"""
-            SELECT ts_code, trade_date, report_md, created_at, source_updated_at, report_version
+            SELECT ts_code, trade_date, report_md, report_html, created_at, source_updated_at, report_version
             FROM {RESEARCH_REPORT_TABLE}
             WHERE ts_code = :ts_code
             ORDER BY trade_date DESC, created_at DESC

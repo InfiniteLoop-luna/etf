@@ -7,6 +7,7 @@ import json
 from html import escape
 from hmac import compare_digest
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -173,7 +174,7 @@ from src.user_watchlist_store import (
 from src.distribution_alert_store import get_latest_alerts_for_stocks
 from src.distribution_report_store import get_daily_report, get_report_status, get_report_statuses
 from src.stock_research_report_store import (
-    get_daily_report as get_stock_research_daily_report,
+    get_daily_report_record as get_stock_research_daily_report_record,
     get_report_status as get_stock_research_report_status,
     get_report_statuses as get_stock_research_report_statuses,
 )
@@ -7522,7 +7523,20 @@ def show_distribution_report_dialog(report_md: str):
 
 
 @st.dialog("🧠 个股深度研究报告", width="large")
-def show_stock_research_report_dialog(report_md: str):
+def show_stock_research_report_dialog(report_md: str, report_html: str | None = None):
+    if report_html:
+        st.download_button(
+            "下载 HTML 报告",
+            data=report_html,
+            file_name="stock-research-report.html",
+            mime="text/html",
+            use_container_width=True,
+        )
+        components.html(report_html, height=820, scrolling=True)
+        if report_md:
+            with st.expander("Markdown 原文"):
+                st.markdown(report_md)
+        return
     st.markdown(report_md)
 
 
@@ -7548,13 +7562,19 @@ def _get_distribution_report_state(ts_code: str, engine, *, include_report_md: b
     return _build_distribution_report_state(ts_code_key, status, report_md)
 
 
-def _build_stock_research_report_state(ts_code: str, status: dict | None, report_md: str | None = None) -> dict:
+def _build_stock_research_report_state(
+    ts_code: str,
+    status: dict | None,
+    report_md: str | None = None,
+    report_html: str | None = None,
+) -> dict:
     ready_trade_date = (status or {}).get("latest_ready_trade_date")
     return {
         "status": str((status or {}).get("status") or "idle"),
-        "ready": bool(report_md) if report_md is not None else bool(ready_trade_date),
+        "ready": bool(report_md or report_html) if report_md is not None or report_html is not None else bool(ready_trade_date),
         "trade_date": ready_trade_date,
         "report_md": report_md,
+        "report_html": report_html,
         "error_message": (status or {}).get("error_message"),
     }
 
@@ -7566,12 +7586,14 @@ def _get_stock_research_report_state(ts_code: str, engine, *, include_report_md:
 
     status = get_stock_research_report_status(engine, ts_code_key) or {}
     ready_trade_date = status.get("latest_ready_trade_date")
-    report_md = (
-        get_stock_research_daily_report(engine, ts_code_key, ready_trade_date)
+    record = (
+        get_stock_research_daily_report_record(engine, ts_code_key, ready_trade_date)
         if include_report_md and ready_trade_date
         else None
     )
-    return _build_stock_research_report_state(ts_code_key, status, report_md)
+    report_md = str((record or {}).get("report_md") or "") if record else None
+    report_html = str((record or {}).get("report_html") or "") if record else None
+    return _build_stock_research_report_state(ts_code_key, status, report_md, report_html)
 
 
 def _format_report_state_text(state: dict, *, ready_prefix: str = "最近报告") -> str:
@@ -7886,7 +7908,7 @@ def render_user_watchlist_tab() -> None:
                 ):
                     clicked_state = _get_stock_research_report_state(report_code, report_engine, include_report_md=True)
                     if clicked_state["ready"]:
-                        show_stock_research_report_dialog(clicked_state["report_md"])
+                        show_stock_research_report_dialog(clicked_state["report_md"], clicked_state.get("report_html"))
                     else:
                         st.warning("报告状态已变化，请等待后台定时刷新完成。")
 
@@ -7954,7 +7976,7 @@ def render_user_watchlist_tab() -> None:
             )
             st.caption(_format_report_state_text(selected_research_state, ready_prefix="最近生成"))
             if st.button(
-                "查看个股研究",
+                "查看可视化研究",
                 key="btn_open_watchlist_stock_research",
                 disabled=not selected_research_state["ready"],
             ):
@@ -7964,7 +7986,7 @@ def render_user_watchlist_tab() -> None:
                     include_report_md=True,
                 )
                 if clicked_state["ready"]:
-                    show_stock_research_report_dialog(clicked_state["report_md"])
+                    show_stock_research_report_dialog(clicked_state["report_md"], clicked_state.get("report_html"))
                 else:
                     st.warning("报告状态已变化，请等待后台定时刷新完成。")
 

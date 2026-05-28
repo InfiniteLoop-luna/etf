@@ -9,10 +9,11 @@ from typing import Callable, Any
 from sqlalchemy.engine import Engine
 
 from src.stock_research_analyzer import generate_stock_research_report_bundle
+from src.stock_research_html_renderer import render_stock_research_html
 from src.stock_research_llm_analysis import should_require_stock_research_refresh
 from src.stock_research_report_store import (
     ensure_tables,
-    get_daily_report,
+    get_daily_report_record,
     get_report_status,
     release_refresh_lock,
     save_daily_report,
@@ -45,10 +46,11 @@ def _coerce_report_bundle(result: Any) -> dict[str, Any]:
     if isinstance(result, dict):
         return {
             "report_md": str(result.get("report_md") or ""),
+            "report_html": str(result.get("report_html") or "") if result.get("report_html") is not None else None,
             "fact_pack": result.get("fact_pack"),
             "llm_result": result.get("llm_result"),
         }
-    return {"report_md": str(result or ""), "fact_pack": None, "llm_result": None}
+    return {"report_md": str(result or ""), "report_html": None, "fact_pack": None, "llm_result": None}
 
 
 def refresh_watchlist_stock_research_reports(
@@ -87,9 +89,13 @@ def refresh_watchlist_stock_research_reports(
                 continue
 
             current_status = get_report_status(engine, ts_code) or {}
-            cached_report = get_daily_report(engine, ts_code, latest_source_trade_date)
+            cached_record = get_daily_report_record(engine, ts_code, latest_source_trade_date)
+            cached_report = str((cached_record or {}).get("report_md") or "")
+            cached_html = str((cached_record or {}).get("report_html") or "")
             has_cached_report = bool(cached_report)
-            cache_needs_refresh = has_cached_report and should_require_stock_research_refresh(cached_report)
+            cache_needs_refresh = has_cached_report and (
+                should_require_stock_research_refresh(cached_report) or not cached_html
+            )
             if (
                 current_status.get("status") == "ready"
                 and current_status.get("latest_ready_trade_date") == latest_source_trade_date
@@ -109,6 +115,59 @@ def refresh_watchlist_stock_research_reports(
                 )
                 summary["skipped"] += 1
                 continue
+
+            if (
+                has_cached_report
+                and not cached_html
+                and not should_require_stock_research_refresh(cached_report)
+                and isinstance((cached_record or {}).get("fact_pack"), dict)
+                and isinstance((cached_record or {}).get("llm_result"), dict)
+            ):
+                started_at = time.time()
+                try:
+                    report_html = render_stock_research_html(
+                        cached_record["fact_pack"],
+                        cached_record["llm_result"],
+                        report_md=cached_report,
+                    )
+                    save_daily_report(
+                        engine,
+                        ts_code,
+                        latest_source_trade_date,
+                        cached_report,
+                        report_html=report_html,
+                        fact_pack=cached_record.get("fact_pack"),
+                        llm_result=cached_record.get("llm_result"),
+                    )
+                    duration_ms = int((time.time() - started_at) * 1000)
+                    now = datetime.now()
+                    upsert_report_status(
+                        engine,
+                        ts_code,
+                        status="ready",
+                        target_trade_date=latest_source_trade_date,
+                        latest_ready_trade_date=latest_source_trade_date,
+                        latest_report_generated_at=now,
+                        last_attempt_at=now,
+                        last_success_at=now,
+                        duration_ms=duration_ms,
+                        error_message=None,
+                    )
+                    summary["generated"] += 1
+                    continue
+                except Exception as exc:
+                    upsert_report_status(
+                        engine,
+                        ts_code,
+                        status="failed",
+                        target_trade_date=latest_source_trade_date,
+                        latest_ready_trade_date=current_status.get("latest_ready_trade_date"),
+                        last_attempt_at=datetime.now(),
+                        duration_ms=int((time.time() - started_at) * 1000),
+                        error_message=str(exc),
+                    )
+                    summary["failed"] += 1
+                    continue
 
             started_at = time.time()
             upsert_report_status(
@@ -140,11 +199,22 @@ def refresh_watchlist_stock_research_reports(
                 )
                 if not bundle["report_md"]:
                     raise RuntimeError("empty stock research report")
+                if (
+                    not bundle.get("report_html")
+                    and isinstance(bundle.get("fact_pack"), dict)
+                    and isinstance(bundle.get("llm_result"), dict)
+                ):
+                    bundle["report_html"] = render_stock_research_html(
+                        bundle["fact_pack"],
+                        bundle["llm_result"],
+                        report_md=bundle["report_md"],
+                    )
                 save_daily_report(
                     engine,
                     ts_code,
                     latest_source_trade_date,
                     bundle["report_md"],
+                    report_html=bundle.get("report_html"),
                     fact_pack=bundle.get("fact_pack"),
                     llm_result=bundle.get("llm_result"),
                 )

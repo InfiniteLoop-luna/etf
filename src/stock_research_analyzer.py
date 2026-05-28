@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy.engine import Engine
 
 from src.stock_research_fact_pack import build_stock_research_fact_pack
+from src.stock_research_html_renderer import render_stock_research_html
 from src.stock_research_llm_analysis import (
     analyze_stock_research_payload,
     render_stock_research_llm_markdown,
@@ -103,8 +104,10 @@ def generate_stock_research_report_bundle(
     if not llm_result:
         raise RuntimeError("个股深度研究 LLM 未配置或未返回有效结构化结果")
     report_md = render_stock_research_markdown(fact_pack, llm_result)
+    report_html = render_stock_research_html(fact_pack, llm_result, report_md=report_md)
     return {
         "report_md": report_md,
+        "report_html": report_html,
         "fact_pack": fact_pack,
         "llm_result": llm_result,
     }

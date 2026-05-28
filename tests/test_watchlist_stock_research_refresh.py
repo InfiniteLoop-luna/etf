@@ -10,6 +10,7 @@ from src.stock_research_llm_analysis import (
 from src.stock_research_report_store import (
     ensure_tables,
     get_daily_report,
+    get_daily_report_record,
     get_report_status,
     release_refresh_lock,
     save_daily_report,
@@ -85,6 +86,7 @@ class WatchlistStockResearchRefreshTests(unittest.TestCase):
             "000733.SZ",
             "2026-05-23",
             f"# cached\n\n{STOCK_RESEARCH_LLM_SECTION_MARKER}\n{STOCK_RESEARCH_LLM_SCHEMA_VERSION}",
+            report_html="<html>ready</html>",
         )
         report_generator = Mock(side_effect=AssertionError("report generator should not run"))
 
@@ -123,6 +125,45 @@ class WatchlistStockResearchRefreshTests(unittest.TestCase):
             use_report_cache=False,
             save_report=False,
         )
+
+    def test_cached_current_research_report_missing_html_is_rendered_without_recompute(self):
+        self._insert_watchlist_row("alice", "000733.SZ", security_name="stock")
+        self._insert_daily_row("000733.SZ", "2026-05-23")
+        save_daily_report(
+            self.engine,
+            "000733.SZ",
+            "2026-05-23",
+            f"# cached\n\n{STOCK_RESEARCH_LLM_SECTION_MARKER}\n{STOCK_RESEARCH_LLM_SCHEMA_VERSION}",
+            fact_pack={
+                "ts_code": "000733.SZ",
+                "stock_name": "stock",
+                "asof_trade_date": "2026-05-23",
+                "profile": {"industry": "tech", "market": "SZ"},
+                "price_metrics": {"latest_close": 10.5},
+                "valuation_snapshot": {"pe_ttm": 12.3},
+                "financial_metrics": {"latest": {"roe": 9.8}},
+                "price_tail": [
+                    {"trade_date": "2026-05-22", "open": 10, "close": 10.5, "low": 9.9, "high": 10.8},
+                ],
+                "data_quality": {"profile_rows": 1, "daily_rows": 1, "kline_rows": 1, "financial_rows": 0},
+            },
+            llm_result={
+                "verdict": "观察",
+                "risk_level": "中",
+                "confidence": 61,
+                "summary": "cached report",
+                "quality_score": {"score": 60, "grade": "C"},
+                "step_analysis": {"step0": "watchlist"},
+            },
+        )
+        report_generator = Mock(side_effect=AssertionError("report generator should not run"))
+
+        summary = refresh_watchlist_stock_research_reports(self.engine, report_generator=report_generator)
+
+        record = get_daily_report_record(self.engine, "000733.SZ", "2026-05-23")
+        self.assertEqual(summary["generated"], 1)
+        self.assertIn("stock-research-html-v1", record["report_html"])
+        report_generator.assert_not_called()
 
     def test_refresh_can_scope_to_single_user_watchlist(self):
         self._insert_watchlist_row("alice", "000733.SZ", security_name="振华科技")
