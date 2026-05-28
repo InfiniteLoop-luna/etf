@@ -171,7 +171,7 @@ from src.user_watchlist_store import (
     remove_watchlist_item,
 )
 from src.distribution_alert_store import get_latest_alerts_for_stocks
-from src.distribution_report_store import get_daily_report, get_report_status
+from src.distribution_report_store import get_daily_report, get_report_status, get_report_statuses
 from src.watchlist_distribution_refresh import refresh_watchlist_distribution_reports
 
 try:
@@ -7500,9 +7500,9 @@ def preload_watchlist_reports_bg(username: str, engine) -> None:
 
     def _worker():
         try:
-            logger.info(f"Started background watchlist distribution refresh for {username}")
-            refresh_watchlist_distribution_reports(engine, username=username)
-            logger.info(f"Finished background watchlist distribution refresh for {username}")
+            logger.info(f"Started global watchlist distribution refresh after login for {username}")
+            refresh_watchlist_distribution_reports(engine)
+            logger.info(f"Finished global watchlist distribution refresh after login for {username}")
         except Exception as e:
             logger.error(f"Background preload crashed: {e}")
 
@@ -7516,21 +7516,26 @@ def show_distribution_report_dialog(report_md: str):
     st.markdown(report_md)
 
 
-def _get_distribution_report_state(ts_code: str, engine) -> dict:
+def _build_distribution_report_state(ts_code: str, status: dict | None, report_md: str | None = None) -> dict:
+    ready_trade_date = (status or {}).get("latest_ready_trade_date")
+    return {
+        "status": str((status or {}).get("status") or "idle"),
+        "ready": bool(report_md) if report_md is not None else bool(ready_trade_date),
+        "trade_date": ready_trade_date,
+        "report_md": report_md,
+        "error_message": (status or {}).get("error_message"),
+    }
+
+
+def _get_distribution_report_state(ts_code: str, engine, *, include_report_md: bool = True) -> dict:
     ts_code_key = str(ts_code or "").strip().upper()
     if not ts_code_key or engine is None:
         return {"status": "missing", "ready": False, "trade_date": None, "report_md": None}
 
     status = get_report_status(engine, ts_code_key) or {}
     ready_trade_date = status.get("latest_ready_trade_date")
-    report_md = get_daily_report(engine, ts_code_key, ready_trade_date) if ready_trade_date else None
-    return {
-        "status": str(status.get("status") or "idle"),
-        "ready": bool(report_md),
-        "trade_date": ready_trade_date,
-        "report_md": report_md,
-        "error_message": status.get("error_message"),
-    }
+    report_md = get_daily_report(engine, ts_code_key, ready_trade_date) if include_report_md and ready_trade_date else None
+    return _build_distribution_report_state(ts_code_key, status, report_md)
 
 
 def queue_security_search_navigation(ts_code: str, security_type: str) -> None:
@@ -7574,6 +7579,18 @@ def render_user_watchlist_tab() -> None:
 
     ts_codes = tuple(watchlist_df['ts_code'].tolist())
     security_types = tuple(watchlist_df['security_type'].tolist())
+    report_status_map: dict[str, dict] = {}
+    if report_engine is not None:
+        stock_report_codes = [
+            str(code or "").strip().upper()
+            for code, security_type in zip(ts_codes, security_types)
+            if str(security_type or "").strip().lower() == "stock" and str(code or "").strip()
+        ]
+        try:
+            report_status_map = get_report_statuses(report_engine, stock_report_codes)
+        except Exception as exc:
+            logger.warning("Failed to load distribution report statuses: %s", exc)
+            report_status_map = {}
     
     with st.spinner("正在加载自选股深度数据..."):
         enriched_df = load_watchlist_enriched_data(ts_codes, security_types)
@@ -7765,7 +7782,8 @@ def render_user_watchlist_tab() -> None:
                 """
                 st.html(card_html)
                 
-                report_state = _get_distribution_report_state(row["代码"], report_engine)
+                report_code = str(row["代码"] or "").strip().upper()
+                report_state = _build_distribution_report_state(report_code, report_status_map.get(report_code))
                 status_text = "后台等待刷新"
                 if report_state["ready"]:
                     status_text = f"最近报告: {report_state['trade_date']}"
@@ -7781,7 +7799,11 @@ def render_user_watchlist_tab() -> None:
                     use_container_width=True,
                     disabled=not report_state["ready"],
                 ):
-                    show_distribution_report_dialog(report_state["report_md"])
+                    clicked_state = _get_distribution_report_state(report_code, report_engine, include_report_md=True)
+                    if clicked_state["ready"]:
+                        show_distribution_report_dialog(clicked_state["report_md"])
+                    else:
+                        st.warning("报告状态已变化，请等待后台刷新完成。")
 
     # 跳转到个股详情
     st.markdown("### 🔍 跳转与管理")
@@ -8051,7 +8073,12 @@ def render_security_search_tab():
         if should_show_distribution_report_section(selected_type, already_in_watchlist):
             st.markdown("##### 🚨 主力出货深度分析")
             st.info("报告改为后台增量刷新后生成。按钮仅在数据库中已有可用缓存时启用，点击后直接秒开缓存报告。")
-            detail_report_state = _get_distribution_report_state(selected_code, get_security_intraday_engine_cached())
+            detail_report_engine = get_security_intraday_engine_cached()
+            detail_report_state = _get_distribution_report_state(
+                selected_code,
+                detail_report_engine,
+                include_report_md=False,
+            )
             if detail_report_state["ready"]:
                 st.caption(f"最近报告日期：{detail_report_state['trade_date']}")
             elif detail_report_state["status"] == "running":
@@ -8066,7 +8093,15 @@ def render_security_search_tab():
                 key=f"btn_dist_{selected_code}",
                 disabled=not detail_report_state["ready"],
             ):
-                show_distribution_report_dialog(detail_report_state["report_md"])
+                clicked_state = _get_distribution_report_state(
+                    selected_code,
+                    detail_report_engine,
+                    include_report_md=True,
+                )
+                if clicked_state["ready"]:
+                    show_distribution_report_dialog(clicked_state["report_md"])
+                else:
+                    st.warning("报告状态已变化，请等待后台刷新完成。")
 
 
         top10_cache = st.session_state.setdefault("security_top10_cache", {})

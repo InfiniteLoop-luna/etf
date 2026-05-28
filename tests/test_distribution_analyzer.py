@@ -7,7 +7,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
 from src.distribution_analyzer import (
+    analyze_daily_kline,
     analyze_tick_data,
+    build_distribution_alert_payload,
     build_distribution_report_payload,
     fetch_daily_kline,
     fetch_minutes,
@@ -127,6 +129,28 @@ class DistributionAnalyzerTests(unittest.TestCase):
         self.assertEqual(report, "# cached report")
         mock_get_daily_report.assert_called_once()
         mock_fetch_daily_kline.assert_not_called()
+
+    @patch("src.distribution_report_store.save_daily_report", side_effect=AssertionError("report should not be saved"))
+    @patch("src.distribution_report_store.get_daily_report", side_effect=AssertionError("cache should not be read"))
+    @patch("src.distribution_analyzer.fetch_daily_kline", return_value=pd.DataFrame())
+    def test_generate_detailed_report_can_skip_cache_read_and_write(
+        self,
+        mock_fetch_daily_kline,
+        _mock_get_daily_report,
+        _mock_save_daily_report,
+    ):
+        report = generate_detailed_report(
+            "000733.SZ",
+            "\u632f\u534e\u79d1\u6280",
+            engine=Mock(),
+            asof_trade_date="2026-05-23",
+            allow_live_fetch=False,
+            use_report_cache=False,
+            save_report=False,
+        )
+
+        self.assertIn("无K线数据", report)
+        mock_fetch_daily_kline.assert_called_once()
 
     @patch("src.distribution_analyzer.render_distribution_llm_markdown", return_value=["", "## 🧠 大模型二次综合分析", "- **综合判断**：疑似出货"])
     @patch("src.distribution_analyzer.analyze_distribution_payload", return_value={"verdict": "疑似出货"})
@@ -363,6 +387,34 @@ class DistributionAnalyzerTests(unittest.TestCase):
         self.assertEqual(payload["coverage"]["intraday"]["available_dates"], ["2026-05-25"])
         self.assertEqual(payload["coverage"]["intraday"]["missing_dates"], ["2026-05-26"])
 
+    def test_build_distribution_alert_payload_uses_report_signal_logic_for_latest_day(self):
+        rows = []
+        for idx in range(25):
+            close = 10.0 + idx * 0.1
+            rows.append(
+                {
+                    "open": close,
+                    "high": close * 1.01,
+                    "low": close * 0.99,
+                    "close": close,
+                    "vol": 1000,
+                    "amount": close * 1000,
+                }
+            )
+        rows[-1].update({"open": 12.5, "high": 12.6, "low": 11.8, "close": 11.9, "vol": 3000})
+        df = pd.DataFrame(rows)
+        df["trade_date"] = pd.date_range("2026-04-27", periods=len(df))
+        df.index = df["trade_date"].dt.strftime("%Y-%m-%d")
+        analyzed = analyze_daily_kline(df)
+
+        alert = build_distribution_alert_payload("000733.SZ", analyzed, report_trade_date=str(df.index[-1]))
+
+        self.assertIsNotNone(alert)
+        self.assertEqual(alert["trade_date"], str(df.index[-1]))
+        self.assertEqual(alert["alert_level"], "HIGH")
+        self.assertIn("放量下跌", ",".join(alert["alert_details"]["signals"]))
+        self.assertEqual(alert["alert_details"]["source"], "db:vw_ts_stock_daily")
+
     @patch("src.distribution_analyzer.create_client", side_effect=AssertionError("client should not be created"))
     def test_fetch_transactions_skips_live_fallback_for_stale_dates(self, _mock_create_client):
         result = fetch_transactions("000733.SZ", "20200102", engine=None)
@@ -400,6 +452,30 @@ class DistributionAnalyzerTests(unittest.TestCase):
         self.assertEqual(state["report_md"], "# report")
         mock_get_report_status.assert_called_once_with(engine, "000733.SZ")
         mock_get_daily_report.assert_called_once_with(engine, "000733.SZ", "2026-05-23")
+
+    @patch("app.get_daily_report", side_effect=AssertionError("markdown should be lazy-loaded on click"))
+    @patch(
+        "app.get_report_status",
+        return_value={
+            "ts_code": "000733.SZ",
+            "status": "ready",
+            "latest_ready_trade_date": "2026-05-23",
+            "error_message": None,
+        },
+    )
+    def test_get_distribution_report_state_can_skip_markdown_body(
+        self,
+        mock_get_report_status,
+        _mock_get_daily_report,
+    ):
+        engine = Mock()
+
+        state = _get_distribution_report_state("000733.SZ", engine, include_report_md=False)
+
+        self.assertTrue(state["ready"])
+        self.assertEqual(state["trade_date"], "2026-05-23")
+        self.assertIsNone(state["report_md"])
+        mock_get_report_status.assert_called_once_with(engine, "000733.SZ")
 
     def test_queue_security_search_navigation_sets_sidebar_and_pending_keyword(self):
         import app
