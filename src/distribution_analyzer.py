@@ -465,6 +465,7 @@ def build_distribution_report_payload(
     intraday_results: dict[str, dict],
     report_trade_date: str,
     allow_live_fetch: bool,
+    rule_summary: dict | None = None,
 ) -> dict:
     recent_daily_rows: list[dict[str, float | str]] = []
     for _, row in analyzed.tail(30).iterrows():
@@ -513,6 +514,7 @@ def build_distribution_report_payload(
         "phases": phase_payload,
         "tick_analysis": dict(tick_results),
         "intraday_analysis": dict(intraday_results),
+        "rule_summary": dict(rule_summary or {}),
     }
 
 
@@ -522,11 +524,13 @@ def generate_detailed_report(
     engine=None,
     asof_trade_date: str | None = None,
     allow_live_fetch: bool = True,
+    use_report_cache: bool = True,
+    save_report: bool = True,
 ) -> str:
     """生成深度 Markdown 出货分析报告。"""
     report_trade_date = normalize_report_trade_date(asof_trade_date) or datetime.now().strftime("%Y-%m-%d")
 
-    if engine is not None:
+    if engine is not None and use_report_cache:
         from src.distribution_report_store import get_daily_report
 
         cached = get_daily_report(engine, ts_code, report_trade_date)
@@ -553,7 +557,7 @@ def generate_detailed_report(
     if analyzed is None or analyzed.empty:
         md.append("❌ 无K线数据")
         final_md = "\n".join(md)
-        if engine is not None:
+        if engine is not None and save_report:
             from src.distribution_report_store import save_daily_report
 
             save_daily_report(engine, ts_code, report_trade_date, final_md)
@@ -722,11 +726,33 @@ def generate_detailed_report(
 
     md.extend(["", "### 📊 最终结论"])
     if not distribution_evidence and not phases:
-        md.append("> [!TIP]\n> **当前未发现明显的主力集中出货迹象。**")
+        rule_risk_level = "低"
+        rule_verdict = "中性"
+        rule_conclusion = "当前未发现明显的主力集中出货迹象。"
+        md.append(f"> [!TIP]\n> **{rule_conclusion}**")
     elif len(distribution_evidence) >= 3 or (phases and phases[0].get("decline_pct", 0) < -10):
-        md.append("> [!CAUTION]\n> **存在较强的主力出货迹象，建议谨慎关注风险！**")
+        rule_risk_level = "高"
+        rule_verdict = "强出货"
+        rule_conclusion = "存在较强的主力出货迹象，建议谨慎关注风险！"
+        md.append(f"> [!CAUTION]\n> **{rule_conclusion}**")
     else:
-        md.append("> [!WARNING]\n> **存在一些出货信号，但尚不构成明确的系统性出货，需持续跟踪。**")
+        rule_risk_level = "中"
+        rule_verdict = "疑似出货"
+        rule_conclusion = "存在一些出货信号，但尚不构成明确的系统性出货，需持续跟踪。"
+        md.append(f"> [!WARNING]\n> **{rule_conclusion}**")
+
+    rule_summary = {
+        "verdict": rule_verdict,
+        "risk_level": rule_risk_level,
+        "conclusion": rule_conclusion,
+        "distribution_evidence_count": len(distribution_evidence),
+        "phase_count": len(phases),
+        "has_tick_analysis": any(result.get("status") == "ok" for result in tick_results.values()),
+        "has_intraday_analysis": any(
+            result.get("patterns") and result.get("patterns") != ["无数据"]
+            for result in intraday_results.values()
+        ),
+    }
 
     payload = build_distribution_report_payload(
         ts_code,
@@ -739,13 +765,105 @@ def generate_detailed_report(
         intraday_results=intraday_results,
         report_trade_date=report_trade_date,
         allow_live_fetch=allow_live_fetch,
+        rule_summary=rule_summary,
     )
     llm_result = analyze_distribution_payload(payload)
     md.extend(render_distribution_llm_markdown(llm_result))
 
     final_md = "\n".join(md)
-    if engine is not None:
+    if engine is not None and save_report:
         from src.distribution_report_store import save_daily_report
 
         save_daily_report(engine, ts_code, report_trade_date, final_md)
     return final_md
+
+
+def generate_detailed_report_markdown(
+    ts_code: str,
+    stock_name: str,
+    engine=None,
+    asof_trade_date: str | None = None,
+    allow_live_fetch: bool = False,
+    use_report_cache: bool = False,
+    save_report: bool = False,
+) -> str:
+    """只生成 Markdown，不读取或写入报告缓存。"""
+    _ = (use_report_cache, save_report)
+    return generate_detailed_report(
+        ts_code,
+        stock_name,
+        engine=engine,
+        asof_trade_date=asof_trade_date,
+        allow_live_fetch=allow_live_fetch,
+        use_report_cache=False,
+        save_report=False,
+    )
+
+
+def _format_alert_signal(signal_name: str, item: tuple) -> str:
+    date_s, pct_s, metric_s, _close_s = item
+    if signal_name == "放量下跌":
+        return f"放量下跌(量比{metric_s:.1f}, 跌{abs(pct_s):.1f}%)"
+    if signal_name == "放量滞涨":
+        return f"高位放量滞涨(量比{metric_s:.1f})"
+    if signal_name == "天量天价":
+        return "天量天价"
+    if signal_name == "高位长上影":
+        return "高位长上影"
+    if signal_name == "量价背离_顶部":
+        return "顶部量价背离"
+    if signal_name == "破位下跌":
+        return f"破位下跌(跌破MA20={metric_s:.2f})"
+    if signal_name == "连续缩量阴跌":
+        return f"连续缩量阴跌(量比{metric_s:.1f})"
+    return f"{signal_name}({date_s})"
+
+
+def build_distribution_alert_payload(
+    ts_code: str,
+    analyzed: pd.DataFrame,
+    report_trade_date: str | None = None,
+) -> dict | None:
+    """基于深度报告同一套日线信号，生成最新交易日预警 payload。"""
+    if analyzed is None or analyzed.empty:
+        return None
+
+    target_trade_date = normalize_report_trade_date(report_trade_date)
+    if not target_trade_date:
+        target_trade_date = str(analyzed.index[-1]).split()[0]
+
+    target_rows = analyzed[[str(idx).split()[0] == target_trade_date for idx in analyzed.index]]
+    if target_rows.empty:
+        target_rows = analyzed.tail(1)
+        target_trade_date = str(target_rows.index[-1]).split()[0]
+
+    signals = find_volume_price_signals(analyzed)
+    matched_items: list[tuple[str, tuple]] = []
+    for signal_name, items in signals.items():
+        for item in items:
+            item_date = normalize_report_trade_date(str(item[0]))
+            if item_date == target_trade_date:
+                matched_items.append((signal_name, item))
+
+    signal_labels = [_format_alert_signal(signal_name, item) for signal_name, item in matched_items]
+    signal_names = [signal_name for signal_name, _item in matched_items]
+    alert_level = "NONE"
+    if len(signal_labels) >= 2 or any(name in {"放量下跌", "量价背离_顶部", "破位下跌"} for name in signal_names):
+        alert_level = "HIGH"
+    elif len(signal_labels) == 1:
+        alert_level = "MEDIUM"
+
+    last_row = target_rows.iloc[-1]
+    return {
+        "ts_code": str(ts_code or "").strip().upper(),
+        "trade_date": target_trade_date,
+        "alert_level": alert_level,
+        "alert_details": {
+            "signals": signal_labels,
+            "signal_names": signal_names,
+            "close": float(last_row["close"]) if pd.notna(last_row.get("close")) else None,
+            "pct_change": float(last_row["pct_change"]) if pd.notna(last_row.get("pct_change")) else None,
+            "vol_ratio": float(last_row["vol_ratio"]) if pd.notna(last_row.get("vol_ratio")) else None,
+            "source": "db:vw_ts_stock_daily",
+        },
+    }

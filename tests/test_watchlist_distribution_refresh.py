@@ -3,11 +3,12 @@ from unittest.mock import Mock
 
 from sqlalchemy import create_engine, text
 
-from src.distribution_llm_analysis import LLM_SECTION_MARKER
+from src.distribution_llm_analysis import LLM_SCHEMA_VERSION, LLM_SECTION_MARKER
 from src.distribution_report_store import (
     ensure_tables,
     get_daily_report,
     get_report_status,
+    get_report_statuses,
     release_refresh_lock,
     save_daily_report,
     try_acquire_refresh_lock,
@@ -107,7 +108,7 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
     def test_ready_reports_skip_recompute(self):
         self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
         self._insert_daily_row("000733.SZ", "2026-05-23")
-        save_daily_report(self.engine, "000733.SZ", "2026-05-23", f"# cached report\n\n{LLM_SECTION_MARKER}")
+        save_daily_report(self.engine, "000733.SZ", "2026-05-23", f"# cached report\n\n{LLM_SECTION_MARKER}\n{LLM_SCHEMA_VERSION}")
         report_generator = Mock(side_effect=AssertionError("report generator should not run"))
 
         summary = refresh_watchlist_distribution_reports(
@@ -121,6 +122,34 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
         self.assertEqual(status["status"], "ready")
         self.assertEqual(status["latest_ready_trade_date"], "2026-05-23")
         report_generator.assert_not_called()
+
+    def test_ready_reports_with_old_llm_section_are_recomputed(self):
+        self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
+        self._insert_daily_row("000733.SZ", "2026-05-23")
+        save_daily_report(self.engine, "000733.SZ", "2026-05-23", f"# cached report\n\n{LLM_SECTION_MARKER}")
+        report_generator = Mock(return_value=f"# regenerated report\n\n{LLM_SECTION_MARKER}\n{LLM_SCHEMA_VERSION}")
+
+        summary = refresh_watchlist_distribution_reports(
+            self.engine,
+            report_generator=report_generator,
+        )
+
+        cached_report = get_daily_report(self.engine, "000733.SZ", "2026-05-23")
+        self.assertEqual(summary["generated"], 1)
+        self.assertIn(LLM_SCHEMA_VERSION, cached_report)
+
+    def test_get_report_statuses_hydrates_latest_report_without_markdown_body(self):
+        self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
+        self._insert_watchlist_row("alice", "000001.SZ", security_name="\u5e73\u5b89\u94f6\u884c")
+        save_daily_report(self.engine, "000733.SZ", "2026-05-23", "# cached report")
+        save_daily_report(self.engine, "000001.SZ", "2026-05-22", "# cached report")
+
+        statuses = get_report_statuses(self.engine, ["000733.SZ", "000001.SZ"])
+
+        self.assertEqual(statuses["000733.SZ"]["status"], "ready")
+        self.assertEqual(statuses["000733.SZ"]["latest_ready_trade_date"], "2026-05-23")
+        self.assertEqual(statuses["000001.SZ"]["latest_ready_trade_date"], "2026-05-22")
+        self.assertNotIn("report_md", statuses["000733.SZ"])
 
     def test_ready_reports_missing_llm_section_are_recomputed(self):
         self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
@@ -145,7 +174,9 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
             "\u632f\u534e\u79d1\u6280",
             engine=self.engine,
             asof_trade_date="2026-05-23",
-            allow_live_fetch=True,
+            allow_live_fetch=False,
+            use_report_cache=False,
+            save_report=False,
         )
 
     def test_background_refresh_generates_report_and_marks_ready(self):
@@ -169,7 +200,9 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
             "\u632f\u534e\u79d1\u6280",
             engine=self.engine,
             asof_trade_date="2026-05-23",
-            allow_live_fetch=True,
+            allow_live_fetch=False,
+            use_report_cache=False,
+            save_report=False,
         )
 
     def test_refresh_skips_when_global_lock_is_held(self):

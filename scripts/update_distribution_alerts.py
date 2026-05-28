@@ -3,7 +3,7 @@
 """
 自选股主力出货预警自动更新脚本
 该脚本会扫描 app_user_watchlist 中的所有股票，
-利用 mootdx 获取行情并分析是否有出货迹象，并将结果写入数据库预警表。
+基于数据库日线缓存和深度报告同一套日线信号口径分析是否有出货迹象，并将结果写入数据库预警表。
 """
 from __future__ import annotations
 
@@ -11,10 +11,6 @@ import os
 import sys
 import time
 import warnings
-from datetime import datetime
-
-import pandas as pd
-import numpy as np
 
 warnings.filterwarnings("ignore")
 
@@ -66,107 +62,31 @@ def inject_env_from_secrets():
 inject_env_from_secrets()
 
 from src.distribution_alert_store import upsert_alerts, get_engine
-from sqlalchemy import text
+from src.distribution_analyzer import (
+    analyze_daily_kline,
+    build_distribution_alert_payload,
+    fetch_daily_kline,
+)
+from src.watchlist_distribution_refresh import get_latest_source_trade_date, load_watchlist_stock_symbols
 
 
-# ============================================================================
-# Mootdx 分析逻辑 (简化版)
-# ============================================================================
-
-def create_client():
-    from mootdx.quotes import Quotes
-    return Quotes.factory(market='std', timeout=10, heartbeat=True, auto_retry=True)
-
-def analyze_daily_kline(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return pd.DataFrame()
-    df = df.copy()
-    for col in ["open", "close", "high", "low", "vol", "amount"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    df["pct_change"] = df["close"].pct_change() * 100
-    df["vol_ma5"] = df["vol"].rolling(5).mean()
-    df["vol_ratio"] = df["vol"] / df["vol_ma5"]
-    
-    total_range = df["high"] - df["low"]
-    upper_shadow = df["high"] - df[["open", "close"]].max(axis=1)
-    df["upper_shadow_ratio"] = np.where(total_range > 0, upper_shadow / total_range, 0)
-    
-    df["rolling_high_20"] = df["high"].rolling(20).max()
-    df["near_high"] = df["high"] >= df["rolling_high_20"] * 0.97
-    return df
-
-def find_signals(df: pd.DataFrame) -> list[str]:
-    signals = []
-    if df.empty or len(df) < 5:
-        return signals
-        
-    last_row = df.iloc[-1]
-    
-    # 放量下跌
-    if last_row["vol_ratio"] > 1.5 and last_row["pct_change"] < -2.0:
-        signals.append(f"放量下跌(量比{last_row['vol_ratio']:.1f}, 跌{last_row['pct_change']:.1f}%)")
-        
-    # 放量滞涨
-    if last_row["vol_ratio"] > 1.5 and abs(last_row["pct_change"]) < 1.0 and last_row.get("near_high", False):
-        signals.append(f"高位放量滞涨(量比{last_row['vol_ratio']:.1f})")
-        
-    # 天量天价
-    if last_row["vol"] >= df["vol"].tail(20).max() * 0.95 and last_row.get("near_high", False):
-        signals.append(f"天量天价")
-        
-    # 高位长上影
-    if last_row["upper_shadow_ratio"] > 0.5 and last_row.get("near_high", False):
-        signals.append(f"高位长上影")
-        
-    # 量价背离 (最近三天)
-    if len(df) >= 3:
-        if (df.iloc[-1]["pct_change"] > 0 and 
-            df.iloc[-2]["pct_change"] > 0 and 
-            df.iloc[-1]["vol"] < df.iloc[-2]["vol"] < df.iloc[-3]["vol"] and
-            last_row.get("near_high", False)):
-            signals.append("顶部量价背离")
-            
-    return signals
-
-def fetch_and_analyze(ts_code: str, client) -> dict:
+def fetch_and_analyze(ts_code: str, engine) -> dict:
     """分析单只股票并返回预警信息"""
-    symbol = ts_code.split('.')[0]
-    
-    try:
-        kline = client.bars(symbol=symbol, frequency=9, offset=60)
-    except Exception as e:
-        print(f"[{ts_code}] 获取K线失败: {e}")
+    latest_trade_date = get_latest_source_trade_date(engine, ts_code)
+    if not latest_trade_date:
         return {}
-        
+
+    kline = fetch_daily_kline(
+        ts_code,
+        engine=engine,
+        allow_live_fetch=False,
+        end_date=latest_trade_date,
+    )
     if kline is None or kline.empty:
         return {}
-        
+
     analyzed = analyze_daily_kline(kline)
-    signals = find_signals(analyzed)
-    
-    # 只取最后一天的数据
-    last_row = analyzed.iloc[-1]
-    trade_date = str(last_row.name).split()[0] if hasattr(last_row, 'name') else datetime.now().strftime("%Y-%m-%d")
-    
-    # 判断预警级别
-    alert_level = "NONE"
-    if len(signals) >= 2 or any("放量下跌" in s or "量价背离" in s for s in signals):
-        alert_level = "HIGH"
-    elif len(signals) == 1:
-        alert_level = "MEDIUM"
-        
-    return {
-        "ts_code": ts_code,
-        "trade_date": trade_date,
-        "alert_level": alert_level,
-        "alert_details": {
-            "signals": signals,
-            "close": float(last_row["close"]),
-            "pct_change": float(last_row["pct_change"]),
-            "vol_ratio": float(last_row["vol_ratio"])
-        }
-    }
+    return build_distribution_alert_payload(ts_code, analyzed, report_trade_date=latest_trade_date) or {}
 
 
 def main():
@@ -176,12 +96,8 @@ def main():
     
     engine = get_engine()
     
-    # 1. 获取所有用户的自选股 (去重)
-    sql = "SELECT DISTINCT ts_code FROM app_user_watchlist WHERE security_type = 'stock'"
     try:
-        with engine.connect() as conn:
-            df_stocks = pd.read_sql(text(sql), conn)
-            ts_codes = df_stocks['ts_code'].tolist()
+        ts_codes = load_watchlist_stock_symbols(engine)
     except Exception as e:
         print(f"获取自选股失败: {e}")
         return
@@ -192,31 +108,23 @@ def main():
         
     print(f"共发现 {len(ts_codes)} 只自选股需要分析。")
     
-    client = create_client()
     alerts_to_upsert = []
-    
-    try:
-        for idx, ts_code in enumerate(ts_codes, 1):
-            print(f"[{idx}/{len(ts_codes)}] 分析 {ts_code} ...", end="", flush=True)
-            alert = fetch_and_analyze(ts_code, client)
-            
-            if not alert:
-                print(" 跳过 (无数据)")
-                continue
-                
-            if alert["alert_level"] != "NONE":
-                print(f" ⚠️ 发现信号: {alert['alert_level']} - {', '.join(alert['alert_details']['signals'])}")
-            else:
-                print(" ✅ 正常")
-                
-            alerts_to_upsert.append(alert)
-            time.sleep(0.2)  # 防止请求过快
-            
-    finally:
-        try:
-            client.close()
-        except:
-            pass
+
+    for idx, ts_code in enumerate(ts_codes, 1):
+        print(f"[{idx}/{len(ts_codes)}] 分析 {ts_code} ...", end="", flush=True)
+        alert = fetch_and_analyze(ts_code, engine)
+
+        if not alert:
+            print(" 跳过 (无数据)")
+            continue
+
+        if alert["alert_level"] != "NONE":
+            print(f" ⚠️ 发现信号: {alert['alert_level']} - {', '.join(alert['alert_details']['signals'])}")
+        else:
+            print(" ✅ 正常")
+
+        alerts_to_upsert.append(alert)
+        time.sleep(0.05)
             
     # 写入数据库
     if alerts_to_upsert:

@@ -4,7 +4,7 @@ import io
 import logging
 from datetime import datetime, timedelta, timezone
 import pandas as pd
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import bindparam, create_engine, inspect, text
 from sqlalchemy.engine import Engine
 
 from src.sync_tushare_security_data import build_db_url
@@ -109,6 +109,10 @@ def _normalize_trade_date(trade_date: str | None) -> str:
 def _compact_trade_date(trade_date: str | None) -> str:
     normalized = _normalize_trade_date(trade_date)
     return normalized.replace("-", "") if normalized else ""
+
+
+def _normalize_ts_code(ts_code: str | None) -> str:
+    return str(ts_code or "").strip().upper()
 
 
 def _utc_iso(value: datetime | None = None) -> str:
@@ -239,9 +243,48 @@ def get_latest_report_record(engine: Engine, ts_code: str) -> dict | None:
         return None
 
 
+def _build_status_from_latest_report(ts_code: str, latest_report: dict | None) -> dict | None:
+    if not latest_report:
+        return None
+    ready_trade_date = _normalize_trade_date(latest_report.get("trade_date"))
+    return {
+        "ts_code": ts_code,
+        "status": "ready",
+        "target_trade_date": ready_trade_date,
+        "latest_ready_trade_date": ready_trade_date,
+        "latest_report_generated_at": latest_report.get("created_at"),
+        "last_attempt_at": latest_report.get("created_at"),
+        "last_success_at": latest_report.get("created_at"),
+        "duration_ms": None,
+        "error_message": None,
+        "updated_at": latest_report.get("created_at"),
+    }
+
+
+def _hydrate_status_with_latest_report(
+    ts_code: str,
+    status_row: dict | None,
+    latest_report: dict | None,
+) -> dict | None:
+    if not status_row:
+        return _build_status_from_latest_report(ts_code, latest_report)
+
+    status = dict(status_row)
+    ready_trade_date = _normalize_trade_date(status.get("latest_ready_trade_date"))
+    if not ready_trade_date and latest_report:
+        ready_trade_date = _normalize_trade_date(latest_report.get("trade_date"))
+        status["latest_ready_trade_date"] = ready_trade_date
+        status["latest_report_generated_at"] = latest_report.get("created_at")
+        status["last_success_at"] = latest_report.get("created_at")
+        status["target_trade_date"] = status.get("target_trade_date") or ready_trade_date
+        status["status"] = status.get("status") or "ready"
+    return status
+
+
 def get_report_status(engine: Engine, ts_code: str) -> dict | None:
     try:
         ensure_tables(engine)
+        ts_code_key = _normalize_ts_code(ts_code)
         sql = text(
             f"""
             SELECT
@@ -260,41 +303,73 @@ def get_report_status(engine: Engine, ts_code: str) -> dict | None:
             """
         )
         with engine.connect() as conn:
-            row = conn.execute(sql, {"ts": ts_code}).mappings().first()
-        if row:
-            status_row = dict(row)
-            ready_trade_date = _normalize_trade_date(status_row.get("latest_ready_trade_date"))
-            if not ready_trade_date:
-                latest_report = get_latest_report_record(engine, ts_code)
-                if latest_report:
-                    ready_trade_date = _normalize_trade_date(latest_report.get("trade_date"))
-                    status_row.setdefault("status", "ready")
-                    status_row["latest_ready_trade_date"] = ready_trade_date
-                    status_row["latest_report_generated_at"] = latest_report.get("created_at")
-                    status_row["last_success_at"] = latest_report.get("created_at")
-                    status_row["target_trade_date"] = status_row.get("target_trade_date") or ready_trade_date
-            return status_row
-
-        latest_report = get_latest_report_record(engine, ts_code)
-        if not latest_report:
-            return None
-
-        ready_trade_date = _normalize_trade_date(latest_report.get("trade_date"))
-        return {
-            "ts_code": ts_code,
-            "status": "ready",
-            "target_trade_date": ready_trade_date,
-            "latest_ready_trade_date": ready_trade_date,
-            "latest_report_generated_at": latest_report.get("created_at"),
-            "last_attempt_at": latest_report.get("created_at"),
-            "last_success_at": latest_report.get("created_at"),
-            "duration_ms": None,
-            "error_message": None,
-            "updated_at": latest_report.get("created_at"),
-        }
+            row = conn.execute(sql, {"ts": ts_code_key}).mappings().first()
+        latest_report = None if row and _normalize_trade_date(row.get("latest_ready_trade_date")) else get_latest_report_record(engine, ts_code_key)
+        return _hydrate_status_with_latest_report(ts_code_key, dict(row) if row else None, latest_report)
     except Exception as exc:
         logger.error(f"Failed to fetch report status for {ts_code}: {exc}")
         return None
+
+
+def get_report_statuses(engine: Engine, ts_codes: list[str] | tuple[str, ...]) -> dict[str, dict]:
+    normalized_codes = sorted({_normalize_ts_code(code) for code in ts_codes if _normalize_ts_code(code)})
+    if not normalized_codes:
+        return {}
+
+    try:
+        ensure_tables(engine)
+        status_sql = text(
+            f"""
+            SELECT
+                ts_code,
+                status,
+                target_trade_date,
+                latest_ready_trade_date,
+                latest_report_generated_at,
+                last_attempt_at,
+                last_success_at,
+                duration_ms,
+                error_message,
+                updated_at
+            FROM {REPORT_STATUS_TABLE}
+            WHERE ts_code IN :ts_codes
+            """
+        ).bindparams(bindparam("ts_codes", expanding=True))
+        latest_report_sql = text(
+            f"""
+            SELECT ts_code, trade_date, created_at
+            FROM (
+                SELECT
+                    ts_code,
+                    trade_date,
+                    created_at,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY ts_code
+                        ORDER BY trade_date DESC, created_at DESC
+                    ) AS row_number
+                FROM {REPORT_TABLE}
+                WHERE ts_code IN :ts_codes
+            ) ranked_reports
+            WHERE row_number = 1
+            """
+        ).bindparams(bindparam("ts_codes", expanding=True))
+
+        with engine.connect() as conn:
+            status_rows = conn.execute(status_sql, {"ts_codes": normalized_codes}).mappings().all()
+            latest_report_rows = conn.execute(latest_report_sql, {"ts_codes": normalized_codes}).mappings().all()
+
+        statuses = {str(row.get("ts_code") or "").upper(): dict(row) for row in status_rows}
+        latest_reports = {str(row.get("ts_code") or "").upper(): dict(row) for row in latest_report_rows}
+
+        hydrated: dict[str, dict] = {}
+        for ts_code in normalized_codes:
+            status = _hydrate_status_with_latest_report(ts_code, statuses.get(ts_code), latest_reports.get(ts_code))
+            if status:
+                hydrated[ts_code] = status
+        return hydrated
+    except Exception as exc:
+        logger.error("Failed to fetch report statuses: %s", exc)
+        return {}
 
 
 def upsert_report_status(engine: Engine, ts_code: str, **fields) -> None:

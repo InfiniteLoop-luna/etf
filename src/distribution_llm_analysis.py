@@ -17,11 +17,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SECRETS_PATH = PROJECT_ROOT / ".streamlit" / "secrets.toml"
 ENV_PATH = PROJECT_ROOT / ".env"
 LLM_SECTION_MARKER = "## 🧠 大模型二次综合分析"
+LLM_SCHEMA_VERSION = "professional-v2"
 DEFAULT_DISTRIBUTION_LLM_BASE_URL = "https://api.deepseek.com"
 DEFAULT_DISTRIBUTION_LLM_MODEL = "deepseek-v4-flash"
 DEFAULT_DISTRIBUTION_LLM_TIMEOUT_SECONDS = 60
 DEFAULT_DISTRIBUTION_LLM_TEMPERATURE = 0.2
-DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS = 1200
+DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS = 1600
+ALLOWED_DISTRIBUTION_VERDICTS = {"强出货", "疑似出货", "中性", "偏洗盘"}
+ALLOWED_DISTRIBUTION_RISK_LEVELS = {"高", "中", "低"}
+LIST_FIELD_LIMITS = {
+    "evidence_for": 4,
+    "evidence_against": 4,
+    "key_levels": 4,
+    "scenario_analysis": 3,
+    "watch_items": 4,
+    "action_suggestion": 4,
+}
 
 
 @dataclass
@@ -164,7 +175,8 @@ def load_distribution_llm_config() -> DistributionLLMConfig:
 
 def should_require_llm_refresh(cached_report: str | None, config: DistributionLLMConfig | None = None) -> bool:
     _ = config or load_distribution_llm_config()
-    return not cached_report or LLM_SECTION_MARKER not in str(cached_report)
+    report_text = str(cached_report or "")
+    return not report_text or LLM_SECTION_MARKER not in report_text or LLM_SCHEMA_VERSION not in report_text
 
 
 def _strip_json_fence(text: str) -> str:
@@ -267,6 +279,68 @@ def make_json_safe(value: Any) -> Any:
     return str(value)
 
 
+def _coerce_text(value: Any, max_length: int = 280) -> str:
+    text = str(value or "").strip()
+    if len(text) > max_length:
+        return text[: max_length - 1].rstrip() + "..."
+    return text
+
+
+def _coerce_text_list(value: Any, limit: int = 4, max_length: int = 180) -> list[str]:
+    if value is None:
+        return []
+    raw_items = value if isinstance(value, list) else [value]
+    items: list[str] = []
+    for item in raw_items:
+        text = _coerce_text(item, max_length=max_length)
+        if text:
+            items.append(text)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _clamp_confidence(value: Any) -> int:
+    try:
+        confidence = int(round(float(value)))
+    except Exception:
+        return 50
+    return max(0, min(100, confidence))
+
+
+def _risk_level_from_verdict(verdict: str) -> str:
+    if verdict == "强出货":
+        return "高"
+    if verdict == "疑似出货":
+        return "中"
+    return "低"
+
+
+def normalize_distribution_llm_result(result: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(result, dict) or not result:
+        return None
+
+    verdict = _coerce_text(result.get("verdict"), max_length=20)
+    if verdict not in ALLOWED_DISTRIBUTION_VERDICTS:
+        verdict = "中性"
+
+    risk_level = _coerce_text(result.get("risk_level"), max_length=10)
+    if risk_level not in ALLOWED_DISTRIBUTION_RISK_LEVELS:
+        risk_level = _risk_level_from_verdict(verdict)
+
+    normalized: dict[str, Any] = {
+        "verdict": verdict,
+        "risk_level": risk_level,
+        "confidence": _clamp_confidence(result.get("confidence")),
+        "summary": _coerce_text(result.get("summary"), max_length=360),
+        "professional_view": _coerce_text(result.get("professional_view"), max_length=500),
+        "data_quality_note": _coerce_text(result.get("data_quality_note"), max_length=280),
+    }
+    for field_name, limit in LIST_FIELD_LIMITS.items():
+        normalized[field_name] = _coerce_text_list(result.get(field_name), limit=limit)
+    return normalized
+
+
 def analyze_distribution_payload(payload: dict[str, Any], config: DistributionLLMConfig | None = None) -> dict[str, Any] | None:
     resolved = config or load_distribution_llm_config()
     if not resolved.configured:
@@ -274,22 +348,32 @@ def analyze_distribution_payload(payload: dict[str, Any], config: DistributionLL
 
     url = resolved.base_url.rstrip("/") + "/chat/completions"
     system_prompt = (
-        "你是一个严格基于结构化行情证据做判断的A股主力行为分析助手。"
-        "不要编造数据，不要重复输入中的数字太多。"
+        "你是一个专业、审慎、偏风控视角的A股主力行为研究员。"
+        "你只能基于用户提供的结构化行情证据做判断，不能编造成交、价格、日期、资金或盘口数据。"
+        "请区分已确认的量价证据、反证与数据缺口；tick/minute 缺失时必须降低置信度并说明原因。"
+        "不要给出绝对买卖指令，不要承诺收益，只能给风险监控和后续观察建议。"
         "输出必须是 JSON 对象，字段固定为："
-        "verdict, confidence, summary, evidence_for, evidence_against, watch_items。"
+        "verdict, risk_level, confidence, summary, professional_view, "
+        "evidence_for, evidence_against, key_levels, scenario_analysis, watch_items, "
+        "action_suggestion, data_quality_note。"
         "其中 verdict 只能取：强出货、疑似出货、中性、偏洗盘。"
-        "confidence 为 0-100 的整数。evidence_for / evidence_against / watch_items 都是 1-4 条字符串数组。"
+        "risk_level 只能取：高、中、低。confidence 为 0-100 的整数。"
+        "evidence_for/evidence_against/key_levels/watch_items/action_suggestion 每项 1-4 条，"
+        "scenario_analysis 每项 1-3 条，所有数组元素必须是短句。"
     )
     base_user_prompt = (
-        "请基于下面这份结构化 payload 做二次综合分析。"
-        "如果 tick/minute 缺失，要明确降低置信度。"
+        "请基于下面这份结构化 payload 做二次综合分析，输出要像专业研究员给交易员/风控看的结论："
+        "先判断是否存在主力出货风险，再解释为什么；"
+        "请引用 payload 中已有的信号名称、关键日期、阶段跌幅、分时/分笔覆盖情况，"
+        "并给出后续 1-5 个交易日应观察的价量条件。"
         "只输出 JSON，不要输出 markdown。\n\n"
         + json.dumps(make_json_safe(payload), ensure_ascii=False)
     )
     retry_user_prompt = (
         "请严格只返回单个 JSON 对象，不要输出解释、前缀、后缀、markdown、代码块。"
-        "字段只允许 verdict, confidence, summary, evidence_for, evidence_against, watch_items。\n\n"
+        "字段只允许 verdict, risk_level, confidence, summary, professional_view, "
+        "evidence_for, evidence_against, key_levels, scenario_analysis, watch_items, "
+        "action_suggestion, data_quality_note。\n\n"
         + json.dumps(make_json_safe(payload), ensure_ascii=False)
     )
     headers = {
@@ -323,8 +407,11 @@ def analyze_distribution_payload(payload: dict[str, Any], config: DistributionLL
             if not isinstance(parsed, dict):
                 logger.warning("Distribution LLM returned non-JSON object content")
                 continue
-            parsed["model"] = resolved.model
-            return parsed
+            normalized = normalize_distribution_llm_result(parsed)
+            if not normalized:
+                continue
+            normalized["model"] = resolved.model
+            return normalized
         except Exception as exc:
             logger.warning("Distribution LLM analysis failed: %s", exc)
             if attempt_index >= 2:
@@ -333,31 +420,42 @@ def analyze_distribution_payload(payload: dict[str, Any], config: DistributionLL
 
 
 def render_distribution_llm_markdown(result: dict[str, Any] | None) -> list[str]:
-    if not isinstance(result, dict) or not result:
+    normalized = normalize_distribution_llm_result(result)
+    if not normalized:
         return []
-    verdict = str(result.get("verdict") or "-").strip() or "-"
-    summary = str(result.get("summary") or "").strip()
-    confidence = result.get("confidence")
-    try:
-        confidence_text = f"{int(confidence)}"
-    except Exception:
-        confidence_text = "-"
+
+    verdict = normalized["verdict"]
+    risk_level = normalized["risk_level"]
+    confidence_text = f"{normalized['confidence']}"
+    summary = normalized.get("summary") or ""
+    professional_view = normalized.get("professional_view") or ""
+    data_quality_note = normalized.get("data_quality_note") or ""
 
     lines = ["", "---", LLM_SECTION_MARKER, ""]
     lines.append(f"- **综合判断**：{verdict}")
+    lines.append(f"- **风险等级**：{risk_level}")
     lines.append(f"- **置信度**：{confidence_text}/100")
+    lines.append(f"- **分析版本**：{LLM_SCHEMA_VERSION}")
     if summary:
         lines.extend(["", f"> {summary}"])
+    if professional_view:
+        lines.extend(["", "### 专业解读", professional_view])
 
     for title, key in [
-        ("支持证据", "evidence_for"),
+        ("核心支持证据", "evidence_for"),
         ("反证与不确定点", "evidence_against"),
+        ("关键价量观察位", "key_levels"),
+        ("情景推演", "scenario_analysis"),
         ("后续观察点", "watch_items"),
+        ("风控与操作提示", "action_suggestion"),
     ]:
-        items = [str(item).strip() for item in (result.get(key) or []) if str(item).strip()]
+        items = normalized.get(key) or []
         if not items:
             continue
         lines.extend(["", f"### {title}"])
-        for item in items[:4]:
+        for item in items:
             lines.append(f"- {item}")
+    if data_quality_note:
+        lines.extend(["", "### 数据质量说明", f"- {data_quality_note}"])
+    lines.extend(["", "> 以上为基于已缓存行情证据的风险分析，不构成确定性交易指令。"])
     return lines

@@ -11,10 +11,13 @@ import pandas as pd
 
 from src.distribution_llm_analysis import (
     LLM_SECTION_MARKER,
+    LLM_SCHEMA_VERSION,
     analyze_distribution_payload,
     make_json_safe,
     load_distribution_llm_config,
+    normalize_distribution_llm_result,
     parse_llm_json_object,
+    render_distribution_llm_markdown,
 )
 
 
@@ -106,11 +109,12 @@ class DistributionLLMAnalysisTests(unittest.TestCase):
         self.assertEqual(cfg.api_key, '')
         self.assertFalse(cfg.configured)
 
-    def test_should_require_llm_refresh_only_checks_marker_presence(self):
+    def test_should_require_llm_refresh_requires_current_professional_schema_marker(self):
         from src.distribution_llm_analysis import should_require_llm_refresh
 
         self.assertTrue(should_require_llm_refresh('# cached report'))
-        self.assertFalse(should_require_llm_refresh('# cached report\n\n' + LLM_SECTION_MARKER))
+        self.assertTrue(should_require_llm_refresh('# cached report\n\n' + LLM_SECTION_MARKER))
+        self.assertFalse(should_require_llm_refresh('# cached report\n\n' + LLM_SECTION_MARKER + '\n' + LLM_SCHEMA_VERSION))
 
     def test_parse_llm_json_object_accepts_fenced_json(self):
         content = '```json\n{"verdict":"疑似出货","confidence":75}\n```'
@@ -123,6 +127,51 @@ class DistributionLLMAnalysisTests(unittest.TestCase):
         parsed = parse_llm_json_object(content)
         self.assertEqual(parsed['verdict'], '中性')
         self.assertEqual(parsed['confidence'], 55)
+
+    def test_normalize_distribution_llm_result_clamps_and_defaults_schema(self):
+        normalized = normalize_distribution_llm_result(
+            {
+                "verdict": "超级确定",
+                "risk_level": "极高",
+                "confidence": 180,
+                "summary": "偏离允许枚举时应兜底",
+                "evidence_for": ["A", "B", "C", "D", "E"],
+                "scenario_analysis": ["情景1", "情景2", "情景3", "情景4"],
+            }
+        )
+
+        self.assertEqual(normalized["verdict"], "中性")
+        self.assertEqual(normalized["risk_level"], "低")
+        self.assertEqual(normalized["confidence"], 100)
+        self.assertEqual(normalized["evidence_for"], ["A", "B", "C", "D"])
+        self.assertEqual(normalized["scenario_analysis"], ["情景1", "情景2", "情景3"])
+
+    def test_render_distribution_llm_markdown_outputs_professional_sections(self):
+        lines = render_distribution_llm_markdown(
+            {
+                "verdict": "疑似出货",
+                "risk_level": "中",
+                "confidence": 72,
+                "summary": "高位信号增多，但反证仍在。",
+                "professional_view": "短线需要观察放量下跌后的承接力度。",
+                "evidence_for": ["放量下跌后未能快速修复"],
+                "evidence_against": ["分笔数据缺失降低确认度"],
+                "key_levels": ["若跌破 MA20 后不能收回，风险升高"],
+                "scenario_analysis": ["放量跌破支撑则偏强出货"],
+                "watch_items": ["后续 1-3 日成交量是否继续放大"],
+                "action_suggestion": ["控制单票暴露，等待确认信号"],
+                "data_quality_note": "tick/minute 覆盖不足。",
+            }
+        )
+        markdown = "\n".join(lines)
+
+        self.assertIn(LLM_SECTION_MARKER, markdown)
+        self.assertIn("风险等级", markdown)
+        self.assertIn(LLM_SCHEMA_VERSION, markdown)
+        self.assertIn("专业解读", markdown)
+        self.assertIn("关键价量观察位", markdown)
+        self.assertIn("风控与操作提示", markdown)
+        self.assertIn("不构成确定性交易指令", markdown)
 
     @patch('src.distribution_llm_analysis.requests.post')
     def test_analyze_distribution_payload_retries_once_on_non_json_then_succeeds(self, mock_post):

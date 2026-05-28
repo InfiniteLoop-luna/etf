@@ -9,7 +9,7 @@ import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from src.distribution_analyzer import generate_detailed_report
+from src.distribution_analyzer import generate_detailed_report_markdown
 from src.distribution_llm_analysis import should_require_llm_refresh
 from src.distribution_report_store import (
     ensure_tables,
@@ -95,7 +95,7 @@ def refresh_watchlist_distribution_reports(
     username: str | None = None,
 ) -> dict[str, int]:
     ensure_tables(engine)
-    report_generator = report_generator or generate_detailed_report
+    report_generator = report_generator or generate_detailed_report_markdown
     scope_username = str(username or "").strip() or None
     owner_id = f"watchlist-refresh-{uuid.uuid4().hex[:12]}"
     lock_name = WATCHLIST_REFRESH_LOCK_NAME if scope_username is None else f"{WATCHLIST_REFRESH_LOCK_NAME}:{scope_username}"
@@ -163,7 +163,9 @@ def refresh_watchlist_distribution_reports(
                     stock_name,
                     engine=engine,
                     asof_trade_date=latest_source_trade_date,
-                    allow_live_fetch=True,
+                    allow_live_fetch=False,
+                    use_report_cache=False,
+                    save_report=False,
                 )
                 save_daily_report(engine, ts_code, latest_source_trade_date, report_md)
                 duration_ms = int((time.time() - started_at) * 1000)
