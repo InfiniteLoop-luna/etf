@@ -22,7 +22,7 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import logging
 from typing import Optional, List, Union
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 from src.data_loader import load_etf_data
 from src.volume_fetcher import load_volume_dataframe
 from src.etf_classifier import fetch_etf_data, process_etf_classification, export_etfs_to_excel
@@ -945,6 +945,37 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
         radial-gradient(circle at 10% 0%, rgba(47, 123, 255, 0.26), transparent 28%),
         linear-gradient(180deg, #061128 0%, #020615 100%);
     box-shadow: 0 18px 48px rgba(4, 11, 30, 0.20), inset 0 0 28px rgba(47, 123, 255, 0.08);
+}
+.st-key-watchlist_card_grid div[data-testid="stButton"] > button {
+    width: 100%;
+    min-height: 124px;
+    padding: 0.5rem 0.56rem;
+    border-radius: 10px;
+    border: 1px solid rgba(70, 126, 255, 0.35);
+    background:
+        linear-gradient(180deg, rgba(5, 17, 39, 0.93), rgba(2, 9, 24, 0.96)),
+        radial-gradient(circle at 90% 0%, rgba(79, 172, 254, 0.18), transparent 36%);
+    box-shadow: inset 0 0 16px rgba(47, 123, 255, 0.10);
+    color: #f6fbff;
+    text-align: left;
+    justify-content: flex-start;
+    align-items: flex-start;
+    transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+.st-key-watchlist_card_grid div[data-testid="stButton"] > button:hover {
+    border-color: rgba(129, 185, 255, 0.85);
+    transform: translateY(-1px);
+    box-shadow: inset 0 0 18px rgba(79, 172, 254, 0.18), 0 8px 18px rgba(2, 8, 24, 0.24);
+}
+.st-key-watchlist_card_grid div[data-testid="stButton"] > button div[data-testid="stMarkdownContainer"] {
+    width: 100%;
+}
+.st-key-watchlist_card_grid div[data-testid="stButton"] > button div[data-testid="stMarkdownContainer"] p {
+    margin: 0;
+    white-space: pre-wrap;
+    line-height: 1.25;
+    font-size: 0.72rem;
+    font-weight: 700;
 }
 .ws-watchboard-stock-head,
 .ws-watchboard-stock-price-row,
@@ -8857,49 +8888,19 @@ def render_watchlist_cyber_dashboard(
         signal_text = _watchlist_html_text(stock_row.get("操作信号"))
         trend_status = _watchlist_html_text(stock_row.get("趋势状态"))
         risk_level = _watchlist_html_text(stock_row.get("风险等级"))
-        active_class = " is-active" if card_code == focus_code else ""
-        focus_query_params = {}
-        try:
-            for _query_key in st.query_params.keys():
-                _query_value = st.query_params.get(_query_key, "")
-                if isinstance(_query_value, list):
-                    focus_query_params[_query_key] = _query_value[0] if _query_value else ""
-                else:
-                    focus_query_params[_query_key] = _query_value
-        except Exception:
-            current_username = get_logged_in_username()
-            if current_username:
-                focus_query_params["app_user"] = current_username
-        focus_query_params["watch_focus"] = card_code
-        focus_query_params["watch_detail"] = "1"
-        focus_href = f"?{urlencode(focus_query_params)}#watchlist-detail-card"
-        card_html = f"""
-        <a class="ws-watchboard-stock-link" href="{focus_href}">
-            <div class="ws-watchboard-stock-card{active_class}" style="--accent:{accent_color};">
-                <div class="ws-watchboard-stock-head">
-                    <span class="ws-watchboard-stock-name">{_watchlist_html_text(card_name)}</span>
-                    <span class="ws-watchboard-stock-code">{_watchlist_html_text(card_code)}</span>
-                </div>
-                <div class="ws-watchboard-stock-price-row">
-                    <span class="ws-watchboard-stock-price">{price_text}</span>
-                    <span class="ws-watchboard-stock-ret {tone_class}">{arrow} {ret_text}</span>
-                </div>
-                <div class="ws-watchboard-stock-metrics">
-                    <div class="ws-watchboard-stock-metric"><label>5日</label><strong>{ret_5d_text}</strong></div>
-                    <div class="ws-watchboard-stock-metric"><label>20日</label><strong>{ret_20d_text}</strong></div>
-                    <div class="ws-watchboard-stock-metric"><label>量比</label><strong>{volume_ratio_text}</strong></div>
-                </div>
-                <div class="ws-watchboard-stock-score" style="--score:{trend_score}%;"><span></span></div>
-                <div class="ws-watchboard-stock-foot">
-                    <span>{trend_score}分 · {trend_status}</span>
-                    <span class="ws-watchboard-stock-signal">{signal_text} · {risk_level}</span>
-                </div>
-            </div>
-        </a>
-        """
+        ret_symbol = "📈" if (ret_1d or 0) >= 0 else "📉"
+        card_text = (
+            f"{card_name}\n"
+            f"{card_code}\n"
+            f"现价 {price_text}   {ret_symbol} {ret_text}\n"
+            f"5日 {ret_5d_text}   20日 {ret_20d_text}   量比 {volume_ratio_text}\n"
+            f"{trend_score}分 · {trend_status}\n"
+            f"{signal_text} · {risk_level}"
+        )
         stock_card_items.append(
             {
-                "card_html": card_html,
+                "code": card_code,
+                "button_label": card_text,
             }
         )
 
@@ -8929,7 +8930,14 @@ def render_watchlist_cyber_dashboard(
             cols = st.columns(columns_per_row)
             for offset, item in enumerate(stock_card_items[start_idx : start_idx + columns_per_row]):
                 with cols[offset]:
-                    st.html(item["card_html"])
+                    if st.button(
+                        item["button_label"],
+                        key=f"watchlist_card_btn_{item['code'].replace('.', '_')}",
+                        use_container_width=True,
+                    ):
+                        st.session_state["watchlist_pending_focus_code"] = item["code"]
+                        st.session_state["watchlist_show_focus_detail"] = True
+                        st.rerun()
 
 
 def preload_watchlist_reports_bg(username: str, engine) -> None:
