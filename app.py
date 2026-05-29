@@ -983,9 +983,10 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 }
 .ws-watchboard-stock-name {
     min-width: 0;
-    color: var(--wb-text);
+    color: #f6fbff;
     font-size: 0.82rem;
-    font-weight: 800;
+    font-weight: 900;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.68), 0 0 10px rgba(118, 198, 255, 0.24);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -8633,28 +8634,6 @@ def render_watchlist_focus_detail_card(
         is_up=(ret_1d is None or ret_1d >= 0),
     )
 
-    mini_cards = []
-    focus_code = str(focus_row.get("代码") or "").strip().upper()
-    for _, mini_row in display_df.head(4).iterrows():
-        mini_code_raw = str(mini_row.get("代码") or "").strip().upper()
-        mini_tone, mini_arrow, _ = _watchlist_signal_tone(mini_row.get("涨跌幅(%)"))
-        active_class = " is-active" if mini_code_raw == focus_code else ""
-        mini_cards.append(
-            f"""
-            <div class="ws-watchboard-panel ws-watchboard-mini{active_class}">
-                <div class="ws-watchboard-mini-top">
-                    <span class="ws-watchboard-mini-name">{_watchlist_html_text(mini_row.get("名称") or mini_code_raw)}</span>
-                    <span class="ws-watchboard-mini-code">{_watchlist_html_text(mini_code_raw)}</span>
-                </div>
-                <div class="ws-watchboard-mini-bottom">
-                    <span class="ws-watchboard-mini-price">{_watchlist_value_text(mini_row.get("最新价"), digits=2)}</span>
-                    <span class="ws-watchboard-mini-delta {mini_tone}">{mini_arrow} {_watchlist_value_text(mini_row.get("涨跌幅(%)"), digits=2, suffix="%", signed=True)}</span>
-                </div>
-                <div class="ws-watchboard-mini-score">趋势 {_watchlist_value_text(mini_row.get("趋势得分"), digits=0)} · {_watchlist_html_text(mini_row.get("操作信号"))}</div>
-            </div>
-            """
-        )
-
     board_html = f"""
     <div id="watchlist-detail-card" class="ws-watchboard-shell is-detail">
         <div class="ws-watchboard-topbar">
@@ -8719,9 +8698,6 @@ def render_watchlist_focus_detail_card(
                     <p>当前信号：<span style="color:{accent_color};font-weight:800;">{signal_text}</span></p>
                 </div>
             </div>
-        </div>
-        <div class="ws-watchboard-strip">
-            {''.join(mini_cards)}
         </div>
     </div>
     """
