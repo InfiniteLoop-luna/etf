@@ -808,6 +808,258 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     color: #98b5ed;
     font-size: 0.82rem;
 }
+.ws-watchboard-shell.is-compact {
+    padding: 0.52rem;
+    margin-top: 0.28rem;
+}
+.ws-watchboard-shell.is-compact::before {
+    background-size: 38px 38px;
+}
+.ws-watchboard-compact-topbar {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.48rem;
+    align-items: center;
+    margin-bottom: 0.42rem;
+}
+.ws-watchboard-compact-title {
+    min-width: 0;
+}
+.ws-watchboard-compact-title strong {
+    display: block;
+    color: var(--wb-text);
+    font-size: clamp(0.95rem, 1.5vw, 1.16rem);
+    line-height: 1.1;
+}
+.ws-watchboard-compact-title span {
+    display: block;
+    color: var(--wb-muted);
+    font-size: 0.72rem;
+    margin-top: 0.12rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ws-watchboard-compact-meta {
+    min-height: 30px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.42rem;
+    padding: 0.34rem 0.52rem;
+    border-radius: 8px;
+    border: 1px solid var(--wb-line-soft);
+    background: rgba(3, 13, 33, 0.78);
+    color: #c9dcff;
+    font-size: 0.76rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.ws-watchboard-summary-row {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.34rem;
+    margin-bottom: 0.4rem;
+}
+.ws-watchboard-summary-pill {
+    min-width: 0;
+    padding: 0.36rem 0.44rem;
+    border: 1px solid rgba(70, 126, 255, 0.22);
+    border-radius: 8px;
+    background: rgba(2, 9, 24, 0.52);
+}
+.ws-watchboard-summary-pill label {
+    display: block;
+    color: var(--wb-muted);
+    font-size: 0.64rem;
+    line-height: 1.1;
+}
+.ws-watchboard-summary-pill strong {
+    display: block;
+    margin-top: 0.1rem;
+    color: var(--wb-text);
+    font-size: 0.84rem;
+    line-height: 1.18;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ws-watchboard-all-grid {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
+    gap: 0.34rem;
+}
+.ws-watchboard-stock-link {
+    display: block;
+    min-width: 0;
+    color: inherit;
+    text-decoration: none;
+}
+.ws-watchboard-stock-link:focus-visible {
+    outline: 2px solid var(--wb-cyan);
+    outline-offset: 2px;
+    border-radius: 8px;
+}
+.ws-watchboard-stock-card {
+    min-height: 104px;
+    height: 100%;
+    padding: 0.42rem 0.46rem;
+    border: 1px solid rgba(70, 126, 255, 0.35);
+    border-radius: 8px;
+    background:
+        linear-gradient(180deg, rgba(5, 17, 39, 0.93), rgba(2, 9, 24, 0.96)),
+        radial-gradient(circle at 90% 0%, color-mix(in srgb, var(--accent), transparent 70%), transparent 36%);
+    box-shadow: inset 0 0 16px rgba(47, 123, 255, 0.10);
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+.ws-watchboard-stock-link:hover .ws-watchboard-stock-card {
+    border-color: color-mix(in srgb, var(--accent), white 22%);
+    transform: translateY(-1px);
+    box-shadow: inset 0 0 18px color-mix(in srgb, var(--accent), transparent 76%), 0 8px 18px rgba(2, 8, 24, 0.24);
+}
+.ws-watchboard-stock-card.is-active {
+    border-color: color-mix(in srgb, var(--accent), white 12%);
+    box-shadow: inset 0 0 20px color-mix(in srgb, var(--accent), transparent 74%), 0 0 0 1px rgba(255,255,255,0.03);
+}
+#watchlist-detail-card {
+    scroll-margin-top: 16px;
+}
+.ws-watchboard-shell.is-detail {
+    margin-top: 0.75rem;
+}
+.st-key-watchlist_card_grid {
+    margin-top: 0.34rem;
+    padding: 0.52rem;
+    border: 1px solid rgba(70, 126, 255, 0.54);
+    border-radius: 8px;
+    background:
+        radial-gradient(circle at 10% 0%, rgba(47, 123, 255, 0.26), transparent 28%),
+        linear-gradient(180deg, #061128 0%, #020615 100%);
+    box-shadow: 0 18px 48px rgba(4, 11, 30, 0.20), inset 0 0 28px rgba(47, 123, 255, 0.08);
+}
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] {
+    position: relative;
+    min-height: 104px;
+}
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] div[data-testid="stButton"] {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    margin: 0;
+}
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] div[data-testid="stButton"] > button {
+    width: 100%;
+    height: 100%;
+    min-height: 104px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: transparent;
+    box-shadow: none;
+    opacity: 0;
+}
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] div[data-testid="stButton"] > button:hover,
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] div[data-testid="stButton"] > button:focus {
+    background: transparent;
+    border: 0;
+    color: transparent;
+    box-shadow: none;
+    opacity: 0;
+}
+.ws-watchboard-stock-head,
+.ws-watchboard-stock-price-row,
+.ws-watchboard-stock-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.28rem;
+    align-items: center;
+}
+.ws-watchboard-stock-name {
+    min-width: 0;
+    color: var(--wb-text);
+    font-size: 0.82rem;
+    font-weight: 800;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ws-watchboard-stock-code {
+    flex: 0 0 auto;
+    color: #8ea8d2;
+    font-size: 0.6rem;
+}
+.ws-watchboard-stock-price {
+    color: var(--accent);
+    font-size: clamp(1.04rem, 1.55vw, 1.34rem);
+    line-height: 1;
+    font-weight: 900;
+    letter-spacing: 0;
+    margin-top: 0.34rem;
+}
+.ws-watchboard-stock-ret {
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+.ws-watchboard-stock-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.2rem;
+    margin-top: 0.36rem;
+}
+.ws-watchboard-stock-metric {
+    min-width: 0;
+}
+.ws-watchboard-stock-metric label {
+    display: block;
+    color: var(--wb-muted);
+    font-size: 0.56rem;
+    line-height: 1;
+}
+.ws-watchboard-stock-metric strong {
+    display: block;
+    color: #edf5ff;
+    font-size: 0.66rem;
+    line-height: 1.15;
+    margin-top: 0.08rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ws-watchboard-stock-score {
+    margin-top: 0.34rem;
+    height: 4px;
+    border-radius: 999px;
+    background: #122954;
+    overflow: hidden;
+}
+.ws-watchboard-stock-score span {
+    display: block;
+    height: 100%;
+    width: var(--score);
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--accent), rgba(255,255,255,0.78));
+}
+.ws-watchboard-stock-foot {
+    margin-top: 0.28rem;
+    color: #9db8e6;
+    font-size: 0.6rem;
+    line-height: 1.1;
+}
+.ws-watchboard-stock-signal {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 @media (max-width: 1180px) {
     .ws-watchboard-hero,
     .ws-watchboard-main {
@@ -815,6 +1067,9 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     }
     .ws-watchboard-strip {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .ws-watchboard-summary-row {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 @media (max-width: 760px) {
@@ -845,6 +1100,16 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     }
     .ws-watchboard-delta {
         text-align: left;
+    }
+    .ws-watchboard-compact-topbar,
+    .ws-watchboard-summary-row {
+        grid-template-columns: 1fr;
+    }
+    .ws-watchboard-compact-meta {
+        justify-content: flex-start;
+    }
+    .ws-watchboard-all-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 </style>
@@ -8289,7 +8554,7 @@ def build_watchlist_dimension_scores(row: pd.Series) -> list[tuple[str, int, str
     ]
 
 
-def render_watchlist_cyber_dashboard(
+def render_watchlist_focus_detail_card(
     display_df: pd.DataFrame,
     focus_row: pd.Series,
     *,
@@ -8391,7 +8656,7 @@ def render_watchlist_cyber_dashboard(
         )
 
     board_html = f"""
-    <div class="ws-watchboard-shell">
+    <div id="watchlist-detail-card" class="ws-watchboard-shell is-detail">
         <div class="ws-watchboard-topbar">
             <div class="ws-watchboard-title">
                 <strong>{name}</strong>
@@ -8461,6 +8726,136 @@ def render_watchlist_cyber_dashboard(
     </div>
     """
     st.html(board_html)
+
+
+def render_watchlist_cyber_dashboard(
+    display_df: pd.DataFrame,
+    focus_row: pd.Series,
+    *,
+    current_username: str,
+    total_count: int,
+    up_count: int,
+    down_count: int,
+    avg_trend,
+) -> None:
+    st.markdown(WATCHLIST_CYBER_DASHBOARD_CSS, unsafe_allow_html=True)
+
+    focus_name = _watchlist_html_text(focus_row.get("名称") or focus_row.get("代码"))
+    focus_code = str(focus_row.get("代码") or "").strip().upper()
+    now = datetime.now()
+    weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    clock_text = f"{now:%Y-%m-%d} {weekday_names[now.weekday()]} {now:%H:%M:%S}"
+    user_text = _watchlist_html_text(current_username or "未登录")
+
+    ret_series = (
+        pd.to_numeric(display_df["涨跌幅(%)"], errors="coerce")
+        if "涨跌幅(%)" in display_df.columns
+        else pd.Series(dtype=float)
+    )
+    trend_series = (
+        pd.to_numeric(display_df["趋势得分"], errors="coerce")
+        if "趋势得分" in display_df.columns
+        else pd.Series(dtype=float)
+    )
+    visible_up_count = int((ret_series > 0).sum()) if not ret_series.empty else up_count
+    visible_down_count = int((ret_series < 0).sum()) if not ret_series.empty else down_count
+    visible_avg_trend = trend_series.dropna().mean() if not trend_series.dropna().empty else avg_trend
+    avg_trend_text = _watchlist_value_text(visible_avg_trend, digits=1)
+
+    leader_text = "-"
+    valid_ret_series = ret_series.dropna()
+    if not valid_ret_series.empty:
+        leader_idx = valid_ret_series.idxmax()
+        leader_row = display_df.loc[leader_idx]
+        leader_name = _watchlist_html_text(leader_row.get("名称") or leader_row.get("代码"))
+        leader_ret = _watchlist_value_text(valid_ret_series.loc[leader_idx], digits=2, suffix="%", signed=True)
+        leader_text = f"{leader_name} {leader_ret}"
+
+    stock_card_items = []
+    for _, stock_row in display_df.iterrows():
+        card_code = str(stock_row.get("代码") or "").strip().upper()
+        ret_1d = _watchlist_to_float(stock_row.get("涨跌幅(%)"), 0.0)
+        tone_class, arrow, accent_color = _watchlist_signal_tone(ret_1d)
+        trend_score = _watchlist_score_value(stock_row.get("趋势得分"))
+        card_name = str(stock_row.get("名称") or card_code).strip()
+        price_text = _watchlist_value_text(stock_row.get("最新价"), digits=2)
+        ret_text = _watchlist_value_text(ret_1d, digits=2, suffix="%", signed=True)
+        ret_5d_text = _watchlist_value_text(stock_row.get("5日涨跌(%)"), digits=2, suffix="%", signed=True)
+        ret_20d_text = _watchlist_value_text(stock_row.get("20日涨跌(%)"), digits=2, suffix="%", signed=True)
+        volume_ratio_text = _watchlist_value_text(stock_row.get("量比"), digits=2)
+        signal_text = _watchlist_html_text(stock_row.get("操作信号"))
+        trend_status = _watchlist_html_text(stock_row.get("趋势状态"))
+        risk_level = _watchlist_html_text(stock_row.get("风险等级"))
+        active_class = " is-active" if card_code == focus_code else ""
+        safe_code = "".join(ch if ch.isalnum() else "_" for ch in card_code)
+        card_html = f"""
+        <div class="ws-watchboard-stock-card{active_class}" style="--accent:{accent_color};">
+            <div class="ws-watchboard-stock-head">
+                <span class="ws-watchboard-stock-name">{_watchlist_html_text(card_name)}</span>
+                <span class="ws-watchboard-stock-code">{_watchlist_html_text(card_code)}</span>
+            </div>
+            <div class="ws-watchboard-stock-price-row">
+                <span class="ws-watchboard-stock-price">{price_text}</span>
+                <span class="ws-watchboard-stock-ret {tone_class}">{arrow} {ret_text}</span>
+            </div>
+            <div class="ws-watchboard-stock-metrics">
+                <div class="ws-watchboard-stock-metric"><label>5日</label><strong>{ret_5d_text}</strong></div>
+                <div class="ws-watchboard-stock-metric"><label>20日</label><strong>{ret_20d_text}</strong></div>
+                <div class="ws-watchboard-stock-metric"><label>量比</label><strong>{volume_ratio_text}</strong></div>
+            </div>
+            <div class="ws-watchboard-stock-score" style="--score:{trend_score}%;"><span></span></div>
+            <div class="ws-watchboard-stock-foot">
+                <span>{trend_score}分 · {trend_status}</span>
+                <span class="ws-watchboard-stock-signal">{signal_text} · {risk_level}</span>
+            </div>
+        </div>
+        """
+        stock_card_items.append(
+            {
+                "code": card_code,
+                "safe_code": safe_code,
+                "selection_label": f"{card_name} ({card_code})",
+                "button_label": f"查看 {card_name} 完整详情",
+                "card_html": card_html,
+            }
+        )
+
+    board_html = f"""
+    <div class="ws-watchboard-shell is-compact">
+        <div class="ws-watchboard-compact-topbar">
+            <div class="ws-watchboard-compact-title">
+                <strong>自选股全景看板</strong>
+                <span>自选用户 {user_text} · 报告/操作焦点 {focus_name} {focus_code} · {clock_text}</span>
+            </div>
+            <div class="ws-watchboard-compact-meta">AI 量化分析 · 展示 {len(display_df)}/{total_count} 只</div>
+        </div>
+        <div class="ws-watchboard-summary-row">
+            <div class="ws-watchboard-summary-pill"><label>当前展示</label><strong>{len(display_df)} 只</strong></div>
+            <div class="ws-watchboard-summary-pill"><label>涨跌分布</label><strong>{visible_up_count} 涨 / {visible_down_count} 跌</strong></div>
+            <div class="ws-watchboard-summary-pill"><label>平均趋势</label><strong>{avg_trend_text}</strong></div>
+            <div class="ws-watchboard-summary-pill"><label>报告焦点</label><strong>{focus_name}</strong></div>
+            <div class="ws-watchboard-summary-pill"><label>最强表现</label><strong>{leader_text}</strong></div>
+        </div>
+    </div>
+    """
+    st.html(board_html)
+
+    with st.container(key="watchlist_card_grid"):
+        columns_per_row = 6
+        for start_idx in range(0, len(stock_card_items), columns_per_row):
+            cols = st.columns(columns_per_row)
+            for offset, item in enumerate(stock_card_items[start_idx : start_idx + columns_per_row]):
+                with cols[offset]:
+                    with st.container(key=f"watchlist_card_wrap_{item['safe_code']}"):
+                        st.html(item["card_html"])
+                        if st.button(
+                            item["button_label"],
+                            key=f"watchlist_card_btn_{item['safe_code']}",
+                            use_container_width=True,
+                        ):
+                            st.session_state["watchlist_pending_focus_label"] = item["selection_label"]
+                            st.session_state["watchlist_show_focus_detail"] = True
+                            st.rerun()
 
 
 def preload_watchlist_reports_bg(username: str, engine) -> None:
@@ -8767,9 +9162,32 @@ def render_user_watchlist_tab() -> None:
                 + display_df["代码"].astype(str)
                 + ")"
             ).tolist()
+            focus_code_options = display_df["代码"].astype(str).str.strip().str.upper().tolist()
+            pending_focus_label = st.session_state.pop("watchlist_pending_focus_label", "")
+            if pending_focus_label in focus_options:
+                st.session_state["watchlist_focus_stock_select"] = pending_focus_label
+
+            requested_focus_code = get_query_param_value("watch_focus").strip().upper()
+            requested_detail = get_query_param_value("watch_detail").strip() == "1"
+            requested_focus_idx = 0
+            if requested_focus_code and requested_focus_code in focus_code_options:
+                requested_focus_idx = focus_code_options.index(requested_focus_code)
+                st.session_state["watchlist_focus_stock_select"] = focus_options[requested_focus_idx]
+                st.session_state["watchlist_show_focus_detail"] = requested_detail
+                try:
+                    if "watch_focus" in st.query_params:
+                        del st.query_params["watch_focus"]
+                    if "watch_detail" in st.query_params:
+                        del st.query_params["watch_detail"]
+                except Exception:
+                    pass
+            elif st.session_state.get("watchlist_focus_stock_select") not in focus_options:
+                st.session_state["watchlist_focus_stock_select"] = focus_options[requested_focus_idx]
+
             selected_focus_label = st.selectbox(
-                "焦点标的",
+                "报告/操作焦点",
                 options=focus_options,
+                index=requested_focus_idx,
                 key="watchlist_focus_stock_select",
             )
             focus_idx = focus_options.index(selected_focus_label) if selected_focus_label in focus_options else 0
@@ -8786,6 +9204,17 @@ def render_user_watchlist_tab() -> None:
             )
 
             report_code = str(focus_row.get("代码") or "").strip().upper()
+            if st.session_state.get("watchlist_show_focus_detail"):
+                render_watchlist_focus_detail_card(
+                    display_df,
+                    focus_row,
+                    current_username=current_username,
+                    total_count=len(enriched_df),
+                    up_count=up_count,
+                    down_count=down_count,
+                    avg_trend=avg_trend,
+                )
+
             action_bar_cols = st.columns([1, 1, 2])
             with action_bar_cols[0]:
                 report_state = _build_distribution_report_state(report_code, report_status_map.get(report_code))
@@ -8819,7 +9248,7 @@ def render_user_watchlist_tab() -> None:
                     else:
                         st.warning("报告状态已变化，请等待后台定时刷新完成。")
             with action_bar_cols[2]:
-                st.caption("焦点标的可在上方切换；下方仍保留跳转详情、删除自选与研究报告入口。")
+                st.caption("上方网格展示当前筛选下的全部自选；这里的按钮跟随“报告/操作焦点”。")
 
     # 跳转到个股详情
     st.markdown("### 🔍 跳转与管理")
