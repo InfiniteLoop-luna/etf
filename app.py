@@ -9257,14 +9257,14 @@ def render_user_watchlist_tab() -> None:
             elif pending_focus_code and pending_focus_code in focus_code_options:
                 st.session_state["watchlist_show_focus_detail"] = True
 
+            selected_focus_label = code_to_label[selected_focus_code]
+            if st.session_state.get("watchlist_focus_stock_select") != selected_focus_label:
+                st.session_state["watchlist_focus_stock_select"] = selected_focus_label
             st.session_state["watchlist_focus_stock_code"] = selected_focus_code
-            st.session_state["watchlist_focus_stock_select"] = code_to_label[selected_focus_code]
-            selected_focus_idx = focus_code_options.index(selected_focus_code)
 
             selected_focus_label = st.selectbox(
                 "报告/操作焦点",
                 options=focus_options,
-                index=selected_focus_idx,
                 key="watchlist_focus_stock_select",
             )
             selected_focus_code = label_to_code.get(selected_focus_label, selected_focus_code)
