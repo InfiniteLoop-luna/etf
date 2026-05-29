@@ -950,33 +950,40 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     position: relative;
     min-height: 104px;
 }
-.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] > div:not([data-testid="stButton"]) {
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stHtml"] {
     pointer-events: none;
 }
-.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] > div[data-testid="stButton"] {
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stButton"] {
     position: absolute;
     inset: 0;
     z-index: 5;
     margin: 0;
 }
-.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] > div[data-testid="stButton"] > button {
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stButton"] > button {
     width: 100%;
     height: 100%;
     min-height: 104px;
     padding: 0;
     border: 0;
-    background: transparent;
-    color: transparent;
-    box-shadow: none;
+    background: transparent !important;
+    color: transparent !important;
+    box-shadow: none !important;
     opacity: 0;
     cursor: pointer;
+    font-size: 0 !important;
+    line-height: 0 !important;
 }
-.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] > div[data-testid="stButton"] > button:hover,
-.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] > div[data-testid="stButton"] > button:focus {
-    background: transparent;
-    border: 0;
-    color: transparent;
-    box-shadow: none;
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stButton"] > button p,
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stButton"] > button span,
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stButton"] > button div[data-testid="stMarkdownContainer"] {
+    display: none !important;
+}
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stButton"] > button:hover,
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stButton"] > button:focus {
+    background: transparent !important;
+    border: 0 !important;
+    color: transparent !important;
+    box-shadow: none !important;
     opacity: 0;
 }
 .ws-watchboard-stock-head,
