@@ -949,7 +949,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .st-key-watchlist_card_grid div[data-testid="stButton"] > button {
     width: 100%;
     min-height: 124px;
-    padding: 0.5rem 0.56rem;
+    padding: 0.48rem 0.52rem;
     border-radius: 10px;
     border: 1px solid rgba(70, 126, 255, 0.35);
     background:
@@ -973,9 +973,53 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .st-key-watchlist_card_grid div[data-testid="stButton"] > button div[data-testid="stMarkdownContainer"] p {
     margin: 0;
     white-space: pre-wrap;
-    line-height: 1.25;
-    font-size: 0.72rem;
-    font-weight: 700;
+}
+.st-key-watchlist_card_grid div[data-testid="stButton"] > button div[data-testid="stMarkdownContainer"] p:nth-of-type(1) {
+    color: #f6fbff;
+    font-size: 0.82rem;
+    font-weight: 900;
+    line-height: 1.15;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.68), 0 0 10px rgba(118, 198, 255, 0.24);
+}
+.st-key-watchlist_card_grid div[data-testid="stButton"] > button div[data-testid="stMarkdownContainer"] p:nth-of-type(1) code {
+    color: #8ea8d2;
+    background: rgba(13, 28, 56, 0.95);
+    border: 1px solid rgba(86, 126, 196, 0.28);
+    border-radius: 999px;
+    padding: 0.08rem 0.32rem;
+    font-size: 0.58rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.st-key-watchlist_card_grid div[data-testid="stButton"] > button div[data-testid="stMarkdownContainer"] p:nth-of-type(2) {
+    margin-top: 0.32rem;
+    color: #7ad7ff;
+    font-size: 0.76rem;
+    font-weight: 800;
+    line-height: 1.1;
+}
+.st-key-watchlist_card_grid div[data-testid="stButton"] > button div[data-testid="stMarkdownContainer"] p:nth-of-type(2) strong {
+    color: #f4fbff;
+    font-size: 1.18rem;
+    font-weight: 900;
+    letter-spacing: 0;
+}
+.st-key-watchlist_card_grid div[data-testid="stButton"] > button div[data-testid="stMarkdownContainer"] p:nth-of-type(3) {
+    margin-top: 0.34rem;
+    color: #edf5ff;
+    font-size: 0.64rem;
+    line-height: 1.18;
+}
+.st-key-watchlist_card_grid div[data-testid="stButton"] > button div[data-testid="stMarkdownContainer"] p:nth-of-type(4) {
+    margin-top: 0.34rem;
+    color: #9db8e6;
+    font-size: 0.60rem;
+    line-height: 1.18;
+}
+.st-key-watchlist_card_grid div[data-testid="stButton"] > button div[data-testid="stMarkdownContainer"] p:nth-of-type(5) {
+    margin-top: 0.14rem;
+    color: #9db8e6;
+    font-size: 0.60rem;
+    line-height: 1.18;
 }
 .ws-watchboard-stock-head,
 .ws-watchboard-stock-price-row,
@@ -8890,9 +8934,8 @@ def render_watchlist_cyber_dashboard(
         risk_level = _watchlist_html_text(stock_row.get("风险等级"))
         ret_symbol = "📈" if (ret_1d or 0) >= 0 else "📉"
         card_text = (
-            f"{card_name}\n"
-            f"{card_code}\n"
-            f"现价 {price_text}   {ret_symbol} {ret_text}\n"
+            f"{card_name} ` {card_code} `\n"
+            f"**{price_text}**   {ret_symbol} {ret_text}\n"
             f"5日 {ret_5d_text}   20日 {ret_20d_text}   量比 {volume_ratio_text}\n"
             f"{trend_score}分 · {trend_status}\n"
             f"{signal_text} · {risk_level}"
