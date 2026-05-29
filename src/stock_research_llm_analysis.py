@@ -233,6 +233,14 @@ def _coerce_text_list(value: Any, limit: int = 6, max_length: int = 220) -> list
 
 
 def _clamp_int(value: Any, default: int = 50, min_value: int = 0, max_value: int = 100) -> int:
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"高", "high"}:
+            value = 75
+        elif text in {"中", "medium"}:
+            value = 50
+        elif text in {"低", "low"}:
+            value = 30
     try:
         parsed = int(round(float(value)))
     except Exception:
@@ -275,10 +283,25 @@ def normalize_stock_research_llm_result(result: dict[str, Any] | None) -> dict[s
         return None
 
     verdict = _coerce_text(result.get("verdict"), max_length=20)
+    verdict = {
+        "观望": "观察",
+        "中性": "观察",
+        "持有": "谨慎跟踪",
+        "hold": "谨慎跟踪",
+        "buy": "重点跟踪",
+        "sell": "规避",
+        "avoid": "规避",
+    }.get(verdict.lower(), verdict)
     if verdict not in ALLOWED_RESEARCH_VERDICTS:
         verdict = "观察"
 
     risk_level = _coerce_text(result.get("risk_level"), max_length=10)
+    risk_level = {
+        "high": "高",
+        "medium": "中",
+        "mid": "中",
+        "low": "低",
+    }.get(risk_level.lower(), risk_level)
     if risk_level not in ALLOWED_RESEARCH_RISK_LEVELS:
         risk_level = "中" if verdict in {"谨慎跟踪", "观察"} else "高"
 
@@ -319,9 +342,18 @@ def analyze_stock_research_payload(
         "quality_score, key_evidence, risk_factors, watch_items, step_analysis。"
         "verdict 只能取：重点跟踪、谨慎跟踪、观察、规避。"
         "risk_level 只能取：高、中、低。confidence 和 quality_score.score 为 0-100 整数。"
+        "不要输出 持有、观望、买入、卖出、hold、medium 等非枚举值；confidence 不能输出 高/中/低，只能输出阿拉伯数字整数。"
         "quality_score 为对象，包含 score, grade, drivers, weaknesses；grade 只能取 A/B/C/D。"
         "step_analysis 必须包含 step0 到 step8，每项为一段简洁中文分析。"
         "key_evidence/risk_factors/watch_items 每项 3-8 条短句。"
+        "JSON 输出样例："
+        '{"verdict":"观察","risk_level":"中","confidence":60,"summary":"简短结论",'
+        '"investment_thesis":"核心命题","valuation_view":"估值观点","timing_view":"节奏观点",'
+        '"quality_score":{"score":60,"grade":"C","drivers":["证据"],"weaknesses":["风险"]},'
+        '"key_evidence":["证据"],"risk_factors":["风险"],"watch_items":["跟踪项"],'
+        '"step_analysis":{"step0":"任务锁定","step1":"宏观与周期","step2":"产业链拆解",'
+        '"step3":"公司质量","step4":"业绩弹性","step5":"风险分析","step6":"估值与买卖时机",'
+        '"step7":"对标分析","step8":"跟踪计划"}}'
     )
     base_user_prompt = (
         "请基于下面 FactPack 生成自选股深度研究结论。"
@@ -349,6 +381,7 @@ def analyze_stock_research_payload(
             "temperature": resolved.temperature,
             "max_tokens": resolved.max_tokens,
             "response_format": {"type": "json_object"},
+            "thinking": {"type": "disabled"},
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},

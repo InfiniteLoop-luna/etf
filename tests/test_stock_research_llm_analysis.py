@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from src.stock_research_llm_analysis import analyze_stock_research_payload
+from src.stock_research_llm_analysis import analyze_stock_research_payload, normalize_stock_research_llm_result
 
 
 class StockResearchLLMAnalysisTests(unittest.TestCase):
@@ -38,8 +38,26 @@ class StockResearchLLMAnalysisTests(unittest.TestCase):
 
         request_payload = mock_post.call_args.kwargs["json"]
         self.assertEqual(request_payload["response_format"], {"type": "json_object"})
+        self.assertEqual(request_payload["thinking"], {"type": "disabled"})
+        self.assertIn("JSON 输出样例", request_payload["messages"][0]["content"])
         self.assertEqual(result["verdict"], "观察")
         self.assertEqual(result["model"], "deepseek-v4-pro")
+
+    def test_normalize_stock_research_result_maps_v4_pro_aliases(self):
+        normalized = normalize_stock_research_llm_result(
+            {
+                "verdict": "观望",
+                "risk_level": "medium",
+                "confidence": "中",
+                "quality_score": {"score": "高", "grade": "A"},
+                "step_analysis": {"step0": "观察"},
+            }
+        )
+
+        self.assertEqual(normalized["verdict"], "观察")
+        self.assertEqual(normalized["risk_level"], "中")
+        self.assertEqual(normalized["confidence"], 50)
+        self.assertEqual(normalized["quality_score"]["score"], 75)
 
 
 if __name__ == "__main__":
