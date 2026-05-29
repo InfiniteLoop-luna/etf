@@ -22,7 +22,7 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import logging
 from typing import Optional, List, Union
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from src.data_loader import load_etf_data
 from src.volume_fetcher import load_volume_dataframe
 from src.etf_classifier import fetch_etf_data, process_etf_classification, export_etfs_to_excel
@@ -1131,7 +1131,10 @@ def clear_pro_access() -> None:
 
 
 def get_logged_in_username() -> str:
-    return normalize_username(st.session_state.get("logged_in_username", ""))
+    session_username = normalize_username(st.session_state.get("logged_in_username", ""))
+    if session_username:
+        return session_username
+    return normalize_username(get_query_param_value("app_user").strip())
 
 
 def is_user_logged_in() -> bool:
@@ -1141,6 +1144,13 @@ def is_user_logged_in() -> bool:
 def login_app_user(username: str) -> bool:
     normalized_username = normalize_username(username)
     st.session_state["logged_in_username"] = normalized_username
+    try:
+        if normalized_username:
+            st.query_params["app_user"] = normalized_username
+        elif "app_user" in st.query_params:
+            del st.query_params["app_user"]
+    except Exception:
+        pass
     
     if normalized_username:
         try:
@@ -1155,6 +1165,11 @@ def login_app_user(username: str) -> bool:
 
 def logout_app_user() -> None:
     st.session_state["logged_in_username"] = ""
+    try:
+        if "app_user" in st.query_params:
+            del st.query_params["app_user"]
+    except Exception:
+        pass
 
 
 def render_user_login_status() -> None:
@@ -8843,7 +8858,21 @@ def render_watchlist_cyber_dashboard(
         trend_status = _watchlist_html_text(stock_row.get("趋势状态"))
         risk_level = _watchlist_html_text(stock_row.get("风险等级"))
         active_class = " is-active" if card_code == focus_code else ""
-        focus_href = f"?watch_focus={quote(card_code, safe='')}&watch_detail=1#watchlist-detail-card"
+        focus_query_params = {}
+        try:
+            for _query_key in st.query_params.keys():
+                _query_value = st.query_params.get(_query_key, "")
+                if isinstance(_query_value, list):
+                    focus_query_params[_query_key] = _query_value[0] if _query_value else ""
+                else:
+                    focus_query_params[_query_key] = _query_value
+        except Exception:
+            current_username = get_logged_in_username()
+            if current_username:
+                focus_query_params["app_user"] = current_username
+        focus_query_params["watch_focus"] = card_code
+        focus_query_params["watch_detail"] = "1"
+        focus_href = f"?{urlencode(focus_query_params)}#watchlist-detail-card"
         card_html = f"""
         <a class="ws-watchboard-stock-link" href="{focus_href}">
             <div class="ws-watchboard-stock-card{active_class}" style="--accent:{accent_color};">
