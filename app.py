@@ -4,6 +4,7 @@
 # Version: 2.0 - Fixed data_only issue for formula cells
 import os
 import json
+import time
 from html import escape
 from hmac import compare_digest
 import streamlit as st
@@ -8348,6 +8349,113 @@ def load_watchlist_enriched_data(ts_codes: tuple, security_types: tuple) -> pd.D
             
     return pd.DataFrame(rows)
 
+
+WATCHLIST_SESSION_CACHE_TTL_SECONDS = 900
+WATCHLIST_STATUS_SESSION_CACHE_TTL_SECONDS = 300
+
+
+def load_watchlist_enriched_data_session_cached(
+    username: str,
+    ts_codes: tuple,
+    security_types: tuple,
+) -> pd.DataFrame:
+    """Reuse the loaded watchlist frame during card focus changes in one session."""
+    normalized_codes = tuple(str(code or "").strip().upper() for code in ts_codes)
+    normalized_types = tuple(str(sec_type or "").strip().lower() for sec_type in security_types)
+    cache_key = (str(username or "").strip(), normalized_codes, normalized_types)
+    cache_payload = st.session_state.get("watchlist_enriched_session_cache")
+    now = time.monotonic()
+
+    if (
+        isinstance(cache_payload, dict)
+        and cache_payload.get("key") == cache_key
+        and now - float(cache_payload.get("saved_at", 0.0)) < WATCHLIST_SESSION_CACHE_TTL_SECONDS
+        and isinstance(cache_payload.get("df"), pd.DataFrame)
+    ):
+        return cache_payload["df"].copy(deep=True)
+
+    df = load_watchlist_enriched_data(normalized_codes, normalized_types)
+    st.session_state["watchlist_enriched_session_cache"] = {
+        "key": cache_key,
+        "saved_at": now,
+        "df": df.copy(deep=True),
+    }
+    return df.copy(deep=True)
+
+
+def load_watchlist_report_status_maps_session_cached(
+    report_engine,
+    stock_report_codes: tuple,
+) -> tuple[dict[str, dict], dict[str, dict]]:
+    normalized_codes = tuple(str(code or "").strip().upper() for code in stock_report_codes if str(code or "").strip())
+    cache_key = normalized_codes
+    cache_payload = st.session_state.get("watchlist_report_status_session_cache")
+    now = time.monotonic()
+
+    if (
+        isinstance(cache_payload, dict)
+        and cache_payload.get("key") == cache_key
+        and now - float(cache_payload.get("saved_at", 0.0)) < WATCHLIST_STATUS_SESSION_CACHE_TTL_SECONDS
+    ):
+        return dict(cache_payload.get("distribution", {})), dict(cache_payload.get("research", {}))
+
+    report_status_map: dict[str, dict] = {}
+    research_status_map: dict[str, dict] = {}
+    if report_engine is not None and normalized_codes:
+        try:
+            report_status_map = get_report_statuses(report_engine, normalized_codes)
+        except Exception as exc:
+            logger.warning("Failed to load distribution report statuses: %s", exc)
+        try:
+            research_status_map = get_stock_research_report_statuses(report_engine, normalized_codes)
+        except Exception as exc:
+            logger.warning("Failed to load stock research report statuses: %s", exc)
+
+    st.session_state["watchlist_report_status_session_cache"] = {
+        "key": cache_key,
+        "saved_at": now,
+        "distribution": dict(report_status_map),
+        "research": dict(research_status_map),
+    }
+    return report_status_map, research_status_map
+
+
+def load_watchlist_alert_text_map_session_cached(ts_codes: tuple) -> dict[str, str]:
+    normalized_codes = tuple(str(code or "").strip().upper() for code in ts_codes if str(code or "").strip())
+    cache_payload = st.session_state.get("watchlist_alert_text_session_cache")
+    now = time.monotonic()
+
+    if (
+        isinstance(cache_payload, dict)
+        and cache_payload.get("key") == normalized_codes
+        and now - float(cache_payload.get("saved_at", 0.0)) < WATCHLIST_STATUS_SESSION_CACHE_TTL_SECONDS
+    ):
+        return dict(cache_payload.get("alerts", {}))
+
+    alerts_dict: dict[str, str] = {}
+    try:
+        alerts_df = get_latest_alerts_for_stocks(list(normalized_codes))
+        if not alerts_df.empty:
+            for _, r in alerts_df.iterrows():
+                if r["alert_level"] != "NONE":
+                    try:
+                        details = json.loads(r["alert_details"]) if isinstance(r["alert_details"], str) else r.get("alert_details", {})
+                        signals = details.get("signals", [])
+                        if signals:
+                            alerts_dict[str(r["ts_code"]).strip().upper()] = f"🚨 {', '.join(signals)}"
+                    except Exception:
+                        pass
+    except Exception as e:
+        logger.warning("Failed to load distribution alerts: %s", e)
+
+    st.session_state["watchlist_alert_text_session_cache"] = {
+        "key": normalized_codes,
+        "saved_at": now,
+        "alerts": dict(alerts_dict),
+    }
+    return alerts_dict
+
+
 def generate_sparkline_svg(prices, is_up=True):
     if not prices or len(prices) < 2:
         return ""
@@ -8790,7 +8898,6 @@ def render_watchlist_cyber_dashboard(
             {
                 "code": card_code,
                 "safe_code": safe_code,
-                "selection_label": f"{card_name} ({card_code})",
                 "button_label": f"查看 {card_name} 完整详情",
                 "card_html": card_html,
             }
@@ -8829,7 +8936,7 @@ def render_watchlist_cyber_dashboard(
                             key=f"watchlist_card_btn_{item['safe_code']}",
                             use_container_width=True,
                         ):
-                            st.session_state["watchlist_pending_focus_label"] = item["selection_label"]
+                            st.session_state["watchlist_pending_focus_code"] = item["code"]
                             st.session_state["watchlist_show_focus_detail"] = True
                             st.rerun()
 
@@ -8985,51 +9092,26 @@ def render_user_watchlist_tab() -> None:
     security_types = tuple(watchlist_df['security_type'].tolist())
     report_status_map: dict[str, dict] = {}
     research_status_map: dict[str, dict] = {}
-    if report_engine is not None:
-        stock_report_codes = [
-            str(code or "").strip().upper()
-            for code, security_type in zip(ts_codes, security_types)
-            if str(security_type or "").strip().lower() == "stock" and str(code or "").strip()
-        ]
-        try:
-            report_status_map = get_report_statuses(report_engine, stock_report_codes)
-        except Exception as exc:
-            logger.warning("Failed to load distribution report statuses: %s", exc)
-            report_status_map = {}
-        try:
-            research_status_map = get_stock_research_report_statuses(report_engine, stock_report_codes)
-        except Exception as exc:
-            logger.warning("Failed to load stock research report statuses: %s", exc)
-            research_status_map = {}
+    stock_report_codes = tuple(
+        str(code or "").strip().upper()
+        for code, security_type in zip(ts_codes, security_types)
+        if str(security_type or "").strip().lower() == "stock" and str(code or "").strip()
+    )
+    report_status_map, research_status_map = load_watchlist_report_status_maps_session_cached(
+        report_engine,
+        stock_report_codes,
+    )
     
     with st.spinner("正在加载自选股深度数据..."):
-        enriched_df = load_watchlist_enriched_data(ts_codes, security_types)
+        enriched_df = load_watchlist_enriched_data_session_cached(current_username, ts_codes, security_types)
         
     if enriched_df.empty:
         st.warning("数据加载失败，请稍后再试。")
         return
 
     # 获取并合并预警数据
-    try:
-        alerts_df = get_latest_alerts_for_stocks(list(ts_codes))
-        if not alerts_df.empty:
-            alerts_dict = {}
-            for _, r in alerts_df.iterrows():
-                if r['alert_level'] != 'NONE':
-                    try:
-                        details = json.loads(r['alert_details']) if isinstance(r['alert_details'], str) else r.get('alert_details', {})
-                        signals = details.get('signals', [])
-                        if signals:
-                            alerts_dict[r['ts_code']] = f"🚨 {', '.join(signals)}"
-                    except:
-                        pass
-            enriched_df['主力异动'] = enriched_df['ts_code'].map(lambda x: alerts_dict.get(x, ""))
-        else:
-            enriched_df['主力异动'] = ""
-    except Exception as e:
-        import logging
-        logging.warning(f"Failed to load distribution alerts: {e}")
-        enriched_df['主力异动'] = ""
+    alerts_dict = load_watchlist_alert_text_map_session_cached(ts_codes)
+    enriched_df['主力异动'] = enriched_df['ts_code'].map(lambda x: alerts_dict.get(str(x).strip().upper(), ""))
 
     # Metrics Overview
     up_count = len(enriched_df[enriched_df['涨跌幅(%)'] > 0])
@@ -9139,16 +9221,31 @@ def render_user_watchlist_tab() -> None:
                 + ")"
             ).tolist()
             focus_code_options = display_df["代码"].astype(str).str.strip().str.upper().tolist()
-            pending_focus_label = st.session_state.pop("watchlist_pending_focus_label", "")
-            if pending_focus_label in focus_options:
-                st.session_state["watchlist_focus_stock_select"] = pending_focus_label
+            label_to_code = dict(zip(focus_options, focus_code_options))
+            code_to_label = dict(zip(focus_code_options, focus_options))
 
             requested_focus_code = get_query_param_value("watch_focus").strip().upper()
             requested_detail = get_query_param_value("watch_detail").strip() == "1"
-            requested_focus_idx = 0
+            pending_focus_code = str(st.session_state.pop("watchlist_pending_focus_code", "") or "").strip().upper()
+            pending_focus_label = st.session_state.pop("watchlist_pending_focus_label", "")
+            if not pending_focus_code and pending_focus_label in label_to_code:
+                pending_focus_code = label_to_code[pending_focus_label]
+
+            session_focus_label = st.session_state.get("watchlist_focus_stock_select")
+            session_focus_code = label_to_code.get(
+                session_focus_label,
+                str(st.session_state.get("watchlist_focus_stock_code", "") or "").strip().upper(),
+            )
+            selected_focus_code = (
+                requested_focus_code
+                or pending_focus_code
+                or session_focus_code
+                or focus_code_options[0]
+            )
+            if selected_focus_code not in code_to_label:
+                selected_focus_code = focus_code_options[0]
+
             if requested_focus_code and requested_focus_code in focus_code_options:
-                requested_focus_idx = focus_code_options.index(requested_focus_code)
-                st.session_state["watchlist_focus_stock_select"] = focus_options[requested_focus_idx]
                 st.session_state["watchlist_show_focus_detail"] = requested_detail
                 try:
                     if "watch_focus" in st.query_params:
@@ -9157,16 +9254,22 @@ def render_user_watchlist_tab() -> None:
                         del st.query_params["watch_detail"]
                 except Exception:
                     pass
-            elif st.session_state.get("watchlist_focus_stock_select") not in focus_options:
-                st.session_state["watchlist_focus_stock_select"] = focus_options[requested_focus_idx]
+            elif pending_focus_code and pending_focus_code in focus_code_options:
+                st.session_state["watchlist_show_focus_detail"] = True
+
+            st.session_state["watchlist_focus_stock_code"] = selected_focus_code
+            st.session_state["watchlist_focus_stock_select"] = code_to_label[selected_focus_code]
+            selected_focus_idx = focus_code_options.index(selected_focus_code)
 
             selected_focus_label = st.selectbox(
                 "报告/操作焦点",
                 options=focus_options,
-                index=requested_focus_idx,
+                index=selected_focus_idx,
                 key="watchlist_focus_stock_select",
             )
-            focus_idx = focus_options.index(selected_focus_label) if selected_focus_label in focus_options else 0
+            selected_focus_code = label_to_code.get(selected_focus_label, selected_focus_code)
+            st.session_state["watchlist_focus_stock_code"] = selected_focus_code
+            focus_idx = focus_code_options.index(selected_focus_code) if selected_focus_code in focus_code_options else 0
             focus_row = display_df.iloc[focus_idx]
 
             render_watchlist_cyber_dashboard(
