@@ -952,19 +952,21 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 }
 .st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stHtml"] {
     pointer-events: none;
+    margin-bottom: -104px;
+    position: relative;
+    z-index: 1;
 }
 .st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stButton"] {
-    position: absolute;
-    inset: 0;
+    position: relative;
     z-index: 5;
     margin: 0;
 }
 .st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stButton"] > button {
     width: 100%;
-    height: 100%;
+    height: 104px;
     min-height: 104px;
     padding: 0;
-    border: 0;
+    border: 0 !important;
     background: transparent !important;
     color: transparent !important;
     box-shadow: none !important;
