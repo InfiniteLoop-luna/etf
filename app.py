@@ -289,6 +289,567 @@ HOTMONEY_SECTION_WRAPPER_CSS = """
 
 st.markdown(HOTMONEY_SECTION_WRAPPER_CSS, unsafe_allow_html=True)
 
+WATCHLIST_CYBER_DASHBOARD_CSS = """
+<style>
+.ws-watchboard-shell {
+    --wb-bg: #030816;
+    --wb-panel: rgba(5, 17, 39, 0.92);
+    --wb-panel-2: rgba(3, 12, 30, 0.95);
+    --wb-line: rgba(70, 126, 255, 0.54);
+    --wb-line-soft: rgba(70, 126, 255, 0.22);
+    --wb-cyan: #22d7ff;
+    --wb-blue: #2f7bff;
+    --wb-red: #ff3f55;
+    --wb-green: #20dfb8;
+    --wb-text: #f5f9ff;
+    --wb-muted: #93a9ca;
+    margin: 0.75rem 0 1.2rem 0;
+    padding: 1rem;
+    color: var(--wb-text);
+    border: 1px solid var(--wb-line);
+    border-radius: 8px;
+    background:
+        radial-gradient(circle at 10% 0%, rgba(47, 123, 255, 0.30), transparent 30%),
+        radial-gradient(circle at 88% 14%, rgba(34, 215, 255, 0.17), transparent 24%),
+        linear-gradient(180deg, #061128 0%, #020615 100%);
+    box-shadow: 0 18px 48px rgba(4, 11, 30, 0.34), inset 0 0 36px rgba(47, 123, 255, 0.10);
+    overflow: hidden;
+    position: relative;
+}
+.ws-watchboard-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(rgba(64, 125, 255, 0.055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(64, 125, 255, 0.055) 1px, transparent 1px);
+    background-size: 54px 54px;
+    mask-image: linear-gradient(180deg, rgba(0,0,0,0.65), rgba(0,0,0,0.16));
+}
+.ws-watchboard-shell * {
+    box-sizing: border-box;
+}
+.ws-watchboard-topbar,
+.ws-watchboard-hero,
+.ws-watchboard-main,
+.ws-watchboard-strip {
+    position: relative;
+    z-index: 1;
+}
+.ws-watchboard-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(210px, auto);
+    align-items: center;
+    gap: 0.8rem;
+    margin-bottom: 0.9rem;
+}
+.ws-watchboard-title {
+    display: flex;
+    align-items: baseline;
+    gap: 0.7rem;
+    min-width: 0;
+}
+.ws-watchboard-title strong {
+    font-size: clamp(1.2rem, 2.2vw, 1.75rem);
+    line-height: 1.1;
+    color: var(--wb-text);
+    letter-spacing: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ws-watchboard-title span {
+    color: var(--wb-muted);
+    font-size: 0.95rem;
+    white-space: nowrap;
+}
+.ws-watchboard-chip,
+.ws-watchboard-clock,
+.ws-watchboard-status {
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 0.5rem 0.82rem;
+    border: 1px solid var(--wb-line-soft);
+    border-radius: 8px;
+    background: rgba(3, 13, 33, 0.78);
+    box-shadow: inset 0 0 18px rgba(47, 123, 255, 0.10);
+    color: #c9dcff;
+    font-weight: 650;
+    white-space: nowrap;
+}
+.ws-watchboard-chip {
+    color: #a8c5ff;
+}
+.ws-watchboard-hero {
+    display: grid;
+    grid-template-columns: minmax(280px, 0.9fr) minmax(460px, 1.1fr);
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+.ws-watchboard-panel {
+    border: 1px solid var(--wb-line);
+    border-radius: 8px;
+    background: linear-gradient(180deg, var(--wb-panel) 0%, var(--wb-panel-2) 100%);
+    box-shadow: inset 0 0 20px rgba(47, 123, 255, 0.11), 0 0 0 1px rgba(34, 215, 255, 0.03);
+    position: relative;
+    overflow: hidden;
+}
+.ws-watchboard-panel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: 8px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.025);
+}
+.ws-watchboard-price {
+    min-height: 116px;
+    padding: 1.05rem 1.05rem 0.95rem 1.05rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.65rem;
+}
+.ws-watchboard-symbol {
+    color: var(--wb-muted);
+    font-size: 0.88rem;
+    margin-bottom: 0.2rem;
+}
+.ws-watchboard-bigprice {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--wb-red);
+    font-size: clamp(2.1rem, 5.4vw, 4.2rem);
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: 0;
+}
+.ws-watchboard-bigprice.ws-negative {
+    color: var(--wb-green);
+}
+.ws-watchboard-arrow {
+    font-size: 0.64em;
+    line-height: 1;
+}
+.ws-watchboard-delta {
+    color: var(--wb-red);
+    font-size: clamp(1rem, 2vw, 1.45rem);
+    font-weight: 750;
+    line-height: 1.35;
+    text-align: right;
+}
+.ws-watchboard-delta.ws-negative {
+    color: var(--wb-green);
+}
+.ws-watchboard-status {
+    min-height: 34px;
+    color: #ff5368;
+    border-color: rgba(255, 63, 85, 0.35);
+    background: rgba(255, 63, 85, 0.08);
+}
+.ws-watchboard-stats {
+    min-height: 116px;
+    padding: 0.72rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
+}
+.ws-watchboard-stat {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 0.55rem;
+    align-items: center;
+    min-width: 0;
+    padding: 0.56rem 0.58rem;
+    border: 1px solid rgba(70, 126, 255, 0.18);
+    border-radius: 8px;
+    background: rgba(2, 9, 24, 0.45);
+}
+.ws-watchboard-stat-icon {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    color: #83aaff;
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(47, 123, 255, 0.26), rgba(34, 215, 255, 0.10));
+    font-weight: 800;
+}
+.ws-watchboard-stat label {
+    display: block;
+    color: var(--wb-muted);
+    font-size: 0.78rem;
+    margin-bottom: 0.12rem;
+    white-space: nowrap;
+}
+.ws-watchboard-stat strong {
+    display: block;
+    color: var(--wb-text);
+    font-size: clamp(0.9rem, 1.18vw, 1.08rem);
+    line-height: 1.15;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.ws-watchboard-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.92fr);
+    gap: 0.75rem;
+}
+.ws-watchboard-chart {
+    padding: 0;
+}
+.ws-watchboard-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr) auto;
+    border-bottom: 1px solid rgba(70, 126, 255, 0.22);
+    min-height: 48px;
+}
+.ws-watchboard-tab,
+.ws-watchboard-fullscreen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #c5d8fa;
+    border-right: 1px solid rgba(70, 126, 255, 0.15);
+    font-weight: 650;
+}
+.ws-watchboard-tab.is-active {
+    color: #ff5469;
+    background: linear-gradient(180deg, rgba(255, 63, 85, 0.12), rgba(255, 63, 85, 0.02));
+    box-shadow: inset 0 -2px 0 #ff4055;
+}
+.ws-watchboard-fullscreen {
+    min-width: 88px;
+    color: #88adff;
+    border-right: 0;
+}
+.ws-watchboard-chart-body {
+    padding: 0.9rem 1rem 0.7rem 1rem;
+}
+.ws-watchboard-chart-title {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.8rem;
+    color: var(--wb-text);
+    font-weight: 750;
+    margin-bottom: 0.45rem;
+}
+.ws-watchboard-chart-title span:last-child {
+    color: #ff5469;
+}
+.ws-watchboard-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+.ws-watchboard-linechart {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 820 / 320;
+    min-height: 260px;
+    overflow: hidden;
+    border-radius: 8px;
+}
+.ws-watchboard-grid-h,
+.ws-watchboard-grid-v {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(70, 126, 255, 0.14);
+}
+.ws-watchboard-grid-h {
+    left: 6.4%;
+    right: 2.2%;
+    top: var(--grid-top);
+    height: 1px;
+}
+.ws-watchboard-grid-v {
+    top: 5.6%;
+    bottom: 18%;
+    left: var(--grid-left);
+    width: 1px;
+    opacity: 0.72;
+}
+.ws-watchboard-axis-label {
+    position: absolute;
+    left: 0;
+    top: var(--label-top);
+    transform: translateY(-50%);
+    color: #8fa8ce;
+    font-size: 0.78rem;
+    line-height: 1;
+}
+.ws-watchboard-area {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--line-color), transparent 72%), transparent 74%);
+    clip-path: var(--area-path);
+    opacity: 0.9;
+    pointer-events: none;
+}
+.ws-watchboard-segment {
+    position: absolute;
+    height: 3px;
+    left: var(--x);
+    top: var(--y);
+    width: var(--len);
+    transform: translateY(-50%) rotate(var(--angle));
+    transform-origin: left center;
+    border-radius: 999px;
+    background: var(--line-color);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--line-color), transparent 30%);
+}
+.ws-watchboard-point {
+    position: absolute;
+    left: var(--x);
+    top: var(--y);
+    width: 9px;
+    height: 9px;
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    background: var(--line-color);
+    border: 1px solid #f8fbff;
+    box-shadow: 0 0 16px color-mix(in srgb, var(--line-color), transparent 24%);
+}
+.ws-watchboard-volume {
+    position: absolute;
+    left: var(--x);
+    bottom: 3.5%;
+    width: var(--bar-width);
+    height: var(--bar-height);
+    transform: translateX(-50%);
+    border-radius: 2px 2px 0 0;
+    background: var(--bar-color);
+    opacity: 0.55;
+}
+.ws-watchboard-x-label {
+    position: absolute;
+    bottom: 0.2rem;
+    color: #d6e5ff;
+    font-size: 0.82rem;
+}
+.ws-watchboard-x-label.is-start {
+    left: 6.4%;
+}
+.ws-watchboard-x-label.is-end {
+    right: 2.2%;
+}
+.ws-watchboard-footer-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-top: 1px solid rgba(70, 126, 255, 0.20);
+}
+.ws-watchboard-foot {
+    padding: 0.7rem 0.75rem;
+    border-right: 1px solid rgba(70, 126, 255, 0.14);
+}
+.ws-watchboard-foot:last-child {
+    border-right: 0;
+}
+.ws-watchboard-foot label {
+    display: block;
+    color: var(--wb-muted);
+    font-size: 0.78rem;
+}
+.ws-watchboard-foot strong {
+    display: block;
+    color: var(--wb-text);
+    font-size: 0.96rem;
+    margin-top: 0.12rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.ws-watchboard-side {
+    display: grid;
+    gap: 0.75rem;
+}
+.ws-watchboard-score {
+    padding: 0.9rem 1rem;
+    display: grid;
+    grid-template-columns: 148px minmax(0, 1fr);
+    gap: 0.9rem;
+    align-items: center;
+}
+.ws-score-donut {
+    width: 132px;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background:
+        radial-gradient(circle at center, #051128 0 54%, transparent 55%),
+        conic-gradient(var(--score-color) calc(var(--score) * 1%), #1d376b 0);
+    box-shadow: 0 0 24px rgba(47, 123, 255, 0.24), inset 0 0 12px rgba(0,0,0,0.30);
+    margin: 0 auto;
+}
+.ws-score-donut strong {
+    color: var(--score-color);
+    font-size: 2.75rem;
+    line-height: 0.95;
+    letter-spacing: 0;
+}
+.ws-score-donut span {
+    display: block;
+    color: #d8e6ff;
+    font-size: 0.78rem;
+    font-weight: 650;
+    text-align: center;
+}
+.ws-watchboard-score-bars {
+    display: grid;
+    gap: 0.5rem;
+}
+.ws-watchboard-score-row {
+    display: grid;
+    grid-template-columns: 4.5em minmax(0, 1fr) 2.2em;
+    align-items: center;
+    gap: 0.45rem;
+    color: #d9e7ff;
+    font-size: 0.88rem;
+}
+.ws-score-track {
+    height: 7px;
+    border-radius: 999px;
+    background: #122954;
+    overflow: hidden;
+}
+.ws-score-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--bar-color), rgba(255,255,255,0.78));
+    box-shadow: 0 0 12px color-mix(in srgb, var(--bar-color), transparent 38%);
+}
+.ws-watchboard-summary {
+    padding: 1rem;
+}
+.ws-watchboard-summary h4 {
+    display: flex;
+    gap: 0.65rem;
+    align-items: baseline;
+    margin: 0 0 0.55rem 0;
+    color: var(--wb-text);
+    font-size: 1.12rem;
+    line-height: 1.2;
+}
+.ws-watchboard-summary h4 strong {
+    color: var(--wb-red);
+    font-size: 1.45rem;
+}
+.ws-watchboard-summary .ws-beat {
+    font-size: clamp(1.25rem, 2.4vw, 1.85rem);
+    line-height: 1.25;
+    color: var(--wb-text);
+    font-weight: 780;
+    margin: 0.3rem 0 0.45rem 0;
+}
+.ws-watchboard-summary .ws-beat strong {
+    color: var(--wb-red);
+    font-size: 1.15em;
+}
+.ws-watchboard-summary p {
+    margin: 0.38rem 0 0 0;
+    color: #c3d2ec;
+    line-height: 1.62;
+    font-size: 0.95rem;
+}
+.ws-watchboard-strip {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.65rem;
+    margin-top: 0.75rem;
+}
+.ws-watchboard-mini {
+    padding: 0.75rem 0.8rem;
+    min-height: 102px;
+}
+.ws-watchboard-mini.is-active {
+    border-color: rgba(255, 63, 85, 0.58);
+    box-shadow: inset 0 0 22px rgba(255, 63, 85, 0.10);
+}
+.ws-watchboard-mini-top,
+.ws-watchboard-mini-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.55rem;
+}
+.ws-watchboard-mini-name {
+    color: var(--wb-text);
+    font-weight: 760;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ws-watchboard-mini-code {
+    color: var(--wb-muted);
+    font-size: 0.76rem;
+    white-space: nowrap;
+}
+.ws-watchboard-mini-price {
+    color: var(--wb-text);
+    font-size: 1.32rem;
+    font-weight: 800;
+    margin-top: 0.5rem;
+}
+.ws-watchboard-mini-delta {
+    color: var(--wb-red);
+    font-weight: 760;
+    white-space: nowrap;
+}
+.ws-watchboard-mini-delta.ws-negative {
+    color: var(--wb-green);
+}
+.ws-watchboard-mini-score {
+    color: #98b5ed;
+    font-size: 0.82rem;
+}
+@media (max-width: 1180px) {
+    .ws-watchboard-hero,
+    .ws-watchboard-main {
+        grid-template-columns: 1fr;
+    }
+    .ws-watchboard-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (max-width: 760px) {
+    .ws-watchboard-shell {
+        padding: 0.75rem;
+    }
+    .ws-watchboard-topbar,
+    .ws-watchboard-stats,
+    .ws-watchboard-score,
+    .ws-watchboard-footer-metrics,
+    .ws-watchboard-strip {
+        grid-template-columns: 1fr;
+    }
+    .ws-watchboard-clock,
+    .ws-watchboard-chip {
+        justify-content: flex-start;
+    }
+    .ws-watchboard-tabs {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .ws-watchboard-fullscreen {
+        min-width: 0;
+        grid-column: span 2;
+        border-top: 1px solid rgba(70, 126, 255, 0.15);
+    }
+    .ws-watchboard-price {
+        grid-template-columns: 1fr;
+    }
+    .ws-watchboard-delta {
+        text-align: left;
+    }
+}
+</style>
+"""
+
 TREND_RECO_FILE = "data/recommendations/latest_trend_recommendations.json"
 LIVE_ML_RECO_SCORING_ENABLED = os.environ.get("ETF_ENABLE_LIVE_RECO_SCORING", "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -7405,10 +7966,21 @@ def load_watchlist_enriched_data(ts_codes: tuple, security_types: tuple) -> pd.D
             ret_1d, ret_5d, ret_20d = np.nan, np.nan, np.nan
             trend_score = np.nan
             trend_label = ""
+            prob_up_5d = np.nan
+            prob_up_20d = np.nan
+            risk_score = np.nan
+            risk_level = ""
             rsi14 = np.nan
             macd_hist = np.nan
             support = np.nan
             resistance = np.nan
+            volume_ratio = np.nan
+            turnover_rate = np.nan
+            volatility20 = np.nan
+            latest_volume_wan = np.nan
+            latest_amount_yi = np.nan
+            latest_trade_date = ""
+            trend_summary = ""
             signal_label = ""
             sparkline_prices = []
             
@@ -7427,13 +7999,33 @@ def load_watchlist_enriched_data(ts_codes: tuple, security_types: tuple) -> pd.D
                             
                     if len(ts_sorted) > 0:
                         sparkline_prices = ts_sorted['close'].tail(20).tolist()
+                        latest_date_value = ts_sorted['trade_date'].iloc[-1] if 'trade_date' in ts_sorted.columns else ""
+                        parsed_latest_date = pd.to_datetime(latest_date_value, errors="coerce")
+                        if pd.notna(parsed_latest_date):
+                            latest_trade_date = parsed_latest_date.strftime("%Y-%m-%d")
+                        if "vol" in ts_sorted.columns:
+                            latest_volume_raw = _watchlist_to_float(ts_sorted["vol"].iloc[-1])
+                            if latest_volume_raw is not None:
+                                latest_volume_wan = latest_volume_raw / 10000.0
+                        if "amount" in ts_sorted.columns:
+                            latest_amount_raw = _watchlist_to_float(ts_sorted["amount"].iloc[-1])
+                            if latest_amount_raw is not None:
+                                latest_amount_yi = latest_amount_raw / 100000.0
                     
                     ret_5d = trend.get("ret_5", np.nan) * 100
                     ret_20d = trend.get("ret_20", np.nan) * 100
+                    prob_up_5d = trend.get("prob_up_5d", np.nan) * 100
+                    prob_up_20d = trend.get("prob_up_20d", np.nan) * 100
+                    risk_score = trend.get("risk_score", np.nan)
+                    risk_level = trend.get("risk_level", "")
                     rsi14 = trend.get("rsi14", np.nan)
                     macd_hist = trend.get("macd_hist", np.nan)
                     support = trend.get("support", np.nan)
                     resistance = trend.get("resistance", np.nan)
+                    volume_ratio = trend.get("volume_ratio", np.nan)
+                    turnover_rate = trend.get("turnover_rate", np.nan)
+                    volatility20 = trend.get("volatility20", np.nan)
+                    trend_summary = trend.get("summary", "")
                     
                     if pd.notna(trend_score):
                         if trend_score >= 72:
@@ -7460,12 +8052,27 @@ def load_watchlist_enriched_data(ts_codes: tuple, security_types: tuple) -> pd.D
                 "涨跌幅(%)": ret_1d,
                 "5日涨跌(%)": ret_5d,
                 "20日涨跌(%)": ret_20d,
+                "5日胜率(%)": prob_up_5d,
+                "20日胜率(%)": prob_up_20d,
                 "PE_TTM": pe_ttm,
                 "PB": pb,
                 "总市值(亿)": total_mv,
                 "ROE(%)": roe,
                 "趋势得分": trend_score,
+                "趋势状态": trend_label,
+                "风险得分": risk_score,
+                "风险等级": risk_level,
                 "RSI14": rsi14,
+                "MACD柱": macd_hist,
+                "支撑位": support,
+                "压力位": resistance,
+                "量比": volume_ratio,
+                "换手率(%)": turnover_rate,
+                "波动率20": volatility20,
+                "成交量(万手)": latest_volume_wan,
+                "成交额(亿)": latest_amount_yi,
+                "数据日期": latest_trade_date,
+                "趋势摘要": trend_summary,
                 "操作信号": signal_label,
                 "sparkline_prices": sparkline_prices,
             })
@@ -7498,6 +8105,362 @@ def generate_sparkline_svg(prices, is_up=True):
     return f'''<svg viewBox="0 0 {w} {h}" width="100%" height="30px" preserveAspectRatio="none">
         <polyline points="{points}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>'''
+
+
+def _watchlist_to_float(value, default=None):
+    try:
+        if value is None:
+            return default
+        number = float(value)
+        if pd.isna(number) or not np.isfinite(number):
+            return default
+        return number
+    except Exception:
+        return default
+
+
+def _watchlist_value_text(value, digits: int = 2, suffix: str = "", signed: bool = False) -> str:
+    number = _watchlist_to_float(value)
+    if number is None:
+        return "-"
+    sign = "+" if signed and number > 0 else ""
+    return f"{sign}{number:,.{digits}f}{suffix}"
+
+
+def _watchlist_compact_text(value, digits: int = 2, suffix: str = "") -> str:
+    number = _watchlist_to_float(value)
+    if number is None:
+        return "-"
+    abs_number = abs(number)
+    if abs_number >= 10000:
+        return f"{number / 10000:,.{digits}f}万{suffix}"
+    return f"{number:,.{digits}f}{suffix}"
+
+
+def _watchlist_html_text(value, fallback: str = "-") -> str:
+    try:
+        if value is None or pd.isna(value):
+            return escape(fallback)
+    except Exception:
+        if value is None:
+            return escape(fallback)
+    text = str(value).strip()
+    return escape(text or fallback)
+
+
+def _watchlist_score_value(value, fallback: float = 50.0) -> int:
+    number = _watchlist_to_float(value, fallback)
+    return int(round(clamp_value(number, 0, 100)))
+
+
+def _watchlist_signal_tone(ret_pct) -> tuple[str, str, str]:
+    ret_number = _watchlist_to_float(ret_pct, 0.0)
+    if ret_number < 0:
+        return "ws-negative", "▼", "#20dfb8"
+    return "", "▲", "#ff3f55"
+
+
+def build_watchlist_price_chart_svg(prices, is_up: bool = True) -> str:
+    clean_prices = [_watchlist_to_float(p) for p in prices or []]
+    clean_prices = [p for p in clean_prices if p is not None]
+    if len(clean_prices) < 2:
+        return """
+        <div class="ws-watchboard-linechart" style="display:grid;place-items:center;color:#8fa8ce;border:1px dashed rgba(70,126,255,.24);">
+            暂无足够价格序列
+        </div>
+        """
+
+    min_price = min(clean_prices)
+    max_price = max(clean_prices)
+    price_span = max(max_price - min_price, abs(max_price) * 0.004, 0.01)
+    line_color = "#ff4055" if is_up else "#20dfb8"
+
+    chart_left = 6.4
+    chart_right = 97.8
+    chart_top = 5.6
+    chart_bottom = 82.0
+    chart_w = chart_right - chart_left
+    chart_h = chart_bottom - chart_top
+    chart_aspect = 820 / 320
+
+    def _x_pct(idx: int) -> float:
+        return chart_left + idx / (len(clean_prices) - 1) * chart_w
+
+    def _y_pct(price: float) -> float:
+        return chart_bottom - ((price - min_price) / price_span * chart_h)
+
+    points = [(_x_pct(idx), _y_pct(price)) for idx, price in enumerate(clean_prices)]
+
+    grid_parts = []
+    for i in range(5):
+        y = chart_top + i * chart_h / 4
+        value = max_price - i * price_span / 4
+        grid_parts.append(
+            f'<div class="ws-watchboard-grid-h" style="--grid-top:{y:.2f}%;"></div>'
+            f'<span class="ws-watchboard-axis-label" style="--label-top:{y:.2f}%;">{value:.2f}</span>'
+        )
+    for i in range(6):
+        x = chart_left + i * chart_w / 5
+        grid_parts.append(
+            f'<div class="ws-watchboard-grid-v" style="--grid-left:{x:.2f}%;"></div>'
+        )
+
+    changes = [0.0]
+    changes.extend([clean_prices[i] - clean_prices[i - 1] for i in range(1, len(clean_prices))])
+    max_change = max([abs(v) for v in changes] or [1.0]) or 1.0
+    bar_parts = []
+    bar_width = min(2.2, max(0.4, chart_w / len(clean_prices) * 0.34))
+    for idx, change in enumerate(changes):
+        x = _x_pct(idx)
+        bar_h = 2.4 + abs(change) / max_change * 11.4
+        color = "#ff4055" if change >= 0 else "#20dfb8"
+        bar_parts.append(
+            f'<div class="ws-watchboard-volume" style="--x:{x:.2f}%;--bar-width:{bar_width:.2f}%;--bar-height:{bar_h:.2f}%;--bar-color:{color};"></div>'
+        )
+
+    segment_parts = []
+    for idx in range(1, len(points)):
+        x1, y1 = points[idx - 1]
+        x2, y2 = points[idx]
+        dx = x2 - x1
+        dy = y2 - y1
+        length = float(np.sqrt(dx * dx + (dy / chart_aspect) * (dy / chart_aspect)))
+        angle = float(np.degrees(np.arctan2(dy / chart_aspect, dx)))
+        segment_parts.append(
+            f'<div class="ws-watchboard-segment" style="--x:{x1:.2f}%;--y:{y1:.2f}%;--len:{length:.2f}%;--angle:{angle:.2f}deg;--line-color:{line_color};"></div>'
+        )
+
+    last_x, last_y = points[-1]
+    point_part = (
+        f'<div class="ws-watchboard-point" style="--x:{last_x:.2f}%;--y:{last_y:.2f}%;--line-color:{line_color};"></div>'
+    )
+    area_points = ", ".join([f"{x:.2f}% {y:.2f}%" for x, y in points])
+    area_path = f"polygon({chart_left:.2f}% {chart_bottom:.2f}%, {area_points}, {chart_right:.2f}% {chart_bottom:.2f}%)"
+    grid_html = "".join(grid_parts)
+    bars_html = "".join(bar_parts)
+    segments_html = "".join(segment_parts)
+
+    return f"""
+    <div class="ws-watchboard-linechart" style="--line-color:{line_color};--area-path:{area_path};" role="img" aria-label="价格走势">
+        {grid_html}
+        <div class="ws-watchboard-area"></div>
+        {segments_html}
+        {point_part}
+        {bars_html}
+        <span class="ws-watchboard-x-label is-start">近20日</span>
+        <span class="ws-watchboard-x-label is-end">最新</span>
+    </div>
+    """
+
+
+def build_watchlist_dimension_scores(row: pd.Series) -> list[tuple[str, int, str]]:
+    ret_1d = _watchlist_to_float(row.get("涨跌幅(%)"), 0.0)
+    trend_score = _watchlist_to_float(row.get("趋势得分"), 50.0)
+    volume_ratio = _watchlist_to_float(row.get("量比"), 1.0)
+    turnover_rate = _watchlist_to_float(row.get("换手率(%)"), 0.0)
+    pe_ttm = _watchlist_to_float(row.get("PE_TTM"))
+    pb = _watchlist_to_float(row.get("PB"))
+    roe = _watchlist_to_float(row.get("ROE(%)"), 0.0)
+    prob_up_5d = _watchlist_to_float(row.get("5日胜率(%)"))
+    alert_text = str(row.get("主力异动") or "").strip()
+
+    capital_score = 66 + ret_1d * 2.4 + (volume_ratio - 1) * 4 + min(turnover_rate, 12) * 0.8
+    technical_score = trend_score
+    basic_score = 60 + clamp_value(roe, -10, 28) * 0.85
+    if pe_ttm is not None:
+        if 0 < pe_ttm <= 35:
+            basic_score += 7
+        elif pe_ttm > 80:
+            basic_score -= 9
+    if pb is not None:
+        if 0 < pb <= 4:
+            basic_score += 4
+        elif pb > 8:
+            basic_score -= 6
+    sentiment_score = 82 if not alert_text else 64
+    model_score = prob_up_5d if prob_up_5d is not None else (trend_score * 0.72 + 18)
+
+    return [
+        ("资金面", _watchlist_score_value(capital_score), "#ff4055"),
+        ("技术面", _watchlist_score_value(technical_score), "#2f7bff"),
+        ("基本面", _watchlist_score_value(basic_score), "#49f2e0"),
+        ("消息面", _watchlist_score_value(sentiment_score), "#d66cff"),
+        ("量化模型", _watchlist_score_value(model_score), "#ff9b73"),
+    ]
+
+
+def render_watchlist_cyber_dashboard(
+    display_df: pd.DataFrame,
+    focus_row: pd.Series,
+    *,
+    current_username: str,
+    total_count: int,
+    up_count: int,
+    down_count: int,
+    avg_trend,
+) -> None:
+    st.markdown(WATCHLIST_CYBER_DASHBOARD_CSS, unsafe_allow_html=True)
+
+    name = _watchlist_html_text(focus_row.get("名称") or focus_row.get("代码"))
+    code = _watchlist_html_text(focus_row.get("代码"))
+    price = _watchlist_to_float(focus_row.get("最新价"))
+    ret_1d = _watchlist_to_float(focus_row.get("涨跌幅(%)"), 0.0)
+    tone_class, arrow, accent_color = _watchlist_signal_tone(ret_1d)
+    price_text = _watchlist_value_text(price, digits=2)
+    ret_text = _watchlist_value_text(ret_1d, digits=2, suffix="%", signed=True)
+    delta_value = None
+    if price is not None and ret_1d is not None and ret_1d > -99.0:
+        try:
+            previous_price = price / (1 + ret_1d / 100)
+            delta_value = price - previous_price
+        except Exception:
+            delta_value = None
+    delta_text = _watchlist_value_text(delta_value, digits=2, signed=True)
+
+    trend_score = _watchlist_score_value(focus_row.get("趋势得分"))
+    trend_color = "#ff4055" if trend_score >= 58 else "#20dfb8"
+    risk_score = _watchlist_score_value(focus_row.get("风险得分"), fallback=max(0, 100 - trend_score))
+    beat_pct = 0.0
+    score_series = pd.to_numeric(display_df.get("趋势得分"), errors="coerce").dropna()
+    if not score_series.empty:
+        beat_pct = float((score_series < trend_score).mean() * 100)
+
+    volume_text = _watchlist_value_text(focus_row.get("成交量(万手)"), digits=2, suffix="万手")
+    turnover_text = _watchlist_value_text(focus_row.get("换手率(%)"), digits=2, suffix="%")
+    pe_text = _watchlist_value_text(focus_row.get("PE_TTM"), digits=1)
+    mv_text = _watchlist_value_text(focus_row.get("总市值(亿)"), digits=1, suffix="亿")
+    volume_ratio_text = _watchlist_value_text(focus_row.get("量比"), digits=2)
+    support_text = _watchlist_value_text(focus_row.get("支撑位"), digits=2)
+    resistance_text = _watchlist_value_text(focus_row.get("压力位"), digits=2)
+    signal_text = _watchlist_html_text(focus_row.get("操作信号"))
+    risk_level = _watchlist_html_text(focus_row.get("风险等级"))
+    alert_text = _watchlist_html_text(focus_row.get("主力异动") or "主力异动暂无明显预警")
+    summary_raw = str(focus_row.get("趋势摘要") or "").strip()
+    if not summary_raw:
+        summary_raw = f"当前趋势信号为 {focus_row.get('操作信号') or '-'}，结合趋势得分、短线涨跌与风险项进行跟踪。"
+    if len(summary_raw) > 118:
+        summary_raw = summary_raw[:118] + "..."
+    summary_text = escape(summary_raw)
+    latest_date = _watchlist_html_text(focus_row.get("数据日期") or "最新交易日")
+
+    now = datetime.now()
+    weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    clock_text = f"{now:%Y-%m-%d} {weekday_names[now.weekday()]} {now:%H:%M:%S}"
+    user_text = _watchlist_html_text(current_username or "未登录")
+    avg_trend_text = _watchlist_value_text(avg_trend, digits=1)
+
+    dim_rows = []
+    for label, score, bar_color in build_watchlist_dimension_scores(focus_row):
+        dim_rows.append(
+            f"""
+            <div class="ws-watchboard-score-row">
+                <span>{escape(label)}</span>
+                <div class="ws-score-track"><div class="ws-score-fill" style="width:{score}%;--bar-color:{bar_color};"></div></div>
+                <strong>{score}</strong>
+            </div>
+            """
+        )
+    dim_rows_html = "".join(dim_rows)
+
+    spark_prices = focus_row.get("sparkline_prices")
+    chart_svg = build_watchlist_price_chart_svg(
+        spark_prices if isinstance(spark_prices, list) else [],
+        is_up=(ret_1d is None or ret_1d >= 0),
+    )
+
+    mini_cards = []
+    focus_code = str(focus_row.get("代码") or "").strip().upper()
+    for _, mini_row in display_df.head(4).iterrows():
+        mini_code_raw = str(mini_row.get("代码") or "").strip().upper()
+        mini_tone, mini_arrow, _ = _watchlist_signal_tone(mini_row.get("涨跌幅(%)"))
+        active_class = " is-active" if mini_code_raw == focus_code else ""
+        mini_cards.append(
+            f"""
+            <div class="ws-watchboard-panel ws-watchboard-mini{active_class}">
+                <div class="ws-watchboard-mini-top">
+                    <span class="ws-watchboard-mini-name">{_watchlist_html_text(mini_row.get("名称") or mini_code_raw)}</span>
+                    <span class="ws-watchboard-mini-code">{_watchlist_html_text(mini_code_raw)}</span>
+                </div>
+                <div class="ws-watchboard-mini-bottom">
+                    <span class="ws-watchboard-mini-price">{_watchlist_value_text(mini_row.get("最新价"), digits=2)}</span>
+                    <span class="ws-watchboard-mini-delta {mini_tone}">{mini_arrow} {_watchlist_value_text(mini_row.get("涨跌幅(%)"), digits=2, suffix="%", signed=True)}</span>
+                </div>
+                <div class="ws-watchboard-mini-score">趋势 {_watchlist_value_text(mini_row.get("趋势得分"), digits=0)} · {_watchlist_html_text(mini_row.get("操作信号"))}</div>
+            </div>
+            """
+        )
+
+    board_html = f"""
+    <div class="ws-watchboard-shell">
+        <div class="ws-watchboard-topbar">
+            <div class="ws-watchboard-title">
+                <strong>{name}</strong>
+                <span>{code} · 自选用户 {user_text}</span>
+            </div>
+            <div class="ws-watchboard-chip">AI 量化分析</div>
+            <div class="ws-watchboard-clock">{clock_text}</div>
+        </div>
+        <div class="ws-watchboard-hero">
+            <div class="ws-watchboard-panel ws-watchboard-price">
+                <div>
+                    <div class="ws-watchboard-symbol">焦点标的 · {latest_date}</div>
+                    <div class="ws-watchboard-bigprice {tone_class}">{price_text}<span class="ws-watchboard-arrow">{arrow}</span></div>
+                </div>
+                <div>
+                    <div class="ws-watchboard-delta {tone_class}">{delta_text}<br>{ret_text}</div>
+                    <div class="ws-watchboard-status">监控中</div>
+                </div>
+            </div>
+            <div class="ws-watchboard-panel ws-watchboard-stats">
+                <div class="ws-watchboard-stat"><span class="ws-watchboard-stat-icon">V</span><div><label>成交量</label><strong>{volume_text}</strong></div></div>
+                <div class="ws-watchboard-stat"><span class="ws-watchboard-stat-icon">R</span><div><label>换手率</label><strong>{turnover_text}</strong></div></div>
+                <div class="ws-watchboard-stat"><span class="ws-watchboard-stat-icon">P</span><div><label>市盈率</label><strong>{pe_text}</strong></div></div>
+                <div class="ws-watchboard-stat"><span class="ws-watchboard-stat-icon">M</span><div><label>总市值</label><strong>{mv_text}</strong></div></div>
+            </div>
+        </div>
+        <div class="ws-watchboard-main">
+            <div class="ws-watchboard-panel ws-watchboard-chart">
+                <div class="ws-watchboard-tabs">
+                    <div class="ws-watchboard-tab is-active">走势</div>
+                    <div class="ws-watchboard-tab">日K</div>
+                    <div class="ws-watchboard-tab">周K</div>
+                    <div class="ws-watchboard-tab">月K</div>
+                    <div class="ws-watchboard-fullscreen">全屏</div>
+                </div>
+                <div class="ws-watchboard-chart-body">
+                    <div class="ws-watchboard-chart-title"><span>{name}</span><span>{price_text} {arrow} {ret_text}</span></div>
+                    {chart_svg}
+                </div>
+                <div class="ws-watchboard-footer-metrics">
+                    <div class="ws-watchboard-foot"><label>自选广度</label><strong>{total_count}只 · {up_count}涨 / {down_count}跌</strong></div>
+                    <div class="ws-watchboard-foot"><label>量比</label><strong>{volume_ratio_text}</strong></div>
+                    <div class="ws-watchboard-foot"><label>支撑 / 压力</label><strong>{support_text} / {resistance_text}</strong></div>
+                    <div class="ws-watchboard-foot"><label>平均趋势</label><strong>{avg_trend_text}</strong></div>
+                </div>
+            </div>
+            <div class="ws-watchboard-side">
+                <div class="ws-watchboard-panel ws-watchboard-score">
+                    <div class="ws-score-donut" style="--score:{trend_score};--score-color:{trend_color};">
+                        <div><strong>{trend_score}</strong><span>综合评分</span></div>
+                    </div>
+                    <div class="ws-watchboard-score-bars">{dim_rows_html}</div>
+                </div>
+                <div class="ws-watchboard-panel ws-watchboard-summary">
+                    <h4><span>综合评分</span><strong>{trend_score}</strong></h4>
+                    <p>今日表现 <span style="color:{accent_color};font-weight:800;">{ret_text}</span> · 风险 {risk_score} · {risk_level}</p>
+                    <div class="ws-beat">打败了 <strong>{beat_pct:.2f}%</strong> 的自选标的</div>
+                    <p>{alert_text}</p>
+                    <p>{summary_text}</p>
+                    <p>当前信号：<span style="color:{accent_color};font-weight:800;">{signal_text}</span></p>
+                </div>
+            </div>
+        </div>
+        <div class="ws-watchboard-strip">
+            {''.join(mini_cards)}
+        </div>
+    </div>
+    """
+    st.html(board_html)
 
 
 def preload_watchlist_reports_bg(username: str, engine) -> None:
@@ -7755,8 +8718,9 @@ def render_user_watchlist_tab() -> None:
     st.markdown("### 📊 自选数据总览")
     
     if view_mode == "表格":
+        hidden_table_cols = ["ts_code", "security_type", "sparkline_prices", "趋势摘要"]
         st.dataframe(
-            display_df.drop(columns=['ts_code', 'security_type']),
+            display_df.drop(columns=hidden_table_cols, errors="ignore"),
             column_config={
                 "名称": st.column_config.TextColumn("名称", width="medium"),
                 "代码": st.column_config.TextColumn("代码", width="small"),
@@ -7764,6 +8728,8 @@ def render_user_watchlist_tab() -> None:
                 "涨跌幅(%)": st.column_config.NumberColumn("今日涨跌", format="%+.2f%%"),
                 "5日涨跌(%)": st.column_config.NumberColumn("5日涨跌", format="%+.2f%%"),
                 "20日涨跌(%)": st.column_config.NumberColumn("20日涨跌", format="%+.2f%%"),
+                "5日胜率(%)": st.column_config.NumberColumn("5日胜率", format="%.1f%%"),
+                "20日胜率(%)": st.column_config.NumberColumn("20日胜率", format="%.1f%%"),
                 "PE_TTM": st.column_config.NumberColumn("PE(TTM)", format="%.1f"),
                 "PB": st.column_config.NumberColumn("PB", format="%.2f"),
                 "总市值(亿)": st.column_config.NumberColumn("市值(亿)", format="%.0f"),
@@ -7771,7 +8737,19 @@ def render_user_watchlist_tab() -> None:
                 "趋势得分": st.column_config.ProgressColumn(
                     "趋势得分", min_value=0, max_value=100, format="%d"
                 ),
+                "趋势状态": st.column_config.TextColumn("趋势状态", width="small"),
+                "风险得分": st.column_config.ProgressColumn("风险得分", min_value=0, max_value=100, format="%d"),
+                "风险等级": st.column_config.TextColumn("风险等级", width="small"),
                 "RSI14": st.column_config.NumberColumn("RSI14", format="%.1f"),
+                "MACD柱": st.column_config.NumberColumn("MACD柱", format="%.4f"),
+                "支撑位": st.column_config.NumberColumn("支撑位", format="%.2f"),
+                "压力位": st.column_config.NumberColumn("压力位", format="%.2f"),
+                "量比": st.column_config.NumberColumn("量比", format="%.2f"),
+                "换手率(%)": st.column_config.NumberColumn("换手率", format="%.2f%%"),
+                "波动率20": st.column_config.NumberColumn("20日波动", format="%.1f%%"),
+                "成交量(万手)": st.column_config.NumberColumn("成交量(万手)", format="%.2f"),
+                "成交额(亿)": st.column_config.NumberColumn("成交额(亿)", format="%.2f"),
+                "数据日期": st.column_config.TextColumn("数据日期", width="small"),
                 "操作信号": st.column_config.TextColumn("操作信号", width="medium"),
                 "主力异动": st.column_config.TextColumn("主力出货预警", width="large"),
                 "个股研究": st.column_config.TextColumn("个股深度研究", width="large"),
@@ -7780,112 +8758,41 @@ def render_user_watchlist_tab() -> None:
             hide_index=True,
         )
     else:
-        # 看板模式
-        num_cols = 4
-        cols = st.columns(num_cols)
-        for idx, row in display_df.iterrows():
-            col = cols[idx % num_cols]
-            with col:
-                ret_1d = row['涨跌幅(%)']
-                ret_5d = row['5日涨跌(%)']
-                ret_20d = row['20日涨跌(%)']
-                trend_score = row['趋势得分']
-                
-                color_1d = 'var(--ws-color-up)' if pd.notna(ret_1d) and ret_1d > 0 else ('var(--ws-color-down)' if pd.notna(ret_1d) and ret_1d < 0 else 'var(--ws-text-main)')
-                color_5d = 'var(--ws-color-up)' if pd.notna(ret_5d) and ret_5d > 0 else ('var(--ws-color-down)' if pd.notna(ret_5d) and ret_5d < 0 else 'var(--ws-text-main)')
-                color_20d = 'var(--ws-color-up)' if pd.notna(ret_20d) and ret_20d > 0 else ('var(--ws-color-down)' if pd.notna(ret_20d) and ret_20d < 0 else 'var(--ws-text-main)')
-                
-                trend_color = 'var(--ws-color-up)' if pd.notna(trend_score) and trend_score >= 50 else 'var(--ws-color-down)'
-                trend_width = min(100, max(0, trend_score)) if pd.notna(trend_score) else 0
-                
-                str_5d = f"{ret_5d:+.2f}%" if pd.notna(ret_5d) else "-"
-                str_20d = f"{ret_20d:+.2f}%" if pd.notna(ret_20d) else "-"
-                str_mv = f"{row['总市值(亿)']:.0f}亿" if pd.notna(row['总市值(亿)']) else "-"
-                str_pe = f"{row['PE_TTM']:.1f}" if pd.notna(row['PE_TTM']) else "-"
-                str_trend = f"{trend_score:.0f}" if pd.notna(trend_score) else "-"
-                str_signal = row['操作信号'] if row['操作信号'] else "-"
-                str_price = f"{row['最新价']:.2f}" if pd.notna(row['最新价']) else "-"
-                str_1d = f"{ret_1d:+.2f}%" if pd.notna(ret_1d) else "-"
-                
-                sparkline_html = ""
-                if isinstance(row.get('sparkline_prices'), list) and len(row.get('sparkline_prices')) > 0:
-                    sparkline_html = generate_sparkline_svg(row['sparkline_prices'], is_up=(pd.notna(ret_1d) and ret_1d >= 0))
-                
-                card_html = f"""
-                <div style="
-                    border: 1px solid var(--ws-border-soft);
-                    border-radius: 12px;
-                    padding: 16px;
-                    margin-bottom: 16px;
-                    background: var(--ws-bg-surface);
-                    box-shadow: var(--ws-shadow-sm);
-                    min-height: 330px;
-                    display: flex;
-                    flex-direction: column;
-                ">
-                    <div style="flex-grow: 1;">
-                    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
-                        <span style="font-size: 16px; font-weight: 600; color: var(--ws-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['名称']}</span>
-                        <span style="font-size: 12px; color: var(--ws-text-muted);">{row['代码']}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;">
-                        <span style="font-size: 24px; font-weight: 700; color: {color_1d};">{str_price}</span>
-                        <span style="font-size: 14px; font-weight: 600; color: {color_1d};">{str_1d}</span>
-                    </div>
-                    <div style="margin-bottom: 12px; opacity: 0.85;">
-                        {sparkline_html}
-                    </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; font-size: 12px;">
-                        <div>
-                            <div style="color: var(--ws-text-muted);">5日涨跌</div>
-                            <div style="color: {color_5d}; font-weight: 500;">{str_5d}</div>
-                        </div>
-                        <div>
-                            <div style="color: var(--ws-text-muted);">20日涨跌</div>
-                            <div style="color: {color_20d}; font-weight: 500;">{str_20d}</div>
-                        </div>
-                        <div>
-                            <div style="color: var(--ws-text-muted);">市值</div>
-                            <div style="font-weight: 500; color: var(--ws-text-main);">{str_mv}</div>
-                        </div>
-                        <div>
-                            <div style="color: var(--ws-text-muted);">PE(TTM)</div>
-                            <div style="font-weight: 500; color: var(--ws-text-main);">{str_pe}</div>
-                        </div>
-                    </div>
-                    <div style="border-top: 1px solid var(--ws-border-soft); padding-top: 12px; margin-bottom: 8px;">
-                        <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
-                            <span style="color: var(--ws-text-muted);">趋势得分</span>
-                            <span style="font-weight: 600; color: var(--ws-text-main);">{str_trend}</span>
-                        </div>
-                        <div style="width: 100%; background-color: var(--ws-border-soft); border-radius: 4px; height: 6px;">
-                            <div style="width: {trend_width}%; background-color: {trend_color}; height: 100%; border-radius: 4px;"></div>
-                        </div>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
-                        <span style="color: var(--ws-text-muted);">信号</span>
-                        <span style="font-weight: 600; color: var(--ws-text-main);">{str_signal}</span>
-                    </div>
-                    </div>
-                    {f'<div style="margin-top: auto; font-size: 12px; color: #ff4b4b; font-weight: bold; padding: 6px; border: 1px solid rgba(255, 75, 75, 0.3); border-radius: 6px; background-color: rgba(255, 75, 75, 0.05); line-height: 1.4;">{row.get("主力异动")}</div>' if row.get("主力异动") else ""}
-                </div>
-                """
-                st.html(card_html)
-                
-                report_code = str(row["代码"] or "").strip().upper()
-                report_state = _build_distribution_report_state(report_code, report_status_map.get(report_code))
-                status_text = "后台等待刷新"
-                if report_state["ready"]:
-                    status_text = f"最近报告: {report_state['trade_date']}"
-                elif report_state["status"] == "running":
-                    status_text = "后台更新中"
-                elif report_state["status"] == "failed":
-                    status_text = "生成失败"
-                st.caption(status_text)
+        if display_df.empty:
+            st.info("当前筛选条件下暂无自选标的，请调整信号筛选。")
+        else:
+            focus_options = (
+                display_df["名称"].astype(str)
+                + " ("
+                + display_df["代码"].astype(str)
+                + ")"
+            ).tolist()
+            selected_focus_label = st.selectbox(
+                "焦点标的",
+                options=focus_options,
+                key="watchlist_focus_stock_select",
+            )
+            focus_idx = focus_options.index(selected_focus_label) if selected_focus_label in focus_options else 0
+            focus_row = display_df.iloc[focus_idx]
 
+            render_watchlist_cyber_dashboard(
+                display_df,
+                focus_row,
+                current_username=current_username,
+                total_count=len(enriched_df),
+                up_count=up_count,
+                down_count=down_count,
+                avg_trend=avg_trend,
+            )
+
+            report_code = str(focus_row.get("代码") or "").strip().upper()
+            action_bar_cols = st.columns([1, 1, 2])
+            with action_bar_cols[0]:
+                report_state = _build_distribution_report_state(report_code, report_status_map.get(report_code))
+                st.caption(_format_report_state_text(report_state, ready_prefix="出货分析"))
                 if st.button(
-                    "🔮 深度出货分析",
-                    key=f"btn_dist_kanban_{row['代码']}",
+                    "深度出货分析",
+                    key=f"btn_dist_cyber_{report_code}",
                     use_container_width=True,
                     disabled=not report_state["ready"],
                 ):
@@ -7894,15 +8801,15 @@ def render_user_watchlist_tab() -> None:
                         show_distribution_report_dialog(clicked_state["report_md"])
                     else:
                         st.warning("报告状态已变化，请等待后台刷新完成。")
-
+            with action_bar_cols[1]:
                 research_state = _build_stock_research_report_state(
                     report_code,
                     research_status_map.get(report_code),
                 )
                 st.caption(_format_report_state_text(research_state, ready_prefix="个股研究"))
                 if st.button(
-                    "🧠 个股深度研究",
-                    key=f"btn_research_kanban_{row['代码']}",
+                    "个股深度研究",
+                    key=f"btn_research_cyber_{report_code}",
                     use_container_width=True,
                     disabled=not research_state["ready"],
                 ):
@@ -7911,22 +8818,27 @@ def render_user_watchlist_tab() -> None:
                         show_stock_research_report_dialog(clicked_state["report_md"], clicked_state.get("report_html"))
                     else:
                         st.warning("报告状态已变化，请等待后台定时刷新完成。")
+            with action_bar_cols[2]:
+                st.caption("焦点标的可在上方切换；下方仍保留跳转详情、删除自选与研究报告入口。")
 
     # 跳转到个股详情
     st.markdown("### 🔍 跳转与管理")
     st.caption("个股深度研究报告只针对自选股票，由后台定时任务生成；页面仅展示缓存状态和已完成报告。")
     action_cols = st.columns([2, 2, 2])
     with action_cols[0]:
-        options = display_df['名称'] + " (" + display_df['代码'] + ")"
-        selected_for_detail = st.selectbox("选择跳转至详情", options=options.tolist(), key="watchlist_detail_select")
-        if st.button("查看详情", type="primary"):
-            if selected_for_detail:
-                # 提取代码
-                code = selected_for_detail.split("(")[-1].strip(")")
-                # 寻找类型
-                sec_row = display_df[display_df['代码'] == code].iloc[0]
-                queue_security_search_navigation(code, sec_row["security_type"])
-                st.rerun()
+        detail_source_df = display_df if not display_df.empty else enriched_df
+        options = detail_source_df['名称'] + " (" + detail_source_df['代码'] + ")"
+        option_list = options.tolist()
+        if option_list:
+            selected_for_detail = st.selectbox("选择跳转至详情", options=option_list, key="watchlist_detail_select")
+            if st.button("查看详情", type="primary"):
+                if selected_for_detail:
+                    code = selected_for_detail.split("(")[-1].strip(")")
+                    sec_row = detail_source_df[detail_source_df['代码'] == code].iloc[0]
+                    queue_security_search_navigation(code, sec_row["security_type"])
+                    st.rerun()
+        else:
+            st.info("暂无可跳转的自选标的。")
 
     with action_cols[1]:
         all_options = watchlist_df.apply(
@@ -7950,8 +8862,9 @@ def render_user_watchlist_tab() -> None:
                     st.warning("未删除任何记录，可能已被移除。")
 
     with action_cols[2]:
-        stock_display_df = display_df[
-            display_df["security_type"].astype(str).str.lower().eq("stock")
+        research_source_df = display_df if not display_df.empty else enriched_df
+        stock_display_df = research_source_df[
+            research_source_df["security_type"].astype(str).str.lower().eq("stock")
         ].copy()
         if stock_display_df.empty:
             st.info("当前自选中没有股票，暂无个股深度研究报告。")
