@@ -12,7 +12,7 @@ class StockResearchLLMAnalysisTests(unittest.TestCase):
             configured=True,
             base_url="https://api.deepseek.com",
             api_key="sk-test",
-            model="deepseek-v4-pro",
+            model="deepseek-v4-flash",
             timeout_seconds=30,
             temperature=0.2,
             max_tokens=1200,
@@ -41,7 +41,7 @@ class StockResearchLLMAnalysisTests(unittest.TestCase):
         self.assertEqual(request_payload["thinking"], {"type": "disabled"})
         self.assertIn("JSON 输出样例", request_payload["messages"][0]["content"])
         self.assertEqual(result["verdict"], "观察")
-        self.assertEqual(result["model"], "deepseek-v4-pro")
+        self.assertEqual(result["model"], "deepseek-v4-flash")
 
     def test_normalize_stock_research_result_maps_v4_pro_aliases(self):
         normalized = normalize_stock_research_llm_result(

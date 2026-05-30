@@ -35,7 +35,7 @@
 
 - `44c0088 feat: add watchlist stock research reports`
 - `22f4a23 fix: avoid unexpected kwargs when generating stock research bundle`
-- `ec4f112 chore: switch DeepSeek model defaults to deepseek-v4-pro`
+- `ec4f112 chore: switch DeepSeek model defaults to deepseek-v4-flash`
 
 ## 第二阶段第一刀：可视化 HTML 报告
 
@@ -67,13 +67,13 @@ HTML 报告包含：
 
 ## DeepSeek 模型配置调整
 
-曾短暂使用 `deepseek-chat` 作为默认模型；后续根据项目判断，统一改回 `deepseek-v4-pro`。
+曾短暂使用 `deepseek-chat` 作为默认模型；后续根据项目判断，统一改为 `deepseek-v4-flash`。
 
 当前约定：
 
 ```bash
-DISTRIBUTION_LLM_MODEL=deepseek-v4-pro
-STOCK_RESEARCH_LLM_MODEL=deepseek-v4-pro
+DISTRIBUTION_LLM_MODEL=deepseek-v4-flash
+STOCK_RESEARCH_LLM_MODEL=deepseek-v4-flash
 ```
 
 配置位置：
@@ -167,7 +167,7 @@ VPS 验证：
 - `etf-streamlit` 服务状态：`active`
 - 远端编译检查通过
 - 远端配置读取确认：
-  - `stock_research_model=deepseek-v4-pro`
+  - `stock_research_model=deepseek-v4-flash`
   - `akshare_enabled=True`
 - 远端无 `pytest`，用 `unittest` 跑新增测试通过
 
