@@ -181,6 +181,7 @@ from src.stock_research_report_store import (
     get_report_statuses as get_stock_research_report_statuses,
 )
 from src.watchlist_distribution_refresh import refresh_watchlist_distribution_reports
+from src.watchlist_stock_research_refresh import refresh_watchlist_stock_research_reports
 
 try:
     from src.security_trend_model import (
@@ -8987,6 +8988,46 @@ def preload_watchlist_reports_bg(username: str, engine) -> None:
     t.start()
 
 
+def trigger_single_stock_research_refresh_bg(username: str, ts_code: str, engine) -> None:
+    """在后台静默触发单只自选股票的深度研究报告刷新。"""
+    import threading
+
+    normalized_username = normalize_username(username)
+    normalized_code = str(ts_code or "").strip().upper()
+    if not normalized_username or not normalized_code or engine is None:
+        return
+
+    def _worker():
+        try:
+            logger.info(
+                "Started single-stock stock research refresh after add-watchlist for %s / %s",
+                normalized_username,
+                normalized_code,
+            )
+            summary = refresh_watchlist_stock_research_reports(
+                engine,
+                username=normalized_username,
+                only_code=normalized_code,
+                force=False,
+            )
+            logger.info(
+                "Finished single-stock stock research refresh after add-watchlist for %s / %s: %s",
+                normalized_username,
+                normalized_code,
+                summary,
+            )
+        except Exception as e:
+            logger.error(
+                "Single-stock stock research refresh crashed for %s / %s: %s",
+                normalized_username,
+                normalized_code,
+                e,
+            )
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+
+
 @st.dialog("📄 主力出货深度分析报告", width="large")
 def show_distribution_report_dialog(report_md: str):
     st.markdown(report_md)
@@ -9611,6 +9652,14 @@ def render_security_search_tab():
                         security_name=title_name,
                         security_type=selected_type,
                     )
+                    if selected_type == 'stock':
+                        try:
+                            report_engine = get_security_intraday_engine_cached()
+                            trigger_single_stock_research_refresh_bg(current_username, selected_code, report_engine)
+                        except Exception as trigger_refresh_exc:
+                            logger.warning(
+                                f"Failed to trigger stock research refresh for {current_username}/{selected_code}: {trigger_refresh_exc}"
+                            )
                     st.success(f"已将 {title_name} 加入 {current_username} 的自选")
                     st.rerun()
                 except Exception as add_watchlist_exc:
