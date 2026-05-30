@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from html import escape
 from typing import Any
 
@@ -97,6 +98,152 @@ def _financial_history_rows(fact_pack: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(item, dict):
             rows.append(item)
     return rows[-8:]
+
+
+def _to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except Exception:
+        text = str(value or "").strip().replace(",", "")
+        match = re.search(r"-?\d+(?:\.\d+)?", text)
+        if not match:
+            return None
+        try:
+            parsed = float(match.group(0))
+        except Exception:
+            return None
+    return parsed
+
+
+def _first_float(item: dict[str, Any], aliases: list[str]) -> float | None:
+    for alias in aliases:
+        parsed = _to_float(item.get(alias))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _business_pie_rows(supplemental: dict[str, Any], profile: dict[str, Any]) -> list[dict[str, Any]]:
+    block = _supplemental_block(supplemental, "business_composition")
+    items = [item for item in (block.get("items") or []) if isinstance(item, dict)]
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        name = _item_value(item, ["主营构成", "项目名称", "产品名称", "业务名称", "分类", "报告期"], "")
+        if not name or name in seen:
+            continue
+        value = _first_float(item, ["主营收入", "营业收入", "收入", "金额"])
+        ratio = _first_float(item, ["收入比例", "主营收入占比", "营业收入比例", "占比"])
+        if value is None and ratio is None:
+            value = 1.0
+        rows.append(
+            {
+                "name": name[:18],
+                "value": value if value is not None else ratio,
+                "ratio": ratio,
+            }
+        )
+        seen.add(name)
+        if len(rows) >= 6:
+            break
+
+    if rows:
+        return rows
+
+    business_text = _raw_text(profile.get("main_business") or profile.get("business_scope"), "")
+    fallback = [
+        part.strip()
+        for part in re.split(r"[、，,；;。/]+", business_text)
+        if part.strip()
+    ][:4]
+    return [{"name": part[:18], "value": 1.0, "ratio": None} for part in fallback]
+
+
+def _score_color(score: int) -> str:
+    if score >= 70:
+        return "var(--gold)"
+    if score >= 40:
+        return "var(--orange-warn)"
+    return "var(--red-up)"
+
+
+def _render_score_bars(rows: list[tuple[str, Any, str]]) -> str:
+    html_rows: list[str] = []
+    for label, raw_score, hint in rows:
+        score = max(0, min(100, int(round(_to_float(raw_score) or 0))))
+        html_rows.append(
+            '<div class="score-bar">'
+            f'<span class="score-label">{escape(label)}</span>'
+            '<div class="score-track">'
+            f'<div class="score-fill" style="width:{score}%;background:{_score_color(score)};"></div>'
+            "</div>"
+            f'<span class="score-num">{score}</span>'
+            f'<small>{escape(hint)}</small>'
+            "</div>"
+        )
+    return "".join(html_rows)
+
+
+def _quality_score_rows(
+    quality_score: dict[str, Any],
+    confidence: Any,
+    quality: dict[str, Any],
+    supplemental: dict[str, Any],
+) -> list[tuple[str, Any, str]]:
+    kline_rows = int(_to_float(quality.get("kline_rows")) or 0)
+    financial_rows = int(_to_float(quality.get("financial_rows")) or 0)
+    statuses = [
+        str((block or {}).get("status") or "missing")
+        for block in supplemental.values()
+        if isinstance(block, dict)
+    ]
+    ok_count = sum(1 for status in statuses if status == "ok")
+    supplemental_score = round(ok_count / max(len(statuses), 1) * 100) if statuses else 0
+    return [
+        ("公司质地", quality_score.get("score"), _raw_text(quality_score.get("grade"), "-")),
+        ("结论置信", confidence, "LLM 输出"),
+        ("行情覆盖", min(100, round(kline_rows / 120 * 100)), f"{kline_rows} 行"),
+        ("财务覆盖", min(100, round(financial_rows / 8 * 100)), f"{financial_rows} 行"),
+        ("证据覆盖", supplemental_score, f"{ok_count}/{max(len(statuses), 1)} 块"),
+    ]
+
+
+def _render_industry_chain_svg(
+    stock_name: str,
+    profile: dict[str, Any],
+    business_rows: list[dict[str, Any]],
+) -> str:
+    industry = _raw_text(profile.get("industry"), "行业链条")
+    business = " / ".join(row.get("name", "") for row in business_rows[:3] if row.get("name"))
+    if not business:
+        business = _raw_text(profile.get("main_business") or profile.get("business_scope"), "核心业务")
+    business = business[:28]
+    downstream = "客户与应用场景"
+    return f"""
+        <div class="chain-svg">
+          <svg viewBox="0 0 860 220" role="img" aria-label="产业链示意图">
+            <defs>
+              <marker id="arrow-chain" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                <path d="M0,0 L9,3 L0,6 Z" fill="var(--gold)"></path>
+              </marker>
+            </defs>
+            <rect x="30" y="68" width="190" height="86" rx="10" class="svg-box"></rect>
+            <text x="125" y="102" text-anchor="middle" class="svg-hdr">{escape(industry[:14])}</text>
+            <text x="125" y="128" text-anchor="middle" class="svg-sub">供给、原料与政策环境</text>
+            <line x1="220" y1="111" x2="318" y2="111" class="svg-line" marker-end="url(#arrow-chain)"></line>
+            <rect x="320" y="48" width="220" height="126" rx="12" class="svg-box core"></rect>
+            <text x="430" y="88" text-anchor="middle" class="svg-hdr">{escape(stock_name[:16])}</text>
+            <text x="430" y="116" text-anchor="middle" class="svg-sub">{escape(business)}</text>
+            <text x="430" y="142" text-anchor="middle" class="svg-sub">盈利质量与业绩弹性验证</text>
+            <line x1="540" y1="111" x2="638" y2="111" class="svg-line" marker-end="url(#arrow-chain)"></line>
+            <rect x="640" y="68" width="190" height="86" rx="10" class="svg-box"></rect>
+            <text x="735" y="102" text-anchor="middle" class="svg-hdr">{escape(downstream)}</text>
+            <text x="735" y="128" text-anchor="middle" class="svg-sub">订单、价格与需求兑现</text>
+          </svg>
+        </div>
+    """
 
 
 def _render_step_grid(llm_result: dict[str, Any]) -> str:
@@ -277,10 +424,21 @@ def render_stock_research_html(
     confidence = normalized_llm.get("confidence")
     quality_score = normalized_llm.get("quality_score") or {}
     chart_rows = _price_chart_rows(fact_pack)
-    financial_rows = _financial_history_rows(fact_pack)
     chart_data_json = _json_script(chart_rows)
-    financial_data_json = _json_script(financial_rows)
+    business_rows = _business_pie_rows(supplemental if isinstance(supplemental, dict) else {}, profile)
+    business_pie_json = _json_script(
+        [{"name": row.get("name"), "value": row.get("value") or 1, "ratio": row.get("ratio")} for row in business_rows]
+    )
     supplemental_grid = _render_supplemental_grid(supplemental if isinstance(supplemental, dict) else {})
+    score_bars = _render_score_bars(
+        _quality_score_rows(
+            quality_score,
+            confidence,
+            quality,
+            supplemental if isinstance(supplemental, dict) else {},
+        )
+    )
+    industry_chain_svg = _render_industry_chain_svg(stock_name, profile, business_rows)
 
     metric_cards = "".join(
         [
@@ -336,8 +494,11 @@ def render_stock_research_html(
     investment_thesis = _raw_text(normalized_llm.get("investment_thesis"), "暂无核心投资命题")
     valuation_view = _raw_text(normalized_llm.get("valuation_view"), "暂无估值分析")
     timing_view = _raw_text(normalized_llm.get("timing_view"), "暂无位置与节奏分析")
+    risk_class = "risk-high" if risk_level == "高" else "risk-low" if risk_level == "低" else "risk-mid"
+    drivers = (quality_score.get("drivers") if isinstance(quality_score, dict) else []) or []
+    weaknesses = (quality_score.get("weaknesses") if isinstance(quality_score, dict) else []) or []
     report_md_block = (
-        f"<details><summary>查看 Markdown 原文</summary><pre>{escape(report_md)}</pre></details>"
+        f'<section class="card" id="markdown-source"><details><summary>查看 Markdown 原文</summary><pre>{escape(report_md)}</pre></details></section>'
         if report_md
         else ""
     )
@@ -351,20 +512,48 @@ def render_stock_research_html(
   {STOCK_RESEARCH_HTML_MARKER}
   <style>
     :root {{
-      --bg: #f7f8fb;
+      --bg: #0c0f15;
+      --surface: #171b24;
+      --surface-2: #202633;
+      --ink: #eef2f7;
+      --muted: #9aa6b2;
+      --border: #303848;
+      --accent: #d4a853;
+      --gold: #d4a853;
+      --accent-soft: rgba(212, 168, 83, 0.16);
+      --red-up: #f55656;
+      --green-down: #28c75b;
+      --blue-accent: #4a90d9;
+      --orange-warn: #e8923a;
+      --warn: #e8923a;
+      --warn-soft: rgba(232, 146, 58, 0.16);
+      --risk: #f55656;
+      --risk-soft: rgba(245, 86, 86, 0.16);
+      --ok: #28c75b;
+      --ok-soft: rgba(40, 199, 91, 0.14);
+      --shadow: 0 16px 42px rgba(0, 0, 0, 0.26);
+    }}
+    body.light-mode {{
+      --bg: #f7f3ec;
       --surface: #ffffff;
-      --surface-2: #f2f6f8;
+      --surface-2: #f3f6f8;
       --ink: #17202a;
-      --muted: #6c7680;
-      --border: #dde4ea;
-      --accent: #126e82;
-      --accent-soft: #e1f2f4;
-      --warn: #a86800;
+      --muted: #667482;
+      --border: #dbe2e8;
+      --accent: #b38a3c;
+      --gold: #b38a3c;
+      --accent-soft: #fff3d8;
+      --red-up: #dc2626;
+      --green-down: #16a34a;
+      --blue-accent: #2563eb;
+      --orange-warn: #c2410c;
+      --warn: #c2410c;
       --warn-soft: #fff3d8;
       --risk: #b8324b;
       --risk-soft: #ffe5ea;
       --ok: #247a4d;
       --ok-soft: #e5f4eb;
+      --shadow: 0 14px 38px rgba(31, 41, 55, 0.08);
     }}
     * {{ box-sizing: border-box; }}
     body {{
@@ -374,22 +563,59 @@ def render_stock_research_html(
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
       line-height: 1.6;
     }}
-    .report {{ max-width: 1180px; margin: 0 auto; padding: 28px 20px 42px; }}
+    .top-nav {{
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 10px 22px;
+      background: rgba(12, 15, 21, 0.92);
+      border-bottom: 2px solid var(--accent);
+      backdrop-filter: blur(12px);
+    }}
+    body.light-mode .top-nav {{ background: rgba(255, 255, 255, 0.92); }}
+    .brand {{ display: flex; flex-direction: column; gap: 2px; min-width: 160px; }}
+    .brand strong {{ font-size: 16px; }}
+    .brand span {{ color: var(--muted); font-size: 12px; font-family: Consolas, monospace; }}
+    .nav-links {{ display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }}
+    .nav-links a, .theme-toggle {{
+      color: var(--accent);
+      text-decoration: none;
+      border: 1px solid transparent;
+      background: rgba(255,255,255,0.04);
+      border-radius: 16px;
+      padding: 5px 11px;
+      font-size: 12px;
+      cursor: pointer;
+    }}
+    .nav-links a.active, .nav-links a:hover, .theme-toggle:hover {{
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--ink);
+    }}
+    .report {{ max-width: 1260px; margin: 0 auto; padding: 24px 20px 42px; }}
     .hero {{
-      background: var(--surface);
-      border: 1px solid var(--border);
+      background:
+        radial-gradient(circle at 86% 12%, rgba(212, 168, 83, .16), transparent 30%),
+        linear-gradient(105deg, #251515 0%, #171b24 58%, #101722 100%);
+      border: 1px solid var(--accent);
       border-radius: 10px;
-      padding: 24px;
+      padding: 26px;
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 20px;
+      box-shadow: var(--shadow);
     }}
+    body.light-mode .hero {{ background: linear-gradient(105deg, #fff9f0 0%, #ffffff 72%); }}
     .eyebrow {{ color: var(--muted); font-size: 13px; margin: 0 0 6px; }}
-    h1 {{ font-size: 28px; line-height: 1.25; margin: 0 0 12px; letter-spacing: 0; }}
+    h1 {{ font-size: 30px; line-height: 1.25; margin: 0 0 12px; letter-spacing: 0; }}
     h2 {{ font-size: 19px; margin: 0 0 14px; letter-spacing: 0; }}
     h3 {{ font-size: 15px; margin: 0 0 8px; letter-spacing: 0; }}
     p {{ margin: 0; }}
-    .summary {{ max-width: 760px; color: #2c3a43; }}
+    .summary {{ max-width: 760px; color: var(--ink); }}
     .badge-row {{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }}
     .badge {{
       display: inline-flex;
@@ -414,6 +640,17 @@ def render_stock_research_html(
       border: 1px solid var(--border);
     }}
     .score-panel strong {{ display: block; font-size: 34px; line-height: 1; margin: 6px 0; }}
+    .conclusion-top {{
+      margin: 18px 0;
+      padding: 18px 20px;
+      background: var(--surface);
+      border: 1px solid var(--accent);
+      border-left: 4px solid var(--accent);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+    }}
+    .conclusion-top .big-verdict {{ color: var(--accent); font-size: 20px; font-weight: 800; margin-bottom: 8px; }}
+    .conclusion-top .verdict-detail {{ color: var(--ink); }}
     .metric-grid {{
       display: grid;
       grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -426,6 +663,7 @@ def render_stock_research_html(
       border-radius: 8px;
       padding: 14px;
       min-height: 96px;
+      box-shadow: var(--shadow);
     }}
     .metric-label, .metric-card small, .muted {{ color: var(--muted); }}
     .metric-label {{ display: block; font-size: 12px; margin-bottom: 6px; }}
@@ -438,8 +676,11 @@ def render_stock_research_html(
       border-radius: 10px;
       padding: 18px;
       margin-top: 16px;
+      box-shadow: var(--shadow);
     }}
-    .chart {{ height: 360px; width: 100%; }}
+    .card {{ background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-top: 16px; box-shadow: var(--shadow); }}
+    .chart {{ height: 340px; width: 100%; }}
+    .chart.kline {{ height: 460px; }}
     .chart-fallback {{
       height: 100%;
       display: grid;
@@ -454,8 +695,11 @@ def render_stock_research_html(
     td {{ color: var(--ink); }}
     ul {{ margin: 0; padding-left: 18px; }}
     li + li {{ margin-top: 6px; }}
+    .compact-list {{ display: grid; gap: 10px; }}
+    .compact-list h3 {{ color: var(--accent); margin-top: 8px; }}
     .step-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }}
     .step-card {{ border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: #fbfcfd; }}
+    body:not(.light-mode) .step-card, body:not(.light-mode) .evidence-card {{ background: var(--surface-2); }}
     .step-card span {{ color: var(--accent); font-size: 12px; font-weight: 700; }}
     .evidence-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }}
     .evidence-card {{ border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: #fbfcfd; }}
@@ -470,6 +714,19 @@ def render_stock_research_html(
     }}
     .evidence-card li strong {{ display: block; font-size: 13px; }}
     .evidence-card li small {{ display: block; color: var(--muted); font-size: 12px; }}
+    .score-bar {{ display: grid; grid-template-columns: 88px minmax(120px, 1fr) 44px minmax(78px, auto); align-items: center; gap: 8px; margin: 8px 0; }}
+    .score-label {{ color: var(--muted); font-size: 12px; text-align: right; }}
+    .score-track {{ height: 9px; background: var(--surface-2); border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }}
+    .score-fill {{ height: 100%; border-radius: 8px; }}
+    .score-num {{ font-weight: 800; color: var(--ink); text-align: center; font-family: Consolas, monospace; }}
+    .score-bar small {{ color: var(--muted); font-size: 11px; }}
+    .chain-svg {{ background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow: hidden; }}
+    .chain-svg svg {{ width: 100%; height: auto; display: block; }}
+    .svg-box {{ fill: var(--surface); stroke: var(--border); stroke-width: 2; }}
+    .svg-box.core {{ stroke: var(--accent); }}
+    .svg-line {{ stroke: var(--accent); stroke-width: 2.5; }}
+    .svg-hdr {{ fill: var(--ink); font-size: 15px; font-weight: 800; }}
+    .svg-sub {{ fill: var(--muted); font-size: 12px; }}
     .footer {{ color: var(--muted); font-size: 12px; margin-top: 18px; }}
     details {{ margin-top: 16px; }}
     summary {{ cursor: pointer; color: var(--accent); font-weight: 700; }}
@@ -482,23 +739,45 @@ def render_stock_research_html(
       overflow: auto;
     }}
     @media (max-width: 980px) {{
+      .top-nav {{ position: static; align-items: flex-start; flex-direction: column; }}
+      .nav-links {{ justify-content: flex-start; }}
       .hero, .grid-2, .grid-3 {{ grid-template-columns: 1fr; }}
       .metric-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .step-grid, .evidence-grid {{ grid-template-columns: 1fr; }}
       .score-panel {{ min-width: 0; }}
+      .score-bar {{ grid-template-columns: 82px 1fr 40px; }}
+      .score-bar small {{ grid-column: 2 / 4; }}
     }}
   </style>
 </head>
 <body>
+  <nav class="top-nav">
+    <div class="brand">
+      <strong>{_text(stock_name)}</strong>
+      <span>{_text(ts_code)} · {_text(asof_trade_date)}</span>
+    </div>
+    <div class="nav-links">
+      <a href="#hero">行情</a>
+      <a href="#conclusion-top">结论</a>
+      <a href="#profile">画像</a>
+      <a href="#kline-section">K线</a>
+      <a href="#business-section">业务</a>
+      <a href="#chain-section">产业链</a>
+      <a href="#evidence-section">证据</a>
+      <a href="#step-framework">框架</a>
+      <a href="#data-quality">质量</a>
+      <button class="theme-toggle" id="themeToggle" type="button">浅色模式</button>
+    </div>
+  </nav>
   <main class="report">
-    <section class="hero">
+    <section class="hero" id="hero">
       <div>
         <p class="eyebrow">自选股深度研究 · 数据日期 {_text(asof_trade_date)}</p>
         <h1>{_text(stock_name)}（{_text(ts_code)}）</h1>
         <p class="summary">{escape(summary)}</p>
         <div class="badge-row">
           <span class="badge verdict">综合判断：{escape(verdict)}</span>
-          <span class="badge {'risk-high' if risk_level == '高' else 'risk-low' if risk_level == '低' else 'risk-mid'}">风险：{escape(risk_level)}</span>
+          <span class="badge {risk_class}">风险：{escape(risk_level)}</span>
           <span class="badge">置信度：{_int_num(confidence)}/100</span>
           <span class="badge">模型版本：{escape(STOCK_RESEARCH_LLM_SCHEMA_VERSION)}</span>
         </div>
@@ -510,14 +789,19 @@ def render_stock_research_html(
       </aside>
     </section>
 
+    <section class="conclusion-top" id="conclusion-top">
+      <div class="big-verdict">核心结论：{escape(verdict)} · 风险{escape(risk_level)}</div>
+      <p class="verdict-detail">{escape(investment_thesis)}</p>
+    </section>
+
     <section class="metric-grid">{metric_cards}</section>
 
     <section class="grid-2">
-      <article class="section">
+      <article class="section" id="kline-section">
         <h2>K 线走势</h2>
-        <div id="kline-chart" class="chart"><div class="chart-fallback">等待图表数据</div></div>
+        <div id="kline-chart" class="chart kline"><div class="chart-fallback">等待图表数据</div></div>
       </article>
-      <article class="section">
+      <article class="section" id="profile">
         <h2>公司与估值快照</h2>
         <table>{profile_rows}{valuation_rows}</table>
       </article>
@@ -538,6 +822,32 @@ def render_stock_research_html(
       </article>
     </section>
 
+    <section class="grid-2">
+      <article class="section" id="business-section">
+        <h2>主营业务构成</h2>
+        <div id="business-pie-chart" class="chart"><div class="chart-fallback">等待主营数据</div></div>
+      </article>
+      <article class="section">
+        <h2>研究评分</h2>
+        {score_bars}
+        <div class="grid-2" style="margin-top:14px;">
+          <div class="compact-list">
+            <h3>质地加分项</h3>
+            <ul>{_list_items(drivers)}</ul>
+          </div>
+          <div class="compact-list">
+            <h3>质地扣分项</h3>
+            <ul>{_list_items(weaknesses)}</ul>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="section" id="chain-section">
+      <h2>产业链与业务弹性</h2>
+      {industry_chain_svg}
+    </section>
+
     <section class="grid-3">
       <article class="section">
         <h2>关键证据</h2>
@@ -553,17 +863,17 @@ def render_stock_research_html(
       </article>
     </section>
 
-    <section class="section">
+    <section class="section" id="evidence-section">
       <h2>补充证据层</h2>
       <div class="evidence-grid">{supplemental_grid}</div>
     </section>
 
     <section class="grid-2">
-      <article class="section">
+      <article class="section" id="step-framework">
         <h2>Step 0-8 分析框架</h2>
         <div class="step-grid">{_render_step_grid(normalized_llm)}</div>
       </article>
-      <article class="section">
+      <article class="section" id="data-quality">
         <h2>财务与数据质量</h2>
         <table>{financial_rows_html}{data_quality_rows}</table>
         <p class="footer">报告生成时间：{_text(generated_at)}。本报告仅供研究跟踪使用，不构成投资建议。</p>
@@ -575,35 +885,126 @@ def render_stock_research_html(
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <script>
     const klineRows = {chart_data_json};
-    const financialRows = {financial_data_json};
-    void financialRows;
-    const chartEl = document.getElementById("kline-chart");
-    if (chartEl && window.echarts && Array.isArray(klineRows) && klineRows.length > 0) {{
+    const businessPieRows = {business_pie_json};
+    const themeToggle = document.getElementById("themeToggle");
+    const getCss = name => getComputedStyle(document.body).getPropertyValue(name).trim();
+    const calcMA = (values, days) => values.map((_, idx) => {{
+      if (idx < days - 1) return null;
+      const slice = values.slice(idx - days + 1, idx + 1).filter(value => typeof value === "number");
+      if (slice.length < days) return null;
+      return +(slice.reduce((sum, value) => sum + value, 0) / days).toFixed(2);
+    }});
+
+    let klineChart = null;
+    let pieChart = null;
+
+    function renderKlineChart() {{
+      const chartEl = document.getElementById("kline-chart");
+      if (!chartEl) return;
+      if (!window.echarts || !Array.isArray(klineRows) || klineRows.length === 0) {{
+        chartEl.innerHTML = '<div class="chart-fallback">暂无可渲染的 K 线数据</div>';
+        return;
+      }}
       chartEl.innerHTML = "";
-      const chart = window.echarts.init(chartEl, null, {{ renderer: "canvas" }});
-      chart.setOption({{
+      if (klineChart) klineChart.dispose();
+      klineChart = window.echarts.init(chartEl, null, {{ renderer: "canvas" }});
+      const dates = klineRows.map(row => row.date);
+      const ohlc = klineRows.map(row => row.ohlc);
+      const closes = ohlc.map(row => row[1]);
+      const volumes = klineRows.map((row, idx) => ({{
+        value: Number(row.volume || 0),
+        itemStyle: {{ color: ohlc[idx][1] >= ohlc[idx][0] ? "rgba(245,86,86,.42)" : "rgba(40,199,91,.42)" }}
+      }}));
+      klineChart.setOption({{
         animation: false,
-        tooltip: {{ trigger: "axis" }},
-        grid: {{ left: 48, right: 18, top: 24, bottom: 42 }},
-        xAxis: {{ type: "category", data: klineRows.map(row => row.date), boundaryGap: true }},
-        yAxis: {{ scale: true, splitLine: {{ lineStyle: {{ color: "#edf1f4" }} }} }},
-        dataZoom: [{{ type: "inside" }}, {{ type: "slider", height: 18, bottom: 10 }}],
+        tooltip: {{ trigger: "axis", axisPointer: {{ type: "cross" }} }},
+        legend: {{ data: ["K线", "MA5", "MA20", "MA60", "成交量"], top: 0, textStyle: {{ color: getCss("--muted") }} }},
+        grid: [
+          {{ left: 52, right: 22, top: 42, height: "56%" }},
+          {{ left: 52, right: 22, top: "76%", height: "13%" }}
+        ],
+        xAxis: [
+          {{ type: "category", data: dates, boundaryGap: true, axisLabel: {{ color: getCss("--muted") }} }},
+          {{ type: "category", data: dates, gridIndex: 1, show: false }}
+        ],
+        yAxis: [
+          {{ scale: true, axisLabel: {{ color: getCss("--muted") }}, splitLine: {{ lineStyle: {{ color: getCss("--border") }} }} }},
+          {{ scale: true, gridIndex: 1, axisLabel: {{ color: getCss("--muted") }}, splitLine: {{ show: false }} }}
+        ],
+        dataZoom: [{{ type: "inside", xAxisIndex: [0, 1] }}, {{ type: "slider", xAxisIndex: [0, 1], height: 18, bottom: 8 }}],
+        series: [
+          {{
+            name: "K线",
+            type: "candlestick",
+            data: ohlc,
+            xAxisIndex: 0,
+            yAxisIndex: 0,
+            itemStyle: {{ color: getCss("--red-up"), color0: getCss("--green-down"), borderColor: getCss("--red-up"), borderColor0: getCss("--green-down") }}
+          }},
+          {{ name: "MA5", type: "line", data: calcMA(closes, 5), smooth: true, showSymbol: false, lineStyle: {{ width: 1.4, color: getCss("--blue-accent") }} }},
+          {{ name: "MA20", type: "line", data: calcMA(closes, 20), smooth: true, showSymbol: false, lineStyle: {{ width: 1.4, color: getCss("--green-down") }} }},
+          {{ name: "MA60", type: "line", data: calcMA(closes, 60), smooth: true, showSymbol: false, lineStyle: {{ width: 1.4, color: getCss("--orange-warn") }} }},
+          {{ name: "成交量", type: "bar", data: volumes, xAxisIndex: 1, yAxisIndex: 1 }}
+        ]
+      }});
+    }}
+
+    function renderBusinessPieChart() {{
+      const chartEl = document.getElementById("business-pie-chart");
+      if (!chartEl) return;
+      if (!window.echarts || !Array.isArray(businessPieRows) || businessPieRows.length === 0) {{
+        chartEl.innerHTML = '<div class="chart-fallback">暂无可渲染的主营构成数据</div>';
+        return;
+      }}
+      chartEl.innerHTML = "";
+      if (pieChart) pieChart.dispose();
+      pieChart = window.echarts.init(chartEl, null, {{ renderer: "canvas" }});
+      pieChart.setOption({{
+        animation: false,
+        tooltip: {{ trigger: "item", formatter: "{{b}}: {{d}}%" }},
+        legend: {{ bottom: 0, textStyle: {{ color: getCss("--muted") }} }},
         series: [{{
-          name: "K线",
-          type: "candlestick",
-          data: klineRows.map(row => row.ohlc),
-          itemStyle: {{
-            color: "#c3423f",
-            color0: "#247a4d",
-            borderColor: "#c3423f",
-            borderColor0: "#247a4d"
-          }}
+          type: "pie",
+          radius: ["42%", "68%"],
+          center: ["50%", "45%"],
+          data: businessPieRows,
+          label: {{ color: getCss("--muted"), fontSize: 11 }},
+          color: [getCss("--red-up"), getCss("--accent"), getCss("--orange-warn"), getCss("--blue-accent"), getCss("--green-down")]
         }}]
       }});
-      window.addEventListener("resize", () => chart.resize());
-    }} else if (chartEl) {{
-      chartEl.innerHTML = '<div class="chart-fallback">暂无可渲染的 K 线数据</div>';
     }}
+
+    function renderCharts() {{
+      renderKlineChart();
+      renderBusinessPieChart();
+    }}
+
+    themeToggle && themeToggle.addEventListener("click", () => {{
+      document.body.classList.toggle("light-mode");
+      themeToggle.textContent = document.body.classList.contains("light-mode") ? "深色模式" : "浅色模式";
+      renderCharts();
+    }});
+
+    const navLinks = Array.from(document.querySelectorAll(".nav-links a"));
+    navLinks.forEach(link => {{
+      link.addEventListener("click", event => {{
+        event.preventDefault();
+        const target = document.querySelector(link.getAttribute("href"));
+        if (target) target.scrollIntoView({{ behavior: "smooth", block: "start" }});
+      }});
+    }});
+    window.addEventListener("scroll", () => {{
+      let current = "";
+      document.querySelectorAll("[id]").forEach(section => {{
+        if (window.scrollY >= section.offsetTop - 120) current = section.id;
+      }});
+      navLinks.forEach(link => link.classList.toggle("active", link.getAttribute("href") === "#" + current));
+    }});
+    window.addEventListener("resize", () => {{
+      klineChart && klineChart.resize();
+      pieChart && pieChart.resize();
+    }});
+    renderCharts();
   </script>
 </body>
 </html>"""

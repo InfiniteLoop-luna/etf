@@ -31,6 +31,23 @@ from src.watchlist_distribution_refresh import (
 WATCHLIST_STOCK_RESEARCH_LOCK_NAME = "watchlist_stock_research_refresh"
 
 
+def _normalize_requested_ts_code(ts_code: str | None) -> str:
+    code = str(ts_code or "").strip().upper()
+    if not code:
+        return ""
+    if "." in code:
+        return code
+    if code.startswith(("SH", "SZ", "BJ")) and len(code) > 2:
+        code = code[2:]
+    if len(code) == 6 and code.isdigit():
+        if code.startswith(("60", "68", "11", "12", "5")):
+            return f"{code}.SH"
+        if code.startswith(("4", "8", "92")):
+            return f"{code}.BJ"
+        return f"{code}.SZ"
+    return code
+
+
 def _supports_kwarg(callable_obj: Callable[..., Any], kwarg_name: str) -> bool:
     try:
         sig = inspect.signature(callable_obj)
@@ -81,6 +98,9 @@ def refresh_watchlist_stock_research_reports(
     report_generator: Callable[..., Any] | None = None,
     *,
     username: str | None = None,
+    limit: int | None = None,
+    only_code: str | None = None,
+    force: bool = False,
 ) -> dict[str, int]:
     ensure_tables(engine)
     report_generator = report_generator or generate_stock_research_report_bundle
@@ -92,6 +112,11 @@ def refresh_watchlist_stock_research_reports(
         return {"processed": 0, "generated": 0, "skipped": 0, "failed": 0, "locked": 1}
 
     symbols = load_watchlist_stock_symbols(engine, username=scope_username)
+    requested_code = _normalize_requested_ts_code(only_code)
+    if requested_code:
+        symbols = [symbol for symbol in symbols if symbol == requested_code]
+    if limit is not None:
+        symbols = symbols[: max(0, int(limit))]
     names = load_watchlist_stock_names(engine, username=scope_username)
     summary = {"processed": 0, "generated": 0, "skipped": 0, "failed": 0, "locked": 0}
 
@@ -117,9 +142,12 @@ def refresh_watchlist_stock_research_reports(
             cached_report = str((cached_record or {}).get("report_md") or "")
             cached_html = str((cached_record or {}).get("report_html") or "")
             has_cached_report = bool(cached_report)
-            cache_needs_refresh = has_cached_report and (
-                should_require_stock_research_refresh(cached_report) or not cached_html
-                or _needs_enriched_fact_pack_refresh(cached_record, live_fetch_enabled)
+            cache_needs_refresh = bool(force) or (
+                has_cached_report and (
+                    should_require_stock_research_refresh(cached_report)
+                    or not cached_html
+                    or _needs_enriched_fact_pack_refresh(cached_record, live_fetch_enabled)
+                )
             )
             if (
                 current_status.get("status") == "ready"
@@ -143,6 +171,7 @@ def refresh_watchlist_stock_research_reports(
 
             if (
                 has_cached_report
+                and not force
                 and not cached_html
                 and not should_require_stock_research_refresh(cached_report)
                 and isinstance((cached_record or {}).get("fact_pack"), dict)

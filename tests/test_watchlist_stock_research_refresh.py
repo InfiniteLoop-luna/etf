@@ -228,6 +228,55 @@ class WatchlistStockResearchRefreshTests(unittest.TestCase):
         called_codes = [call.args[0] for call in report_generator.call_args_list]
         self.assertEqual(called_codes, ["000001.SZ", "000733.SZ"])
 
+    def test_refresh_can_limit_and_filter_to_one_stock_code(self):
+        self._insert_watchlist_row("alice", "000001.SZ", security_name="平安银行")
+        self._insert_watchlist_row("alice", "000733.SZ", security_name="振华科技")
+        self._insert_daily_row("000001.SZ", "2026-05-23")
+        self._insert_daily_row("000733.SZ", "2026-05-23")
+        report_generator = Mock(return_value=f"# generated\n\n{STOCK_RESEARCH_LLM_SECTION_MARKER}\n{STOCK_RESEARCH_LLM_SCHEMA_VERSION}")
+
+        summary = refresh_watchlist_stock_research_reports(
+            self.engine,
+            report_generator=report_generator,
+            only_code="000733",
+            limit=1,
+        )
+
+        self.assertEqual(summary["processed"], 1)
+        self.assertEqual(summary["generated"], 1)
+        report_generator.assert_called_once()
+        self.assertEqual(report_generator.call_args.args[0], "000733.SZ")
+
+    def test_force_refresh_recomputes_ready_current_report(self):
+        self._insert_watchlist_row("alice", "000733.SZ", security_name="振华科技")
+        self._insert_daily_row("000733.SZ", "2026-05-23")
+        save_daily_report(
+            self.engine,
+            "000733.SZ",
+            "2026-05-23",
+            f"# cached\n\n{STOCK_RESEARCH_LLM_SECTION_MARKER}\n{STOCK_RESEARCH_LLM_SCHEMA_VERSION}",
+            report_html="<html>ready</html>",
+        )
+        report_generator = Mock(
+            return_value={
+                "report_md": f"# forced\n\n{STOCK_RESEARCH_LLM_SECTION_MARKER}\n{STOCK_RESEARCH_LLM_SCHEMA_VERSION}",
+                "report_html": "<html>forced</html>",
+                "fact_pack": {"ts_code": "000733.SZ"},
+                "llm_result": {"verdict": "观察"},
+            }
+        )
+
+        summary = refresh_watchlist_stock_research_reports(
+            self.engine,
+            report_generator=report_generator,
+            force=True,
+        )
+
+        record = get_daily_report_record(self.engine, "000733.SZ", "2026-05-23")
+        self.assertEqual(summary["generated"], 1)
+        self.assertEqual(record["report_html"], "<html>forced</html>")
+        report_generator.assert_called_once()
+
     def test_refresh_skips_when_lock_is_held(self):
         acquired = try_acquire_refresh_lock(
             self.engine,

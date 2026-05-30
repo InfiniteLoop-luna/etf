@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 
@@ -77,15 +78,32 @@ from src.stock_research_report_store import get_engine
 from src.watchlist_stock_research_refresh import refresh_watchlist_stock_research_reports
 
 
-def main():
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="刷新自选股个股深度研究报告缓存")
+    parser.add_argument("--limit", type=int, default=None, help="最多处理多少只股票，便于小批量回填")
+    parser.add_argument("--only-code", default=None, help="只处理指定股票代码，支持 000001 或 000001.SZ")
+    parser.add_argument("--username", default=None, help="只刷新指定用户的自选股")
+    parser.add_argument("--force", action="store_true", help="即使已有最新缓存也强制重新生成")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None):
+    args = parse_args(argv)
     engine = get_engine()
-    summary = refresh_watchlist_stock_research_reports(engine)
+    summary = refresh_watchlist_stock_research_reports(
+        engine,
+        username=args.username,
+        limit=args.limit,
+        only_code=args.only_code,
+        force=args.force,
+    )
     print(
         "watchlist stock research refresh completed: "
         f"processed={summary['processed']} "
         f"generated={summary['generated']} "
         f"skipped={summary['skipped']} "
-        f"failed={summary['failed']}"
+        f"failed={summary['failed']} "
+        f"locked={summary['locked']}"
     )
 
 
