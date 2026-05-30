@@ -9028,6 +9028,45 @@ def trigger_single_stock_research_refresh_bg(username: str, ts_code: str, engine
     t.start()
 
 
+def trigger_single_distribution_refresh_bg(username: str, ts_code: str, engine) -> None:
+    """在后台静默触发单只自选股票的主力出货深度分析刷新。"""
+    import threading
+
+    normalized_username = normalize_username(username)
+    normalized_code = str(ts_code or "").strip().upper()
+    if not normalized_username or not normalized_code or engine is None:
+        return
+
+    def _worker():
+        try:
+            logger.info(
+                "Started single-stock distribution refresh after add-watchlist for %s / %s",
+                normalized_username,
+                normalized_code,
+            )
+            summary = refresh_watchlist_distribution_reports(
+                engine,
+                username=normalized_username,
+                only_code=normalized_code,
+            )
+            logger.info(
+                "Finished single-stock distribution refresh after add-watchlist for %s / %s: %s",
+                normalized_username,
+                normalized_code,
+                summary,
+            )
+        except Exception as e:
+            logger.error(
+                "Single-stock distribution refresh crashed for %s / %s: %s",
+                normalized_username,
+                normalized_code,
+                e,
+            )
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+
+
 @st.dialog("📄 主力出货深度分析报告", width="large")
 def show_distribution_report_dialog(report_md: str):
     st.markdown(report_md)
@@ -9655,10 +9694,11 @@ def render_security_search_tab():
                     if selected_type == 'stock':
                         try:
                             report_engine = get_security_intraday_engine_cached()
+                            trigger_single_distribution_refresh_bg(current_username, selected_code, report_engine)
                             trigger_single_stock_research_refresh_bg(current_username, selected_code, report_engine)
                         except Exception as trigger_refresh_exc:
                             logger.warning(
-                                f"Failed to trigger stock research refresh for {current_username}/{selected_code}: {trigger_refresh_exc}"
+                                f"Failed to trigger report refresh for {current_username}/{selected_code}: {trigger_refresh_exc}"
                             )
                     st.success(f"已将 {title_name} 加入 {current_username} 的自选")
                     st.rerun()

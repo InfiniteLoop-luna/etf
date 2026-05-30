@@ -245,6 +245,25 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
         called_codes = [call.args[0] for call in report_generator.call_args_list]
         self.assertEqual(called_codes, ["000001.SZ", "000733.SZ"])
 
+    def test_refresh_can_filter_to_single_stock_code(self):
+        self._insert_watchlist_row("alice", "000001.SZ", security_name="\u5e73\u5b89\u94f6\u884c")
+        self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
+        self._insert_daily_row("000001.SZ", "2026-05-23")
+        self._insert_daily_row("000733.SZ", "2026-05-23")
+        report_generator = Mock(return_value="# generated report")
+
+        summary = refresh_watchlist_distribution_reports(
+            self.engine,
+            report_generator=report_generator,
+            username="alice",
+            only_code="000733",
+        )
+
+        self.assertEqual(summary["processed"], 1)
+        self.assertEqual(summary["generated"], 1)
+        report_generator.assert_called_once()
+        self.assertEqual(report_generator.call_args.args[0], "000733.SZ")
+
 
 if __name__ == "__main__":
     unittest.main()

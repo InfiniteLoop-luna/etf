@@ -25,6 +25,23 @@ from src.distribution_report_store import (
 WATCHLIST_REFRESH_LOCK_NAME = "watchlist_distribution_refresh"
 
 
+def _normalize_requested_distribution_ts_code(ts_code: str | None) -> str:
+    code = str(ts_code or "").strip().upper()
+    if not code:
+        return ""
+    if "." in code:
+        return code
+    if code.startswith(("SH", "SZ", "BJ")) and len(code) > 2:
+        code = code[2:]
+    if len(code) == 6 and code.isdigit():
+        if code.startswith(("60", "68", "11", "12", "5")):
+            return f"{code}.SH"
+        if code.startswith(("4", "8", "92")):
+            return f"{code}.BJ"
+        return f"{code}.SZ"
+    return code
+
+
 def load_watchlist_stock_symbols(engine: Engine, username: str | None = None) -> list[str]:
     params: dict[str, str] = {}
     username_filter = ""
@@ -93,16 +110,20 @@ def refresh_watchlist_distribution_reports(
     report_generator: Callable[..., str] | None = None,
     *,
     username: str | None = None,
+    only_code: str | None = None,
 ) -> dict[str, int]:
     ensure_tables(engine)
     report_generator = report_generator or generate_detailed_report_markdown
     scope_username = str(username or "").strip() or None
+    requested_code = _normalize_requested_distribution_ts_code(only_code)
     owner_id = f"watchlist-refresh-{uuid.uuid4().hex[:12]}"
     lock_name = WATCHLIST_REFRESH_LOCK_NAME if scope_username is None else f"{WATCHLIST_REFRESH_LOCK_NAME}:{scope_username}"
     if not try_acquire_refresh_lock(engine, lock_name, owner_id=owner_id, timeout_seconds=1800):
         return {"processed": 0, "generated": 0, "skipped": 0, "failed": 0, "locked": 1}
 
     symbols = load_watchlist_stock_symbols(engine, username=scope_username)
+    if requested_code:
+        symbols = [symbol for symbol in symbols if symbol == requested_code]
     names = load_watchlist_stock_names(engine, username=scope_username)
     summary = {"processed": 0, "generated": 0, "skipped": 0, "failed": 0, "locked": 0}
 
