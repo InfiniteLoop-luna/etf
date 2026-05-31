@@ -54,39 +54,47 @@ def parse_index_monitor_workbook(path) -> pd.DataFrame:
             raise ValueError("导入文件缺少 股票指数 sheet")
 
         ws = wb[SHEET_NAME]
+        row_iter = ws.iter_rows(values_only=True)
+        _ = next(row_iter, ())
+        section_row = next(row_iter, ())
+        field_row = next(row_iter, ())
+
+        max_len = max(len(section_row), len(field_row))
         section_by_col: dict[int, str] = {}
         current_section = ""
-        for col_idx in range(1, ws.max_column + 1):
-            section = _normalize_header(ws.cell(2, col_idx).value)
+        for col_idx in range(1, max_len + 1):
+            raw_section = section_row[col_idx - 1] if col_idx - 1 < len(section_row) else None
+            section = _normalize_header(raw_section)
             if section in SECTION_FIELD_MAP:
                 current_section = section
             section_by_col[col_idx] = current_section
 
         field_by_col: dict[int, str] = {}
-        for col_idx in range(1, ws.max_column + 1):
-            field_by_col[col_idx] = _normalize_header(ws.cell(3, col_idx).value)
+        for col_idx in range(1, max_len + 1):
+            raw_field = field_row[col_idx - 1] if col_idx - 1 < len(field_row) else None
+            field_by_col[col_idx] = _normalize_header(raw_field)
 
         rows = []
         current_month_text = None
-        for row_idx in range(4, ws.max_row + 1):
-            month_value = ws.cell(row_idx, 2).value
+        for raw_row in row_iter:
+            month_value = raw_row[1] if len(raw_row) > 1 else None
             if month_value is not None:
                 current_month_text = pd.to_datetime(month_value).strftime("%Y-%m-%d")
 
-            index_name = _normalize_header(ws.cell(row_idx, 3).value)
+            index_name = _normalize_header(raw_row[2] if len(raw_row) > 2 else None)
             if not index_name or index_name == "指数名称":
                 continue
             if current_month_text is None:
                 raise ValueError("股票指数 sheet 缺少月份")
 
             row = {"month": current_month_text, "index_name": index_name}
-            for col_idx in range(4, ws.max_column + 1):
+            for col_idx in range(4, max_len + 1):
                 section = section_by_col.get(col_idx, "")
                 field = field_by_col.get(col_idx, "")
                 mapped_field = SECTION_FIELD_MAP.get(section, {}).get(field)
                 if not mapped_field:
                     continue
-                value = ws.cell(row_idx, col_idx).value
+                value = raw_row[col_idx - 1] if col_idx - 1 < len(raw_row) else None
                 row[mapped_field] = float(value) if value is not None else None
             rows.append(row)
 

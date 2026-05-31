@@ -93,6 +93,24 @@ class IndexMonitorImporterTests(unittest.TestCase):
         self.assertAlmostEqual(df.iloc[0]["close_price"], 3321.00)
         self.assertAlmostEqual(df.iloc[1]["monthly_change_pct"], 0.82)
 
+    def test_parse_index_monitor_workbook_handles_read_only_large_real_layout(self):
+        source_path = Path(r"C:\Users\lijing\.openclaw\media\inbound\指数---917ceedc-2b80-4761-a947-22d3fd181602.xlsx")
+        if not source_path.exists():
+            self.skipTest("real workbook not available")
+
+        df = parse_index_monitor_workbook(source_path)
+
+        self.assertEqual(len(df), 420)
+        self.assertEqual(df["month"].min(), "2023-01-01")
+        self.assertEqual(df["month"].max(), "2026-06-01")
+        june_df = df[df["month"] == "2026-06-01"]
+        self.assertEqual(len(june_df), 10)
+        row = june_df[june_df["index_name"] == "上证指数"].iloc[0]
+        self.assertAlmostEqual(row["mom_change_pct"], -1.0)
+        self.assertAlmostEqual(row["mom_close_price"], -4068.57)
+        self.assertAlmostEqual(row["mom_static_pe"], -20.18)
+        self.assertAlmostEqual(row["yoy_close_price"], -3444.43)
+
     def test_parse_index_monitor_workbook_raises_when_sheet_missing(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "wrong.xlsx"
