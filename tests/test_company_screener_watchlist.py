@@ -7,20 +7,22 @@ import app
 
 
 class CompanyScreenerWatchlistTests(unittest.TestCase):
-    def test_build_company_screener_watchlist_df_marks_existing_rows(self):
+    def test_build_company_screener_result_action_df_marks_existing_rows(self):
         results_df = pd.DataFrame([
-            {"ts_code": "000001.SZ", "name": "平安银行", "industry": "银行", "has_ever_st": False},
-            {"ts_code": "000733.SZ", "name": "振华科技", "industry": "电子", "has_ever_st": True},
+            {"ts_code": "000001.SZ", "name": "平安银行", "industry": "银行", "main_business": "零售银行", "product": "存贷款", "has_ever_st": False},
+            {"ts_code": "000733.SZ", "name": "振华科技", "industry": "电子", "main_business": "电子元件", "product": "连接器", "has_ever_st": True},
         ])
         existing_df = pd.DataFrame([
             {"ts_code": "000733.SZ", "security_type": "stock", "security_name": "振华科技"},
         ])
 
-        df = app.build_company_screener_watchlist_df(results_df, existing_df)
+        df = app.build_company_screener_result_action_df(results_df, existing_df)
 
         self.assertEqual(df["代码"].tolist(), ["000001.SZ", "000733.SZ"])
         self.assertEqual(df["已在自选"].tolist(), ["", "✅ 已在自选"])
         self.assertEqual(df["标签"].tolist(), ["", "曾经ST"])
+        self.assertEqual(df["主要业务"].tolist(), ["零售银行", "电子元件"])
+        self.assertEqual(df["产品及服务"].tolist(), ["存贷款", "连接器"])
         self.assertFalse(df["选择"].any())
 
     def test_add_company_screener_rows_to_watchlist_adds_only_missing_codes(self):
