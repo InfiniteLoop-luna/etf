@@ -2824,7 +2824,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
         st.session_state.get("sidebar_expanded_module_id"),
     )
     st.session_state["sidebar_expanded_module_id"] = expanded_module_id
-    record_recent_visit(st.session_state, selected_module.label, selected_page.label)
+    record_recent_visit(st.session_state, selected_module.id, selected_page.id)
     recent_visits = get_recent_visits(st.session_state)
 
     st.sidebar.markdown(
