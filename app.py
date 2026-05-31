@@ -6752,6 +6752,117 @@ def render_tech_picker_tab():
 
     render_tech_picker_jump_table(filtered_df)
 
+def build_company_screener_watchlist_df(
+    results_df: pd.DataFrame,
+    existing_watchlist_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    if results_df is None or results_df.empty:
+        return pd.DataFrame(columns=["选择", "代码", "简称", "行业", "标签", "已在自选"])
+
+    existing_codes: set[str] = set()
+    if isinstance(existing_watchlist_df, pd.DataFrame) and not existing_watchlist_df.empty and "ts_code" in existing_watchlist_df.columns:
+        existing_codes = {
+            str(code or "").strip().upper()
+            for code in existing_watchlist_df["ts_code"].tolist()
+            if str(code or "").strip()
+        }
+
+    watchlist_df = pd.DataFrame({
+        "选择": [False] * len(results_df),
+        "代码": results_df["ts_code"].astype(str).str.strip().str.upper(),
+        "简称": results_df["name"].fillna("").astype(str).str.strip(),
+        "行业": results_df.get("industry", pd.Series([""] * len(results_df))).fillna("").astype(str).str.strip(),
+    })
+    if "has_ever_st" in results_df.columns:
+        watchlist_df["标签"] = results_df["has_ever_st"].map(lambda value: "曾经ST" if bool(value) else "")
+    else:
+        watchlist_df["标签"] = ""
+    watchlist_df["已在自选"] = watchlist_df["代码"].map(lambda code: "✅ 已在自选" if code in existing_codes else "")
+    return watchlist_df
+
+
+
+def add_company_screener_rows_to_watchlist(
+    selected_rows: list[dict],
+    username: str,
+    *,
+    existing_watchlist_df: pd.DataFrame | None = None,
+    report_engine=None,
+) -> dict:
+    normalized_username = normalize_username(username)
+    if not normalized_username:
+        raise ValueError("username 不能为空")
+
+    existing_codes: set[str] = set()
+    if isinstance(existing_watchlist_df, pd.DataFrame) and not existing_watchlist_df.empty and "ts_code" in existing_watchlist_df.columns:
+        existing_codes = {
+            str(code or "").strip().upper()
+            for code in existing_watchlist_df["ts_code"].tolist()
+            if str(code or "").strip()
+        }
+
+    added_codes: list[str] = []
+    skipped_existing = 0
+    skipped_invalid = 0
+    failed_items: list[str] = []
+
+    for row in selected_rows:
+        ts_code = str(
+            row.get("代码")
+            or row.get("ts_code")
+            or ""
+        ).strip().upper()
+        security_name = str(
+            row.get("简称")
+            or row.get("name")
+            or row.get("security_name")
+            or ts_code
+        ).strip()
+        if not ts_code:
+            skipped_invalid += 1
+            continue
+        if ts_code in existing_codes:
+            skipped_existing += 1
+            continue
+
+        try:
+            add_watchlist_item(
+                normalized_username,
+                ts_code,
+                security_name=security_name,
+                security_type="stock",
+            )
+        except Exception as exc:
+            failed_items.append(f"{ts_code}: {exc}")
+            continue
+
+        existing_codes.add(ts_code)
+        added_codes.append(ts_code)
+
+    if report_engine is not None:
+        for ts_code in added_codes:
+            try:
+                trigger_single_distribution_refresh_bg(normalized_username, ts_code, report_engine)
+                trigger_single_stock_research_refresh_bg(normalized_username, ts_code, report_engine)
+            except Exception as trigger_exc:
+                logger.warning(
+                    "Failed to trigger watchlist refresh for %s / %s: %s",
+                    normalized_username,
+                    ts_code,
+                    trigger_exc,
+                )
+
+    return {
+        "added": len(added_codes),
+        "added_codes": added_codes,
+        "skipped_existing": skipped_existing,
+        "skipped_invalid": skipped_invalid,
+        "failed": len(failed_items),
+        "failed_items": failed_items,
+    }
+
+
+
 def render_company_screener_tab():
     st.subheader("🏢 公司主营与产品筛选")
     st.caption("按照行业、产品和主营业务关键词筛选公司，并可对当前筛选结果逐只订正主营与产品信息。")
@@ -6840,6 +6951,76 @@ def render_company_screener_tab():
         fallback_col="简称",
         nonce_key="company_screener_jump_render_nonce",
     )
+
+    st.markdown("#### ⭐ 加入自选")
+    current_username = get_logged_in_username()
+    watchlist_df = pd.DataFrame()
+    if current_username:
+        try:
+            watchlist_df = list_watchlist_items(current_username)
+        except Exception as exc:
+            st.warning(f"读取当前自选失败：{exc}")
+            watchlist_df = pd.DataFrame()
+
+        selection_df = build_company_screener_watchlist_df(results_df, watchlist_df)
+        st.caption("支持勾选单只或多只股票加入自选；已在自选中的股票会自动跳过。")
+        edited_selection_df = st.data_editor(
+            selection_df,
+            use_container_width=True,
+            hide_index=True,
+            disabled=[col for col in selection_df.columns if col != "选择"],
+            column_config={
+                "选择": st.column_config.CheckboxColumn("选择", help="勾选后可加入自选"),
+                "标签": st.column_config.TextColumn("标签", width="small"),
+                "已在自选": st.column_config.TextColumn("已在自选", width="small"),
+            },
+            key="company_screener_watchlist_editor",
+        )
+        selected_watchlist_rows = edited_selection_df[edited_selection_df["选择"]].to_dict(orient="records") if not edited_selection_df.empty else []
+        selected_count = len(selected_watchlist_rows)
+        can_select_all = bool(selection_df[selection_df["已在自选"] != "✅ 已在自选"].shape[0])
+        action_cols = st.columns([1.2, 1.2, 1.6, 2.2])
+        if action_cols[0].button("全选未入自选", key="company_screener_watchlist_select_all", disabled=not can_select_all):
+            selectable_df = selection_df.copy()
+            selectable_df["选择"] = selectable_df["已在自选"] != "✅ 已在自选"
+            st.session_state["company_screener_watchlist_editor"] = selectable_df
+            st.rerun()
+        if action_cols[1].button("清空勾选", key="company_screener_watchlist_clear_all", disabled=selection_df.empty):
+            cleared_df = selection_df.copy()
+            cleared_df["选择"] = False
+            st.session_state["company_screener_watchlist_editor"] = cleared_df
+            st.rerun()
+        if action_cols[2].button("加入选中自选", key="company_screener_watchlist_add_selected", disabled=selected_count == 0):
+            try:
+                report_engine = get_security_intraday_engine_cached()
+                summary = add_company_screener_rows_to_watchlist(
+                    selected_watchlist_rows,
+                    current_username,
+                    existing_watchlist_df=watchlist_df,
+                    report_engine=report_engine,
+                )
+            except Exception as exc:
+                st.error(f"加入自选失败：{exc}")
+            else:
+                message_parts = [f"已加入 {summary['added']} 只"]
+                if summary["skipped_existing"]:
+                    message_parts.append(f"跳过已在自选 {summary['skipped_existing']} 只")
+                if summary["skipped_invalid"]:
+                    message_parts.append(f"跳过无效 {summary['skipped_invalid']} 只")
+                if summary["failed"]:
+                    message_parts.append(f"失败 {summary['failed']} 只")
+                flash_level = "warning" if summary["failed"] and summary["added"] == 0 else "success"
+                flash_message = "，".join(message_parts)
+                if summary["failed_items"]:
+                    flash_message = f"{flash_message}。失败明细：{'；'.join(summary['failed_items'][:3])}"
+                st.session_state[flash_state_key] = {
+                    "level": flash_level,
+                    "message": flash_message,
+                }
+                st.rerun()
+        action_cols[3].caption(f"当前登录用户：{current_username}｜已勾选 {selected_count} 只")
+    else:
+        st.info("先登录用户名，才能把公司筛选结果加入个人自选。")
 
     st.markdown("#### ✏️ 逐只订正主营与产品信息")
     st.caption("筛选结果中的每只股票都可以单独展开编辑；每次只会保存当前这一只。")
