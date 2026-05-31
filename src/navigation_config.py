@@ -2,14 +2,7 @@ from src.sidebar_navigation import SIDEBAR_MODULES
 from src.sidebar_navigation import get_page_labels
 
 
-DECISION_MODULE_LABEL = "宏观"
-DECISION_PAGE_OPTIONS = [
-    page.label
-    for module in SIDEBAR_MODULES
-    if module.label == DECISION_MODULE_LABEL
-    for page in module.pages
-    if page.id in {"commercial_mvp", "daily_trend_reco", "reco_eval", "ml_upgrade"}
-]
+DECISION_PAGE_OPTIONS = get_page_labels("决策")
 ETF_PAGE_OPTIONS = get_page_labels("基金")
 STOCK_PAGE_OPTIONS = get_page_labels("股票")
 MONEY_PAGE_OPTIONS = get_page_labels("资金")
@@ -27,10 +20,10 @@ def _page_label(module_label: str, page_id: str) -> str:
     raise KeyError(f"Unknown module {module_label!r}")
 
 
-DECISION_TODAY_PAGE_LABEL = _page_label("宏观", "commercial_mvp")
-DECISION_DAILY_RECO_PAGE_LABEL = _page_label("宏观", "daily_trend_reco")
-DECISION_RECO_EVAL_PAGE_LABEL = _page_label("宏观", "reco_eval")
-DECISION_ML_PAGE_LABEL = _page_label("宏观", "ml_upgrade")
+DECISION_TODAY_PAGE_LABEL = _page_label("决策", "commercial_mvp")
+DECISION_DAILY_RECO_PAGE_LABEL = _page_label("决策", "daily_trend_reco")
+DECISION_RECO_EVAL_PAGE_LABEL = _page_label("决策", "reco_eval")
+DECISION_ML_PAGE_LABEL = _page_label("决策", "ml_upgrade")
 
 ETF_MAIN_PAGE_LABEL = _page_label("基金", "etf_main")
 ETF_RATIO_PAGE_LABEL = _page_label("基金", "etf_ratio")

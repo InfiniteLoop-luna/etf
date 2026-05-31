@@ -176,6 +176,13 @@ SIDEBAR_MODULES = (
                 "指数观察看板",
                 "standard",
             ),
+        ),
+    ),
+    SidebarModule(
+        id="decision",
+        label="决策",
+        session_key="decision_subpage",
+        pages=(
             SidebarPage(
                 "commercial_mvp",
                 "💼 今日机会清单",

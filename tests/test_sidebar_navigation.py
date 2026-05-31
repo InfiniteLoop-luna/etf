@@ -111,7 +111,7 @@ class SidebarNavigationTests(unittest.TestCase):
         self.assertEqual(session_state["sidebar_recent_pages"], visits)
 
     def test_public_label_apis_remain_navigation_compatible(self):
-        self.assertEqual(get_module_labels(), ["基金", "股票", "资金", "宏观"])
+        self.assertEqual(get_module_labels(), ["基金", "股票", "资金", "宏观", "决策"])
         self.assertEqual(
             get_default_shortcuts(),
             ["💼 今日机会清单", "🔎 个股/指数查询", "💹 资金流向"],
