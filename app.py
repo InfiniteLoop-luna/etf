@@ -2664,6 +2664,51 @@ def clear_deposit_edit_permission() -> None:
 
 
 
+def get_index_monitor_edit_password() -> str:
+    secret_password = ""
+    try:
+        secret_password = st.secrets.get("index_monitor_edit_password", "")
+        if not secret_password:
+            secret_password = st.secrets.get("app", {}).get("index_monitor_edit_password", "")
+    except Exception:
+        secret_password = ""
+
+    return str(
+        secret_password
+        or os.getenv("ETF_INDEX_MONITOR_EDIT_PASSWORD")
+        or os.getenv("ETF_EDIT_PASSWORD")
+        or ""
+    ).strip()
+
+
+
+def has_index_monitor_edit_permission() -> bool:
+    return bool(get_index_monitor_edit_password()) and bool(
+        st.session_state.get("index_monitor_edit_authorized", False)
+    )
+
+
+
+def grant_index_monitor_edit_permission(password: str) -> bool:
+    expected_password = get_index_monitor_edit_password()
+    if not expected_password:
+        st.session_state["index_monitor_edit_authorized"] = False
+        return False
+
+    is_authorized = compare_digest(password or "", expected_password)
+    st.session_state["index_monitor_edit_authorized"] = is_authorized
+    return is_authorized
+
+
+
+def clear_index_monitor_edit_permission() -> None:
+    st.session_state["index_monitor_edit_authorized"] = False
+    st.session_state["index_manual_month_open"] = False
+    st.session_state["index_single_edit_open"] = False
+    st.session_state["index_import_open"] = False
+
+
+
 def get_query_param_value(name: str) -> str:
     try:
         value = st.query_params.get(name, "")
@@ -11730,11 +11775,26 @@ def render_index_monitor_tab():
     action_col, status_col = st.columns([1, 3])
     with action_col:
         if st.button("新增月份", key="index_add_month"):
-            st.session_state["index_manual_month_open"] = True
+            if has_index_monitor_edit_permission():
+                st.session_state["index_manual_month_open"] = True
+                st.session_state["index_single_edit_open"] = False
+                st.session_state["index_import_open"] = False
+            else:
+                st.warning("请先完成编辑权限验证，再新增月份。")
         if st.button("单指数补录/修改", key="index_edit_single"):
-            st.session_state["index_single_edit_open"] = True
+            if has_index_monitor_edit_permission():
+                st.session_state["index_single_edit_open"] = True
+                st.session_state["index_manual_month_open"] = False
+                st.session_state["index_import_open"] = False
+            else:
+                st.warning("请先完成编辑权限验证，再单指数补录或修改。")
         if st.button("批量导入 Excel", key="index_import_file"):
-            st.session_state["index_import_open"] = True
+            if has_index_monitor_edit_permission():
+                st.session_state["index_import_open"] = True
+                st.session_state["index_manual_month_open"] = False
+                st.session_state["index_single_edit_open"] = False
+            else:
+                st.warning("请先完成编辑权限验证，再批量导入。")
 
     with status_col:
         if df.empty:
@@ -11743,6 +11803,29 @@ def render_index_monitor_tab():
             latest_month = pd.to_datetime(df["month"]).max().strftime("%Y-%m")
             updated_at = pd.to_datetime(df["updated_at"]).max().strftime("%Y-%m-%d %H:%M")
             st.caption(f"最新数据月份：{latest_month} | 记录数：{len(df)} | 最近更新时间：{updated_at}")
+
+    permission_cols = st.columns([4, 1.2])
+    if has_index_monitor_edit_permission():
+        permission_cols[0].success("当前会话已获得指数监测编辑权限。")
+        if permission_cols[1].button("退出权限", key="revoke_index_monitor_edit_permission"):
+            clear_index_monitor_edit_permission()
+            st.rerun()
+    else:
+        configured_password = get_index_monitor_edit_password()
+        if not configured_password:
+            st.warning("当前未配置指数监测编辑权限密码，新增/补录/导入功能已禁用。请设置 ETF_INDEX_MONITOR_EDIT_PASSWORD 或 ETF_EDIT_PASSWORD 后重启应用。")
+        else:
+            access_password = permission_cols[0].text_input(
+                "指数监测编辑权限密码",
+                type="password",
+                key="index_monitor_edit_password_input",
+            )
+            if permission_cols[1].button("权限验证", key="grant_index_monitor_edit_permission"):
+                if grant_index_monitor_edit_permission(access_password):
+                    st.success("权限验证成功，现在可以新增、补录或导入指数监测数据。")
+                    st.rerun()
+                st.error("权限验证失败，请检查密码。")
+            st.info("仅通过权限验证的会话可以新增、补录或批量导入指数监测数据。")
 
     if df.empty:
         st.info("暂无指数监测数据，请先新增月份或批量导入。")
@@ -11851,139 +11934,151 @@ def render_index_monitor_tab():
         )
 
     if st.session_state.get("index_manual_month_open", False):
-        st.markdown("#### 新增月份")
-        manual_month = st.text_input("录入月份", value=month_options[0] if month_options else "", key="index_manual_month_value")
-        editor_seed_df = _build_index_batch_editor_df(df, manual_month)
-        editor_df = st.data_editor(
-            editor_seed_df,
-            use_container_width=True,
-            hide_index=True,
-            num_rows="dynamic",
-            key="index_month_editor",
-        )
-        save_col, cancel_col = st.columns(2)
-        if save_col.button("保存本月指数数据", key="index_month_save"):
-            if not manual_month:
-                st.error("请先填写录入月份")
-            else:
-                rows = _collect_index_batch_rows(editor_df, manual_month)
-                if not rows:
-                    st.warning("没有可写入的指数记录。")
+        if not has_index_monitor_edit_permission():
+            st.warning("当前会话没有指数监测编辑权限，请先完成权限验证。")
+            st.session_state["index_manual_month_open"] = False
+        else:
+            st.markdown("#### 新增月份")
+            manual_month = st.text_input("录入月份", value=month_options[0] if month_options else "", key="index_manual_month_value")
+            editor_seed_df = _build_index_batch_editor_df(df, manual_month)
+            editor_df = st.data_editor(
+                editor_seed_df,
+                use_container_width=True,
+                hide_index=True,
+                num_rows="dynamic",
+                key="index_month_editor",
+            )
+            save_col, cancel_col = st.columns(2)
+            if save_col.button("保存本月指数数据", key="index_month_save"):
+                if not manual_month:
+                    st.error("请先填写录入月份")
                 else:
+                    rows = _collect_index_batch_rows(editor_df, manual_month)
+                    if not rows:
+                        st.warning("没有可写入的指数记录。")
+                    else:
+                        try:
+                            payload_rows = build_index_upsert_rows(
+                                rows,
+                                source_type="manual",
+                                source_file=None,
+                            )
+                            upsert_index_monitor_rows(engine, payload_rows)
+                        except Exception as exc:
+                            st.error(f"保存失败: {exc}")
+                        else:
+                            st.session_state["index_manual_month_open"] = False
+                            st.success(f"已写入 {len(payload_rows)} 条指数记录")
+                            st.rerun()
+            if cancel_col.button("取消新增月份", key="index_month_cancel"):
+                st.session_state["index_manual_month_open"] = False
+                st.rerun()
+
+    if st.session_state.get("index_single_edit_open", False):
+        if not has_index_monitor_edit_permission():
+            st.warning("当前会话没有指数监测编辑权限，请先完成权限验证。")
+            st.session_state["index_single_edit_open"] = False
+        else:
+            st.markdown("#### 单指数补录 / 修改")
+            if df.empty:
+                st.info("当前暂无历史记录，请先新增月份或导入数据。")
+            else:
+                edit_month = st.selectbox("选择月份", options=month_options, key="index_edit_month")
+                month_df = df[pd.to_datetime(df["month"]).dt.strftime("%Y-%m") == edit_month].copy()
+                month_names = sorted(month_df["index_name"].dropna().astype(str).unique().tolist())
+                edit_name = st.selectbox("选择指数", options=month_names, key="index_edit_name")
+                edit_row = month_df[month_df["index_name"] == edit_name].iloc[0].to_dict() if edit_name else {}
+                with st.form("index_single_edit_form", clear_on_submit=False):
+                    edit_values = {}
+                    for field, label in INDEX_MONITOR_FIELD_LABELS.items():
+                        edit_values[field] = st.number_input(
+                            label,
+                            value=float(edit_row[field]) if edit_row.get(field) is not None and not pd.isna(edit_row.get(field)) else 0.0,
+                            format="%.4f",
+                        )
+                    submitted = st.form_submit_button("保存单指数数据")
+                    canceled = st.form_submit_button("取消")
+
+                if canceled:
+                    st.session_state["index_single_edit_open"] = False
+                    st.rerun()
+
+                if submitted:
                     try:
-                        payload_rows = build_index_upsert_rows(
-                            rows,
+                        rows = build_index_upsert_rows(
+                            [
+                                {
+                                    "month": edit_month,
+                                    "index_name": edit_name,
+                                    **edit_values,
+                                }
+                            ],
                             source_type="manual",
                             source_file=None,
                         )
-                        upsert_index_monitor_rows(engine, payload_rows)
+                        upsert_index_monitor_rows(engine, rows)
                     except Exception as exc:
                         st.error(f"保存失败: {exc}")
                     else:
-                        st.session_state["index_manual_month_open"] = False
-                        st.success(f"已写入 {len(payload_rows)} 条指数记录")
+                        st.session_state["index_single_edit_open"] = False
+                        st.success("保存成功")
                         st.rerun()
-        if cancel_col.button("取消新增月份", key="index_month_cancel"):
-            st.session_state["index_manual_month_open"] = False
-            st.rerun()
-
-    if st.session_state.get("index_single_edit_open", False):
-        st.markdown("#### 单指数补录 / 修改")
-        if df.empty:
-            st.info("当前暂无历史记录，请先新增月份或导入数据。")
-        else:
-            edit_month = st.selectbox("选择月份", options=month_options, key="index_edit_month")
-            month_df = df[pd.to_datetime(df["month"]).dt.strftime("%Y-%m") == edit_month].copy()
-            month_names = sorted(month_df["index_name"].dropna().astype(str).unique().tolist())
-            edit_name = st.selectbox("选择指数", options=month_names, key="index_edit_name")
-            edit_row = month_df[month_df["index_name"] == edit_name].iloc[0].to_dict() if edit_name else {}
-            with st.form("index_single_edit_form", clear_on_submit=False):
-                edit_values = {}
-                for field, label in INDEX_MONITOR_FIELD_LABELS.items():
-                    edit_values[field] = st.number_input(
-                        label,
-                        value=float(edit_row[field]) if edit_row.get(field) is not None and not pd.isna(edit_row.get(field)) else 0.0,
-                        format="%.4f",
-                    )
-                submitted = st.form_submit_button("保存单指数数据")
-                canceled = st.form_submit_button("取消")
-
-            if canceled:
-                st.session_state["index_single_edit_open"] = False
-                st.rerun()
-
-            if submitted:
-                try:
-                    rows = build_index_upsert_rows(
-                        [
-                            {
-                                "month": edit_month,
-                                "index_name": edit_name,
-                                **edit_values,
-                            }
-                        ],
-                        source_type="manual",
-                        source_file=None,
-                    )
-                    upsert_index_monitor_rows(engine, rows)
-                except Exception as exc:
-                    st.error(f"保存失败: {exc}")
-                else:
-                    st.session_state["index_single_edit_open"] = False
-                    st.success("保存成功")
-                    st.rerun()
 
     if st.session_state.get("index_import_open", False):
-        upload = st.file_uploader(
-            "上传股票指数 Excel",
-            type=["xlsx"],
-            key="index_monitor_uploader",
-        )
-        if upload is not None:
-            try:
-                imported_df = parse_index_monitor_workbook(upload)
-                preview = classify_index_import_rows(imported_df, df)
-            except Exception as exc:
-                st.error(f"导入预览失败: {exc}")
-            else:
-                st.radio(
-                    "重复记录处理",
-                    ["跳过已存在记录", "覆盖已存在记录"],
-                    horizontal=True,
-                    key="index_overwrite_mode",
-                )
-                st.write("新增记录")
-                st.dataframe(
-                    to_index_monitor_display_df(preview["to_insert"]),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-                st.write("覆盖记录")
-                st.dataframe(
-                    to_index_monitor_display_df(preview["to_overwrite"]),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-                if st.button("确认写入指数数据", key="index_confirm_import"):
-                    write_df = imported_df.copy()
-                    if st.session_state["index_overwrite_mode"] == "跳过已存在记录":
-                        write_df = preview["to_insert"].copy()
-                    if write_df.empty:
-                        st.warning("没有需要写入的记录。")
-                    else:
-                        try:
-                            rows = build_index_upsert_rows(
-                                write_df.to_dict(orient="records"),
-                                source_type="import",
-                                source_file=getattr(upload, "name", None),
-                            )
-                            upsert_index_monitor_rows(engine, rows)
-                        except Exception as exc:
-                            st.error(f"导入写入失败: {exc}")
+        if not has_index_monitor_edit_permission():
+            st.warning("当前会话没有指数监测编辑权限，请先完成权限验证。")
+            st.session_state["index_import_open"] = False
+        else:
+            upload = st.file_uploader(
+                "上传股票指数 Excel",
+                type=["xlsx"],
+                key="index_monitor_uploader",
+            )
+            if upload is not None:
+                try:
+                    imported_df = parse_index_monitor_workbook(upload)
+                    preview = classify_index_import_rows(imported_df, df)
+                except Exception as exc:
+                    st.error(f"导入预览失败: {exc}")
+                else:
+                    st.radio(
+                        "重复记录处理",
+                        ["跳过已存在记录", "覆盖已存在记录"],
+                        horizontal=True,
+                        key="index_overwrite_mode",
+                    )
+                    st.write("新增记录")
+                    st.dataframe(
+                        to_index_monitor_display_df(preview["to_insert"]),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                    st.write("覆盖记录")
+                    st.dataframe(
+                        to_index_monitor_display_df(preview["to_overwrite"]),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                    if st.button("确认写入指数数据", key="index_confirm_import"):
+                        write_df = imported_df.copy()
+                        if st.session_state["index_overwrite_mode"] == "跳过已存在记录":
+                            write_df = preview["to_insert"].copy()
+                        if write_df.empty:
+                            st.warning("没有需要写入的记录。")
                         else:
-                            st.session_state["index_import_open"] = False
-                            st.success(f"已写入 {len(rows)} 条指数记录")
-                            st.rerun()
+                            try:
+                                rows = build_index_upsert_rows(
+                                    write_df.to_dict(orient="records"),
+                                    source_type="import",
+                                    source_file=getattr(upload, "name", None),
+                                )
+                                upsert_index_monitor_rows(engine, rows)
+                            except Exception as exc:
+                                st.error(f"导入写入失败: {exc}")
+                            else:
+                                st.session_state["index_import_open"] = False
+                                st.success(f"已写入 {len(rows)} 条指数记录")
+                                st.rerun()
 
 FUND_MONITOR_CATEGORY_CONFIG = {
     "合计": {"group": "public_fund", "level": "total", "sort_order": 10},
