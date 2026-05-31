@@ -6757,7 +6757,7 @@ def build_company_screener_result_action_df(
     existing_watchlist_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     if results_df is None or results_df.empty:
-        return pd.DataFrame(columns=["选择", "序号", "代码", "简称", "行业", "标签", "已在自选", "主要业务", "产品及服务"])
+        return pd.DataFrame(columns=["选择", "序号", "查询", "代码", "简称", "行业", "标签", "已在自选", "主要业务", "产品及服务"])
 
     existing_codes: set[str] = set()
     if isinstance(existing_watchlist_df, pd.DataFrame) and not existing_watchlist_df.empty and "ts_code" in existing_watchlist_df.columns:
@@ -6767,11 +6767,23 @@ def build_company_screener_result_action_df(
             if str(code or "").strip()
         }
 
+    base_df = pd.DataFrame({
+        "代码": results_df["ts_code"].astype(str).str.strip().str.upper(),
+        "简称": results_df["name"].fillna("").astype(str).str.strip(),
+    })
+    query_links = build_security_jump_links(
+        base_df,
+        code_col="代码",
+        fallback_col="简称",
+        nonce_key="company_screener_jump_render_nonce",
+    )
+
     action_df = pd.DataFrame({
         "选择": [False] * len(results_df),
         "序号": range(1, len(results_df) + 1),
-        "代码": results_df["ts_code"].astype(str).str.strip().str.upper(),
-        "简称": results_df["name"].fillna("").astype(str).str.strip(),
+        "查询": query_links,
+        "代码": base_df["代码"],
+        "简称": base_df["简称"],
         "行业": results_df.get("industry", pd.Series([""] * len(results_df))).fillna("").astype(str).str.strip(),
         "主要业务": results_df.get("main_business", pd.Series([""] * len(results_df))).fillna("").astype(str),
         "产品及服务": results_df.get("product", pd.Series([""] * len(results_df))).fillna("").astype(str),
@@ -6946,7 +6958,7 @@ def render_company_screener_tab():
             watchlist_df = pd.DataFrame()
 
     action_df = build_company_screener_result_action_df(results_df, watchlist_df)
-    st.info("💡 在结果表里直接勾选股票，可批量加入自选；点击“代码/简称”仍可跳到个股/指数查询。")
+    st.info("💡 在这张结果表里直接勾选股票，可批量加入自选；点击“查询”即可跳到个股/指数查询。")
     edited_action_df = st.data_editor(
         action_df,
         use_container_width=True,
@@ -6954,12 +6966,11 @@ def render_company_screener_tab():
         disabled=[col for col in action_df.columns if col != "选择"],
         column_config={
             "选择": st.column_config.CheckboxColumn("选择", help="勾选后可加入自选"),
-            "代码": st.column_config.LinkColumn(
-                "代码",
+            "查询": st.column_config.LinkColumn(
+                "查询",
                 help="点击后跳转到个股/指数查询",
-                display_text=r".*",
+                display_text="🔎 查询",
             ),
-            "简称": st.column_config.TextColumn("简称"),
             "标签": st.column_config.TextColumn("标签", width="small"),
             "已在自选": st.column_config.TextColumn("已在自选", width="small"),
             "主要业务": st.column_config.TextColumn("主要业务", width="large"),
@@ -6967,18 +6978,6 @@ def render_company_screener_tab():
         },
         key="company_screener_result_editor",
     )
-
-    render_df = edited_action_df.copy()
-    if "选择" in render_df.columns:
-        render_df = render_df.drop(columns=["选择"])
-    if "代码" in render_df.columns:
-        code_links = build_security_jump_links(
-            render_df,
-            code_col="代码",
-            fallback_col="简称",
-            nonce_key="company_screener_jump_render_nonce",
-        )
-        render_df["代码"] = code_links
 
     selected_watchlist_rows = edited_action_df[edited_action_df["选择"]].to_dict(orient="records") if not edited_action_df.empty else []
     selected_count = len(selected_watchlist_rows)
@@ -7027,23 +7026,6 @@ def render_company_screener_tab():
     else:
         action_cols[2].button("加入选中自选", key="company_screener_watchlist_add_selected_disabled", disabled=True)
         action_cols[3].info("先登录用户名，才能把结果表里的股票加入个人自选。")
-
-    st.dataframe(
-        render_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "代码": st.column_config.LinkColumn(
-                "代码",
-                help="点击后跳转到个股/指数查询",
-                display_text="🔎 查询",
-            ),
-            "标签": st.column_config.TextColumn("标签", width="small"),
-            "已在自选": st.column_config.TextColumn("已在自选", width="small"),
-            "主要业务": st.column_config.TextColumn("主要业务", width="large"),
-            "产品及服务": st.column_config.TextColumn("产品及服务", width="large"),
-        },
-    )
 
     st.markdown("#### ✏️ 逐只订正主营与产品信息")
     st.caption("筛选结果中的每只股票都可以单独展开编辑；每次只会保存当前这一只。")

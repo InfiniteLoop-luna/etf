@@ -23,6 +23,7 @@ class CompanyScreenerWatchlistTests(unittest.TestCase):
         self.assertEqual(df["标签"].tolist(), ["", "曾经ST"])
         self.assertEqual(df["主要业务"].tolist(), ["零售银行", "电子元件"])
         self.assertEqual(df["产品及服务"].tolist(), ["存贷款", "连接器"])
+        self.assertTrue(df["查询"].astype(str).str.contains("security_query=").all())
         self.assertFalse(df["选择"].any())
 
     def test_add_company_screener_rows_to_watchlist_adds_only_missing_codes(self):
