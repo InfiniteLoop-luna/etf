@@ -867,9 +867,49 @@ def _ensure_source_views(engine: Engine) -> None:
         logger.warning("ensure source views failed, continue with existing objects: %s", exc)
 
 
-def _read_sql_df(engine: Engine, sql: str, params: dict[str, object] | None = None) -> pd.DataFrame:
+def _read_sql_df(engine: Engine, sql: str, params: dict[str, object] | None = None, *, chunksize: int | None = None):
     with engine.connect() as conn:
-        return pd.read_sql(text(sql), conn, params=params or {})
+        return pd.read_sql(text(sql), conn, params=params or {}, chunksize=chunksize)
+
+
+def _iter_history_chunks(engine: Engine, trade_date: str, config: RecoConfig | None = None, *, chunksize: int = 200_000):
+    config = config or RecoConfig()
+    trade_ts = pd.to_datetime(trade_date, errors="coerce")
+    if pd.isna(trade_ts):
+        return []
+
+    calendar_buffer_days = max(int(config.lookback_days) * 3, 260)
+    start_date = (trade_ts - pd.Timedelta(days=calendar_buffer_days)).strftime("%Y-%m-%d")
+    sql = """
+    SELECT
+        d.trade_date,
+        d.ts_code,
+        d.high,
+        d.low,
+        d.close,
+        d.pct_chg,
+        d.vol,
+        d.amount
+    FROM vw_ts_stock_daily d
+    WHERE d.trade_date >= :start_date
+      AND d.trade_date <= :trade_date
+      AND d.close IS NOT NULL
+    ORDER BY d.ts_code, d.trade_date
+    """
+    iterator = _read_sql_df(
+        engine,
+        sql,
+        {
+            "start_date": start_date,
+            "trade_date": trade_ts.strftime("%Y-%m-%d"),
+        },
+        chunksize=chunksize,
+    )
+    for chunk in iterator:
+        if chunk is None or chunk.empty:
+            continue
+        chunk["ts_code"] = chunk["ts_code"].astype("category")
+        yield _downcast_float_columns(chunk, ["high", "low", "close", "pct_chg", "vol", "amount"])
 
 
 def _resolve_effective_trade_date(engine: Engine, requested_trade_date: str = "") -> str:
@@ -901,40 +941,10 @@ def _resolve_effective_trade_date(engine: Engine, requested_trade_date: str = ""
 
 def load_history_frame(engine: Engine, trade_date: str, config: RecoConfig | None = None) -> pd.DataFrame:
     config = config or RecoConfig()
-    trade_ts = pd.to_datetime(trade_date, errors="coerce")
-    if pd.isna(trade_ts):
+    chunks = list(_iter_history_chunks(engine, trade_date, config))
+    if not chunks:
         return pd.DataFrame()
-
-    calendar_buffer_days = max(int(config.lookback_days) * 3, 260)
-    start_date = (trade_ts - pd.Timedelta(days=calendar_buffer_days)).strftime("%Y-%m-%d")
-    sql = """
-    SELECT
-        d.trade_date,
-        d.ts_code,
-        d.high,
-        d.low,
-        d.close,
-        d.pct_chg,
-        d.vol,
-        d.amount
-    FROM vw_ts_stock_daily d
-    WHERE d.trade_date >= :start_date
-      AND d.trade_date <= :trade_date
-      AND d.close IS NOT NULL
-    ORDER BY d.ts_code, d.trade_date
-    """
-    frame = _read_sql_df(
-        engine,
-        sql,
-        {
-            "start_date": start_date,
-            "trade_date": trade_ts.strftime("%Y-%m-%d"),
-        },
-    )
-    if frame.empty:
-        return frame
-    frame["ts_code"] = frame["ts_code"].astype("category")
-    return _downcast_float_columns(frame, ["high", "low", "close", "pct_chg", "vol", "amount"])
+    return pd.concat(chunks, ignore_index=True)
 
 
 def load_latest_meta_frame(engine: Engine, trade_date: str) -> pd.DataFrame:
@@ -983,22 +993,40 @@ def generate_daily_trend_recommendations(config: RecoConfig | None = None, engin
     if not trade_date:
         raise RuntimeError("无法从 vw_ts_stock_daily 解析有效交易日")
 
-    history_df = load_history_frame(engine, trade_date, config)
     latest_meta_df = load_latest_meta_frame(engine, trade_date)
-    scored_df = score_trend_candidates(history_df, config, latest_meta_df=latest_meta_df)
-    if scored_df.empty:
-        raise RuntimeError(f"{trade_date} 没有满足条件的趋势推荐样本")
 
-    calibration_meta: dict = {"enabled": False}
     if int(config.probability_calibration_anchors) > 0:
+        history_df = load_history_frame(engine, trade_date, config)
+        scored_df = score_trend_candidates(history_df, config, latest_meta_df=latest_meta_df)
+        if scored_df.empty:
+            raise RuntimeError(f"{trade_date} 没有满足条件的趋势推荐样本")
+
+        calibration_meta: dict = {"enabled": False}
         calibration_df = build_probability_calibration_frame(history_df, config)
         scored_df, calibration_meta = apply_probability_calibration(scored_df, calibration_df, config)
+        return build_recommendation_payload(
+            scored_df,
+            trade_date=trade_date,
+            config=config,
+            calibration_meta=calibration_meta,
+        )
 
+    scored_parts: list[pd.DataFrame] = []
+    for history_chunk in _iter_history_chunks(engine, trade_date, config):
+        scored_chunk = score_trend_candidates(history_chunk, config, latest_meta_df=latest_meta_df)
+        if scored_chunk is not None and not scored_chunk.empty:
+            scored_parts.append(scored_chunk)
+
+    if not scored_parts:
+        raise RuntimeError(f"{trade_date} 没有满足条件的趋势推荐样本")
+
+    scored_df = pd.concat(scored_parts, ignore_index=True)
+    scored_df = scored_df.sort_values(["recommendation_score", "trend_score"], ascending=False).reset_index(drop=True)
     return build_recommendation_payload(
         scored_df,
         trade_date=trade_date,
         config=config,
-        calibration_meta=calibration_meta,
+        calibration_meta={"enabled": False},
     )
 
 
