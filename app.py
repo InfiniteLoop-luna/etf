@@ -3069,6 +3069,219 @@ def build_hotmoney_stock_preference_display_df(df_stocks: pd.DataFrame) -> pd.Da
     return out
 
 
+def _format_hotmoney_yi(value, signed: bool = False) -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    return f"{num:+,.2f}" if signed else f"{num:,.2f}"
+
+
+def _join_hotmoney_names(values, max_items: int = 4) -> str:
+    names: list[str] = []
+    for value in values:
+        name = str(value or "").strip()
+        if not name:
+            continue
+        if name not in names:
+            names.append(name)
+
+    if not names:
+        return "-"
+    label = "、".join(names[:max_items])
+    if len(names) > max_items:
+        label = f"{label} 等{len(names)}路"
+    return label
+
+
+def prepare_hotmoney_detail_frame(df_detail: pd.DataFrame) -> pd.DataFrame:
+    if df_detail is None or df_detail.empty:
+        return pd.DataFrame()
+
+    work = df_detail.copy()
+    work["trade_date"] = pd.to_datetime(work["trade_date"], errors="coerce")
+    for col in ["buy_amount", "sell_amount", "net_amount"]:
+        work[col] = pd.to_numeric(work[col], errors="coerce").fillna(0)
+        work[f"{col}_yi"] = work[col] / 1e8
+
+    for col in ["ts_code", "ts_name", "hm_name", "hm_orgs", "tag"]:
+        if col in work.columns:
+            work[col] = work[col].fillna("").astype(str)
+
+    work["ts_name"] = work.apply(
+        lambda row: row["ts_name"].strip() or row["ts_code"].strip() or "-",
+        axis=1,
+    )
+    work["hm_name"] = work["hm_name"].replace("", "未知游资")
+    work["abs_net_amount_yi"] = work["net_amount_yi"].abs()
+    work["direction"] = np.where(
+        work["net_amount_yi"] > 0,
+        "净买入",
+        np.where(work["net_amount_yi"] < 0, "净卖出", "均衡"),
+    )
+    return work
+
+
+def build_hotmoney_stock_battle_summary(detail_df: pd.DataFrame) -> pd.DataFrame:
+    if detail_df is None or detail_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "ts_code",
+                "ts_name",
+                "hit_count",
+                "trade_days",
+                "hm_count",
+                "total_buy_yi",
+                "total_sell_yi",
+                "total_net_yi",
+                "battle_amount_yi",
+                "latest_date",
+                "main_hotmoney",
+                "latest_hotmoney",
+            ]
+        )
+
+    work = detail_df.copy()
+    grouped = work.groupby("ts_code", dropna=False)
+    summary = grouped.agg(
+        ts_name=("ts_name", lambda values: next((str(v).strip() for v in values if str(v).strip()), "-")),
+        hit_count=("hm_name", "size"),
+        trade_days=("trade_date", "nunique"),
+        hm_count=("hm_name", "nunique"),
+        total_buy_yi=("buy_amount_yi", "sum"),
+        total_sell_yi=("sell_amount_yi", "sum"),
+        total_net_yi=("net_amount_yi", "sum"),
+        battle_amount_yi=("abs_net_amount_yi", "sum"),
+        latest_date=("trade_date", "max"),
+    ).reset_index()
+
+    main_hotmoney_map: dict[str, str] = {}
+    latest_hotmoney_map: dict[str, str] = {}
+    for ts_code, stock_rows in work.groupby("ts_code"):
+        hm_rank = (
+            stock_rows.groupby("hm_name")["abs_net_amount_yi"]
+            .sum()
+            .sort_values(ascending=False)
+        )
+        main_hotmoney_map[ts_code] = _join_hotmoney_names(hm_rank.index.tolist(), max_items=4)
+
+        latest_date = stock_rows["trade_date"].max()
+        latest_rows = stock_rows[stock_rows["trade_date"] == latest_date].sort_values(
+            "abs_net_amount_yi",
+            ascending=False,
+        )
+        latest_hotmoney_map[ts_code] = _join_hotmoney_names(latest_rows["hm_name"], max_items=4)
+
+    summary["main_hotmoney"] = summary["ts_code"].map(main_hotmoney_map).fillna("-")
+    summary["latest_hotmoney"] = summary["ts_code"].map(latest_hotmoney_map).fillna("-")
+    summary["net_direction"] = np.where(
+        summary["total_net_yi"] > 0,
+        "净买入",
+        np.where(summary["total_net_yi"] < 0, "净卖出", "均衡"),
+    )
+    summary["latest_date_label"] = pd.to_datetime(summary["latest_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    summary["stock_label"] = summary["ts_name"] + "（" + summary["ts_code"] + "）"
+    return summary
+
+
+def build_hotmoney_stock_battle_display_df(summary_df: pd.DataFrame) -> pd.DataFrame:
+    if summary_df is None or summary_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "股票",
+                "代码",
+                "上榜次数",
+                "交易日数",
+                "游资数",
+                "净买卖(亿)",
+                "博弈强度(亿)",
+                "主导游资",
+                "最近动作",
+                "最近日期",
+            ]
+        )
+
+    out = summary_df[
+        [
+            "ts_name",
+            "ts_code",
+            "hit_count",
+            "trade_days",
+            "hm_count",
+            "total_net_yi",
+            "battle_amount_yi",
+            "main_hotmoney",
+            "latest_hotmoney",
+            "latest_date_label",
+        ]
+    ].copy()
+    out.columns = [
+        "股票",
+        "代码",
+        "上榜次数",
+        "交易日数",
+        "游资数",
+        "净买卖(亿)",
+        "博弈强度(亿)",
+        "主导游资",
+        "最近动作",
+        "最近日期",
+    ]
+    out["股票"] = build_security_name_jump_links(
+        out,
+        code_col="代码",
+        label_col="股票",
+        fallback_col="股票",
+        label_prefix="🔎 ",
+        nonce_key="hm_stock_battle_render_nonce",
+    )
+    out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda v: _format_hotmoney_yi(v, signed=True))
+    out["博弈强度(亿)"] = out["博弈强度(亿)"].map(_format_hotmoney_yi)
+    return out
+
+
+def build_hotmoney_daily_digest_df(stock_detail_df: pd.DataFrame) -> pd.DataFrame:
+    if stock_detail_df is None or stock_detail_df.empty:
+        return pd.DataFrame(columns=["日期", "上榜次数", "游资数", "净买卖(亿)", "主买游资", "主卖游资"])
+
+    work = stock_detail_df.copy()
+    rows = []
+    for trade_date, date_rows in work.groupby("trade_date"):
+        buy_rows = date_rows[date_rows["net_amount_yi"] > 0].sort_values("net_amount_yi", ascending=False)
+        sell_rows = date_rows[date_rows["net_amount_yi"] < 0].sort_values("net_amount_yi")
+        rows.append(
+            {
+                "日期": pd.to_datetime(trade_date).strftime("%Y-%m-%d"),
+                "上榜次数": int(len(date_rows)),
+                "游资数": int(date_rows["hm_name"].nunique()),
+                "净买卖(亿)": date_rows["net_amount_yi"].sum(),
+                "主买游资": _join_hotmoney_names(buy_rows["hm_name"], max_items=4),
+                "主卖游资": _join_hotmoney_names(sell_rows["hm_name"], max_items=4),
+            }
+        )
+
+    out = pd.DataFrame(rows).sort_values("日期", ascending=False)
+    out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda v: _format_hotmoney_yi(v, signed=True))
+    return out
+
+
+def build_hotmoney_detail_display_df(detail_df: pd.DataFrame) -> pd.DataFrame:
+    if detail_df is None or detail_df.empty:
+        return pd.DataFrame(columns=["日期", "游资", "股票", "代码", "方向", "标签", "买入(亿)", "卖出(亿)", "净买卖(亿)", "关联机构"])
+
+    out = detail_df.sort_values(["trade_date", "abs_net_amount_yi"], ascending=[False, False])[
+        ["trade_date", "hm_name", "ts_name", "ts_code", "direction", "tag", "buy_amount_yi", "sell_amount_yi", "net_amount_yi", "hm_orgs"]
+    ].copy()
+    out["trade_date"] = pd.to_datetime(out["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out.columns = ["日期", "游资", "股票", "代码", "方向", "标签", "买入(亿)", "卖出(亿)", "净买卖(亿)", "关联机构"]
+    for col in ["买入(亿)", "卖出(亿)"]:
+        out[col] = out[col].map(_format_hotmoney_yi)
+    out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda v: _format_hotmoney_yi(v, signed=True))
+    return out
+
+
 HISTORICAL_ST_BADGE_TEXT = '曾经ST'
 
 
@@ -5884,14 +6097,16 @@ def render_hotmoney_tab():
     meta_cols[2].metric("最新明细交易日", latest_trade_label)
     meta_cols[3].metric("最近同步时间", latest_sync_label)
 
-    ctl1, ctl2, ctl3, ctl4 = st.columns([1.1, 1, 1, 1.1])
+    ctl1, ctl2, ctl3, ctl4, ctl5 = st.columns([1.05, 1.05, 0.9, 0.75, 1.05])
     with ctl1:
         hm_keyword = st.text_input("搜索游资名称", value="", key="hm_keyword")
     with ctl2:
-        detail_window = st.selectbox("明细窗口", ["最近1日", "最近5日", "最近20日", "全部已入库"], index=1, key="hm_detail_window")
+        stock_keyword = st.text_input("聚焦股票/代码", value="", key="hm_stock_keyword")
     with ctl3:
-        top_n = st.selectbox("TopN", [10, 20, 30, 50], index=1, key="hm_topn")
+        detail_window = st.selectbox("明细窗口", ["最近1日", "最近5日", "最近20日", "全部已入库"], index=1, key="hm_detail_window")
     with ctl4:
+        top_n = st.selectbox("TopN", [10, 20, 30, 50], index=1, key="hm_topn")
+    with ctl5:
         stock_rank_mode = st.selectbox("个股排序", ["按上榜次数", "按游资数", "按净买卖绝对值"], index=0, key="hm_stock_rank_mode")
 
     hm_list_df = query_hotmoney_list(name=hm_keyword or None, limit=300, engine=_hm_engine)
@@ -5955,9 +6170,17 @@ def render_hotmoney_tab():
             stock_order_by = "net_amount_abs"
 
         try:
+            detail_limit = max(3000, int(top_n) * 160)
             df_active = query_hotmoney_top_active(start_dt.strftime("%Y%m%d"), latest_date, top_n=int(top_n), engine=_hm_engine)
             df_stocks = query_hotmoney_top_stocks(start_dt.strftime("%Y%m%d"), latest_date, top_n=int(top_n), order_by=stock_order_by, engine=_hm_engine)
-            df_detail = query_hotmoney_detail(start_dt.strftime("%Y%m%d"), latest_date, hm_name=hm_keyword or None, limit=500, engine=_hm_engine)
+            df_detail = query_hotmoney_detail(
+                start_dt.strftime("%Y%m%d"),
+                latest_date,
+                hm_name=hm_keyword or None,
+                stock_keyword=stock_keyword or None,
+                limit=detail_limit,
+                engine=_hm_engine,
+            )
         except Exception as e:
             st.error(f"游资明细查询失败：{e}")
             return
@@ -6074,15 +6297,202 @@ def render_hotmoney_tab():
         )
         st.markdown("#### 🧾 游资博弈每日明细")
         if df_detail is not None and not df_detail.empty:
-            show = df_detail.copy()
-            show["trade_date"] = pd.to_datetime(show["trade_date"]).dt.strftime("%Y-%m-%d")
-            for col in ["buy_amount", "sell_amount", "net_amount"]:
-                show[col] = pd.to_numeric(show[col], errors="coerce").fillna(0) / 1e8
-            out = show[["trade_date", "hm_name", "ts_name", "ts_code", "tag", "buy_amount", "sell_amount", "net_amount", "hm_orgs"]].copy()
-            out.columns = ["日期", "游资", "股票", "代码", "标签", "买入(亿)", "卖出(亿)", "净买卖(亿)", "关联机构"]
-            for col in ["买入(亿)", "卖出(亿)", "净买卖(亿)"]:
-                out[col] = pd.to_numeric(out[col], errors="coerce").map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
-            st.dataframe(out, use_container_width=True, hide_index=True, height=420)
+            detail_frame = prepare_hotmoney_detail_frame(df_detail)
+            battle_summary = build_hotmoney_stock_battle_summary(detail_frame)
+            battle_summary["total_net_abs_yi"] = battle_summary["total_net_yi"].abs()
+
+            if stock_order_by == "hm_count":
+                battle_summary = battle_summary.sort_values(
+                    ["hm_count", "hit_count", "battle_amount_yi"],
+                    ascending=[False, False, False],
+                )
+            elif stock_order_by == "net_amount_abs":
+                battle_summary = battle_summary.sort_values(
+                    ["total_net_abs_yi", "hit_count", "hm_count"],
+                    ascending=[False, False, False],
+                )
+            else:
+                battle_summary = battle_summary.sort_values(
+                    ["hit_count", "hm_count", "battle_amount_yi"],
+                    ascending=[False, False, False],
+                )
+
+            summary_cols = st.columns(4)
+            summary_cols[0].metric("涉及股票", f"{len(battle_summary):,}")
+            summary_cols[1].metric("参与游资", f"{int(detail_frame['hm_name'].nunique()):,}")
+            summary_cols[2].metric("上榜记录", f"{len(detail_frame):,}")
+            summary_cols[3].metric("合计净买卖(亿)", _format_hotmoney_yi(detail_frame["net_amount_yi"].sum(), signed=True))
+
+            plot_df = battle_summary.head(int(top_n)).sort_values("battle_amount_yi", ascending=True)
+            fig_battle = go.Figure(go.Bar(
+                x=plot_df["battle_amount_yi"],
+                y=plot_df["stock_label"],
+                orientation="h",
+                marker_color=[THEME_UP if v >= 0 else THEME_DOWN for v in plot_df["total_net_yi"]],
+                text=plot_df.apply(lambda row: f"{int(row['hm_count'])}路/{int(row['hit_count'])}次", axis=1),
+                textposition="outside",
+                customdata=np.stack(
+                    [
+                        plot_df["total_net_yi"],
+                        plot_df["main_hotmoney"],
+                        plot_df["latest_hotmoney"],
+                    ],
+                    axis=-1,
+                ),
+                hovertemplate=(
+                    "%{y}<br>"
+                    "博弈强度：%{x:.2f} 亿<br>"
+                    "累计净买卖：%{customdata[0]:+.2f} 亿<br>"
+                    "主导游资：%{customdata[1]}<br>"
+                    "最近动作：%{customdata[2]}<extra></extra>"
+                ),
+            ))
+            fig_battle.update_layout(
+                title=dict(text="个股游资博弈强度 TopN", x=0.02, font=dict(size=16, color=THEME_TEXT)),
+                template="wealthspark_balanced",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                height=max(340, len(plot_df) * 24),
+                margin=dict(l=140, r=55, t=55, b=30),
+                xaxis_title="净买卖绝对额合计(亿)",
+                yaxis=dict(autorange=False),
+            )
+            st.plotly_chart(fig_battle, use_container_width=True)
+
+            display_summary = build_hotmoney_stock_battle_display_df(battle_summary.head(max(int(top_n), 20)))
+            st.dataframe(
+                display_summary,
+                use_container_width=True,
+                hide_index=True,
+                height=360,
+                column_config={
+                    "股票": st.column_config.LinkColumn(
+                        "股票",
+                        help="点击后跳转到个股/指数查询",
+                        display_text=r".*#(.*)$",
+                    )
+                },
+            )
+
+            if not battle_summary.empty:
+                stock_options = battle_summary["ts_code"].tolist()
+                if st.session_state.get("hm_focus_stock_select") not in stock_options:
+                    st.session_state["hm_focus_stock_select"] = stock_options[0]
+                stock_label_map = dict(zip(battle_summary["ts_code"], battle_summary["stock_label"]))
+                selected_code = st.selectbox(
+                    "单股追踪",
+                    options=stock_options,
+                    format_func=lambda code: stock_label_map.get(code, code),
+                    key="hm_focus_stock_select",
+                )
+                focus_summary = battle_summary[battle_summary["ts_code"] == selected_code].iloc[0]
+                focus_detail = detail_frame[detail_frame["ts_code"] == selected_code].copy()
+                focus_label = stock_label_map.get(selected_code, selected_code)
+
+                focus_cols = st.columns(4)
+                focus_cols[0].metric("上榜次数", int(focus_summary["hit_count"]))
+                focus_cols[1].metric("参与游资", int(focus_summary["hm_count"]))
+                focus_cols[2].metric("交易日数", int(focus_summary["trade_days"]))
+                focus_cols[3].metric("累计净买卖(亿)", _format_hotmoney_yi(focus_summary["total_net_yi"], signed=True))
+
+                daily_focus = (
+                    focus_detail.groupby("trade_date")
+                    .agg(
+                        net_amount_yi=("net_amount_yi", "sum"),
+                        buy_amount_yi=("buy_amount_yi", "sum"),
+                        sell_amount_yi=("sell_amount_yi", "sum"),
+                        hit_count=("hm_name", "size"),
+                        hm_count=("hm_name", "nunique"),
+                    )
+                    .reset_index()
+                    .sort_values("trade_date")
+                )
+                daily_focus["trade_date_label"] = pd.to_datetime(daily_focus["trade_date"]).dt.strftime("%Y-%m-%d")
+
+                chart_left, chart_right = st.columns([1.05, 1])
+                with chart_left:
+                    fig_daily = go.Figure(go.Bar(
+                        x=daily_focus["trade_date_label"],
+                        y=daily_focus["net_amount_yi"],
+                        marker_color=[THEME_UP if v >= 0 else THEME_DOWN for v in daily_focus["net_amount_yi"]],
+                        text=daily_focus["net_amount_yi"].map(lambda v: _format_hotmoney_yi(v, signed=True)),
+                        textposition="outside",
+                        hovertemplate="日期：%{x}<br>净买卖：%{y:+.2f} 亿<extra></extra>",
+                    ))
+                    fig_daily.add_hline(y=0, line_width=1, line_dash="dash", line_color=THEME_NEUTRAL)
+                    fig_daily.update_layout(
+                        title=dict(text=f"{focus_label} 每日净买卖", x=0.02, font=dict(size=15, color=THEME_TEXT)),
+                        template="wealthspark_balanced",
+                        paper_bgcolor=CHART_PAPER_BG,
+                        plot_bgcolor=CHART_BG,
+                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        height=330,
+                        margin=dict(l=45, r=25, t=55, b=45),
+                        yaxis_title="净买卖(亿)",
+                        xaxis_title="",
+                    )
+                    st.plotly_chart(fig_daily, use_container_width=True)
+
+                with chart_right:
+                    matrix_source = (
+                        focus_detail.groupby(["hm_name", "trade_date"])["net_amount_yi"]
+                        .sum()
+                        .reset_index()
+                    )
+                    top_hm_names = (
+                        focus_detail.groupby("hm_name")["abs_net_amount_yi"]
+                        .sum()
+                        .sort_values(ascending=False)
+                        .head(12)
+                        .index
+                        .tolist()
+                    )
+                    matrix_source = matrix_source[matrix_source["hm_name"].isin(top_hm_names)]
+                    pivot = (
+                        matrix_source.pivot(index="hm_name", columns="trade_date", values="net_amount_yi")
+                        .fillna(0)
+                        .reindex(top_hm_names)
+                    )
+                    pivot.columns = [pd.to_datetime(c).strftime("%Y-%m-%d") for c in pivot.columns]
+                    heat_text = [
+                        [_format_hotmoney_yi(value, signed=True) if abs(float(value)) >= 0.005 else "" for value in row]
+                        for row in pivot.to_numpy()
+                    ]
+                    fig_heat = go.Figure(go.Heatmap(
+                        z=pivot.to_numpy(),
+                        x=pivot.columns,
+                        y=pivot.index,
+                        text=heat_text,
+                        texttemplate="%{text}",
+                        colorscale=[[0, THEME_DOWN], [0.5, "#F2EFE7"], [1, THEME_UP]],
+                        zmid=0,
+                        colorbar=dict(title="亿"),
+                        hovertemplate="游资：%{y}<br>日期：%{x}<br>净买卖：%{z:+.2f} 亿<extra></extra>",
+                    ))
+                    fig_heat.update_layout(
+                        title=dict(text="日期 × 游资净买卖矩阵", x=0.02, font=dict(size=15, color=THEME_TEXT)),
+                        template="wealthspark_balanced",
+                        paper_bgcolor=CHART_PAPER_BG,
+                        plot_bgcolor=CHART_BG,
+                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        height=max(330, len(pivot) * 28),
+                        margin=dict(l=100, r=25, t=55, b=45),
+                        xaxis_title="",
+                        yaxis_title="",
+                    )
+                    st.plotly_chart(fig_heat, use_container_width=True)
+
+                digest_df = build_hotmoney_daily_digest_df(focus_detail)
+                st.dataframe(digest_df, use_container_width=True, hide_index=True, height=260)
+
+                with st.expander("原始游资流水", expanded=False):
+                    st.dataframe(
+                        build_hotmoney_detail_display_df(focus_detail),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=420,
+                    )
         else:
             st.info("当前窗口暂无游资明细数据。")
 

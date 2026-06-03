@@ -81,6 +81,7 @@ def query_hotmoney_detail(start_date: str,
                           end_date: str,
                           hm_name: Optional[str] = None,
                           ts_code: Optional[str] = None,
+                          stock_keyword: Optional[str] = None,
                           limit: int = 2000,
                           engine: Optional[Engine] = None) -> pd.DataFrame:
     if engine is None:
@@ -113,6 +114,11 @@ def query_hotmoney_detail(start_date: str,
     WHERE trade_date BETWEEN :start_date AND :end_date
       AND (:hm_name IS NULL OR COALESCE(payload->>'hm_name', '') ILIKE ('%' || :hm_name || '%'))
       AND (:ts_code IS NULL OR ts_code = :ts_code)
+      AND (
+        :stock_keyword IS NULL
+        OR ts_code ILIKE ('%' || :stock_keyword || '%')
+        OR COALESCE(payload->>'ts_name', '') ILIKE ('%' || :stock_keyword || '%')
+      )
     ORDER BY trade_date DESC, ABS(
       COALESCE(
         CASE WHEN COALESCE(payload->>'net_amount','') ~ '^-?\\d+(\\.\\d+)?$' THEN (payload->>'net_amount')::numeric ELSE 0 END,
@@ -130,6 +136,7 @@ def query_hotmoney_detail(start_date: str,
                 "end_date": e_val,
                 "hm_name": hm_name,
                 "ts_code": ts_code,
+                "stock_keyword": stock_keyword,
                 "limit": int(limit),
             },
         )
