@@ -48,7 +48,8 @@ python update_hotmoney.py --datasets hm_detail --detail-batch-days "$HOTMONEY_DE
 
 
 echo "[$(date -Is)] etf-data-update: run generate_daily_trend_reco_from_pyc.py"
-TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/generate_daily_trend_reco_from_pyc.py
+TREND_RECO_CALIBRATION_ANCHORS="${ETF_TREND_RECO_CALIBRATION_ANCHORS:-0}"
+TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/generate_daily_trend_reco_from_pyc.py --probability-calibration-anchors "$TREND_RECO_CALIBRATION_ANCHORS"
 
 echo "[$(date -Is)] etf-data-update: run write_reco_candidate_score_snapshot.py"
 if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/write_reco_candidate_score_snapshot.py --lookback-days 60 --min-train-rows 2000 --max-candidates 30 --recent-train-rows 6000; then

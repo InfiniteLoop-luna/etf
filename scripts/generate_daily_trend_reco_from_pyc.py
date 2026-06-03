@@ -34,6 +34,13 @@ def parse_args():
     parser.add_argument("--lookback-days", type=int, default=160, help="回看天数")
     parser.add_argument("--min-rows-per-symbol", type=int, default=60, help="单股票最少样本条数")
     parser.add_argument("--topn", type=int, default=10, help="输出 TopN")
+    parser.add_argument("--trade-date", default="", help="指定交易日；默认自动取最新有效交易日")
+    parser.add_argument(
+        "--probability-calibration-anchors",
+        type=int,
+        default=None,
+        help="覆盖概率校准锚点数量；低内存环境可设为 0 关闭近期历史胜率校准",
+    )
     parser.add_argument("--skip-db", action="store_true", help="只生成文件，不写 PostgreSQL")
     return parser.parse_args()
 
@@ -111,11 +118,17 @@ def main():
     args = parse_args()
     module = load_reco_module(args.pyc_path)
 
-    config = module.RecoConfig(
-        lookback_days=int(args.lookback_days),
-        min_rows_per_symbol=int(args.min_rows_per_symbol),
-        topn=int(args.topn),
-    )
+    config_kwargs = {
+        "lookback_days": int(args.lookback_days),
+        "min_rows_per_symbol": int(args.min_rows_per_symbol),
+        "topn": int(args.topn),
+    }
+    if str(args.trade_date or "").strip():
+        config_kwargs["trade_date"] = str(args.trade_date).strip()
+    if args.probability_calibration_anchors is not None:
+        config_kwargs["probability_calibration_anchors"] = int(args.probability_calibration_anchors)
+
+    config = module.RecoConfig(**config_kwargs)
     payload = module.generate_daily_trend_recommendations(config)
 
     output_dir = Path(args.output_dir)
