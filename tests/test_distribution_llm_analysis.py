@@ -10,14 +10,16 @@ from unittest.mock import Mock, patch
 import pandas as pd
 
 from src.distribution_llm_analysis import (
-    LLM_SECTION_MARKER,
+    DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS,
     LLM_SCHEMA_VERSION,
+    LLM_SECTION_MARKER,
     analyze_distribution_payload,
     make_json_safe,
     load_distribution_llm_config,
     normalize_distribution_llm_result,
     parse_llm_json_object,
     render_distribution_llm_markdown,
+    should_require_llm_refresh,
 )
 
 
@@ -48,85 +50,95 @@ class DistributionLLMAnalysisTests(unittest.TestCase):
     def test_load_distribution_llm_config_prefers_env_file_key_over_secrets_fallback(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            (root / '.env').write_text(
-                'DISTRIBUTION_LLM_ENABLED=true\n'
-                'DISTRIBUTION_LLM_API_KEY=sk-real-ascii-key\n',
-                encoding='utf-8',
+            (root / ".env").write_text(
+                "DISTRIBUTION_LLM_ENABLED=true\n"
+                "DISTRIBUTION_LLM_API_KEY=sk-real-ascii-key\n",
+                encoding="utf-8",
             )
-            (root / '.streamlit').mkdir(parents=True, exist_ok=True)
-            (root / '.streamlit' / 'secrets.toml').write_text(
+            (root / ".streamlit").mkdir(parents=True, exist_ok=True)
+            (root / ".streamlit" / "secrets.toml").write_text(
                 'DISTRIBUTION_LLM_ENABLED = true\n'
                 'DISTRIBUTION_LLM_API_KEY = "sk-15b…271a"\n',
-                encoding='utf-8',
+                encoding="utf-8",
             )
-            with patch('src.distribution_llm_analysis.ENV_PATH', root / '.env'), \
-                 patch('src.distribution_llm_analysis.SECRETS_PATH', root / '.streamlit' / 'secrets.toml'), \
+            with patch("src.distribution_llm_analysis.ENV_PATH", root / ".env"), \
+                 patch("src.distribution_llm_analysis.SECRETS_PATH", root / ".streamlit" / "secrets.toml"), \
                  patch.dict(os.environ, {}, clear=True):
                 from src import distribution_llm_analysis as module
                 module._load_env_file.cache_clear()
                 cfg = load_distribution_llm_config()
 
         self.assertTrue(cfg.enabled)
-        self.assertEqual(cfg.base_url, 'https://api.deepseek.com')
-        self.assertEqual(cfg.model, 'deepseek-v4-flash')
-        self.assertEqual(cfg.api_key, 'sk-real-ascii-key')
+        self.assertEqual(cfg.base_url, "https://api.deepseek.com")
+        self.assertEqual(cfg.model, "deepseek-v4-flash")
+        self.assertEqual(cfg.api_key, "sk-real-ascii-key")
 
     def test_load_distribution_llm_config_skips_bad_primary_key_and_falls_back_to_alt_env_key(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            (root / '.env').write_text(
-                'DISTRIBUTION_LLM_ENABLED=true\n'
-                'DISTRIBUTION_LLM_API_KEY=sk-bad…key\n'
-                'DEEPSEEK_API_KEY=sk-good-ascii-key\n',
-                encoding='utf-8',
+            (root / ".env").write_text(
+                "DISTRIBUTION_LLM_ENABLED=true\n"
+                "DISTRIBUTION_LLM_API_KEY=sk-bad…key\n"
+                "DEEPSEEK_API_KEY=sk-good-ascii-key\n",
+                encoding="utf-8",
             )
-            with patch('src.distribution_llm_analysis.ENV_PATH', root / '.env'), \
-                 patch('src.distribution_llm_analysis.SECRETS_PATH', root / '.streamlit' / 'secrets.toml'), \
+            with patch("src.distribution_llm_analysis.ENV_PATH", root / ".env"), \
+                 patch("src.distribution_llm_analysis.SECRETS_PATH", root / ".streamlit" / "secrets.toml"), \
                  patch.dict(os.environ, {}, clear=True):
                 from src import distribution_llm_analysis as module
                 module._load_env_file.cache_clear()
                 cfg = load_distribution_llm_config()
 
         self.assertTrue(cfg.enabled)
-        self.assertEqual(cfg.api_key, 'sk-good-ascii-key')
+        self.assertEqual(cfg.api_key, "sk-good-ascii-key")
 
     def test_load_distribution_llm_config_rejects_non_ascii_secret_key(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            (root / '.streamlit').mkdir(parents=True, exist_ok=True)
-            (root / '.streamlit' / 'secrets.toml').write_text(
+            (root / ".streamlit").mkdir(parents=True, exist_ok=True)
+            (root / ".streamlit" / "secrets.toml").write_text(
                 'DISTRIBUTION_LLM_ENABLED = true\n'
                 'DISTRIBUTION_LLM_API_KEY = "sk-15b…271a"\n',
-                encoding='utf-8',
+                encoding="utf-8",
             )
-            with patch('src.distribution_llm_analysis.ENV_PATH', root / '.env'), \
-                 patch('src.distribution_llm_analysis.SECRETS_PATH', root / '.streamlit' / 'secrets.toml'), \
+            with patch("src.distribution_llm_analysis.ENV_PATH", root / ".env"), \
+                 patch("src.distribution_llm_analysis.SECRETS_PATH", root / ".streamlit" / "secrets.toml"), \
                  patch.dict(os.environ, {}, clear=True):
                 from src import distribution_llm_analysis as module
                 module._load_env_file.cache_clear()
                 cfg = load_distribution_llm_config()
 
-        self.assertEqual(cfg.api_key, '')
+        self.assertEqual(cfg.api_key, "")
         self.assertFalse(cfg.configured)
 
     def test_should_require_llm_refresh_requires_current_professional_schema_marker(self):
-        from src.distribution_llm_analysis import should_require_llm_refresh
+        config = SimpleNamespace(configured=True)
 
-        self.assertTrue(should_require_llm_refresh('# cached report'))
-        self.assertTrue(should_require_llm_refresh('# cached report\n\n' + LLM_SECTION_MARKER))
-        self.assertFalse(should_require_llm_refresh('# cached report\n\n' + LLM_SECTION_MARKER + '\n' + LLM_SCHEMA_VERSION))
+        self.assertTrue(should_require_llm_refresh("# cached report", config=config))
+        self.assertTrue(should_require_llm_refresh("# cached report\n\n" + LLM_SECTION_MARKER, config=config))
+        self.assertFalse(
+            should_require_llm_refresh(
+                "# cached report\n\n" + LLM_SECTION_MARKER + "\n" + LLM_SCHEMA_VERSION,
+                config=config,
+            )
+        )
+
+    def test_should_require_llm_refresh_ignores_marker_when_llm_is_not_configured(self):
+        config = SimpleNamespace(configured=False)
+
+        self.assertFalse(should_require_llm_refresh("# cached report", config=config))
 
     def test_parse_llm_json_object_accepts_fenced_json(self):
         content = '```json\n{"verdict":"疑似出货","confidence":75}\n```'
         parsed = parse_llm_json_object(content)
-        self.assertEqual(parsed['verdict'], '疑似出货')
-        self.assertEqual(parsed['confidence'], 75)
+        self.assertEqual(parsed["verdict"], "疑似出货")
+        self.assertEqual(parsed["confidence"], 75)
 
     def test_parse_llm_json_object_extracts_first_balanced_object_from_noisy_text(self):
         content = '先看结论如下：\n{"verdict":"中性","confidence":55,"summary":"震荡"}\n补充说明忽略'
         parsed = parse_llm_json_object(content)
-        self.assertEqual(parsed['verdict'], '中性')
-        self.assertEqual(parsed['confidence'], 55)
+        self.assertEqual(parsed["verdict"], "中性")
+        self.assertEqual(parsed["confidence"], 55)
 
     def test_normalize_distribution_llm_result_clamps_and_defaults_schema(self):
         normalized = normalize_distribution_llm_result(
@@ -173,13 +185,55 @@ class DistributionLLMAnalysisTests(unittest.TestCase):
         self.assertIn("风控与操作提示", markdown)
         self.assertIn("不构成确定性交易指令", markdown)
 
-    @patch('src.distribution_llm_analysis.requests.post')
+    @patch("src.distribution_llm_analysis.requests.post")
+    def test_analyze_distribution_payload_requests_json_object_response(self, mock_post):
+        config = SimpleNamespace(
+            configured=True,
+            base_url="https://api.deepseek.com",
+            api_key="sk-test",
+            model="deepseek-v4-flash",
+            timeout_seconds=30,
+            temperature=0.2,
+            max_tokens=1200,
+        )
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "verdict": "中性",
+                                "risk_level": "中",
+                                "confidence": 60,
+                                "summary": "测试摘要",
+                            },
+                            ensure_ascii=False,
+                        )
+                    },
+                }
+            ]
+        }
+        mock_post.return_value = response
+
+        result = analyze_distribution_payload({"ts_code": "000733.SZ"}, config=config)
+
+        request_payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(request_payload["response_format"], {"type": "json_object"})
+        self.assertEqual(request_payload["thinking"], {"type": "disabled"})
+        self.assertEqual(request_payload["max_tokens"], DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS)
+        self.assertEqual(result["verdict"], "中性")
+        self.assertEqual(result["model"], "deepseek-v4-flash")
+
+    @patch("src.distribution_llm_analysis.requests.post")
     def test_analyze_distribution_payload_retries_once_on_non_json_then_succeeds(self, mock_post):
         config = SimpleNamespace(
             configured=True,
-            base_url='https://api.deepseek.com',
-            api_key='sk-test',
-            model='deepseek-v4-flash',
+            base_url="https://api.deepseek.com",
+            api_key="sk-test",
+            model="deepseek-v4-flash",
             timeout_seconds=30,
             temperature=0.2,
             max_tokens=1200,
@@ -188,28 +242,83 @@ class DistributionLLMAnalysisTests(unittest.TestCase):
         bad = Mock()
         bad.raise_for_status.return_value = None
         bad.json.return_value = {
-            'choices': [{'message': {'content': '结论如下：不是纯json'}}]
+            "choices": [{"message": {"content": "结论如下：不是纯json"}}]
         }
         good = Mock()
         good.raise_for_status.return_value = None
         good.json.return_value = {
-            'choices': [{'message': {'content': '{"verdict":"疑似出货","confidence":71}'}}]
+            "choices": [{"message": {"content": '{"verdict":"疑似出货","confidence":71}'}}]
         }
         mock_post.side_effect = [bad, good]
 
-        result = analyze_distribution_payload({'ts_code': '000733.SZ'}, config=config)
+        result = analyze_distribution_payload({"ts_code": "000733.SZ"}, config=config)
 
-        self.assertEqual(result['verdict'], '疑似出货')
-        self.assertEqual(result['confidence'], 71)
+        self.assertEqual(result["verdict"], "疑似出货")
+        self.assertEqual(result["confidence"], 71)
         self.assertEqual(mock_post.call_count, 2)
 
-    @patch('src.distribution_llm_analysis.requests.post')
+    @patch("src.distribution_llm_analysis.requests.post")
+    def test_analyze_distribution_payload_retries_truncated_json_with_token_floor(self, mock_post):
+        config = SimpleNamespace(
+            configured=True,
+            base_url="https://api.deepseek.com",
+            api_key="sk-test",
+            model="deepseek-v4-flash",
+            timeout_seconds=30,
+            temperature=0.2,
+            max_tokens=1200,
+        )
+        first_response = Mock()
+        first_response.raise_for_status.return_value = None
+        first_response.json.return_value = {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {"content": '{"verdict":"中性"'},
+                }
+            ]
+        }
+        second_response = Mock()
+        second_response.raise_for_status.return_value = None
+        second_response.json.return_value = {
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "verdict": "疑似出货",
+                                "risk_level": "中",
+                                "confidence": 66,
+                                "summary": "重试成功",
+                            },
+                            ensure_ascii=False,
+                        )
+                    },
+                }
+            ]
+        }
+        mock_post.side_effect = [first_response, second_response]
+
+        result = analyze_distribution_payload({"ts_code": "688256.SH"}, config=config)
+
+        self.assertEqual(result["verdict"], "疑似出货")
+        self.assertEqual(
+            mock_post.call_args_list[0].kwargs["json"]["max_tokens"],
+            DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS,
+        )
+        self.assertEqual(
+            mock_post.call_args_list[1].kwargs["json"]["max_tokens"],
+            DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS,
+        )
+
+    @patch("src.distribution_llm_analysis.requests.post")
     def test_analyze_distribution_payload_returns_none_when_both_attempts_invalid(self, mock_post):
         config = SimpleNamespace(
             configured=True,
-            base_url='https://api.deepseek.com',
-            api_key='sk-test',
-            model='deepseek-v4-flash',
+            base_url="https://api.deepseek.com",
+            api_key="sk-test",
+            model="deepseek-v4-flash",
             timeout_seconds=30,
             temperature=0.2,
             max_tokens=1200,
@@ -217,13 +326,13 @@ class DistributionLLMAnalysisTests(unittest.TestCase):
 
         empty = Mock()
         empty.raise_for_status.return_value = None
-        empty.json.return_value = {'choices': [{'message': {'content': ''}}]}
+        empty.json.return_value = {"choices": [{"message": {"content": ""}}]}
         noisy = Mock()
         noisy.raise_for_status.return_value = None
-        noisy.json.return_value = {'choices': [{'message': {'content': '不是json'}}]}
+        noisy.json.return_value = {"choices": [{"message": {"content": "不是json"}}]}
         mock_post.side_effect = [empty, noisy]
 
-        result = analyze_distribution_payload({'ts_code': '000733.SZ'}, config=config)
+        result = analyze_distribution_payload({"ts_code": "000733.SZ"}, config=config)
 
         self.assertIsNone(result)
         self.assertEqual(mock_post.call_count, 2)

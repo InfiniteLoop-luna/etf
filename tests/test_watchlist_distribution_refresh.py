@@ -1,5 +1,6 @@
 import unittest
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from sqlalchemy import create_engine, text
 
@@ -22,6 +23,12 @@ from src.watchlist_distribution_refresh import (
 class WatchlistDistributionRefreshTests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite:///:memory:")
+        self.llm_config_patcher = patch(
+            "src.distribution_llm_analysis.load_distribution_llm_config",
+            return_value=SimpleNamespace(configured=True),
+        )
+        self.llm_config_patcher.start()
+        self.addCleanup(self.llm_config_patcher.stop)
         with self.engine.begin() as conn:
             conn.execute(
                 text(
@@ -86,6 +93,9 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
                 },
             )
 
+    def _llm_report(self, prefix: str = "# generated report") -> str:
+        return f"{prefix}\n\n{LLM_SECTION_MARKER}\n{LLM_SCHEMA_VERSION}"
+
     def test_watchlist_union_is_deduplicated(self):
         self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
         self._insert_watchlist_row("bob", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
@@ -108,7 +118,7 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
     def test_ready_reports_skip_recompute(self):
         self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
         self._insert_daily_row("000733.SZ", "2026-05-23")
-        save_daily_report(self.engine, "000733.SZ", "2026-05-23", f"# cached report\n\n{LLM_SECTION_MARKER}\n{LLM_SCHEMA_VERSION}")
+        save_daily_report(self.engine, "000733.SZ", "2026-05-23", self._llm_report("# cached report"))
         report_generator = Mock(side_effect=AssertionError("report generator should not run"))
 
         summary = refresh_watchlist_distribution_reports(
@@ -127,7 +137,7 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
         self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
         self._insert_daily_row("000733.SZ", "2026-05-23")
         save_daily_report(self.engine, "000733.SZ", "2026-05-23", f"# cached report\n\n{LLM_SECTION_MARKER}")
-        report_generator = Mock(return_value=f"# regenerated report\n\n{LLM_SECTION_MARKER}\n{LLM_SCHEMA_VERSION}")
+        report_generator = Mock(return_value=self._llm_report("# regenerated report"))
 
         summary = refresh_watchlist_distribution_reports(
             self.engine,
@@ -155,7 +165,7 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
         self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
         self._insert_daily_row("000733.SZ", "2026-05-23")
         save_daily_report(self.engine, "000733.SZ", "2026-05-23", "# cached report")
-        report_generator = Mock(return_value=f"# regenerated report\n\n{LLM_SECTION_MARKER}")
+        report_generator = Mock(return_value=self._llm_report("# regenerated report"))
 
         summary = refresh_watchlist_distribution_reports(
             self.engine,
@@ -179,7 +189,7 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
             save_report=False,
         )
 
-    def test_background_refresh_generates_report_and_marks_ready(self):
+    def test_generated_report_missing_llm_section_is_marked_failed(self):
         self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
         self._insert_daily_row("000733.SZ", "2026-05-23")
         report_generator = Mock(return_value="# generated report")
@@ -189,10 +199,27 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
             report_generator=report_generator,
         )
 
+        status = get_report_status(self.engine, "000733.SZ")
+        self.assertEqual(summary["failed"], 1)
+        self.assertEqual(summary["generated"], 0)
+        self.assertEqual(status["status"], "failed")
+        self.assertIn("LLM analysis missing", status["error_message"])
+        self.assertIsNone(get_daily_report(self.engine, "000733.SZ", "2026-05-23"))
+
+    def test_background_refresh_generates_report_and_marks_ready(self):
+        self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
+        self._insert_daily_row("000733.SZ", "2026-05-23")
+        report_generator = Mock(return_value=self._llm_report("# generated report"))
+
+        summary = refresh_watchlist_distribution_reports(
+            self.engine,
+            report_generator=report_generator,
+        )
+
         cached_report = get_daily_report(self.engine, "000733.SZ", "2026-05-23")
         status = get_report_status(self.engine, "000733.SZ")
         self.assertEqual(summary["generated"], 1)
-        self.assertEqual(cached_report, "# generated report")
+        self.assertEqual(cached_report, self._llm_report("# generated report"))
         self.assertEqual(status["status"], "ready")
         self.assertEqual(status["latest_ready_trade_date"], "2026-05-23")
         report_generator.assert_called_once_with(
@@ -232,7 +259,7 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
         self._insert_daily_row("000733.SZ", "2026-05-23")
         self._insert_daily_row("000001.SZ", "2026-05-23")
         self._insert_daily_row("300274.SZ", "2026-05-23")
-        report_generator = Mock(return_value="# generated report")
+        report_generator = Mock(return_value=self._llm_report("# generated report"))
 
         summary = refresh_watchlist_distribution_reports(
             self.engine,
@@ -250,7 +277,7 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
         self._insert_watchlist_row("alice", "000733.SZ", security_name="\u632f\u534e\u79d1\u6280")
         self._insert_daily_row("000001.SZ", "2026-05-23")
         self._insert_daily_row("000733.SZ", "2026-05-23")
-        report_generator = Mock(return_value="# generated report")
+        report_generator = Mock(return_value=self._llm_report("# generated report"))
 
         summary = refresh_watchlist_distribution_reports(
             self.engine,

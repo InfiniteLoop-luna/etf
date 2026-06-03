@@ -188,6 +188,8 @@ def refresh_watchlist_distribution_reports(
                     use_report_cache=False,
                     save_report=False,
                 )
+                if should_require_llm_refresh(report_md):
+                    raise RuntimeError("distribution LLM analysis missing from generated report")
                 save_daily_report(engine, ts_code, latest_source_trade_date, report_md)
                 duration_ms = int((time.time() - started_at) * 1000)
                 now = datetime.now()

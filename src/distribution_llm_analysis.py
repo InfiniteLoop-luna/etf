@@ -22,7 +22,7 @@ DEFAULT_DISTRIBUTION_LLM_BASE_URL = "https://api.deepseek.com"
 DEFAULT_DISTRIBUTION_LLM_MODEL = "deepseek-v4-flash"
 DEFAULT_DISTRIBUTION_LLM_TIMEOUT_SECONDS = 60
 DEFAULT_DISTRIBUTION_LLM_TEMPERATURE = 0.2
-DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS = 1600
+DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS = 3200
 ALLOWED_DISTRIBUTION_VERDICTS = {"强出货", "疑似出货", "中性", "偏洗盘"}
 ALLOWED_DISTRIBUTION_RISK_LEVELS = {"高", "中", "低"}
 LIST_FIELD_LIMITS = {
@@ -43,7 +43,7 @@ class DistributionLLMConfig:
     model: str = ""
     timeout_seconds: int = 30
     temperature: float = 0.2
-    max_tokens: int = 1200
+    max_tokens: int = DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS
 
     @property
     def configured(self) -> bool:
@@ -174,7 +174,9 @@ def load_distribution_llm_config() -> DistributionLLMConfig:
 
 
 def should_require_llm_refresh(cached_report: str | None, config: DistributionLLMConfig | None = None) -> bool:
-    _ = config or load_distribution_llm_config()
+    resolved = config or load_distribution_llm_config()
+    if not resolved.configured:
+        return False
     report_text = str(cached_report or "")
     return not report_text or LLM_SECTION_MARKER not in report_text or LLM_SCHEMA_VERSION not in report_text
 
@@ -381,11 +383,18 @@ def analyze_distribution_payload(payload: dict[str, Any], config: DistributionLL
         "Content-Type": "application/json",
     }
 
+    configured_max_tokens = max(
+        int(resolved.max_tokens or DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS),
+        DEFAULT_DISTRIBUTION_LLM_MAX_TOKENS,
+    )
+
     for attempt_index, user_prompt in enumerate((base_user_prompt, retry_user_prompt), start=1):
         request_payload = {
             "model": resolved.model,
             "temperature": resolved.temperature,
-            "max_tokens": resolved.max_tokens,
+            "max_tokens": configured_max_tokens,
+            "response_format": {"type": "json_object"},
+            "thinking": {"type": "disabled"},
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -395,17 +404,19 @@ def analyze_distribution_payload(payload: dict[str, Any], config: DistributionLL
             response = requests.post(url, headers=headers, json=request_payload, timeout=resolved.timeout_seconds)
             response.raise_for_status()
             data = response.json()
+            choice = (data.get("choices") or [{}])[0] if isinstance(data, dict) else {}
+            finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
             content = (
-                ((data.get("choices") or [{}])[0].get("message") or {}).get("content")
-                if isinstance(data, dict)
+                ((choice.get("message") or {}).get("content"))
+                if isinstance(choice, dict)
                 else None
             )
             if not content:
-                logger.warning("Distribution LLM returned empty content")
+                logger.warning("Distribution LLM returned empty content (finish_reason=%s)", finish_reason)
                 continue
             parsed = parse_llm_json_object(content)
             if not isinstance(parsed, dict):
-                logger.warning("Distribution LLM returned non-JSON object content")
+                logger.warning("Distribution LLM returned non-JSON object content (finish_reason=%s)", finish_reason)
                 continue
             normalized = normalize_distribution_llm_result(parsed)
             if not normalized:
