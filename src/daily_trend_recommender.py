@@ -252,23 +252,36 @@ def _build_reason(row: pd.Series, mode: str) -> str:
     return "；".join(reasons[:5])
 
 
-def _compute_symbol_features(group: pd.DataFrame, effective_trade_date: pd.Timestamp, config: RecoConfig) -> dict | None:
+def _downcast_float_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    for column in columns:
+        if column in frame.columns:
+            frame[column] = pd.to_numeric(frame[column], errors="coerce", downcast="float")
+    return frame
+
+
+def _compute_symbol_features(
+    group: pd.DataFrame,
+    effective_trade_date: pd.Timestamp,
+    config: RecoConfig,
+    latest_meta: dict[str, Any] | None = None,
+) -> dict | None:
     ordered = group.sort_values("trade_date").drop_duplicates(subset=["trade_date"], keep="last").reset_index(drop=True)
     ordered = ordered[ordered["trade_date"] <= effective_trade_date].copy()
     if len(ordered) < int(config.min_rows_per_symbol):
         return None
 
     latest = ordered.iloc[-1]
+    latest_meta = latest_meta or {}
     latest_trade_date = pd.to_datetime(latest.get("trade_date"), errors="coerce")
     if pd.isna(latest_trade_date) or latest_trade_date.normalize() != effective_trade_date.normalize():
         return None
 
-    name = str(latest.get("name") or "").strip()
-    list_status = str(latest.get("list_status") or "").strip().upper()
+    name = str(latest_meta.get("name") or latest.get("name") or "").strip()
+    list_status = str(latest_meta.get("list_status") or latest.get("list_status") or "").strip().upper()
     if _is_st_name(name) or (list_status and list_status != "L"):
         return None
 
-    list_date = pd.to_datetime(latest.get("list_date"), errors="coerce")
+    list_date = pd.to_datetime(latest_meta.get("list_date") or latest.get("list_date"), errors="coerce")
     if pd.notna(list_date):
         listing_days = int((effective_trade_date.normalize() - list_date.normalize()).days)
         if listing_days < int(config.min_listing_days):
@@ -333,10 +346,10 @@ def _compute_symbol_features(group: pd.DataFrame, effective_trade_date: pd.Times
     if pd.notna(rsi14):
         overheat += max(0.0, rsi14 - 76.0) / 40.0
 
-    turnover_rate = _to_float(latest.get("turnover_rate"))
-    volume_ratio = _to_float(latest.get("volume_ratio"))
-    circ_mv = _to_float(latest.get("circ_mv"))
-    total_mv = _to_float(latest.get("total_mv"))
+    turnover_rate = _to_float(latest_meta.get("turnover_rate", latest.get("turnover_rate")))
+    volume_ratio = _to_float(latest_meta.get("volume_ratio", latest.get("volume_ratio")))
+    circ_mv = _to_float(latest_meta.get("circ_mv", latest.get("circ_mv")))
+    total_mv = _to_float(latest_meta.get("total_mv", latest.get("total_mv")))
     pct_chg = _to_float(latest.get("pct_chg"))
     limit_threshold = _limit_threshold_pct(latest.get("ts_code"))
     is_limit_up_like = bool(pd.notna(pct_chg) and pct_chg >= limit_threshold)
@@ -351,7 +364,7 @@ def _compute_symbol_features(group: pd.DataFrame, effective_trade_date: pd.Times
         "trade_date": effective_trade_date.strftime("%Y-%m-%d"),
         "ts_code": str(latest.get("ts_code") or "").strip(),
         "name": name,
-        "industry": str(latest.get("industry") or "").strip() or "-",
+        "industry": str(latest_meta.get("industry") or latest.get("industry") or "").strip() or "-",
         "close": latest_close,
         "listing_days": listing_days,
         "mom5": mom5,
@@ -389,7 +402,11 @@ def _compute_symbol_features(group: pd.DataFrame, effective_trade_date: pd.Times
     }
 
 
-def score_trend_candidates(history_df: pd.DataFrame, config: RecoConfig | None = None) -> pd.DataFrame:
+def score_trend_candidates(
+    history_df: pd.DataFrame,
+    config: RecoConfig | None = None,
+    latest_meta_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     config = config or RecoConfig()
     if history_df is None or history_df.empty:
         return pd.DataFrame()
@@ -411,10 +428,16 @@ def score_trend_candidates(history_df: pd.DataFrame, config: RecoConfig | None =
     else:
         effective_trade_date = df["trade_date"].max().normalize()
 
+    latest_meta_map: dict[str, dict[str, Any]] = {}
+    if latest_meta_df is not None and not latest_meta_df.empty and "ts_code" in latest_meta_df.columns:
+        meta_frame = latest_meta_df.copy()
+        meta_frame["ts_code"] = meta_frame["ts_code"].astype(str).str.strip()
+        latest_meta_map = meta_frame.set_index("ts_code").to_dict("index")
+
     rows = [
         row
-        for _, group in df.groupby("ts_code", sort=False)
-        if (row := _compute_symbol_features(group, effective_trade_date, config)) is not None
+        for ts_code, group in df.groupby("ts_code", sort=False, observed=False)
+        if (row := _compute_symbol_features(group, effective_trade_date, config, latest_meta_map.get(str(ts_code), {}))) is not None
     ]
     if not rows:
         return pd.DataFrame()
@@ -567,6 +590,26 @@ def build_probability_calibration_frame(
     if not anchors:
         return pd.DataFrame()
 
+    meta_columns = [
+        "ts_code",
+        "name",
+        "industry",
+        "list_date",
+        "list_status",
+        "turnover_rate",
+        "volume_ratio",
+        "total_mv",
+        "circ_mv",
+    ]
+    available_meta_columns = [column for column in meta_columns if column in work.columns]
+    latest_meta_base = pd.DataFrame()
+    if len(available_meta_columns) > 1:
+        latest_meta_base = (
+            work.sort_values(["ts_code", "trade_date"])
+            .drop_duplicates(subset=["ts_code"], keep="last")[available_meta_columns]
+            .copy()
+        )
+
     future_df = _future_returns_by_bars(work, int(config.probability_calibration_horizon_bars))
     if future_df.empty:
         return pd.DataFrame()
@@ -593,7 +636,15 @@ def build_probability_calibration_frame(
             exclude_limit_down_from_uptrend=config.exclude_limit_down_from_uptrend,
             ensure_source_views=False,
         )
-        scored = score_trend_candidates(work[work["trade_date"] <= anchor], anchor_config)
+        scored = score_trend_candidates(
+            work[work["trade_date"] <= anchor],
+            anchor_config,
+            latest_meta_df=work[work["trade_date"] == anchor][["ts_code"]].merge(
+                latest_meta_base,
+                on="ts_code",
+                how="left",
+            ) if not latest_meta_base.empty else pd.DataFrame(),
+        )
         if scored.empty:
             continue
         scored = scored[[
@@ -860,22 +911,45 @@ def load_history_frame(engine: Engine, trade_date: str, config: RecoConfig | Non
     SELECT
         d.trade_date,
         d.ts_code,
-        d.open,
         d.high,
         d.low,
         d.close,
-        d.pre_close,
         d.pct_chg,
         d.vol,
-        d.amount,
+        d.amount
+    FROM vw_ts_stock_daily d
+    WHERE d.trade_date >= :start_date
+      AND d.trade_date <= :trade_date
+      AND d.close IS NOT NULL
+    ORDER BY d.ts_code, d.trade_date
+    """
+    frame = _read_sql_df(
+        engine,
+        sql,
+        {
+            "start_date": start_date,
+            "trade_date": trade_ts.strftime("%Y-%m-%d"),
+        },
+    )
+    if frame.empty:
+        return frame
+    frame["ts_code"] = frame["ts_code"].astype("category")
+    return _downcast_float_columns(frame, ["high", "low", "close", "pct_chg", "vol", "amount"])
+
+
+def load_latest_meta_frame(engine: Engine, trade_date: str) -> pd.DataFrame:
+    trade_ts = pd.to_datetime(trade_date, errors="coerce")
+    if pd.isna(trade_ts):
+        return pd.DataFrame()
+
+    sql = """
+    SELECT
+        d.ts_code,
         b.name,
         b.industry,
-        b.market,
-        b.exchange,
         b.list_date,
         b.list_status,
         db.turnover_rate,
-        db.turnover_rate_f,
         db.volume_ratio,
         db.total_mv,
         db.circ_mv
@@ -885,19 +959,18 @@ def load_history_frame(engine: Engine, trade_date: str, config: RecoConfig | Non
     LEFT JOIN vw_ts_stock_daily_basic db
       ON db.ts_code = d.ts_code
      AND db.trade_date = d.trade_date
-    WHERE d.trade_date >= :start_date
-      AND d.trade_date <= :trade_date
+    WHERE d.trade_date = :trade_date
       AND d.close IS NOT NULL
-    ORDER BY d.ts_code, d.trade_date
+    ORDER BY d.ts_code
     """
-    return _read_sql_df(
+    frame = _read_sql_df(
         engine,
         sql,
-        {
-            "start_date": start_date,
-            "trade_date": trade_ts.strftime("%Y-%m-%d"),
-        },
+        {"trade_date": trade_ts.strftime("%Y-%m-%d")},
     )
+    if frame.empty:
+        return frame
+    return _downcast_float_columns(frame, ["turnover_rate", "volume_ratio", "total_mv", "circ_mv"])
 
 
 def generate_daily_trend_recommendations(config: RecoConfig | None = None, engine: Engine | None = None) -> dict:
@@ -911,7 +984,8 @@ def generate_daily_trend_recommendations(config: RecoConfig | None = None, engin
         raise RuntimeError("无法从 vw_ts_stock_daily 解析有效交易日")
 
     history_df = load_history_frame(engine, trade_date, config)
-    scored_df = score_trend_candidates(history_df, config)
+    latest_meta_df = load_latest_meta_frame(engine, trade_date)
+    scored_df = score_trend_candidates(history_df, config, latest_meta_df=latest_meta_df)
     if scored_df.empty:
         raise RuntimeError(f"{trade_date} 没有满足条件的趋势推荐样本")
 

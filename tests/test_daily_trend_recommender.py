@@ -176,3 +176,38 @@ def test_uptrend_payload_excludes_limit_up_like_candidates():
     payload = build_recommendation_payload(scored, trade_date="2026-01-01", config=config)
 
     assert payload["top_uptrend"][0]["ts_code"] == "600002.SH"
+
+
+def test_score_trend_candidates_supports_separate_latest_meta_frame():
+    bars = 140
+    x = np.arange(bars)
+    strong = 18.0 * np.exp(0.0045 * x) * (1.0 + 0.01 * np.sin(x / 5.0))
+    history = _symbol_history("600001.SH", "强趋势", "科技", strong)
+    history = history[["trade_date", "ts_code", "high", "low", "close", "pct_chg", "vol", "amount"]].copy()
+    latest_meta = pd.DataFrame(
+        {
+            "ts_code": ["600001.SH"],
+            "name": ["强趋势"],
+            "industry": ["科技"],
+            "list_date": ["2020-01-01"],
+            "list_status": ["L"],
+            "turnover_rate": [2.0],
+            "volume_ratio": [1.2],
+            "total_mv": [10_000_000.0],
+            "circ_mv": [8_000_000.0],
+        }
+    )
+    config = RecoConfig(
+        min_rows_per_symbol=60,
+        min_avg_amount=0.0,
+        min_close=1.0,
+        min_listing_days=0,
+        topn=1,
+    )
+
+    scored = score_trend_candidates(history, config, latest_meta_df=latest_meta)
+
+    assert len(scored) == 1
+    assert scored.iloc[0]["ts_code"] == "600001.SH"
+    assert scored.iloc[0]["name"] == "强趋势"
+    assert scored.iloc[0]["industry"] == "科技"
