@@ -29,7 +29,7 @@ DEFAULT_OUTPUT_DIR = "data/recommendations"
 
 def parse_args():
     parser = argparse.ArgumentParser(description="生成每日趋势推荐，并同步写入 PostgreSQL。")
-    parser.add_argument("--pyc-path", default="", help="指定 daily_trend_recommender 的 pyc 路径")
+    parser.add_argument("--pyc-path", default="", help="兼容旧流程：指定 daily_trend_recommender 的 pyc 路径")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="推荐结果输出目录")
     parser.add_argument("--lookback-days", type=int, default=160, help="回看天数")
     parser.add_argument("--min-rows-per-symbol", type=int, default=60, help="单股票最少样本条数")
@@ -60,7 +60,7 @@ def resolve_pyc_path(explicit_path: str | None = None) -> Path:
 
 
 
-def load_reco_module(pyc_path: Path):
+def load_pyc_reco_module(pyc_path: Path):
     module_name = "daily_trend_recommender_pyc"
     loader = importlib.machinery.SourcelessFileLoader(module_name, str(pyc_path))
     spec = importlib.util.spec_from_loader(module_name, loader)
@@ -70,6 +70,29 @@ def load_reco_module(pyc_path: Path):
     sys.modules[module_name] = module
     loader.exec_module(module)
     return module
+
+
+def load_reco_module(explicit_pyc_path: str | None = None):
+    if explicit_pyc_path:
+        pyc_path = resolve_pyc_path(explicit_pyc_path)
+        logger.info("load pyc: %s", pyc_path)
+        return load_pyc_reco_module(pyc_path)
+
+    try:
+        from src import daily_trend_recommender
+
+        logger.info(
+            "load source recommender: %s v%s",
+            getattr(daily_trend_recommender, "ALGORITHM_NAME", "daily_trend_recommender"),
+            getattr(daily_trend_recommender, "ALGORITHM_VERSION", "-"),
+        )
+        return daily_trend_recommender
+    except Exception as exc:
+        logger.warning("source recommender import failed, fallback to pyc: %s", exc)
+
+    pyc_path = resolve_pyc_path(None)
+    logger.info("load pyc: %s", pyc_path)
+    return load_pyc_reco_module(pyc_path)
 
 
 
@@ -86,9 +109,7 @@ def summarize_payload_local(payload: dict) -> dict:
 
 def main():
     args = parse_args()
-    pyc_path = resolve_pyc_path(args.pyc_path)
-    logger.info("load pyc: %s", pyc_path)
-    module = load_reco_module(pyc_path)
+    module = load_reco_module(args.pyc_path)
 
     config = module.RecoConfig(
         lookback_days=int(args.lookback_days),

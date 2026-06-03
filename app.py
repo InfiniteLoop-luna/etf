@@ -5680,7 +5680,7 @@ def render_commercial_mvp_tab():
 
 def render_daily_trend_reco_tab():
     st.subheader("⭐ 每日趋势推荐")
-    st.caption("基于日更后的最新日线数据，自动筛选 Top10 上涨趋势最强股票 与 Top10 避雷股票。仅供辅助分析，不构成投资建议。")
+    st.caption("基于专业多因子趋势-风险调整模型，自动筛选 Top10 上涨趋势最强股票 与 Top10 避雷股票。仅供辅助分析，不构成投资建议。")
 
     snapshots = list_trend_recommendation_snapshots()
     if not snapshots:
@@ -5716,6 +5716,14 @@ def render_daily_trend_reco_tab():
     generated_at = payload.get('generated_at') or '-'
     latest_hint = "（当前最新）" if is_latest else "（历史快照）"
     st.caption(f"生成时间：{generated_at} {latest_hint}")
+    algorithm_meta = payload.get("algorithm") or {}
+    algorithm_name = str(algorithm_meta.get("name") or "").strip()
+    algorithm_version = str(algorithm_meta.get("version") or "").strip()
+    algorithm_description = str(algorithm_meta.get("description") or "").strip()
+    if algorithm_name:
+        st.caption(f"推荐算法：{algorithm_name} v{algorithm_version or '-'}｜{algorithm_description}")
+    else:
+        st.caption("推荐算法：ProfessionalTrendRanker v1.0 多因子趋势-风险调整模型；当前快照未包含算法元数据，重新生成后会写入完整说明。")
 
     left, right = st.columns(2)
 
