@@ -6710,6 +6710,7 @@ def render_hotmoney_tab():
         query_hotmoney_top_active,
         query_hotmoney_top_stocks,
     )
+    from src.hotmoney_image import render_hotmoney_daily_image
     from src.moneyflow_fetcher import _get_engine_cached
 
     try:
@@ -6959,6 +6960,39 @@ def render_hotmoney_tab():
             summary_cols[1].metric("参与游资", f"{int(detail_frame['hm_name'].nunique()):,}")
             summary_cols[2].metric("上榜记录", f"{len(detail_frame):,}")
             summary_cols[3].metric("合计净买卖(亿)", _format_hotmoney_yi(detail_frame["net_amount_yi"].sum(), signed=True))
+
+            image_subtitle_parts = [detail_window, f"Top{int(top_n)}"]
+            if hm_keyword:
+                image_subtitle_parts.append(f"游资：{hm_keyword}")
+            if stock_keyword:
+                image_subtitle_parts.append(f"股票：{stock_keyword}")
+            image_subtitle = " · ".join(image_subtitle_parts)
+            try:
+                hotmoney_image_bytes = render_hotmoney_daily_image(
+                    detail_frame,
+                    title="游资龙虎图谱",
+                    subtitle=image_subtitle,
+                    max_hotmoney=min(int(top_n), 10),
+                    max_stocks_per_hotmoney=6,
+                    max_orgs_per_stock=5,
+                )
+                window_tag = {"最近1日": "1d", "最近5日": "5d", "最近20日": "20d"}.get(detail_window, "all")
+                filter_tag = "filtered" if hm_keyword or stock_keyword else "all"
+                with st.expander("🖼️ 图片版游资每日图谱", expanded=True):
+                    st.image(
+                        hotmoney_image_bytes,
+                        caption="按当前筛选条件生成，可直接保存或转发。",
+                        width="stretch",
+                    )
+                    st.download_button(
+                        "下载 PNG 图片",
+                        data=hotmoney_image_bytes,
+                        file_name=f"hotmoney_daily_map_{latest_date}_{window_tag}_{filter_tag}.png",
+                        mime="image/png",
+                        key="hm_daily_image_download_png",
+                    )
+            except Exception as image_exc:
+                st.warning(f"游资图片生成失败：{image_exc}")
 
             plot_df = battle_summary.head(int(top_n)).sort_values("battle_amount_yi", ascending=True)
             fig_battle = go.Figure(go.Bar(
