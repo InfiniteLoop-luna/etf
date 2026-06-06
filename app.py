@@ -3453,11 +3453,29 @@ def load_lhb_data_cached(
     include_inst: bool,
     refresh_nonce: int,
 ) -> dict:
-    from src.lhb_monitor import fetch_lhb_data
+    from src.lhb_monitor import fetch_lhb_data, load_lhb_data_from_db
+    from src.moneyflow_fetcher import _get_engine_cached
     from src.volume_fetcher import _init_tushare
 
+    db_error = None
+    try:
+        engine = _get_engine_cached()
+        db_data = load_lhb_data_from_db(
+            start_date=start_date,
+            end_date=end_date,
+            ts_code=ts_code or None,
+            include_inst=include_inst,
+            engine=engine,
+        )
+        if not db_data.get("top_list", pd.DataFrame()).empty or (
+            include_inst and not db_data.get("top_inst", pd.DataFrame()).empty
+        ):
+            return db_data
+    except Exception as exc:
+        db_error = str(exc)
+
     pro = _init_tushare()
-    return fetch_lhb_data(
+    live_data = fetch_lhb_data(
         pro=pro,
         start_date=start_date,
         end_date=end_date,
@@ -3465,6 +3483,10 @@ def load_lhb_data_cached(
         include_inst=include_inst,
         request_sleep_seconds=0.25,
     )
+    live_data["source"] = "tushare"
+    if db_error:
+        live_data.setdefault("errors", []).append({"api": "db_cache", "trade_date": "", "error": db_error})
+    return live_data
 
 
 def render_lhb_monitor_tab():
@@ -3574,6 +3596,9 @@ def render_lhb_monitor_tab():
     metric_cols[2].metric("上榜记录", f"{len(top_list_df):,}")
     metric_cols[3].metric("龙虎榜净买(亿)", _format_lhb_yi(summary_df["net_amount_yi"].sum() if not summary_df.empty else 0, signed=True))
     metric_cols[4].metric("机构净买(亿)", _format_lhb_yi(summary_df["inst_net_yi"].sum() if not summary_df.empty else 0, signed=True))
+    data_source = str(lhb_data.get("source") or "tushare")
+    source_label = "数据库定时缓存" if data_source == "db" else "Tushare 实时接口"
+    st.caption(f"数据来源：{source_label} · 数据区间：{lhb_data.get('start_date', start_key)} ~ {lhb_data.get('end_date', end_key)}")
 
     if errors:
         with st.expander(f"接口异常 {len(errors)} 条", expanded=False):

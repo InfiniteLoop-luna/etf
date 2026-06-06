@@ -9,6 +9,8 @@ from datetime import date, datetime
 from typing import Optional
 
 import pandas as pd
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +93,25 @@ def _parse_date(value) -> date:
 
 def _format_yyyymmdd(value: date) -> str:
     return value.strftime("%Y%m%d")
+
+
+def _to_sql_date(value) -> date:
+    return _parse_date(value)
+
+
+def _get_default_engine() -> Engine:
+    from src.moneyflow_fetcher import _get_engine_cached
+
+    return _get_engine_cached()
+
+
+def _numeric_payload_expr(field_name: str) -> str:
+    return (
+        "COALESCE("
+        f"CASE WHEN COALESCE(payload->>'{field_name}', '') ~ '^-?\\d+(\\.\\d+)?$' "
+        f"THEN (payload->>'{field_name}')::numeric ELSE 0 END, 0"
+        f") AS {field_name}"
+    )
 
 
 def resolve_lhb_date_window(
@@ -446,4 +467,157 @@ def fetch_lhb_data(
         "top_list": prepare_lhb_top_list_frame(top_list_raw),
         "top_inst": prepare_lhb_inst_frame(top_inst_raw),
         "errors": errors,
+    }
+
+
+def query_lhb_top_list(
+    start_date: str,
+    end_date: str,
+    ts_code: Optional[str] = None,
+    limit: int = 20000,
+    engine: Optional[Engine] = None,
+) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_default_engine()
+
+    sql = f"""
+    SELECT
+      trade_date,
+      ts_code,
+      COALESCE(NULLIF(payload->>'name', ''), ts_code) AS name,
+      {_numeric_payload_expr('close')},
+      {_numeric_payload_expr('pct_change')},
+      {_numeric_payload_expr('turnover_rate')},
+      {_numeric_payload_expr('amount')},
+      {_numeric_payload_expr('l_sell')},
+      {_numeric_payload_expr('l_buy')},
+      {_numeric_payload_expr('l_amount')},
+      {_numeric_payload_expr('net_amount')},
+      {_numeric_payload_expr('net_rate')},
+      {_numeric_payload_expr('amount_rate')},
+      {_numeric_payload_expr('float_values')},
+      COALESCE(payload->>'reason', '') AS reason
+    FROM ts_lhb_top_list
+    WHERE trade_date BETWEEN :start_date AND :end_date
+      AND (:ts_code IS NULL OR ts_code = :ts_code)
+    ORDER BY trade_date DESC, ts_code ASC
+    LIMIT :limit
+    """
+    params = {
+        "start_date": _to_sql_date(start_date),
+        "end_date": _to_sql_date(end_date),
+        "ts_code": str(ts_code).strip().upper() if ts_code else None,
+        "limit": int(limit),
+    }
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params=params)
+
+
+def query_lhb_top_inst(
+    start_date: str,
+    end_date: str,
+    ts_code: Optional[str] = None,
+    limit: int = 20000,
+    engine: Optional[Engine] = None,
+) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_default_engine()
+
+    sql = f"""
+    SELECT
+      trade_date,
+      ts_code,
+      COALESCE(payload->>'exalter', '') AS exalter,
+      COALESCE(payload->>'side', '') AS side,
+      {_numeric_payload_expr('buy')},
+      {_numeric_payload_expr('buy_rate')},
+      {_numeric_payload_expr('sell')},
+      {_numeric_payload_expr('sell_rate')},
+      {_numeric_payload_expr('net_buy')},
+      COALESCE(payload->>'reason', '') AS reason
+    FROM ts_lhb_top_inst
+    WHERE trade_date BETWEEN :start_date AND :end_date
+      AND (:ts_code IS NULL OR ts_code = :ts_code)
+    ORDER BY trade_date DESC, ts_code ASC
+    LIMIT :limit
+    """
+    params = {
+        "start_date": _to_sql_date(start_date),
+        "end_date": _to_sql_date(end_date),
+        "ts_code": str(ts_code).strip().upper() if ts_code else None,
+        "limit": int(limit),
+    }
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params=params)
+
+
+def _trade_dates_from_frames(*frames: pd.DataFrame) -> list[str]:
+    dates: set[str] = set()
+    for frame in frames:
+        if frame is None or frame.empty or "trade_date" not in frame.columns:
+            continue
+        values = pd.to_datetime(frame["trade_date"], errors="coerce").dt.strftime("%Y%m%d")
+        dates.update(value for value in values.dropna().tolist() if value)
+    return sorted(dates)
+
+
+def load_lhb_data_from_db(
+    start_date: Optional[str | date | datetime] = None,
+    end_date: Optional[str | date | datetime] = None,
+    ts_code: Optional[str] = None,
+    include_inst: bool = True,
+    limit: int = 20000,
+    engine: Optional[Engine] = None,
+    today: Optional[date | datetime] = None,
+) -> dict:
+    resolved_start, resolved_end = resolve_lhb_date_window(start_date, end_date, today=today)
+    if engine is None:
+        engine = _get_default_engine()
+
+    top_list_raw = query_lhb_top_list(resolved_start, resolved_end, ts_code=ts_code, limit=limit, engine=engine)
+    top_inst_raw = (
+        query_lhb_top_inst(resolved_start, resolved_end, ts_code=ts_code, limit=limit, engine=engine)
+        if include_inst
+        else pd.DataFrame(columns=TOP_INST_COLUMNS)
+    )
+
+    top_list = prepare_lhb_top_list_frame(top_list_raw)
+    top_inst = prepare_lhb_inst_frame(top_inst_raw)
+    return {
+        "start_date": resolved_start,
+        "end_date": resolved_end,
+        "trade_dates": _trade_dates_from_frames(top_list, top_inst),
+        "top_list": top_list,
+        "top_inst": top_inst,
+        "errors": [],
+        "source": "db",
+    }
+
+
+def get_lhb_sync_meta(engine: Optional[Engine] = None) -> dict:
+    if engine is None:
+        engine = _get_default_engine()
+
+    sql = """
+    SELECT
+      COALESCE(SUM(cnt), 0) AS total_rows,
+      MAX(latest_trade_date) AS latest_trade_date,
+      MAX(latest_ingested_at) AS latest_ingested_at
+    FROM (
+      SELECT COUNT(*) AS cnt, MAX(trade_date) AS latest_trade_date, MAX(ingested_at) AS latest_ingested_at FROM ts_lhb_top_list
+      UNION ALL
+      SELECT COUNT(*) AS cnt, MAX(trade_date) AS latest_trade_date, MAX(ingested_at) AS latest_ingested_at FROM ts_lhb_top_inst
+    ) t
+    """
+    with engine.connect() as conn:
+        row = conn.execute(text(sql)).fetchone()
+
+    latest_trade_date = None
+    if row and row[1] is not None:
+        latest_trade_date = row[1].strftime("%Y%m%d")
+
+    return {
+        "total_rows": int(row[0] or 0) if row else 0,
+        "latest_trade_date": latest_trade_date,
+        "latest_ingested_at": row[2] if row else None,
     }
