@@ -63,6 +63,8 @@ test_*.py
 !tests/test_sync_tushare_security_data.py
 !tests/test_ml_stock_dataset.py
 !tests/test_factor_workbench.py
+!tests/test_lhb_monitor.py
+!tests/test_lhb_sync.py
 !tests/test_daily_trend_recommender.py
 !tests/test_user_watchlist_store.py
 !tests/test_watchlist_stock_research_refresh.py

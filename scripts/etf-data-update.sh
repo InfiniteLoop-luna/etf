@@ -41,6 +41,12 @@ python update_moneyflow.py --datasets moneyflow,moneyflow_hsgt,moneyflow_ind_ths
 echo "[$(date -Is)] etf-data-update: run update_limitup_monitor.py (incremental)"
 python update_limitup_monitor.py --datasets limit_list_d,limit_step,limit_cpt_list,kpl_list,limit_list_ths
 
+echo "[$(date -Is)] etf-data-update: run update_lhb_monitor.py (safe incremental)"
+LHB_BATCH_DAYS="${ETF_LHB_BATCH_DAYS:-3}"
+LHB_SLEEP_SECONDS="${ETF_LHB_SLEEP_SECONDS:-0.35}"
+LHB_LOOKBACK_DAYS="${ETF_LHB_LOOKBACK_DAYS:-2}"
+python update_lhb_monitor.py --datasets top_list,top_inst --batch-days "$LHB_BATCH_DAYS" --sleep "$LHB_SLEEP_SECONDS" --lookback-days "$LHB_LOOKBACK_DAYS"
+
 echo "[$(date -Is)] etf-data-update: run update_hotmoney.py (safe incremental)"
 python update_hotmoney.py --datasets hm_list
 HOTMONEY_DETAIL_BATCH_DAYS="${ETF_HM_DETAIL_BATCH_DAYS:-1}"

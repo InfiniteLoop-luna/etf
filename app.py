@@ -110,6 +110,7 @@ from src.navigation_config import (
     MONEY_PAGE_OPTIONS,
     MONEY_VOLUME_PAGE_LABEL,
     STOCK_COMPANY_SCREENER_LABEL,
+    STOCK_LHB_PAGE_LABEL,
     STOCK_PAGE_OPTIONS,
     STOCK_SECURITY_SEARCH_LABEL,
     STOCK_TECH_PICKER_LABEL,
@@ -3282,6 +3283,638 @@ def build_hotmoney_detail_display_df(detail_df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _format_lhb_yi(value, signed: bool = False) -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    return f"{num:+,.2f}" if signed else f"{num:,.2f}"
+
+
+def _format_lhb_percent(value) -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    try:
+        return f"{float(value):+,.2f}%"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _normalize_lhb_ts_code_input(raw_value: str) -> str:
+    value = str(raw_value or "").strip().upper()
+    if not value:
+        return ""
+    if "." in value:
+        return value
+    if value.isdigit() and len(value) == 6:
+        if value.startswith("6"):
+            return f"{value}.SH"
+        if value.startswith(("4", "8", "9")):
+            return f"{value}.BJ"
+        return f"{value}.SZ"
+    return value
+
+
+def build_lhb_stock_summary_display_df(summary_df: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "股票",
+        "代码",
+        "上榜次数",
+        "交易日数",
+        "龙虎榜净买(亿)",
+        "机构净买(亿)",
+        "合计净买(亿)",
+        "龙虎榜成交(亿)",
+        "平均涨跌幅",
+        "最大换手率",
+        "最近日期",
+        "主要上榜理由",
+    ]
+    if summary_df is None or summary_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    out = summary_df[
+        [
+            "name",
+            "ts_code",
+            "hit_count",
+            "trade_days",
+            "net_amount_yi",
+            "inst_net_yi",
+            "combined_net_yi",
+            "lhb_amount_yi",
+            "avg_pct_change",
+            "max_turnover_rate",
+            "latest_date_label",
+            "reasons",
+        ]
+    ].copy()
+    out.columns = columns
+    out["股票"] = build_security_name_jump_links(
+        out,
+        code_col="代码",
+        label_col="股票",
+        fallback_col="股票",
+        label_prefix="🔎 ",
+        nonce_key="lhb_stock_summary_render_nonce",
+    )
+    for column in ["龙虎榜净买(亿)", "机构净买(亿)", "合计净买(亿)"]:
+        out[column] = out[column].map(lambda value: _format_lhb_yi(value, signed=True))
+    out["龙虎榜成交(亿)"] = out["龙虎榜成交(亿)"].map(_format_lhb_yi)
+    out["平均涨跌幅"] = out["平均涨跌幅"].map(_format_lhb_percent)
+    out["最大换手率"] = out["最大换手率"].map(lambda value: "-" if pd.isna(value) else f"{float(value):,.2f}%")
+    return out
+
+
+def build_lhb_top_list_display_df(top_list_df: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "日期",
+        "股票",
+        "代码",
+        "收盘价",
+        "涨跌幅",
+        "换手率",
+        "榜单买入(亿)",
+        "榜单卖出(亿)",
+        "净买入(亿)",
+        "成交占比",
+        "上榜理由",
+    ]
+    if top_list_df is None or top_list_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    work = top_list_df.copy().sort_values(["trade_date", "net_amount_yi"], ascending=[False, False])
+    out = work[
+        [
+            "trade_date",
+            "name",
+            "ts_code",
+            "close",
+            "pct_change",
+            "turnover_rate",
+            "l_buy_yi",
+            "l_sell_yi",
+            "net_amount_yi",
+            "amount_rate",
+            "reason",
+        ]
+    ].copy()
+    out["trade_date"] = pd.to_datetime(out["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out.columns = columns
+    out["股票"] = build_security_name_jump_links(
+        out,
+        code_col="代码",
+        label_col="股票",
+        fallback_col="股票",
+        label_prefix="🔎 ",
+        nonce_key="lhb_top_list_render_nonce",
+    )
+    out["收盘价"] = out["收盘价"].map(lambda value: "-" if pd.isna(value) else f"{float(value):,.2f}")
+    out["涨跌幅"] = out["涨跌幅"].map(_format_lhb_percent)
+    out["换手率"] = out["换手率"].map(lambda value: "-" if pd.isna(value) else f"{float(value):,.2f}%")
+    for column in ["榜单买入(亿)", "榜单卖出(亿)"]:
+        out[column] = out[column].map(_format_lhb_yi)
+    out["净买入(亿)"] = out["净买入(亿)"].map(lambda value: _format_lhb_yi(value, signed=True))
+    out["成交占比"] = out["成交占比"].map(lambda value: "-" if pd.isna(value) else f"{float(value):,.2f}%")
+    return out
+
+
+def build_lhb_inst_display_df(inst_df: pd.DataFrame, stock_name_map: dict[str, str]) -> pd.DataFrame:
+    columns = ["日期", "股票", "代码", "席位", "方向", "买入(亿)", "卖出(亿)", "净买入(亿)", "上榜理由"]
+    if inst_df is None or inst_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    work = inst_df.copy().sort_values(["trade_date", "net_buy_yi"], ascending=[False, False])
+    work["name"] = work["ts_code"].map(stock_name_map).fillna(work["ts_code"])
+    out = work[["trade_date", "name", "ts_code", "exalter", "side_label", "buy_yi", "sell_yi", "net_buy_yi", "reason"]].copy()
+    out["trade_date"] = pd.to_datetime(out["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out.columns = columns
+    out["股票"] = build_security_name_jump_links(
+        out,
+        code_col="代码",
+        label_col="股票",
+        fallback_col="股票",
+        label_prefix="🔎 ",
+        nonce_key="lhb_inst_render_nonce",
+    )
+    for column in ["买入(亿)", "卖出(亿)"]:
+        out[column] = out[column].map(_format_lhb_yi)
+    out["净买入(亿)"] = out["净买入(亿)"].map(lambda value: _format_lhb_yi(value, signed=True))
+    return out
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_lhb_data_cached(
+    start_date: str,
+    end_date: str,
+    ts_code: str,
+    include_inst: bool,
+    refresh_nonce: int,
+) -> dict:
+    from src.lhb_monitor import fetch_lhb_data, load_lhb_data_from_db
+    from src.moneyflow_fetcher import _get_engine_cached
+    from src.volume_fetcher import _init_tushare
+
+    db_error = None
+    try:
+        engine = _get_engine_cached()
+        db_data = load_lhb_data_from_db(
+            start_date=start_date,
+            end_date=end_date,
+            ts_code=ts_code or None,
+            include_inst=include_inst,
+            engine=engine,
+        )
+        if not db_data.get("top_list", pd.DataFrame()).empty or (
+            include_inst and not db_data.get("top_inst", pd.DataFrame()).empty
+        ):
+            return db_data
+    except Exception as exc:
+        db_error = str(exc)
+
+    pro = _init_tushare()
+    live_data = fetch_lhb_data(
+        pro=pro,
+        start_date=start_date,
+        end_date=end_date,
+        ts_code=ts_code or None,
+        include_inst=include_inst,
+        request_sleep_seconds=0.25,
+    )
+    live_data["source"] = "tushare"
+    if db_error:
+        live_data.setdefault("errors", []).append({"api": "db_cache", "trade_date": "", "error": db_error})
+    return live_data
+
+
+def render_lhb_monitor_tab():
+    st.subheader("🐉 龙虎榜")
+    st.caption("基于 Tushare 龙虎榜每日明细（top_list）与机构成交明细（top_inst），仅拉取今年以来的数据。")
+
+    from src.lhb_monitor import (
+        build_lhb_daily_overview,
+        build_lhb_reason_summary,
+        build_lhb_stock_summary,
+    )
+
+    today = datetime.now().date()
+    year_start = datetime(today.year, 1, 1).date()
+
+    ctl1, ctl2, ctl3, ctl4, ctl5 = st.columns([1.0, 1.0, 1.0, 0.75, 0.9])
+    with ctl1:
+        start_dt = st.date_input(
+            "起始日期",
+            value=year_start,
+            min_value=year_start,
+            max_value=today,
+            key="lhb_start_date",
+        )
+    with ctl2:
+        end_dt = st.date_input(
+            "结束日期",
+            value=today,
+            min_value=year_start,
+            max_value=today,
+            key="lhb_end_date",
+        )
+    with ctl3:
+        stock_code_input = st.text_input("股票代码", value="", placeholder="000001.SZ", key="lhb_stock_code")
+    with ctl4:
+        top_n = st.selectbox("TopN", [10, 20, 30, 50], index=1, key="lhb_topn")
+    with ctl5:
+        order_label = st.selectbox(
+            "排序",
+            ["上榜次数", "合计净买", "机构净买", "榜单成交"],
+            index=0,
+            key="lhb_order_label",
+        )
+
+    action_cols = st.columns([1.0, 1.0, 3.2])
+    with action_cols[0]:
+        include_inst = st.checkbox("机构明细", value=True, key="lhb_include_inst")
+    with action_cols[1]:
+        load_clicked = st.button("拉取/刷新", type="primary", key="lhb_load_button", use_container_width=True)
+
+    if start_dt > end_dt:
+        st.warning("起始日期不能晚于结束日期。")
+        return
+
+    if load_clicked:
+        st.session_state["lhb_loaded_once"] = True
+        st.session_state["lhb_refresh_nonce"] = int(st.session_state.get("lhb_refresh_nonce", 0)) + 1
+
+    if not st.session_state.get("lhb_loaded_once", False):
+        st.info("当前页面尚未拉取龙虎榜数据。")
+        return
+
+    normalized_code = _normalize_lhb_ts_code_input(stock_code_input)
+    start_key = pd.to_datetime(start_dt).strftime("%Y%m%d")
+    end_key = pd.to_datetime(end_dt).strftime("%Y%m%d")
+    refresh_nonce = int(st.session_state.get("lhb_refresh_nonce", 0))
+
+    try:
+        with st.spinner(f"正在拉取 {start_dt:%Y-%m-%d} ~ {end_dt:%Y-%m-%d} 的龙虎榜数据..."):
+            lhb_data = load_lhb_data_cached(
+                start_key,
+                end_key,
+                normalized_code,
+                bool(include_inst),
+                refresh_nonce,
+            )
+    except Exception as exc:
+        st.error(f"龙虎榜数据拉取失败：{exc}")
+        return
+
+    top_list_df = lhb_data.get("top_list", pd.DataFrame())
+    inst_df = lhb_data.get("top_inst", pd.DataFrame())
+    order_key_map = {
+        "上榜次数": "hit_count",
+        "合计净买": "combined_net",
+        "机构净买": "inst_net",
+        "榜单成交": "lhb_amount",
+    }
+    summary_df = build_lhb_stock_summary(top_list_df, inst_df, order_by=order_key_map.get(order_label, "hit_count"))
+    daily_df = build_lhb_daily_overview(top_list_df, inst_df)
+    reason_df = build_lhb_reason_summary(top_list_df, top_n=12)
+    stock_name_map = {}
+    if top_list_df is not None and not top_list_df.empty:
+        stock_name_map = (
+            top_list_df.sort_values("trade_date")
+            .dropna(subset=["ts_code"])
+            .groupby("ts_code")["name"]
+            .last()
+            .to_dict()
+        )
+
+    trade_dates = lhb_data.get("trade_dates", []) or []
+    errors = lhb_data.get("errors", []) or []
+    metric_cols = st.columns(5)
+    metric_cols[0].metric("交易日", f"{len(trade_dates):,}")
+    metric_cols[1].metric("上榜股票", f"{int(summary_df['ts_code'].nunique()) if not summary_df.empty else 0:,}")
+    metric_cols[2].metric("上榜记录", f"{len(top_list_df):,}")
+    metric_cols[3].metric("龙虎榜净买(亿)", _format_lhb_yi(summary_df["net_amount_yi"].sum() if not summary_df.empty else 0, signed=True))
+    metric_cols[4].metric("机构净买(亿)", _format_lhb_yi(summary_df["inst_net_yi"].sum() if not summary_df.empty else 0, signed=True))
+    data_source = str(lhb_data.get("source") or "tushare")
+    source_label = "数据库定时缓存" if data_source == "db" else "Tushare 实时接口"
+    st.caption(f"数据来源：{source_label} · 数据区间：{lhb_data.get('start_date', start_key)} ~ {lhb_data.get('end_date', end_key)}")
+
+    if errors:
+        with st.expander(f"接口异常 {len(errors)} 条", expanded=False):
+            st.dataframe(pd.DataFrame(errors), use_container_width=True, hide_index=True, height=220)
+
+    if top_list_df is None or top_list_df.empty:
+        st.warning("当前条件下没有返回龙虎榜每日明细。")
+        return
+
+    tab_overview, tab_stock, tab_inst, tab_detail = st.tabs(["📊 总览", "🎯 个股榜", "🏛 机构席位", "🧾 每日明细"])
+
+    with tab_overview:
+        chart_left, chart_right = st.columns([1.2, 0.9])
+        with chart_left:
+            fig_daily = go.Figure()
+            fig_daily.add_trace(
+                go.Bar(
+                    x=daily_df["trade_date_label"],
+                    y=daily_df["net_amount_yi"],
+                    marker_color=[THEME_UP if value >= 0 else THEME_DOWN for value in daily_df["net_amount_yi"]],
+                    name="龙虎榜净买",
+                    hovertemplate="日期：%{x}<br>龙虎榜净买：%{y:+.2f} 亿<extra></extra>",
+                )
+            )
+            if include_inst and "inst_net_yi" in daily_df.columns:
+                fig_daily.add_trace(
+                    go.Scatter(
+                        x=daily_df["trade_date_label"],
+                        y=daily_df["inst_net_yi"],
+                        mode="lines+markers",
+                        line=dict(color=THEME_NAVY, width=2.2),
+                        name="机构净买",
+                        hovertemplate="日期：%{x}<br>机构净买：%{y:+.2f} 亿<extra></extra>",
+                    )
+                )
+            fig_daily.add_hline(y=0, line_width=1, line_dash="dash", line_color=THEME_NEUTRAL)
+            fig_daily.update_layout(
+                title=dict(text="每日龙虎榜净买入", x=0.02, font=dict(size=16, color=THEME_TEXT)),
+                template="wealthspark_balanced",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                height=390,
+                margin=dict(l=45, r=25, t=55, b=45),
+                xaxis_title="",
+                yaxis_title="亿元",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            st.plotly_chart(fig_daily, use_container_width=True)
+
+        with chart_right:
+            if reason_df is not None and not reason_df.empty:
+                reason_plot = reason_df.sort_values("hit_count", ascending=True)
+                fig_reason = go.Figure(
+                    go.Bar(
+                        x=reason_plot["hit_count"],
+                        y=reason_plot["reason"],
+                        orientation="h",
+                        marker_color=THEME_PRIMARY,
+                        text=reason_plot["hit_count"],
+                        textposition="outside",
+                        hovertemplate="理由：%{y}<br>上榜次数：%{x}<extra></extra>",
+                    )
+                )
+                fig_reason.update_layout(
+                    title=dict(text="上榜理由分布", x=0.02, font=dict(size=16, color=THEME_TEXT)),
+                    template="wealthspark_balanced",
+                    paper_bgcolor=CHART_PAPER_BG,
+                    plot_bgcolor=CHART_BG,
+                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    height=max(390, len(reason_plot) * 28),
+                    margin=dict(l=150, r=35, t=55, b=30),
+                    xaxis_title="次数",
+                    yaxis=dict(autorange=False),
+                )
+                st.plotly_chart(fig_reason, use_container_width=True)
+            else:
+                st.info("暂无上榜理由分布。")
+
+        if not daily_df.empty:
+            daily_show = daily_df.sort_values("trade_date", ascending=False)[
+                [
+                    "trade_date_label",
+                    "stock_count",
+                    "record_count",
+                    "total_buy_yi",
+                    "total_sell_yi",
+                    "net_amount_yi",
+                    "inst_net_yi",
+                    "inst_hit_count",
+                ]
+            ].copy()
+            daily_show.columns = ["日期", "股票数", "记录数", "买入(亿)", "卖出(亿)", "净买入(亿)", "机构净买(亿)", "机构记录"]
+            for column in ["买入(亿)", "卖出(亿)"]:
+                daily_show[column] = daily_show[column].map(_format_lhb_yi)
+            for column in ["净买入(亿)", "机构净买(亿)"]:
+                daily_show[column] = daily_show[column].map(lambda value: _format_lhb_yi(value, signed=True))
+            st.dataframe(daily_show, use_container_width=True, hide_index=True, height=300)
+
+    with tab_stock:
+        if summary_df.empty:
+            st.info("当前范围暂无可汇总的个股龙虎榜数据。")
+        else:
+            plot_df = summary_df.head(int(top_n)).sort_values("combined_net_yi", ascending=True)
+            fig_stock = go.Figure(
+                go.Bar(
+                    x=plot_df["combined_net_yi"],
+                    y=plot_df["stock_label"],
+                    orientation="h",
+                    marker_color=[THEME_UP if value >= 0 else THEME_DOWN for value in plot_df["combined_net_yi"]],
+                    text=plot_df["hit_count"].map(lambda value: f"{int(value)}次"),
+                    textposition="outside",
+                    customdata=np.stack(
+                        [
+                            plot_df["net_amount_yi"],
+                            plot_df["inst_net_yi"],
+                            plot_df["trade_days"],
+                        ],
+                        axis=-1,
+                    ),
+                    hovertemplate=(
+                        "%{y}<br>合计净买：%{x:+.2f} 亿<br>"
+                        "龙虎榜净买：%{customdata[0]:+.2f} 亿<br>"
+                        "机构净买：%{customdata[1]:+.2f} 亿<br>"
+                        "交易日：%{customdata[2]}<extra></extra>"
+                    ),
+                )
+            )
+            fig_stock.add_vline(x=0, line_width=1, line_dash="dash", line_color=THEME_NEUTRAL)
+            fig_stock.update_layout(
+                title=dict(text=f"个股龙虎榜强度 Top{int(top_n)}", x=0.02, font=dict(size=16, color=THEME_TEXT)),
+                template="wealthspark_balanced",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                height=max(380, len(plot_df) * 28),
+                margin=dict(l=150, r=55, t=55, b=35),
+                xaxis_title="合计净买入(亿)",
+                yaxis=dict(autorange=False),
+            )
+            st.plotly_chart(fig_stock, use_container_width=True)
+            st.dataframe(
+                build_lhb_stock_summary_display_df(summary_df.head(max(int(top_n), 30))),
+                use_container_width=True,
+                hide_index=True,
+                height=410,
+                column_config={
+                    "股票": st.column_config.LinkColumn(
+                        "股票",
+                        help="点击后跳转到个股/指数查询",
+                        display_text=r".*#(.*)$",
+                    )
+                },
+            )
+
+            selected_stock = st.selectbox(
+                "单股追踪",
+                options=summary_df["ts_code"].tolist(),
+                format_func=lambda code: f"{stock_name_map.get(code, code)}（{code}）",
+                key="lhb_focus_stock",
+            )
+            focus_top = top_list_df[top_list_df["ts_code"] == selected_stock].copy()
+            focus_inst = inst_df[inst_df["ts_code"] == selected_stock].copy() if inst_df is not None and not inst_df.empty else pd.DataFrame()
+            if not focus_top.empty:
+                focus_summary = summary_df[summary_df["ts_code"] == selected_stock].iloc[0]
+                focus_cols = st.columns(4)
+                focus_cols[0].metric("上榜次数", int(focus_summary["hit_count"]))
+                focus_cols[1].metric("龙虎榜净买(亿)", _format_lhb_yi(focus_summary["net_amount_yi"], signed=True))
+                focus_cols[2].metric("机构净买(亿)", _format_lhb_yi(focus_summary["inst_net_yi"], signed=True))
+                focus_cols[3].metric("合计净买(亿)", _format_lhb_yi(focus_summary["combined_net_yi"], signed=True))
+
+                focus_daily = (
+                    focus_top.groupby("trade_date", dropna=False)
+                    .agg(
+                        net_amount_yi=("net_amount_yi", "sum"),
+                        lhb_amount_yi=("l_amount_yi", "sum"),
+                        hit_count=("ts_code", "size"),
+                    )
+                    .reset_index()
+                    .sort_values("trade_date")
+                )
+                if not focus_inst.empty:
+                    focus_inst_daily = (
+                        focus_inst.groupby("trade_date", dropna=False)["net_buy_yi"]
+                        .sum()
+                        .reset_index(name="inst_net_yi")
+                    )
+                    focus_daily = focus_daily.merge(focus_inst_daily, on="trade_date", how="left")
+                else:
+                    focus_daily["inst_net_yi"] = 0.0
+                focus_daily["inst_net_yi"] = pd.to_numeric(focus_daily["inst_net_yi"], errors="coerce").fillna(0.0)
+                focus_daily["date_label"] = pd.to_datetime(focus_daily["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+
+                fig_focus = go.Figure()
+                fig_focus.add_trace(
+                    go.Bar(
+                        x=focus_daily["date_label"],
+                        y=focus_daily["net_amount_yi"],
+                        marker_color=[THEME_UP if value >= 0 else THEME_DOWN for value in focus_daily["net_amount_yi"]],
+                        name="龙虎榜净买",
+                    )
+                )
+                fig_focus.add_trace(
+                    go.Scatter(
+                        x=focus_daily["date_label"],
+                        y=focus_daily["inst_net_yi"],
+                        mode="lines+markers",
+                        line=dict(color=THEME_NAVY, width=2),
+                        name="机构净买",
+                    )
+                )
+                fig_focus.add_hline(y=0, line_width=1, line_dash="dash", line_color=THEME_NEUTRAL)
+                fig_focus.update_layout(
+                    title=dict(text=f"{stock_name_map.get(selected_stock, selected_stock)} 每日净买入", x=0.02, font=dict(size=15, color=THEME_TEXT)),
+                    template="wealthspark_balanced",
+                    paper_bgcolor=CHART_PAPER_BG,
+                    plot_bgcolor=CHART_BG,
+                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    height=330,
+                    margin=dict(l=45, r=25, t=55, b=45),
+                    yaxis_title="亿元",
+                    xaxis_title="",
+                )
+                st.plotly_chart(fig_focus, use_container_width=True)
+                st.dataframe(
+                    build_lhb_top_list_display_df(focus_top),
+                    use_container_width=True,
+                    hide_index=True,
+                    height=280,
+                    column_config={
+                        "股票": st.column_config.LinkColumn(
+                            "股票",
+                            help="点击后跳转到个股/指数查询",
+                            display_text=r".*#(.*)$",
+                        )
+                    },
+                )
+
+    with tab_inst:
+        if inst_df is None or inst_df.empty:
+            st.info("当前范围暂无机构成交明细，或未勾选机构明细。")
+        else:
+            inst_rank = (
+                inst_df.groupby("exalter", dropna=False)
+                .agg(
+                    hit_count=("ts_code", "size"),
+                    stock_count=("ts_code", "nunique"),
+                    buy_yi=("buy_yi", "sum"),
+                    sell_yi=("sell_yi", "sum"),
+                    net_buy_yi=("net_buy_yi", "sum"),
+                )
+                .reset_index()
+                .sort_values(["net_buy_yi", "hit_count"], ascending=False)
+            )
+            plot_inst = inst_rank.head(int(top_n)).sort_values("net_buy_yi", ascending=True)
+            fig_inst = go.Figure(
+                go.Bar(
+                    x=plot_inst["net_buy_yi"],
+                    y=plot_inst["exalter"],
+                    orientation="h",
+                    marker_color=[THEME_UP if value >= 0 else THEME_DOWN for value in plot_inst["net_buy_yi"]],
+                    text=plot_inst["stock_count"].map(lambda value: f"{int(value)}股"),
+                    textposition="outside",
+                    hovertemplate="席位：%{y}<br>净买入：%{x:+.2f} 亿<extra></extra>",
+                )
+            )
+            fig_inst.add_vline(x=0, line_width=1, line_dash="dash", line_color=THEME_NEUTRAL)
+            fig_inst.update_layout(
+                title=dict(text=f"机构席位净买入 Top{int(top_n)}", x=0.02, font=dict(size=16, color=THEME_TEXT)),
+                template="wealthspark_balanced",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                height=max(360, len(plot_inst) * 28),
+                margin=dict(l=150, r=55, t=55, b=35),
+                xaxis_title="净买入(亿)",
+                yaxis=dict(autorange=False),
+            )
+            st.plotly_chart(fig_inst, use_container_width=True)
+
+            inst_rank_show = inst_rank.head(max(int(top_n), 30)).copy()
+            inst_rank_show.columns = ["席位", "记录数", "股票数", "买入(亿)", "卖出(亿)", "净买入(亿)"]
+            for column in ["买入(亿)", "卖出(亿)"]:
+                inst_rank_show[column] = inst_rank_show[column].map(_format_lhb_yi)
+            inst_rank_show["净买入(亿)"] = inst_rank_show["净买入(亿)"].map(lambda value: _format_lhb_yi(value, signed=True))
+            st.dataframe(inst_rank_show, use_container_width=True, hide_index=True, height=300)
+            st.dataframe(
+                build_lhb_inst_display_df(inst_df.head(1000), stock_name_map),
+                use_container_width=True,
+                hide_index=True,
+                height=420,
+                column_config={
+                    "股票": st.column_config.LinkColumn(
+                        "股票",
+                        help="点击后跳转到个股/指数查询",
+                        display_text=r".*#(.*)$",
+                    )
+                },
+            )
+
+    with tab_detail:
+        st.dataframe(
+            build_lhb_top_list_display_df(top_list_df.head(1200)),
+            use_container_width=True,
+            hide_index=True,
+            height=520,
+            column_config={
+                "股票": st.column_config.LinkColumn(
+                    "股票",
+                    help="点击后跳转到个股/指数查询",
+                    display_text=r".*#(.*)$",
+                )
+            },
+        )
+
+
 HISTORICAL_ST_BADGE_TEXT = '曾经ST'
 
 
@@ -5040,6 +5673,8 @@ def main():
             st.caption(f"当前位置：股票 / {mobile_page}")
             if mobile_page == STOCK_SECURITY_SEARCH_LABEL:
                 render_security_search_tab()
+            elif mobile_page == STOCK_LHB_PAGE_LABEL:
+                render_lhb_monitor_tab()
             elif mobile_page == STOCK_USER_WATCHLIST_LABEL:
                 render_user_watchlist_tab()
             elif mobile_page == STOCK_COMPANY_SCREENER_LABEL:
@@ -5129,6 +5764,8 @@ def main():
     elif selected_module == stock_module_label:
         if selected_page == STOCK_SECURITY_SEARCH_LABEL:
             render_security_search_tab()
+        elif selected_page == STOCK_LHB_PAGE_LABEL:
+            render_lhb_monitor_tab()
         elif selected_page == STOCK_USER_WATCHLIST_LABEL:
             render_user_watchlist_tab()
         elif selected_page == STOCK_COMPANY_SCREENER_LABEL:
