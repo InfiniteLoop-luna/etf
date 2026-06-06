@@ -85,6 +85,12 @@ SIDEBAR_MODULES = (
                 "heavy",
             ),
             SidebarPage(
+                "lhb_monitor",
+                "🐉 龙虎榜",
+                "每日榜单与机构席位",
+                "heavy",
+            ),
+            SidebarPage(
                 "user_watchlist",
                 "⭐ 自选管理",
                 "登录后管理个人自选股票",
