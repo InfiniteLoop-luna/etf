@@ -6710,6 +6710,7 @@ def render_hotmoney_tab():
         query_hotmoney_top_active,
         query_hotmoney_top_stocks,
     )
+    from src.hotmoney_tree import render_hotmoney_tree_html
     from src.moneyflow_fetcher import _get_engine_cached
 
     try:
@@ -6959,6 +6960,24 @@ def render_hotmoney_tab():
             summary_cols[1].metric("参与游资", f"{int(detail_frame['hm_name'].nunique()):,}")
             summary_cols[2].metric("上榜记录", f"{len(detail_frame):,}")
             summary_cols[3].metric("合计净买卖(亿)", _format_hotmoney_yi(detail_frame["net_amount_yi"].sum(), signed=True))
+
+            tree_subtitle_parts = [detail_window, f"Top{int(top_n)}"]
+            if hm_keyword:
+                tree_subtitle_parts.append(f"游资：{hm_keyword}")
+            if stock_keyword:
+                tree_subtitle_parts.append(f"股票：{stock_keyword}")
+            st.markdown("#### 🌳 游资关系图")
+            st.markdown(
+                render_hotmoney_tree_html(
+                    detail_frame,
+                    title="游资龙虎图谱",
+                    subtitle=" · ".join(tree_subtitle_parts),
+                    max_hotmoney=min(int(top_n), 10),
+                    max_stocks_per_hotmoney=6,
+                    max_orgs_per_stock=4,
+                ),
+                unsafe_allow_html=True,
+            )
 
             plot_df = battle_summary.head(int(top_n)).sort_values("battle_amount_yi", ascending=True)
             fig_battle = go.Figure(go.Bar(
