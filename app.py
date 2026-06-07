@@ -3502,8 +3502,7 @@ def render_lhb_monitor_tab():
 
     from src.lhb_board import (
         build_lhb_today_board_model,
-        create_lhb_today_treemap_figure,
-        extract_lhb_treemap_stock_code,
+        render_lhb_today_board_html,
     )
     from src.lhb_monitor import (
         build_lhb_daily_overview,
@@ -3634,23 +3633,20 @@ def render_lhb_monitor_tab():
 
         board_stock_codes = list(today_board.get("stock_codes", []))
         selected_board_key = "lhb_today_selected_stock"
-        selected_board_stock = str(st.session_state.get(selected_board_key, "") or "").strip().upper()
+        query_board_stock = st.query_params.get("lhb_today_stock", "")
+        if isinstance(query_board_stock, list):
+            query_board_stock = query_board_stock[0] if query_board_stock else ""
+        query_board_stock = str(query_board_stock or "").strip().upper()
+        selected_board_stock = query_board_stock if query_board_stock in board_stock_codes else str(st.session_state.get(selected_board_key, "") or "").strip().upper()
         if selected_board_stock not in board_stock_codes and board_stock_codes:
             selected_board_stock = board_stock_codes[0]
             st.session_state[selected_board_key] = selected_board_stock
 
-        board_fig = create_lhb_today_treemap_figure(today_board, selected_ts_code=selected_board_stock)
-        board_event = st.plotly_chart(
-            board_fig,
-            use_container_width=True,
-            key=f"lhb_today_board_chart_{today_board.get('trade_date_label', 'latest')}",
-            on_select="rerun",
-            selection_mode=["points"],
-            config={"displayModeBar": False, "scrollZoom": False},
+        components.html(
+            render_lhb_today_board_html(today_board, selected_ts_code=selected_board_stock),
+            height=620,
+            scrolling=False,
         )
-        clicked_stock = extract_lhb_treemap_stock_code(board_event)
-        if clicked_stock and clicked_stock in board_stock_codes:
-            selected_board_stock = clicked_stock
 
         pill_options = board_stock_codes[:24]
         if selected_board_stock and selected_board_stock not in pill_options:
@@ -3665,6 +3661,7 @@ def render_lhb_monitor_tab():
         )
         if picked_stock:
             selected_board_stock = picked_stock
+            st.query_params["lhb_today_stock"] = picked_stock
 
         st.session_state[selected_board_key] = selected_board_stock
         if selected_board_stock in summary_df["ts_code"].tolist():
@@ -3680,6 +3677,7 @@ def render_lhb_monitor_tab():
                 break
 
         if selected_board_stock:
+            st.markdown('<div id="lhb-today-detail"></div>', unsafe_allow_html=True)
             board_trade_date = today_board.get("trade_date")
             top_detail = top_list_df.copy()
             top_detail["_trade_date_norm"] = pd.to_datetime(top_detail["trade_date"], errors="coerce").dt.normalize()

@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from src.lhb_board import build_lhb_today_board_model, extract_lhb_treemap_stock_code
+from src.lhb_board import build_lhb_today_board_model, extract_lhb_treemap_stock_code, render_lhb_today_board_html
 
 
 class LhbBoardTests(unittest.TestCase):
@@ -102,6 +102,59 @@ class LhbBoardTests(unittest.TestCase):
         ]
 
         self.assertEqual(extract_lhb_treemap_stock_code(click_points), "000001.SZ")
+
+    def test_render_lhb_today_board_html_uses_links_not_plotly_drilldown(self):
+        model = {
+            "trade_date_label": "2026-06-05",
+            "stock_count": 2,
+            "record_count": 2,
+            "sectors": [
+                {
+                    "sector": "银行",
+                    "tile_value": 1.2,
+                    "stock_count": 1,
+                    "record_count": 1,
+                    "net_label": "+5000万",
+                    "stocks": [
+                        {
+                            "ts_code": "000001.SZ",
+                            "name": "平安银行",
+                            "tile_value": 1.2,
+                            "pct_change": 9.8,
+                            "pct_label": "+9.80%",
+                            "net_label": "+5000万",
+                            "reason": "日涨幅偏离值达7%",
+                        }
+                    ],
+                },
+                {
+                    "sector": "电力设备",
+                    "tile_value": 0.8,
+                    "stock_count": 1,
+                    "record_count": 1,
+                    "net_label": "-3000万",
+                    "stocks": [
+                        {
+                            "ts_code": "300274.SZ",
+                            "name": "阳光电源",
+                            "tile_value": 0.8,
+                            "pct_change": -4.2,
+                            "pct_label": "-4.20%",
+                            "net_label": "-3000万",
+                            "reason": "日跌幅偏离值达7%",
+                        }
+                    ],
+                },
+            ],
+        }
+
+        html = render_lhb_today_board_html(model, selected_ts_code="000001.SZ")
+
+        self.assertIn("href=\"?lhb_today_stock=000001.SZ#lhb-today-detail\"", html)
+        self.assertIn("target=\"_parent\"", html)
+        self.assertIn("data-ts-code=\"000001.SZ\"", html)
+        self.assertIn("is-selected", html)
+        self.assertNotIn("plotly", html.lower())
 
 
 if __name__ == "__main__":

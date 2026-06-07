@@ -6,7 +6,9 @@ from __future__ import annotations
 import math
 import re
 from datetime import date, datetime
+from html import escape
 from typing import Any, Iterable, Mapping, Optional
+from urllib.parse import quote
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -425,6 +427,218 @@ def create_lhb_today_treemap_figure(
         uniformtext=dict(minsize=10, mode="hide"),
     )
     return fig
+
+
+def _lerp(start: int, end: int, amount: float) -> int:
+    return int(round(start + (end - start) * max(0.0, min(1.0, amount))))
+
+
+def _pct_color(value: Any) -> str:
+    pct = _numeric(value)
+    strength = min(abs(pct) / 10.0, 1.0)
+    if pct > 0:
+        base = (72, 81, 96)
+        target = (207, 57, 72)
+    elif pct < 0:
+        base = (72, 81, 96)
+        target = (31, 164, 99)
+    else:
+        base = target = (72, 81, 96)
+    red = _lerp(base[0], target[0], 0.35 + strength * 0.65)
+    green = _lerp(base[1], target[1], 0.35 + strength * 0.65)
+    blue = _lerp(base[2], target[2], 0.35 + strength * 0.65)
+    return f"rgb({red},{green},{blue})"
+
+
+def _slice_rectangles(
+    items: list[Mapping[str, Any]],
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    value_key: str = "tile_value",
+) -> list[tuple[Mapping[str, Any], tuple[float, float, float, float]]]:
+    if not items:
+        return []
+    total = sum(max(_numeric(item.get(value_key)), 0.01) for item in items)
+    if total <= 0:
+        total = float(len(items))
+
+    rects: list[tuple[Mapping[str, Any], tuple[float, float, float, float]]] = []
+    cursor = x if width >= height else y
+    for index, item in enumerate(items):
+        value = max(_numeric(item.get(value_key)), 0.01)
+        fraction = value / total
+        if width >= height:
+            rect_width = (x + width - cursor) if index == len(items) - 1 else width * fraction
+            rects.append((item, (cursor, y, max(rect_width, 0.0), height)))
+            cursor += rect_width
+        else:
+            rect_height = (y + height - cursor) if index == len(items) - 1 else height * fraction
+            rects.append((item, (x, cursor, width, max(rect_height, 0.0))))
+            cursor += rect_height
+    return rects
+
+
+def _svg_text_lines(
+    lines: list[str],
+    *,
+    x: float,
+    y: float,
+    font_size: int,
+    max_chars: int,
+    class_name: str = "",
+) -> str:
+    rendered = []
+    for index, line in enumerate(lines):
+        text = _clean_text(line, "")
+        if not text:
+            continue
+        if max_chars > 0 and len(text) > max_chars:
+            text = f"{text[:max(1, max_chars - 1)]}…"
+        dy = 0 if index == 0 else font_size + 3
+        rendered.append(
+            f'<tspan x="{x:.1f}" dy="{dy:.1f}">{escape(text)}</tspan>'
+        )
+    if not rendered:
+        return ""
+    class_attr = f' class="{class_name}"' if class_name else ""
+    return f'<text{class_attr} x="{x:.1f}" y="{y:.1f}" font-size="{font_size}">{"".join(rendered)}</text>'
+
+
+def render_lhb_today_board_html(
+    model: Mapping[str, Any],
+    *,
+    selected_ts_code: str = "",
+    width: int = 1200,
+    height: int = 620,
+) -> str:
+    """Render a stable clickable SVG board without Plotly treemap drilldown."""
+    selected = _clean_text(selected_ts_code, "").upper()
+    sectors = list(model.get("sectors", []))
+    sector_rects = _slice_rectangles(
+        sectors,
+        x=8,
+        y=34,
+        width=width - 16,
+        height=height - 42,
+    )
+
+    nodes: list[str] = [
+        f'<rect class="lhb-board-bg" x="0" y="0" width="{width}" height="{height}" rx="8"></rect>',
+        f'<text class="lhb-board-title" x="14" y="22">当日龙虎榜 · {escape(_clean_text(model.get("trade_date_label")))}</text>',
+    ]
+    for sector, (sx, sy, sw, sh) in sector_rects:
+        if sw < 18 or sh < 18:
+            continue
+        sector_name = _clean_text(sector.get("sector"), "未归类板块")
+        nodes.append(
+            f'<g class="lhb-sector" data-sector="{escape(sector_name)}">'
+            f'<rect class="lhb-sector-frame" x="{sx:.1f}" y="{sy:.1f}" width="{sw:.1f}" height="{sh:.1f}" rx="3"></rect>'
+            f'{_svg_text_lines([sector_name], x=sx + 6, y=sy + 15, font_size=13, max_chars=max(3, int(sw / 18)), class_name="lhb-sector-label")}'
+        )
+
+        stock_area_y = sy + 22
+        stock_area_h = max(0.0, sh - 26)
+        stock_rects = _slice_rectangles(
+            list(sector.get("stocks", [])),
+            x=sx + 4,
+            y=stock_area_y,
+            width=max(0.0, sw - 8),
+            height=stock_area_h,
+        )
+        for stock, (tx, ty, tw, th) in stock_rects:
+            if tw < 9 or th < 9:
+                continue
+            ts_code = _clean_text(stock.get("ts_code"), "").upper()
+            stock_name = _clean_text(stock.get("name"), ts_code)
+            href = f"?lhb_today_stock={quote(ts_code)}#lhb-today-detail"
+            tile_class = "lhb-stock-tile is-selected" if ts_code == selected else "lhb-stock-tile"
+            label_chars = max(2, int(tw / 15))
+            font_size = 18 if tw > 170 and th > 95 else 14 if tw > 92 and th > 54 else 11
+            line_y = ty + min(24, max(12, th * 0.22))
+            label_lines = [stock_name]
+            if tw >= 46 and th >= 36:
+                label_lines.append(_clean_text(stock.get("pct_label"), ""))
+            if tw >= 58 and th >= 48:
+                label_lines.append(_clean_text(stock.get("net_label"), ""))
+            nodes.append(
+                f'<a class="{tile_class}" target="_parent" href="{href}" data-ts-code="{escape(ts_code)}">'
+                f'<title>{escape(stock_name)}（{escape(ts_code)}） | {escape(_clean_text(stock.get("pct_label"), ""))} | {escape(_clean_text(stock.get("reason"), ""))}</title>'
+                f'<rect x="{tx:.1f}" y="{ty:.1f}" width="{tw:.1f}" height="{th:.1f}" rx="2" fill="{_pct_color(stock.get("pct_change"))}"></rect>'
+                f'{_svg_text_lines(label_lines, x=tx + 6, y=line_y, font_size=font_size, max_chars=label_chars, class_name="lhb-stock-label")}'
+                "</a>"
+            )
+        nodes.append("</g>")
+
+    return f"""
+<style>
+html, body {{
+    margin: 0;
+    padding: 0;
+    background: transparent;
+}}
+.lhb-board-wrap {{
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    border-radius: 8px;
+    background: #121722;
+    border: 1px solid rgba(20, 29, 43, 0.88);
+}}
+.lhb-board-svg {{
+    display: block;
+    width: 100%;
+    height: 100%;
+    font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+}}
+.lhb-board-bg {{
+    fill: #121722;
+}}
+.lhb-board-title {{
+    fill: #f8fafc;
+    font-size: 14px;
+    font-weight: 800;
+}}
+.lhb-sector-frame {{
+    fill: none;
+    stroke: #252d3b;
+    stroke-width: 3;
+}}
+.lhb-sector-label {{
+    fill: #f8fafc;
+    font-weight: 800;
+}}
+.lhb-stock-tile rect {{
+    stroke: #252d3b;
+    stroke-width: 1.5;
+    transition: stroke 120ms ease, stroke-width 120ms ease, filter 120ms ease;
+}}
+.lhb-stock-tile:hover rect {{
+    stroke: #f8d57e;
+    stroke-width: 3;
+    filter: brightness(1.08);
+}}
+.lhb-stock-tile.is-selected rect {{
+    stroke: #f8d57e;
+    stroke-width: 4;
+}}
+.lhb-stock-label {{
+    fill: white;
+    font-weight: 800;
+    pointer-events: none;
+    paint-order: stroke;
+    stroke: rgba(13, 18, 28, 0.35);
+    stroke-width: 2px;
+}}
+</style>
+<div class="lhb-board-wrap">
+  <svg class="lhb-board-svg" viewBox="0 0 {width} {height}" role="img" aria-label="当日龙虎榜板块热力图">
+    {"".join(nodes)}
+  </svg>
+</div>
+"""
 
 
 def _iter_event_points(event_payload: Any) -> list[Mapping[str, Any]]:
