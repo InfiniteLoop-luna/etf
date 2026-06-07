@@ -49,6 +49,39 @@ def _format_percent(value: Any) -> str:
     return f"{_numeric(value):+.2f}%"
 
 
+def _compress_tile_value(value: Any) -> float:
+    return math.sqrt(max(_numeric(value), 0.03))
+
+
+def _cap_tile_values(values: Iterable[Any], *, max_share: float = 0.15) -> list[float]:
+    weights = [max(_numeric(value), 0.03) for value in values]
+    if not weights:
+        return []
+
+    if len(weights) * float(max_share) <= 1.0:
+        return weights
+
+    feasible_share = float(max_share)
+    total = sum(weights)
+    if total <= 0:
+        return weights
+    if max(weights) <= total * feasible_share:
+        return weights
+
+    low = 0.0
+    high = max(weights)
+    for _ in range(48):
+        cap = (low + high) / 2.0
+        capped_total = sum(min(weight, cap) for weight in weights)
+        if capped_total <= 0 or cap / capped_total > feasible_share:
+            high = cap
+        else:
+            low = cap
+
+    cap = high
+    return [max(min(weight, cap), 0.03) for weight in weights]
+
+
 def _compact_reasons(values: Iterable[Any], max_items: int = 2) -> str:
     reasons: list[str] = []
     for value in values:
@@ -215,7 +248,7 @@ def build_lhb_today_board_model(
 
     stock_summary["combined_net_yi"] = stock_summary["net_amount_yi"] + stock_summary["inst_net_yi"]
     stock_summary["abs_combined_net_yi"] = stock_summary["combined_net_yi"].abs()
-    stock_summary["tile_value"] = stock_summary.apply(
+    stock_summary["tile_raw_value"] = stock_summary.apply(
         lambda row: max(
             _numeric(row.get("lhb_amount_yi")),
             _numeric(row.get("abs_combined_net_yi")),
@@ -224,6 +257,8 @@ def build_lhb_today_board_model(
         ),
         axis=1,
     )
+    stock_summary["tile_compressed_value"] = stock_summary["tile_raw_value"].map(_compress_tile_value)
+    stock_summary["tile_value"] = _cap_tile_values(stock_summary["tile_compressed_value"], max_share=0.15)
     stock_summary["direction"] = stock_summary["combined_net_yi"].map(
         lambda value: "positive" if value > 0 else "negative" if value < 0 else "neutral"
     )
@@ -267,6 +302,8 @@ def build_lhb_today_board_model(
                     "net_amount_yi": _numeric(stock_row.get("net_amount_yi")),
                     "inst_net_yi": _numeric(stock_row.get("inst_net_yi")),
                     "combined_net_yi": _numeric(stock_row.get("combined_net_yi")),
+                    "tile_raw_value": _numeric(stock_row.get("tile_raw_value"), 0.03),
+                    "tile_compressed_value": _numeric(stock_row.get("tile_compressed_value"), 0.03),
                     "tile_value": _numeric(stock_row.get("tile_value"), 0.03),
                     "amount_rate": _numeric(stock_row.get("amount_rate")),
                     "reason": _clean_text(stock_row.get("reason")),

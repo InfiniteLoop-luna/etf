@@ -1,3 +1,4 @@
+import math
 import unittest
 
 import pandas as pd
@@ -102,6 +103,54 @@ class LhbBoardTests(unittest.TestCase):
         ]
 
         self.assertEqual(extract_lhb_treemap_stock_code(click_points), "000001.SZ")
+
+    def test_today_board_tile_values_use_sqrt_compression_and_single_stock_cap(self):
+        rows = [
+            {
+                "trade_date": "20260605",
+                "ts_code": "300319.SZ",
+                "name": "麦捷科技",
+                "pct_change": 14.43,
+                "turnover_rate": 22.0,
+                "l_buy": 6_000_000_000,
+                "l_sell": 3_000_000_000,
+                "l_amount": 10_000_000_000,
+                "net_amount": 2_000_000_000,
+                "reason": "严重异常期间日收盘价格涨幅偏离值累计达到100%",
+            }
+        ]
+        for index in range(9):
+            rows.append(
+                {
+                    "trade_date": "20260605",
+                    "ts_code": f"002{index:03d}.SZ",
+                    "name": f"普通股票{index}",
+                    "pct_change": 3.0 + index,
+                    "turnover_rate": 8.0,
+                    "l_buy": 60_000_000,
+                    "l_sell": 40_000_000,
+                    "l_amount": 100_000_000,
+                    "net_amount": 20_000_000,
+                    "reason": "日涨幅偏离值达7%",
+                }
+            )
+
+        model = build_lhb_today_board_model(
+            pd.DataFrame(rows),
+            pd.DataFrame(),
+            industry_map={row["ts_code"]: "电子" for row in rows},
+        )
+        stocks = [stock for sector in model["sectors"] for stock in sector["stocks"]]
+        total_tile_value = sum(stock["tile_value"] for stock in stocks)
+        largest_stock = max(stocks, key=lambda stock: stock["tile_value"])
+        small_stock = next(stock for stock in stocks if stock["ts_code"] != "300319.SZ")
+
+        self.assertEqual(largest_stock["ts_code"], "300319.SZ")
+        self.assertAlmostEqual(largest_stock["tile_raw_value"], 100.0)
+        self.assertAlmostEqual(largest_stock["tile_compressed_value"], math.sqrt(100.0))
+        self.assertLess(largest_stock["tile_value"], largest_stock["tile_compressed_value"])
+        self.assertLessEqual(largest_stock["tile_value"], total_tile_value * 0.151)
+        self.assertGreater(largest_stock["tile_value"], small_stock["tile_value"])
 
 
 if __name__ == "__main__":
