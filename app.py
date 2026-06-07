@@ -6706,24 +6706,34 @@ def render_hotmoney_tab():
         get_hotmoney_latest_detail_date,
         get_hotmoney_sync_meta,
         query_hotmoney_list,
+        query_hotmoney_detail_dates,
         query_hotmoney_detail,
         query_hotmoney_top_active,
         query_hotmoney_top_stocks,
     )
     from src.hotmoney_tree import render_hotmoney_tree_html
+    from src.hotmoney_window import (
+        DAILY_QUERY_LABEL,
+        HOTMONEY_HISTORY_START,
+        HOTMONEY_WINDOW_OPTIONS,
+        resolve_hotmoney_detail_date_window,
+    )
     from src.moneyflow_fetcher import _get_engine_cached
 
     try:
         _hm_engine = _get_engine_cached()
         sync_meta = get_hotmoney_sync_meta(_hm_engine)
         latest_date = get_hotmoney_latest_detail_date(_hm_engine)
+        available_detail_dates = query_hotmoney_detail_dates(limit=520, engine=_hm_engine)
     except Exception as e:
         st.error(f"游资数据初始化失败：{e}")
         return
 
+    latest_dt = None
     latest_trade_label = latest_date if latest_date else "-"
     if latest_date:
-        latest_trade_label = pd.to_datetime(latest_date, format="%Y%m%d").strftime("%Y-%m-%d")
+        latest_dt = pd.to_datetime(latest_date, format="%Y%m%d").date()
+        latest_trade_label = latest_dt.strftime("%Y-%m-%d")
     latest_sync_val = sync_meta.get("latest_ingested_at")
     latest_sync_label = "-"
     if latest_sync_val is not None and not pd.isna(latest_sync_val):
@@ -6735,16 +6745,46 @@ def render_hotmoney_tab():
     meta_cols[2].metric("最新明细交易日", latest_trade_label)
     meta_cols[3].metric("最近同步时间", latest_sync_label)
 
-    ctl1, ctl2, ctl3, ctl4, ctl5 = st.columns([1.05, 1.05, 0.9, 0.75, 1.05])
+    if (
+        st.session_state.get("hm_detail_window") == "最近5日"
+        and not st.session_state.get("hm_detail_window_daily_default_migrated")
+    ):
+        st.session_state["hm_detail_window"] = DAILY_QUERY_LABEL
+        st.session_state["hm_detail_window_daily_default_migrated"] = True
+
+    ctl1, ctl2, ctl3, ctl4, ctl5, ctl6 = st.columns([1.0, 1.0, 0.85, 0.95, 0.65, 1.0])
     with ctl1:
         hm_keyword = st.text_input("搜索游资名称", value="", key="hm_keyword")
     with ctl2:
         stock_keyword = st.text_input("聚焦股票/代码", value="", key="hm_stock_keyword")
     with ctl3:
-        detail_window = st.selectbox("明细窗口", ["最近1日", "最近5日", "最近20日", "全部已入库"], index=1, key="hm_detail_window")
+        detail_window = st.selectbox("查询方式", HOTMONEY_WINDOW_OPTIONS, index=0, key="hm_detail_window")
     with ctl4:
-        top_n = st.selectbox("TopN", [10, 20, 30, 50], index=1, key="hm_topn")
+        selected_trade_date = None
+        if detail_window == DAILY_QUERY_LABEL:
+            if available_detail_dates:
+                current_trade_date = st.session_state.get("hm_daily_trade_date")
+                default_trade_index = available_detail_dates.index(current_trade_date) if current_trade_date in available_detail_dates else 0
+                selected_trade_date = st.selectbox(
+                    "交易日期",
+                    available_detail_dates,
+                    index=default_trade_index,
+                    key="hm_daily_trade_date",
+                )
+            else:
+                selected_trade_date = st.date_input(
+                    "交易日期",
+                    value=latest_dt or datetime.today().date(),
+                    min_value=HOTMONEY_HISTORY_START,
+                    max_value=latest_dt or datetime.today().date(),
+                    key="hm_daily_trade_date_input",
+                )
+        else:
+            st.caption("交易日期")
+            st.write("随窗口")
     with ctl5:
+        top_n = st.selectbox("TopN", [10, 20, 30, 50], index=1, key="hm_topn")
+    with ctl6:
         stock_rank_mode = st.selectbox("个股排序", ["按上榜次数", "按游资数", "按净买卖绝对值"], index=0, key="hm_stock_rank_mode")
 
     hm_list_df = query_hotmoney_list(name=hm_keyword or None, limit=300, engine=_hm_engine)
@@ -6791,15 +6831,15 @@ def render_hotmoney_tab():
     st.markdown("</div>", unsafe_allow_html=True)
 
     if latest_date:
-        latest_dt = pd.to_datetime(latest_date, format="%Y%m%d").date()
-        if detail_window == "最近1日":
-            start_dt = latest_dt
-        elif detail_window == "最近5日":
-            start_dt = latest_dt - timedelta(days=7)
-        elif detail_window == "最近20日":
-            start_dt = latest_dt - timedelta(days=30)
-        else:
-            start_dt = pd.to_datetime("2024-01-01").date()
+        detail_date_window = resolve_hotmoney_detail_date_window(
+            latest_date=latest_date,
+            detail_window=detail_window,
+            selected_date=selected_trade_date,
+        )
+        start_dt = detail_date_window.start_date
+        end_dt = detail_date_window.end_date
+        query_start = start_dt.strftime("%Y%m%d")
+        query_end = end_dt.strftime("%Y%m%d")
 
         stock_order_by = "hit_count"
         if stock_rank_mode == "按游资数":
@@ -6809,11 +6849,11 @@ def render_hotmoney_tab():
 
         try:
             detail_limit = max(3000, int(top_n) * 160)
-            df_active = query_hotmoney_top_active(start_dt.strftime("%Y%m%d"), latest_date, top_n=int(top_n), engine=_hm_engine)
-            df_stocks = query_hotmoney_top_stocks(start_dt.strftime("%Y%m%d"), latest_date, top_n=int(top_n), order_by=stock_order_by, engine=_hm_engine)
+            df_active = query_hotmoney_top_active(query_start, query_end, top_n=int(top_n), engine=_hm_engine)
+            df_stocks = query_hotmoney_top_stocks(query_start, query_end, top_n=int(top_n), order_by=stock_order_by, engine=_hm_engine)
             df_detail = query_hotmoney_detail(
-                start_dt.strftime("%Y%m%d"),
-                latest_date,
+                query_start,
+                query_end,
                 hm_name=hm_keyword or None,
                 stock_keyword=stock_keyword or None,
                 limit=detail_limit,
@@ -6961,7 +7001,7 @@ def render_hotmoney_tab():
             summary_cols[2].metric("上榜记录", f"{len(detail_frame):,}")
             summary_cols[3].metric("合计净买卖(亿)", _format_hotmoney_yi(detail_frame["net_amount_yi"].sum(), signed=True))
 
-            tree_subtitle_parts = [detail_window, f"Top{int(top_n)}"]
+            tree_subtitle_parts = [f"交易日：{detail_date_window.label}" if detail_window == DAILY_QUERY_LABEL else detail_date_window.label, f"Top{int(top_n)}"]
             if hm_keyword:
                 tree_subtitle_parts.append(f"游资：{hm_keyword}")
             if stock_keyword:

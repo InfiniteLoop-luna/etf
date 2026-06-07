@@ -27,6 +27,26 @@ def get_hotmoney_latest_detail_date(engine: Optional[Engine] = None) -> Optional
     return row[0] if row and row[0] else None
 
 
+def query_hotmoney_detail_dates(limit: int = 260,
+                                engine: Optional[Engine] = None) -> list[str]:
+    if engine is None:
+        engine = _get_engine_cached()
+
+    sql = """
+    SELECT trade_date
+    FROM (
+      SELECT DISTINCT trade_date
+      FROM ts_hm_detail
+    ) d
+    ORDER BY trade_date DESC
+    LIMIT :limit
+    """
+    with engine.connect() as conn:
+        rows = conn.execute(text(sql), {"limit": int(limit)}).fetchall()
+
+    return [row[0].strftime("%Y-%m-%d") for row in rows if row and row[0] is not None]
+
+
 def get_hotmoney_sync_meta(engine: Optional[Engine] = None) -> dict:
     if engine is None:
         engine = _get_engine_cached()
