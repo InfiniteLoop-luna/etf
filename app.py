@@ -73,6 +73,7 @@ from src.fund_monitor_store import (
     to_fund_monitor_display_df,
     upsert_fund_monitor_rows,
 )
+
 from src.index_monitor_importer import parse_index_monitor_workbook
 from src.index_monitor_store import (
     CHANGE_TREND_FIELD_LABELS,
@@ -192,6 +193,11 @@ try:
 except Exception:
     score_security_timeseries_model = None
     get_security_model_meta = None
+
+_LHB_TODAY_BOARD_COMPONENT = components.declare_component(
+    "lhb_today_board",
+    path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "src", "lhb_board_component"),
+)
 
 # 配置日志
 logging.basicConfig(
@@ -3502,7 +3508,6 @@ def render_lhb_monitor_tab():
 
     from src.lhb_board import (
         build_lhb_today_board_model,
-        render_lhb_today_board_html,
     )
     from src.lhb_monitor import (
         build_lhb_daily_overview,
@@ -3633,20 +3638,27 @@ def render_lhb_monitor_tab():
 
         board_stock_codes = list(today_board.get("stock_codes", []))
         selected_board_key = "lhb_today_selected_stock"
-        query_board_stock = st.query_params.get("lhb_today_stock", "")
-        if isinstance(query_board_stock, list):
-            query_board_stock = query_board_stock[0] if query_board_stock else ""
-        query_board_stock = str(query_board_stock or "").strip().upper()
-        selected_board_stock = query_board_stock if query_board_stock in board_stock_codes else str(st.session_state.get(selected_board_key, "") or "").strip().upper()
+        selected_board_stock = str(st.session_state.get(selected_board_key, "") or "").strip().upper()
         if selected_board_stock not in board_stock_codes and board_stock_codes:
             selected_board_stock = board_stock_codes[0]
             st.session_state[selected_board_key] = selected_board_stock
 
-        components.html(
-            render_lhb_today_board_html(today_board, selected_ts_code=selected_board_stock),
-            height=620,
-            scrolling=False,
+        board_component_model = json.loads(json.dumps(today_board, ensure_ascii=False, default=str))
+        board_component_value = _LHB_TODAY_BOARD_COMPONENT(
+            model=board_component_model,
+            selectedTsCode=selected_board_stock,
+            height=720,
+            default=selected_board_stock,
+            key=f"lhb_today_board_component_{today_board.get('trade_date_label', 'latest')}",
         )
+        if isinstance(board_component_value, str):
+            component_stock = board_component_value.strip().upper()
+        elif isinstance(board_component_value, dict):
+            component_stock = str(board_component_value.get("ts_code") or "").strip().upper()
+        else:
+            component_stock = ""
+        if component_stock in board_stock_codes:
+            selected_board_stock = component_stock
 
         pill_options = board_stock_codes[:24]
         if selected_board_stock and selected_board_stock not in pill_options:
@@ -3661,7 +3673,6 @@ def render_lhb_monitor_tab():
         )
         if picked_stock:
             selected_board_stock = picked_stock
-            st.query_params["lhb_today_stock"] = picked_stock
 
         st.session_state[selected_board_key] = selected_board_stock
         if selected_board_stock in summary_df["ts_code"].tolist():

@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101722;
+      --panel: #141c28;
+      --line: #263244;
+      --text: #f8fafc;
+      --muted: #aab6c5;
+      --selected: #f8d57e;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      min-height: 100%;
+      overflow: hidden;
+      background: transparent;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    .board-shell {
+      box-sizing: border-box;
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid rgba(31, 42, 58, 0.96);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .board-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-sizing: border-box;
+      height: 42px;
+      padding: 0 14px;
+      border-bottom: 1px solid rgba(38, 50, 68, 0.92);
+      background: #111925;
+    }
+
+    .board-title {
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .board-meta {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1;
+    }
+
+    .board-scroll {
+      box-sizing: border-box;
+      overflow: auto;
+      cursor: grab;
+      scrollbar-color: #3a4658 #121a25;
+      scrollbar-width: thin;
+      background: #101722;
+    }
+
+    .board-scroll:active {
+      cursor: grabbing;
+    }
+
+    .board-scroll::-webkit-scrollbar {
+      width: 11px;
+      height: 11px;
+    }
+
+    .board-scroll::-webkit-scrollbar-track {
+      background: #121a25;
+    }
+
+    .board-scroll::-webkit-scrollbar-thumb {
+      background: #3a4658;
+      border: 2px solid #121a25;
+      border-radius: 999px;
+    }
+
+    .heatmap {
+      display: block;
+      background: #101722;
+      user-select: none;
+    }
+
+    .sector-frame {
+      fill: #151f2c;
+      stroke: var(--line);
+      stroke-width: 3;
+    }
+
+    .sector-label {
+      fill: var(--text);
+      font-weight: 850;
+      pointer-events: none;
+      paint-order: stroke;
+      stroke: rgba(16, 23, 34, 0.45);
+      stroke-width: 2px;
+    }
+
+    .stock-tile {
+      outline: none;
+      cursor: pointer;
+    }
+
+    .stock-rect {
+      stroke: #263244;
+      stroke-width: 1.4;
+      transition: filter 120ms ease, stroke 120ms ease, stroke-width 120ms ease;
+    }
+
+    .stock-tile:hover .stock-rect,
+    .stock-tile:focus .stock-rect {
+      filter: brightness(1.08);
+      stroke: var(--selected);
+      stroke-width: 3;
+    }
+
+    .stock-tile.is-selected .stock-rect {
+      stroke: var(--selected);
+      stroke-width: 4;
+    }
+
+    .stock-label,
+    .stock-sub {
+      fill: white;
+      font-weight: 850;
+      pointer-events: none;
+      paint-order: stroke;
+      stroke: rgba(13, 18, 28, 0.38);
+      stroke-width: 2px;
+    }
+
+    .stock-sub {
+      font-weight: 780;
+    }
+
+    .empty-state {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      height: 100%;
+      font-size: 14px;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <div class="board-shell" data-testid="lhb-board-component">
+    <div class="board-header">
+      <div class="board-title" id="board-title">当日龙虎榜</div>
+      <div class="board-meta" id="board-meta"></div>
+    </div>
+    <div class="board-scroll" id="board-scroll">
+      <svg class="heatmap" id="heatmap" role="img" aria-label="当日龙虎榜板块热力图"></svg>
+    </div>
+  </div>
+
+  <script>
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const state = {
+      args: {},
+      selectedTsCode: "",
+      isDragging: false,
+      dragMoved: false,
+      startX: 0,
+      startY: 0,
+      scrollLeft: 0,
+      scrollTop: 0,
+      resizeTimer: null,
+    };
+
+    const shell = document.querySelector(".board-shell");
+    const scrollEl = document.getElementById("board-scroll");
+    const svg = document.getElementById("heatmap");
+    const titleEl = document.getElementById("board-title");
+    const metaEl = document.getElementById("board-meta");
+
+    function postStreamlitMessage(type, payload = {}) {
+      window.parent.postMessage({ isStreamlitMessage: true, type, ...payload }, "*");
+    }
+
+    function setFrameHeight(height) {
+      postStreamlitMessage("streamlit:setFrameHeight", { height });
+    }
+
+    function setComponentValue(value) {
+      postStreamlitMessage("streamlit:setComponentValue", {
+        value,
+        dataType: "json",
+      });
+    }
+
+    function text(value, fallback = "-") {
+      const normalized = String(value ?? "").trim();
+      return normalized && normalized.toLowerCase() !== "nan" ? normalized : fallback;
+    }
+
+    function number(value, fallback = 0) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    }
+
+    function truncate(value, maxChars) {
+      const source = text(value, "");
+      if (!source || source.length <= maxChars) return source;
+      return `${source.slice(0, Math.max(1, maxChars - 1))}…`;
+    }
+
+    function lerp(start, end, amount) {
+      const t = Math.max(0, Math.min(1, amount));
+      return Math.round(start + (end - start) * t);
+    }
+
+    function pctColor(value) {
+      const pct = number(value);
+      const strength = Math.min(Math.abs(pct) / 10, 1);
+      const base = [70, 80, 95];
+      const target = pct > 0 ? [207, 57, 72] : pct < 0 ? [31, 164, 99] : base;
+      const amount = 0.28 + strength * 0.72;
+      return `rgb(${lerp(base[0], target[0], amount)},${lerp(base[1], target[1], amount)},${lerp(base[2], target[2], amount)})`;
+    }
+
+    function normalizeItems(items, area) {
+      const valid = items
+        .map((item) => ({ item, value: Math.max(number(item.tile_value), 0.03) }))
+        .filter((entry) => entry.value > 0)
+        .sort((a, b) => b.value - a.value);
+      const total = valid.reduce((sum, entry) => sum + entry.value, 0);
+      const scale = total > 0 ? area / total : 0;
+      return valid.map((entry) => ({ ...entry, area: entry.value * scale }));
+    }
+
+    function worst(row, side) {
+      if (!row.length || side <= 0) return Infinity;
+      const areas = row.map((entry) => entry.area);
+      const sum = areas.reduce((acc, value) => acc + value, 0);
+      const maxArea = Math.max(...areas);
+      const minArea = Math.min(...areas);
+      const sideSquared = side * side;
+      return Math.max((sideSquared * maxArea) / (sum * sum), (sum * sum) / (sideSquared * minArea));
+    }
+
+    function layoutRow(row, rect) {
+      const laidOut = [];
+      const sum = row.reduce((acc, entry) => acc + entry.area, 0);
+      if (rect.w < rect.h) {
+        const rowHeight = Math.max(1, sum / rect.w);
+        let x = rect.x;
+        row.forEach((entry, index) => {
+          const width = index === row.length - 1 ? rect.x + rect.w - x : entry.area / rowHeight;
+          laidOut.push({ item: entry.item, x, y: rect.y, w: Math.max(0, width), h: rowHeight });
+          x += width;
+        });
+        return {
+          rects: laidOut,
+          remaining: { x: rect.x, y: rect.y + rowHeight, w: rect.w, h: Math.max(0, rect.h - rowHeight) },
+        };
+      }
+
+      const columnWidth = Math.max(1, sum / rect.h);
+      let y = rect.y;
+      row.forEach((entry, index) => {
+        const height = index === row.length - 1 ? rect.y + rect.h - y : entry.area / columnWidth;
+        laidOut.push({ item: entry.item, x: rect.x, y, w: columnWidth, h: Math.max(0, height) });
+        y += height;
+      });
+      return {
+        rects: laidOut,
+        remaining: { x: rect.x + columnWidth, y: rect.y, w: Math.max(0, rect.w - columnWidth), h: rect.h },
+      };
+    }
+
+    function squarify(items, rect) {
+      const entries = normalizeItems(items, rect.w * rect.h);
+      const result = [];
+      let remaining = { ...rect };
+      let row = [];
+
+      while (entries.length) {
+        const next = entries[0];
+        const side = Math.min(remaining.w, remaining.h);
+        if (!row.length || worst([...row, next], side) <= worst(row, side)) {
+          row.push(next);
+          entries.shift();
+        } else {
+          const laidOut = layoutRow(row, remaining);
+          result.push(...laidOut.rects);
+          remaining = laidOut.remaining;
+          row = [];
+        }
+      }
+
+      if (row.length) {
+        result.push(...layoutRow(row, remaining).rects);
+      }
+      return result;
+    }
+
+    function createSvgElement(tag, attributes = {}) {
+      const node = document.createElementNS(SVG_NS, tag);
+      Object.entries(attributes).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) node.setAttribute(key, String(value));
+      });
+      return node;
+    }
+
+    function appendText(parent, value, x, y, options = {}) {
+      const label = text(value, "");
+      if (!label) return null;
+      const node = createSvgElement("text", {
+        x,
+        y,
+        "font-size": options.size || 12,
+        class: options.className || "",
+      });
+      node.textContent = truncate(label, options.maxChars || 12);
+      parent.appendChild(node);
+      return node;
+    }
+
+    function stockLines(stock, width, height) {
+      const fontSize = width > 180 && height > 92 ? 22 : width > 112 && height > 62 ? 17 : 13;
+      const maxChars = Math.max(2, Math.floor((width - 14) / (fontSize * 0.56)));
+      const lines = [{ value: stock.name || stock.ts_code, className: "stock-label", size: fontSize, maxChars }];
+      if (width >= 54 && height >= 38) {
+        lines.push({ value: stock.pct_label, className: "stock-sub", size: Math.max(12, fontSize - 2), maxChars });
+      }
+      if (width >= 72 && height >= 58) {
+        lines.push({ value: stock.net_label, className: "stock-sub", size: Math.max(12, fontSize - 2), maxChars });
+      }
+      return lines;
+    }
+
+    function drawStock(parent, stock, rect) {
+      if (rect.w < 8 || rect.h < 8) return;
+      const tsCode = text(stock.ts_code, "").toUpperCase();
+      const group = createSvgElement("g", {
+        class: `stock-tile${tsCode && tsCode === state.selectedTsCode ? " is-selected" : ""}`,
+        "data-ts-code": tsCode,
+        "data-testid": `lhb-stock-${tsCode}`,
+        tabindex: "0",
+        role: "button",
+        "aria-label": `${text(stock.name, tsCode)} ${tsCode}`,
+      });
+      const rectNode = createSvgElement("rect", {
+        class: "stock-rect",
+        x: rect.x.toFixed(1),
+        y: rect.y.toFixed(1),
+        width: rect.w.toFixed(1),
+        height: rect.h.toFixed(1),
+        rx: Math.min(5, Math.max(1.5, Math.min(rect.w, rect.h) / 18)).toFixed(1),
+        fill: pctColor(stock.pct_change),
+      });
+      const title = createSvgElement("title");
+      title.textContent = `${text(stock.name, tsCode)}（${tsCode}） | ${text(stock.pct_label, "")} | ${text(stock.net_label, "")} | ${text(stock.reason, "")}`;
+      group.appendChild(title);
+      group.appendChild(rectNode);
+
+      const lines = stockLines(stock, rect.w, rect.h);
+      let y = rect.y + Math.min(30, Math.max(15, rect.h * 0.24));
+      lines.forEach((line, index) => {
+        if (rect.h < 24 && index > 0) return;
+        appendText(group, line.value, rect.x + 8, y, line);
+        y += line.size + 4;
+      });
+
+      group.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!tsCode || state.dragMoved) return;
+        state.selectedTsCode = tsCode;
+        markSelected(tsCode);
+        setComponentValue(tsCode);
+      });
+      group.addEventListener("keydown", (event) => {
+        if ((event.key === "Enter" || event.key === " ") && tsCode) {
+          event.preventDefault();
+          state.selectedTsCode = tsCode;
+          markSelected(tsCode);
+          setComponentValue(tsCode);
+        }
+      });
+      parent.appendChild(group);
+    }
+
+    function markSelected(tsCode) {
+      svg.querySelectorAll(".stock-tile").forEach((node) => {
+        node.classList.toggle("is-selected", node.getAttribute("data-ts-code") === tsCode);
+      });
+    }
+
+    function drawSector(sector, rect) {
+      if (rect.w < 20 || rect.h < 20) return;
+      const group = createSvgElement("g", {
+        class: "sector",
+        "data-sector": text(sector.sector, "未归类板块"),
+      });
+      group.appendChild(createSvgElement("rect", {
+        class: "sector-frame",
+        x: rect.x.toFixed(1),
+        y: rect.y.toFixed(1),
+        width: rect.w.toFixed(1),
+        height: rect.h.toFixed(1),
+        rx: "5",
+      }));
+
+      const labelSize = rect.w > 180 && rect.h > 90 ? 18 : 14;
+      appendText(group, sector.sector || "未归类板块", rect.x + 8, rect.y + 20, {
+        className: "sector-label",
+        size: labelSize,
+        maxChars: Math.max(2, Math.floor((rect.w - 18) / (labelSize * 0.62))),
+      });
+
+      const stockRect = {
+        x: rect.x + 6,
+        y: rect.y + 30,
+        w: Math.max(0, rect.w - 12),
+        h: Math.max(0, rect.h - 36),
+      };
+      squarify(Array.isArray(sector.stocks) ? sector.stocks : [], stockRect).forEach((stockRectItem) => {
+        drawStock(group, stockRectItem.item, {
+          x: stockRectItem.x + 1.5,
+          y: stockRectItem.y + 1.5,
+          w: Math.max(0, stockRectItem.w - 3),
+          h: Math.max(0, stockRectItem.h - 3),
+        });
+      });
+      svg.appendChild(group);
+    }
+
+    function boardDimensions(model, requestedHeight) {
+      const sectorCount = number(model.sector_count, Array.isArray(model.sectors) ? model.sectors.length : 0);
+      const stockCount = number(model.stock_count, 0);
+      const viewportWidth = Math.max(720, window.innerWidth || 1200);
+      const widthByStocks = stockCount > 0 ? stockCount * 38 + sectorCount * 72 : 1280;
+      const boardWidth = Math.max(viewportWidth - 2, 1360, Math.min(2800, widthByStocks));
+      const boardHeight = Math.max(660, requestedHeight - 56, Math.min(1220, Math.round(boardWidth * 0.56)));
+      return { width: boardWidth, height: boardHeight };
+    }
+
+    function renderBoard() {
+      const args = state.args || {};
+      const model = args.model || {};
+      const sectors = Array.isArray(model.sectors) ? model.sectors : [];
+      const requestedHeight = Math.max(560, number(args.height, 720));
+      const shellHeight = requestedHeight;
+      shell.style.height = `${shellHeight}px`;
+      scrollEl.style.height = `${Math.max(360, shellHeight - 42)}px`;
+      setFrameHeight(shellHeight);
+
+      state.selectedTsCode = text(args.selectedTsCode, state.selectedTsCode).toUpperCase();
+      titleEl.textContent = `当日龙虎榜 · ${text(model.trade_date_label, "-")}`;
+      metaEl.textContent = `${number(model.stock_count, 0)}只股票 / ${number(model.record_count, 0)}条记录`;
+
+      svg.replaceChildren();
+      if (!sectors.length) {
+        scrollEl.innerHTML = '<div class="empty-state">当前暂无龙虎榜板块数据</div>';
+        return;
+      }
+      if (scrollEl.firstElementChild !== svg) {
+        scrollEl.replaceChildren(svg);
+      }
+
+      const { width, height } = boardDimensions(model, requestedHeight);
+      svg.setAttribute("width", width);
+      svg.setAttribute("height", height);
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      squarify(sectors, { x: 8, y: 8, w: width - 16, h: height - 16 }).forEach((sectorRect) => {
+        drawSector(sectorRect.item, sectorRect);
+      });
+      markSelected(state.selectedTsCode);
+    }
+
+    scrollEl.addEventListener("mousedown", (event) => {
+      state.isDragging = true;
+      state.dragMoved = false;
+      state.startX = event.clientX;
+      state.startY = event.clientY;
+      state.scrollLeft = scrollEl.scrollLeft;
+      state.scrollTop = scrollEl.scrollTop;
+    });
+
+    window.addEventListener("mousemove", (event) => {
+      if (!state.isDragging) return;
+      const dx = event.clientX - state.startX;
+      const dy = event.clientY - state.startY;
+      if (Math.abs(dx) + Math.abs(dy) > 5) state.dragMoved = true;
+      scrollEl.scrollLeft = state.scrollLeft - dx;
+      scrollEl.scrollTop = state.scrollTop - dy;
+    });
+
+    window.addEventListener("mouseup", () => {
+      if (!state.isDragging) return;
+      state.isDragging = false;
+      setTimeout(() => {
+        state.dragMoved = false;
+      }, 80);
+    });
+
+    scrollEl.addEventListener("wheel", (event) => {
+      if (event.shiftKey && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+        event.preventDefault();
+        scrollEl.scrollLeft += event.deltaY;
+      }
+    }, { passive: false });
+
+    window.addEventListener("message", (event) => {
+      if (!event.data || event.data.type !== "streamlit:render") return;
+      state.args = event.data.args || {};
+      renderBoard();
+    });
+
+    window.addEventListener("resize", () => {
+      clearTimeout(state.resizeTimer);
+      state.resizeTimer = setTimeout(renderBoard, 120);
+    });
+
+    postStreamlitMessage("streamlit:componentReady", { apiVersion: 1 });
+  </script>
+</body>
+</html>
