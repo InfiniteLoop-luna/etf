@@ -3489,10 +3489,22 @@ def load_lhb_data_cached(
     return live_data
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def load_lhb_industry_map_cached(ts_codes: tuple[str, ...]) -> dict[str, str]:
+    from src.lhb_board import load_lhb_industry_map
+
+    return load_lhb_industry_map(ts_codes)
+
+
 def render_lhb_monitor_tab():
     st.subheader("🐉 龙虎榜")
     st.caption("基于 Tushare 龙虎榜每日明细（top_list）与机构成交明细（top_inst），仅拉取今年以来的数据。")
 
+    from src.lhb_board import (
+        build_lhb_today_board_model,
+        create_lhb_today_treemap_figure,
+        extract_lhb_treemap_stock_code,
+    )
     from src.lhb_monitor import (
         build_lhb_daily_overview,
         build_lhb_reason_summary,
@@ -3607,6 +3619,126 @@ def render_lhb_monitor_tab():
     if top_list_df is None or top_list_df.empty:
         st.warning("当前条件下没有返回龙虎榜每日明细。")
         return
+
+    board_codes = tuple(sorted({str(code).strip().upper() for code in top_list_df.get("ts_code", pd.Series(dtype=str)).dropna() if str(code).strip()}))
+    industry_map = load_lhb_industry_map_cached(board_codes)
+    today_board = build_lhb_today_board_model(top_list_df, inst_df, industry_map=industry_map)
+    if today_board.get("stock_count", 0) > 0:
+        st.markdown("#### 当日龙虎榜板块视图")
+        board_metric_cols = st.columns(5)
+        board_metric_cols[0].metric("当日日期", today_board.get("trade_date_label", "-"))
+        board_metric_cols[1].metric("上榜股票", f"{int(today_board.get('stock_count', 0)):,}")
+        board_metric_cols[2].metric("上榜板块", f"{int(today_board.get('sector_count', 0)):,}")
+        board_metric_cols[3].metric("合计净买(亿)", _format_lhb_yi(today_board.get("combined_net_yi", 0), signed=True))
+        board_metric_cols[4].metric("机构净买(亿)", _format_lhb_yi(today_board.get("inst_net_yi", 0), signed=True))
+
+        board_stock_codes = list(today_board.get("stock_codes", []))
+        selected_board_key = "lhb_today_selected_stock"
+        selected_board_stock = str(st.session_state.get(selected_board_key, "") or "").strip().upper()
+        if selected_board_stock not in board_stock_codes and board_stock_codes:
+            selected_board_stock = board_stock_codes[0]
+            st.session_state[selected_board_key] = selected_board_stock
+
+        board_fig = create_lhb_today_treemap_figure(today_board, selected_ts_code=selected_board_stock)
+        board_event = st.plotly_chart(
+            board_fig,
+            use_container_width=True,
+            key=f"lhb_today_board_chart_{today_board.get('trade_date_label', 'latest')}",
+            on_select="rerun",
+            selection_mode=["points"],
+            config={"displayModeBar": False, "scrollZoom": False},
+        )
+        clicked_stock = extract_lhb_treemap_stock_code(board_event)
+        if clicked_stock and clicked_stock in board_stock_codes:
+            selected_board_stock = clicked_stock
+
+        pill_options = board_stock_codes[:24]
+        if selected_board_stock and selected_board_stock not in pill_options:
+            pill_options = [selected_board_stock] + pill_options[:23]
+        picked_stock = st.pills(
+            "焦点个股",
+            options=pill_options,
+            default=selected_board_stock if selected_board_stock in pill_options else None,
+            format_func=lambda code: f"{stock_name_map.get(code, code)}（{code}）",
+            key="lhb_today_board_pick",
+            selection_mode="single",
+        )
+        if picked_stock:
+            selected_board_stock = picked_stock
+
+        st.session_state[selected_board_key] = selected_board_stock
+        if selected_board_stock in summary_df["ts_code"].tolist():
+            st.session_state["lhb_focus_stock"] = selected_board_stock
+
+        selected_board_meta = {}
+        for sector in today_board.get("sectors", []):
+            for stock in sector.get("stocks", []):
+                if stock.get("ts_code") == selected_board_stock:
+                    selected_board_meta = stock
+                    break
+            if selected_board_meta:
+                break
+
+        if selected_board_stock:
+            board_trade_date = today_board.get("trade_date")
+            top_detail = top_list_df.copy()
+            top_detail["_trade_date_norm"] = pd.to_datetime(top_detail["trade_date"], errors="coerce").dt.normalize()
+            selected_top_detail = top_detail[
+                (top_detail["_trade_date_norm"] == pd.Timestamp(board_trade_date).normalize())
+                & (top_detail["ts_code"].astype(str).str.upper() == selected_board_stock)
+            ].drop(columns=["_trade_date_norm"])
+
+            if inst_df is not None and not inst_df.empty:
+                inst_detail = inst_df.copy()
+                inst_detail["_trade_date_norm"] = pd.to_datetime(inst_detail["trade_date"], errors="coerce").dt.normalize()
+                selected_inst_detail = inst_detail[
+                    (inst_detail["_trade_date_norm"] == pd.Timestamp(board_trade_date).normalize())
+                    & (inst_detail["ts_code"].astype(str).str.upper() == selected_board_stock)
+                ].drop(columns=["_trade_date_norm"])
+            else:
+                selected_inst_detail = pd.DataFrame()
+
+            selected_label = f"{selected_board_meta.get('name') or stock_name_map.get(selected_board_stock, selected_board_stock)}（{selected_board_stock}）"
+            st.markdown(f"##### {selected_label} 当日明细")
+            focus_metric_cols = st.columns(5)
+            focus_metric_cols[0].metric("板块", selected_board_meta.get("sector", "-"))
+            focus_metric_cols[1].metric("涨跌幅", selected_board_meta.get("pct_label", "-"))
+            focus_metric_cols[2].metric("榜单净买", _format_lhb_yi(selected_board_meta.get("net_amount_yi", 0), signed=True))
+            focus_metric_cols[3].metric("机构净买", _format_lhb_yi(selected_board_meta.get("inst_net_yi", 0), signed=True))
+            focus_metric_cols[4].metric("成交占比", f"{float(selected_board_meta.get('amount_rate', 0)):,.2f}%")
+
+            detail_left, detail_right = st.columns([1.08, 0.92])
+            with detail_left:
+                st.dataframe(
+                    build_lhb_top_list_display_df(selected_top_detail),
+                    use_container_width=True,
+                    hide_index=True,
+                    height=220,
+                    column_config={
+                        "股票": st.column_config.LinkColumn(
+                            "股票",
+                            help="点击后跳转到个股/指数查询",
+                            display_text=r".*#(.*)$",
+                        )
+                    },
+                )
+            with detail_right:
+                if selected_inst_detail is not None and not selected_inst_detail.empty:
+                    st.dataframe(
+                        build_lhb_inst_display_df(selected_inst_detail, stock_name_map),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=220,
+                        column_config={
+                            "股票": st.column_config.LinkColumn(
+                                "股票",
+                                help="点击后跳转到个股/指数查询",
+                                display_text=r".*#(.*)$",
+                            )
+                        },
+                    )
+                else:
+                    st.info("当日暂无机构席位明细。")
 
     tab_overview, tab_stock, tab_inst, tab_detail = st.tabs(["📊 总览", "🎯 个股榜", "🏛 机构席位", "🧾 每日明细"])
 
