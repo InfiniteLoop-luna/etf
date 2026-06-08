@@ -3289,6 +3289,248 @@ def build_hotmoney_detail_display_df(detail_df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_single_stock_hotmoney_model_cached(
+    start_date: str,
+    end_date: str,
+    stock_query: str,
+    refresh_nonce: int,
+) -> dict:
+    from src.hotmoney_stock_tracker import load_single_stock_hotmoney_model
+    from src.moneyflow_fetcher import _get_engine_cached
+
+    engine = _get_engine_cached()
+    return load_single_stock_hotmoney_model(
+        start_date=start_date,
+        end_date=end_date,
+        stock_query=stock_query,
+        engine=engine,
+    )
+
+
+def _hotmoney_tracker_confidence_text(confidence_label: str) -> str:
+    mapping = {
+        "direct+seat": "游资明细 + 龙虎榜席位",
+        "direct": "游资明细",
+        "seat": "龙虎榜席位",
+        "no_data": "暂无证据",
+    }
+    return mapping.get(str(confidence_label or ""), str(confidence_label or "-"))
+
+
+def _hotmoney_tracker_actor_display_df(actor_summary: pd.DataFrame) -> pd.DataFrame:
+    if actor_summary is None or actor_summary.empty:
+        return pd.DataFrame(columns=["参与方", "证据类型", "置信度", "出现次数", "交易日数", "关联席位数", "净买卖(亿)", "博弈强度(亿)", "最近日期", "证据摘要"])
+
+    out = actor_summary.copy()
+    out["证据类型"] = out["evidence_type"].map({"direct_hotmoney": "游资明细", "lhb_seat": "龙虎榜席位"}).fillna(out["evidence_type"])
+    out["置信度"] = out["confidence"].map({"direct": "直接", "seat_evidence": "席位证据"}).fillna(out["confidence"])
+    out["最近日期"] = pd.to_datetime(out["latest_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out = out[["actor_name", "证据类型", "置信度", "hit_count", "trade_days", "seat_count", "net_amount_yi", "abs_net_amount_yi", "最近日期", "reasons"]].copy()
+    out.columns = ["参与方", "证据类型", "置信度", "出现次数", "交易日数", "关联席位数", "净买卖(亿)", "博弈强度(亿)", "最近日期", "证据摘要"]
+    out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda value: _format_hotmoney_yi(value, signed=True))
+    out["博弈强度(亿)"] = out["博弈强度(亿)"].map(_format_hotmoney_yi)
+    return out
+
+
+def _hotmoney_tracker_evidence_display_df(evidence_detail: pd.DataFrame) -> pd.DataFrame:
+    if evidence_detail is None or evidence_detail.empty:
+        return pd.DataFrame(columns=["日期", "来源", "证据类型", "参与方/席位", "关联席位", "买入(亿)", "卖出(亿)", "净买卖(亿)", "原因/标签"])
+
+    out = evidence_detail.copy()
+    out["日期"] = pd.to_datetime(out["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out["来源"] = out["source"].map({"hm_detail": "游资明细", "lhb_top_inst": "龙虎榜席位"}).fillna(out["source"])
+    out["证据类型"] = out["evidence_type"].map({"direct_hotmoney": "直接游资", "lhb_seat": "席位证据"}).fillna(out["evidence_type"])
+    out = out[["日期", "来源", "证据类型", "actor_name", "seat_name", "buy_amount_yi", "sell_amount_yi", "net_amount_yi", "reason"]].copy()
+    out.columns = ["日期", "来源", "证据类型", "参与方/席位", "关联席位", "买入(亿)", "卖出(亿)", "净买卖(亿)", "原因/标签"]
+    for col in ["买入(亿)", "卖出(亿)"]:
+        out[col] = out[col].map(_format_hotmoney_yi)
+    out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda value: _format_hotmoney_yi(value, signed=True))
+    return out
+
+
+def _hotmoney_tracker_daily_display_df(daily_summary: pd.DataFrame) -> pd.DataFrame:
+    if daily_summary is None or daily_summary.empty:
+        return pd.DataFrame(columns=["日期", "记录数", "直接游资数", "席位数", "净买卖(亿)", "博弈强度(亿)"])
+
+    out = daily_summary.copy()
+    out["日期"] = pd.to_datetime(out["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out = out[["日期", "hit_count", "direct_actor_count", "lhb_seat_count", "net_amount_yi", "abs_net_amount_yi"]].copy()
+    out.columns = ["日期", "记录数", "直接游资数", "席位数", "净买卖(亿)", "博弈强度(亿)"]
+    out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda value: _format_hotmoney_yi(value, signed=True))
+    out["博弈强度(亿)"] = out["博弈强度(亿)"].map(_format_hotmoney_yi)
+    return out.sort_values("日期", ascending=False)
+
+
+def _hotmoney_tracker_lhb_reason_display_df(reason_summary: pd.DataFrame) -> pd.DataFrame:
+    if reason_summary is None or reason_summary.empty:
+        return pd.DataFrame(columns=["日期", "上榜原因数", "龙虎榜净额(亿)", "龙虎榜成交(亿)", "原因"])
+
+    out = reason_summary.copy()
+    out["日期"] = pd.to_datetime(out["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out = out[["日期", "reason_count", "net_amount_yi", "lhb_amount_yi", "reasons"]].copy()
+    out.columns = ["日期", "上榜原因数", "龙虎榜净额(亿)", "龙虎榜成交(亿)", "原因"]
+    out["龙虎榜净额(亿)"] = out["龙虎榜净额(亿)"].map(lambda value: _format_hotmoney_yi(value, signed=True))
+    out["龙虎榜成交(亿)"] = out["龙虎榜成交(亿)"].map(_format_hotmoney_yi)
+    return out
+
+
+def render_single_stock_hotmoney_tracker(latest_dt):
+    tracker_end_default = latest_dt or datetime.today().date()
+    tracker_start_default = tracker_end_default - timedelta(days=31)
+
+    st.markdown(
+        """
+        <div class="ws-hotmoney-section">
+          <div class="ws-hotmoney-kicker">单股追踪</div>
+          <div class="ws-hotmoney-note">输入股票后，按“直接游资明细”和“龙虎榜席位证据”两层口径拆解近一个月操作过程。</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("#### 单股游资操作追踪")
+
+    ctl1, ctl2, ctl3, ctl4 = st.columns([1.15, 0.95, 0.95, 0.65])
+    with ctl1:
+        stock_query = st.text_input("股票代码/名称", value="", placeholder="000001.SZ / 000001 / 股票简称", key="hm_single_stock_query")
+    with ctl2:
+        tracker_start_dt = st.date_input(
+            "开始日期",
+            value=tracker_start_default,
+            max_value=tracker_end_default,
+            key="hm_single_stock_start",
+        )
+    with ctl3:
+        tracker_end_dt = st.date_input(
+            "结束日期",
+            value=tracker_end_default,
+            max_value=tracker_end_default,
+            key="hm_single_stock_end",
+        )
+    with ctl4:
+        st.caption("操作")
+        analyze_clicked = st.button("分析/刷新", type="primary", key="hm_single_stock_analyze", use_container_width=True)
+
+    if analyze_clicked:
+        st.session_state["hm_single_stock_refresh_nonce"] = int(st.session_state.get("hm_single_stock_refresh_nonce", 0)) + 1
+
+    if tracker_start_dt > tracker_end_dt:
+        st.warning("开始日期不能晚于结束日期。")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    if not str(stock_query or "").strip():
+        st.info("输入一只股票后，这里会展示游资排名、每日净买卖、龙虎榜上榜原因和原始证据表。")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    start_key = pd.to_datetime(tracker_start_dt).strftime("%Y%m%d")
+    end_key = pd.to_datetime(tracker_end_dt).strftime("%Y%m%d")
+    refresh_nonce = int(st.session_state.get("hm_single_stock_refresh_nonce", 0))
+
+    try:
+        with st.spinner("正在汇总单股游资与龙虎榜证据..."):
+            model = load_single_stock_hotmoney_model_cached(start_key, end_key, stock_query, refresh_nonce)
+    except Exception as exc:
+        st.error(f"单股游资追踪查询失败：{exc}")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    evidence_detail = model.get("evidence_detail", pd.DataFrame())
+    actor_summary = model.get("actor_summary", pd.DataFrame())
+    daily_summary = model.get("daily_summary", pd.DataFrame())
+    reason_summary = model.get("lhb_reason_summary", pd.DataFrame())
+
+    if (evidence_detail is None or evidence_detail.empty) and (reason_summary is None or reason_summary.empty):
+        st.info("当前区间没有查到该股票的游资明细或龙虎榜席位证据。")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    title_name = str(model.get("stock_name") or stock_query)
+    title_code = str(model.get("stock_code") or "")
+    st.caption(
+        f"分析对象：{title_name}{f'（{title_code}）' if title_code else ''}；"
+        f"证据区间：{model.get('date_label', '-')}；"
+        f"口径：{_hotmoney_tracker_confidence_text(model.get('confidence_label', ''))}"
+    )
+
+    metric_cols = st.columns(5)
+    metric_cols[0].metric("直接游资数", f"{int(model.get('direct_hotmoney_count') or 0):,}")
+    metric_cols[1].metric("龙虎榜席位数", f"{int(model.get('lhb_seat_count') or 0):,}")
+    metric_cols[2].metric("游资明细净额(亿)", _format_hotmoney_yi(model.get("direct_net_yi"), signed=True))
+    metric_cols[3].metric("席位证据净额(亿)", _format_hotmoney_yi(model.get("lhb_seat_net_yi"), signed=True))
+    metric_cols[4].metric("合计净额(亿)", _format_hotmoney_yi(model.get("total_net_yi"), signed=True))
+
+    if actor_summary is not None and not actor_summary.empty:
+        plot_actor = actor_summary.head(14).copy()
+        plot_actor["plot_label"] = plot_actor["actor_name"] + " · " + plot_actor["evidence_type"].map({"direct_hotmoney": "直接", "lhb_seat": "席位"}).fillna("")
+        plot_actor = plot_actor.sort_values("abs_net_amount_yi", ascending=True)
+        fig_actor = go.Figure(go.Bar(
+            x=plot_actor["net_amount_yi"],
+            y=plot_actor["plot_label"],
+            orientation="h",
+            marker_color=[THEME_UP if value >= 0 else THEME_DOWN for value in plot_actor["net_amount_yi"]],
+            text=plot_actor["net_amount_yi"].map(lambda value: _format_hotmoney_yi(value, signed=True)),
+            textposition="outside",
+            hovertemplate="%{y}<br>净买卖：%{x:+.2f} 亿<extra></extra>",
+        ))
+        fig_actor.add_vline(x=0, line_width=1, line_dash="dash", line_color=THEME_NEUTRAL)
+        fig_actor.update_layout(
+            title=dict(text="参与游资/席位净买卖排行", x=0.02, font=dict(size=16, color=THEME_TEXT)),
+            template="wealthspark_balanced",
+            paper_bgcolor=CHART_PAPER_BG,
+            plot_bgcolor=CHART_BG,
+            font=dict(family="Inter, PingFang SC, sans-serif"),
+            height=max(330, len(plot_actor) * 28),
+            margin=dict(l=145, r=55, t=55, b=30),
+            xaxis_title="净买卖(亿)",
+            yaxis_title="",
+        )
+        st.plotly_chart(fig_actor, use_container_width=True)
+
+    if daily_summary is not None and not daily_summary.empty:
+        daily_plot = daily_summary.copy().sort_values("trade_date")
+        daily_plot["date_label"] = pd.to_datetime(daily_plot["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        fig_daily = go.Figure(go.Bar(
+            x=daily_plot["date_label"],
+            y=daily_plot["net_amount_yi"],
+            marker_color=[THEME_UP if value >= 0 else THEME_DOWN for value in daily_plot["net_amount_yi"]],
+            text=daily_plot["net_amount_yi"].map(lambda value: _format_hotmoney_yi(value, signed=True)),
+            textposition="outside",
+            hovertemplate="日期：%{x}<br>净买卖：%{y:+.2f} 亿<extra></extra>",
+        ))
+        fig_daily.add_hline(y=0, line_width=1, line_dash="dash", line_color=THEME_NEUTRAL)
+        fig_daily.update_layout(
+            title=dict(text="每日证据净买卖时间线", x=0.02, font=dict(size=16, color=THEME_TEXT)),
+            template="wealthspark_balanced",
+            paper_bgcolor=CHART_PAPER_BG,
+            plot_bgcolor=CHART_BG,
+            font=dict(family="Inter, PingFang SC, sans-serif"),
+            height=320,
+            margin=dict(l=45, r=35, t=55, b=45),
+            xaxis_title="",
+            yaxis_title="净买卖(亿)",
+        )
+        st.plotly_chart(fig_daily, use_container_width=True)
+
+    table_left, table_right = st.columns([1.15, 1])
+    with table_left:
+        st.markdown("##### 参与方汇总")
+        st.dataframe(_hotmoney_tracker_actor_display_df(actor_summary), use_container_width=True, hide_index=True, height=320)
+    with table_right:
+        st.markdown("##### 每日摘要")
+        st.dataframe(_hotmoney_tracker_daily_display_df(daily_summary), use_container_width=True, hide_index=True, height=320)
+
+    if reason_summary is not None and not reason_summary.empty:
+        st.markdown("##### 龙虎榜上榜原因")
+        st.dataframe(_hotmoney_tracker_lhb_reason_display_df(reason_summary), use_container_width=True, hide_index=True, height=220)
+
+    with st.expander("原始证据明细", expanded=False):
+        st.caption("游资明细是直接口径；龙虎榜席位只代表公开席位证据，映射游资时应标为疑似。")
+        st.dataframe(_hotmoney_tracker_evidence_display_df(evidence_detail), use_container_width=True, hide_index=True, height=420)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 def _format_lhb_yi(value, signed: bool = False) -> str:
     if value is None or pd.isna(value):
         return "-"
@@ -6885,6 +7127,8 @@ def render_hotmoney_tab():
     meta_cols[1].metric("游资明细行数", f"{int(sync_meta.get('hm_detail_count') or 0):,}")
     meta_cols[2].metric("最新明细交易日", latest_trade_label)
     meta_cols[3].metric("最近同步时间", latest_sync_label)
+
+    render_single_stock_hotmoney_tracker(latest_dt)
 
     if (
         st.session_state.get("hm_detail_window") == "最近5日"
