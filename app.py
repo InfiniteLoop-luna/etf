@@ -3375,15 +3375,40 @@ def _hotmoney_tracker_lhb_reason_display_df(reason_summary: pd.DataFrame) -> pd.
     return out
 
 
+def _hotmoney_tracker_process_display_df(process_summary: pd.DataFrame) -> pd.DataFrame:
+    if process_summary is None or process_summary.empty:
+        return pd.DataFrame(columns=["日期", "净买卖(亿)", "累计净买卖(亿)", "主买", "主卖", "新出现", "活跃参与方"])
+
+    out = process_summary.copy()
+    out["日期"] = pd.to_datetime(out["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    out["主买"] = out.apply(lambda row: "-" if row["leading_buy_actor"] == "-" else f"{row['leading_buy_actor']} {_format_hotmoney_yi(row['leading_buy_yi'], signed=True)}", axis=1)
+    out["主卖"] = out.apply(lambda row: "-" if row["leading_sell_actor"] == "-" else f"{row['leading_sell_actor']} {_format_hotmoney_yi(row['leading_sell_yi'], signed=True)}", axis=1)
+    out = out[["日期", "net_amount_yi", "cumulative_net_yi", "主买", "主卖", "new_actors", "active_actors"]].copy()
+    out.columns = ["日期", "净买卖(亿)", "累计净买卖(亿)", "主买", "主卖", "新出现", "活跃参与方"]
+    out["净买卖(亿)"] = out["净买卖(亿)"].map(lambda value: _format_hotmoney_yi(value, signed=True))
+    out["累计净买卖(亿)"] = out["累计净买卖(亿)"].map(lambda value: _format_hotmoney_yi(value, signed=True))
+    return out.sort_values("日期")
+
+
 def render_single_stock_hotmoney_tracker(latest_dt):
-    tracker_end_default = latest_dt or datetime.today().date()
-    tracker_start_default = tracker_end_default - timedelta(days=31)
+    from src.hotmoney_stock_tracker import resolve_tracker_default_window
+
+    tracker_start_default, tracker_end_default = resolve_tracker_default_window(latest_dt or datetime.today().date())
+    legacy_start_default = tracker_end_default - timedelta(days=31)
+    if st.session_state.get("hm_single_stock_window_version") != "2m":
+        current_start = st.session_state.get("hm_single_stock_start")
+        if current_start is None or pd.to_datetime(current_start).date() == legacy_start_default:
+            st.session_state["hm_single_stock_start"] = tracker_start_default
+        current_end = st.session_state.get("hm_single_stock_end")
+        if current_end is None or pd.to_datetime(current_end).date() == tracker_end_default:
+            st.session_state["hm_single_stock_end"] = tracker_end_default
+        st.session_state["hm_single_stock_window_version"] = "2m"
 
     st.markdown(
         """
         <div class="ws-hotmoney-section">
           <div class="ws-hotmoney-kicker">单股追踪</div>
-          <div class="ws-hotmoney-note">输入股票后，按“直接游资明细”和“龙虎榜席位证据”两层口径拆解近一个月操作过程。</div>
+          <div class="ws-hotmoney-note">输入股票后，按“直接游资明细”和“龙虎榜席位证据”两层口径拆解近2个月操作过程。</div>
         """,
         unsafe_allow_html=True,
     )
@@ -3438,6 +3463,8 @@ def render_single_stock_hotmoney_tracker(latest_dt):
     evidence_detail = model.get("evidence_detail", pd.DataFrame())
     actor_summary = model.get("actor_summary", pd.DataFrame())
     daily_summary = model.get("daily_summary", pd.DataFrame())
+    actor_timeline = model.get("actor_timeline", pd.DataFrame())
+    process_summary = model.get("process_summary", pd.DataFrame())
     reason_summary = model.get("lhb_reason_summary", pd.DataFrame())
 
     if (evidence_detail is None or evidence_detail.empty) and (reason_summary is None or reason_summary.empty):
@@ -3459,6 +3486,163 @@ def render_single_stock_hotmoney_tracker(latest_dt):
     metric_cols[2].metric("游资明细净额(亿)", _format_hotmoney_yi(model.get("direct_net_yi"), signed=True))
     metric_cols[3].metric("席位证据净额(亿)", _format_hotmoney_yi(model.get("lhb_seat_net_yi"), signed=True))
     metric_cols[4].metric("合计净额(亿)", _format_hotmoney_yi(model.get("total_net_yi"), signed=True))
+
+    if process_summary is not None and not process_summary.empty:
+        st.markdown("##### 观测日到最新日的变化过程")
+        process_plot = process_summary.copy().sort_values("trade_date")
+        process_plot["date_label"] = pd.to_datetime(process_plot["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+
+        fig_process = make_subplots(specs=[[{"secondary_y": True}]])
+        fig_process.add_trace(
+            go.Bar(
+                x=process_plot["date_label"],
+                y=process_plot["net_amount_yi"],
+                name="当日净买卖",
+                marker_color=[THEME_UP if value >= 0 else THEME_DOWN for value in process_plot["net_amount_yi"]],
+                text=process_plot["net_amount_yi"].map(lambda value: _format_hotmoney_yi(value, signed=True)),
+                textposition="outside",
+                customdata=np.stack(
+                    [
+                        process_plot["leading_buy_actor"],
+                        process_plot["leading_sell_actor"],
+                        process_plot["new_actors"],
+                    ],
+                    axis=-1,
+                ),
+                hovertemplate=(
+                    "日期：%{x}<br>"
+                    "当日净买卖：%{y:+.2f} 亿<br>"
+                    "主买：%{customdata[0]}<br>"
+                    "主卖：%{customdata[1]}<br>"
+                    "新出现：%{customdata[2]}<extra></extra>"
+                ),
+            ),
+            secondary_y=False,
+        )
+        fig_process.add_trace(
+            go.Scatter(
+                x=process_plot["date_label"],
+                y=process_plot["cumulative_net_yi"],
+                name="累计净买卖",
+                mode="lines+markers+text",
+                line=dict(color=THEME_PRIMARY, width=2.8),
+                marker=dict(size=7, color=THEME_PRIMARY),
+                text=process_plot["cumulative_net_yi"].map(lambda value: _format_hotmoney_yi(value, signed=True)),
+                textposition="top center",
+                hovertemplate="日期：%{x}<br>累计净买卖：%{y:+.2f} 亿<extra></extra>",
+            ),
+            secondary_y=True,
+        )
+        fig_process.add_hline(y=0, line_width=1, line_dash="dash", line_color=THEME_NEUTRAL, secondary_y=False)
+        fig_process.update_layout(
+            title=dict(text="区间资金过程：当日动作与累计方向", x=0.02, font=dict(size=16, color=THEME_TEXT)),
+            template="wealthspark_balanced",
+            paper_bgcolor=CHART_PAPER_BG,
+            plot_bgcolor=CHART_BG,
+            font=dict(family="Inter, PingFang SC, sans-serif"),
+            height=360,
+            margin=dict(l=45, r=45, t=55, b=45),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        fig_process.update_yaxes(title_text="当日净买卖(亿)", secondary_y=False)
+        fig_process.update_yaxes(title_text="累计净买卖(亿)", secondary_y=True)
+        st.plotly_chart(fig_process, use_container_width=True)
+
+    if actor_timeline is not None and not actor_timeline.empty:
+        timeline_rank = (
+            actor_timeline.groupby("actor_label", dropna=False)
+            .agg(
+                total_abs_yi=("abs_net_amount_yi", "sum"),
+                first_date=("first_date", "min"),
+            )
+            .sort_values(["first_date", "total_abs_yi"], ascending=[True, False])
+        )
+        top_actor_labels = timeline_rank.head(12).index.tolist()
+        timeline_show = actor_timeline[actor_timeline["actor_label"].isin(top_actor_labels)].copy()
+        timeline_show["date_label"] = pd.to_datetime(timeline_show["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+
+        process_left, process_right = st.columns([1, 1])
+        with process_left:
+            line_rank = (
+                actor_timeline.groupby("actor_label", dropna=False)["abs_net_amount_yi"]
+                .sum()
+                .sort_values(ascending=False)
+                .head(6)
+                .index
+                .tolist()
+            )
+            fig_actor_flow = go.Figure()
+            for actor_label in line_rank:
+                actor_rows = actor_timeline[actor_timeline["actor_label"] == actor_label].sort_values("trade_date").copy()
+                actor_rows["date_label"] = pd.to_datetime(actor_rows["trade_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+                evidence_type = str(actor_rows["evidence_type"].iloc[0]) if not actor_rows.empty else ""
+                fig_actor_flow.add_trace(
+                    go.Scatter(
+                        x=actor_rows["date_label"],
+                        y=actor_rows["cumulative_net_yi"],
+                        mode="lines+markers",
+                        name=actor_label,
+                        line=dict(width=2.2, dash="solid" if evidence_type == "direct_hotmoney" else "dash"),
+                        hovertemplate="%{fullData.name}<br>日期：%{x}<br>累计净买卖：%{y:+.2f} 亿<extra></extra>",
+                    )
+                )
+            fig_actor_flow.add_hline(y=0, line_width=1, line_dash="dash", line_color=THEME_NEUTRAL)
+            fig_actor_flow.update_layout(
+                title=dict(text="主力参与方累计轨迹", x=0.02, font=dict(size=15, color=THEME_TEXT)),
+                template="wealthspark_balanced",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                height=360,
+                margin=dict(l=45, r=25, t=55, b=45),
+                xaxis_title="",
+                yaxis_title="累计净买卖(亿)",
+                legend=dict(orientation="h", yanchor="bottom", y=-0.28, xanchor="left", x=0),
+            )
+            st.plotly_chart(fig_actor_flow, use_container_width=True)
+
+        with process_right:
+            pivot = (
+                timeline_show.pivot_table(
+                    index="actor_label",
+                    columns="date_label",
+                    values="net_amount_yi",
+                    aggfunc="sum",
+                    fill_value=0.0,
+                )
+                .reindex(top_actor_labels)
+            )
+            heat_text = [
+                [_format_hotmoney_yi(value, signed=True) if abs(float(value)) >= 0.005 else "" for value in row]
+                for row in pivot.to_numpy()
+            ]
+            fig_actor_matrix = go.Figure(go.Heatmap(
+                z=pivot.to_numpy(),
+                x=pivot.columns,
+                y=pivot.index,
+                text=heat_text,
+                texttemplate="%{text}",
+                colorscale=[[0, THEME_DOWN], [0.5, "#F2EFE7"], [1, THEME_UP]],
+                zmid=0,
+                colorbar=dict(title="亿"),
+                hovertemplate="参与方：%{y}<br>日期：%{x}<br>净买卖：%{z:+.2f} 亿<extra></extra>",
+            ))
+            fig_actor_matrix.update_layout(
+                title=dict(text="日期 × 游资动作矩阵", x=0.02, font=dict(size=15, color=THEME_TEXT)),
+                template="wealthspark_balanced",
+                paper_bgcolor=CHART_PAPER_BG,
+                plot_bgcolor=CHART_BG,
+                font=dict(family="Inter, PingFang SC, sans-serif"),
+                height=max(360, len(pivot) * 28),
+                margin=dict(l=150, r=25, t=55, b=55),
+                xaxis_title="",
+                yaxis_title="",
+            )
+            st.plotly_chart(fig_actor_matrix, use_container_width=True)
+
+    if process_summary is not None and not process_summary.empty:
+        st.markdown("##### 阶段摘要")
+        st.dataframe(_hotmoney_tracker_process_display_df(process_summary), use_container_width=True, hide_index=True, height=260)
 
     if actor_summary is not None and not actor_summary.empty:
         plot_actor = actor_summary.head(14).copy()

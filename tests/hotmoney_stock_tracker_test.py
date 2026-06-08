@@ -3,8 +3,10 @@ import unittest
 import pandas as pd
 
 from src.hotmoney_stock_tracker import (
+    DEFAULT_TRACKER_LOOKBACK_DAYS,
     build_single_stock_hotmoney_model,
     normalize_stock_code,
+    resolve_tracker_default_window,
 )
 
 
@@ -16,6 +18,13 @@ class HotmoneyStockTrackerTests(unittest.TestCase):
         self.assertEqual(normalize_stock_code("688981"), "688981.SH")
         self.assertEqual(normalize_stock_code("600519.sh"), "600519.SH")
         self.assertEqual(normalize_stock_code("贵州茅台"), "贵州茅台")
+
+    def test_resolve_tracker_default_window_uses_recent_two_months(self):
+        start_date, end_date = resolve_tracker_default_window("20260605")
+
+        self.assertEqual(DEFAULT_TRACKER_LOOKBACK_DAYS, 62)
+        self.assertEqual(start_date.isoformat(), "2026-04-04")
+        self.assertEqual(end_date.isoformat(), "2026-06-05")
 
     def test_build_single_stock_hotmoney_model_combines_direct_and_lhb_evidence(self):
         hotmoney_detail = pd.DataFrame(
@@ -101,6 +110,24 @@ class HotmoneyStockTrackerTests(unittest.TestCase):
         self.assertEqual(daily.iloc[1]["direct_actor_count"], 1)
         self.assertEqual(daily.iloc[1]["lhb_seat_count"], 1)
         self.assertAlmostEqual(daily.iloc[1]["net_amount_yi"], -0.15)
+
+        timeline = model["actor_timeline"].sort_values(["actor_name", "trade_date"])
+        alpha_timeline = timeline[timeline["actor_name"] == "Alpha Hotmoney"]
+        self.assertEqual(len(alpha_timeline), 1)
+        self.assertAlmostEqual(alpha_timeline.iloc[0]["cumulative_net_yi"], 0.6)
+        self.assertEqual(alpha_timeline.iloc[0]["actor_label"], "Alpha Hotmoney · 直接")
+
+        process = model["process_summary"].sort_values("trade_date")
+        self.assertAlmostEqual(process.iloc[0]["cumulative_net_yi"], 0.6)
+        self.assertEqual(process.iloc[0]["leading_buy_actor"], "Alpha Hotmoney")
+        self.assertEqual(process.iloc[0]["leading_sell_actor"], "-")
+        self.assertEqual(process.iloc[0]["new_actors"], "Alpha Hotmoney")
+
+        self.assertAlmostEqual(process.iloc[1]["net_amount_yi"], -0.15)
+        self.assertAlmostEqual(process.iloc[1]["cumulative_net_yi"], 0.45)
+        self.assertEqual(process.iloc[1]["leading_buy_actor"], "Gamma Seat")
+        self.assertEqual(process.iloc[1]["leading_sell_actor"], "Beta Hotmoney")
+        self.assertEqual(process.iloc[1]["new_actors"], "Beta Hotmoney、Gamma Seat")
 
 
 if __name__ == "__main__":

@@ -3,11 +3,14 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 import pandas as pd
 from sqlalchemy.engine import Engine
 
+
+DEFAULT_TRACKER_LOOKBACK_DAYS = 62
 
 EVIDENCE_COLUMNS = [
     "trade_date",
@@ -24,6 +27,22 @@ EVIDENCE_COLUMNS = [
     "abs_net_amount_yi",
     "reason",
 ]
+
+
+def _parse_date_value(value) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip().replace("-", "")[:8]
+    if len(text) == 8 and text.isdigit():
+        return datetime.strptime(text, "%Y%m%d").date()
+    raise ValueError(f"Unsupported date value: {value!r}")
+
+
+def resolve_tracker_default_window(latest_date) -> tuple[date, date]:
+    end_date = _parse_date_value(latest_date)
+    return end_date - timedelta(days=DEFAULT_TRACKER_LOOKBACK_DAYS), end_date
 
 
 def normalize_stock_code(raw_value: str) -> str:
@@ -227,6 +246,144 @@ def _build_daily_summary(evidence_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("trade_date").reset_index(drop=True)
 
 
+def _actor_label(evidence_type: str) -> str:
+    return "直接" if evidence_type == "direct_hotmoney" else "席位" if evidence_type == "lhb_seat" else "证据"
+
+
+def _build_actor_timeline(evidence_df: pd.DataFrame) -> pd.DataFrame:
+    if evidence_df is None or evidence_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "trade_date",
+                "actor_name",
+                "evidence_type",
+                "confidence",
+                "actor_label",
+                "net_amount_yi",
+                "abs_net_amount_yi",
+                "cumulative_net_yi",
+                "hit_count",
+                "first_date",
+                "latest_date",
+            ]
+        )
+
+    work = evidence_df.copy()
+    timeline = (
+        work.groupby(["actor_name", "evidence_type", "confidence", "trade_date"], dropna=False)
+        .agg(
+            net_amount_yi=("net_amount_yi", "sum"),
+            abs_net_amount_yi=("abs_net_amount_yi", "sum"),
+            hit_count=("actor_name", "size"),
+        )
+        .reset_index()
+        .sort_values(["actor_name", "evidence_type", "trade_date"])
+    )
+    timeline["cumulative_net_yi"] = timeline.groupby(["actor_name", "evidence_type"], dropna=False)["net_amount_yi"].cumsum()
+    first_latest = timeline.groupby(["actor_name", "evidence_type"], dropna=False).agg(
+        first_date=("trade_date", "min"),
+        latest_date=("trade_date", "max"),
+    )
+    timeline = timeline.join(first_latest, on=["actor_name", "evidence_type"])
+    timeline["actor_label"] = timeline.apply(
+        lambda row: f"{row['actor_name']} · {_actor_label(str(row['evidence_type']))}",
+        axis=1,
+    )
+    return timeline[
+        [
+            "trade_date",
+            "actor_name",
+            "evidence_type",
+            "confidence",
+            "actor_label",
+            "net_amount_yi",
+            "abs_net_amount_yi",
+            "cumulative_net_yi",
+            "hit_count",
+            "first_date",
+            "latest_date",
+        ]
+    ].reset_index(drop=True)
+
+
+def _format_actor_amount(actor: str, amount: float) -> str:
+    if not actor or actor == "-":
+        return "-"
+    return f"{actor}({amount:+.2f}亿)"
+
+
+def _build_process_summary(evidence_df: pd.DataFrame) -> pd.DataFrame:
+    if evidence_df is None or evidence_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "trade_date",
+                "hit_count",
+                "direct_actor_count",
+                "lhb_seat_count",
+                "net_amount_yi",
+                "abs_net_amount_yi",
+                "cumulative_net_yi",
+                "leading_buy_actor",
+                "leading_buy_yi",
+                "leading_sell_actor",
+                "leading_sell_yi",
+                "new_actors",
+                "active_actors",
+                "stage_label",
+            ]
+        )
+
+    work = evidence_df.copy()
+    first_dates = work.groupby("actor_name", dropna=False)["trade_date"].min().to_dict()
+    rows = []
+    cumulative = 0.0
+    for trade_date, date_rows in work.sort_values("trade_date").groupby("trade_date", dropna=False):
+        actor_day = (
+            date_rows.groupby("actor_name", dropna=False)
+            .agg(
+                net_amount_yi=("net_amount_yi", "sum"),
+                abs_net_amount_yi=("abs_net_amount_yi", "sum"),
+            )
+            .reset_index()
+        )
+        buy_rows = actor_day[actor_day["net_amount_yi"] > 0].sort_values(["net_amount_yi", "abs_net_amount_yi"], ascending=[False, False])
+        sell_rows = actor_day[actor_day["net_amount_yi"] < 0].sort_values(["net_amount_yi", "abs_net_amount_yi"], ascending=[True, False])
+
+        leading_buy_actor = str(buy_rows.iloc[0]["actor_name"]) if not buy_rows.empty else "-"
+        leading_buy_yi = float(buy_rows.iloc[0]["net_amount_yi"]) if not buy_rows.empty else 0.0
+        leading_sell_actor = str(sell_rows.iloc[0]["actor_name"]) if not sell_rows.empty else "-"
+        leading_sell_yi = float(sell_rows.iloc[0]["net_amount_yi"]) if not sell_rows.empty else 0.0
+
+        day_net = float(date_rows["net_amount_yi"].sum())
+        cumulative += day_net
+        new_actors = [
+            str(actor)
+            for actor in actor_day["actor_name"].tolist()
+            if first_dates.get(actor) == trade_date
+        ]
+        active_actors = actor_day.sort_values("abs_net_amount_yi", ascending=False)["actor_name"].tolist()
+        rows.append(
+            {
+                "trade_date": trade_date,
+                "hit_count": int(len(date_rows)),
+                "direct_actor_count": int(date_rows[date_rows["evidence_type"] == "direct_hotmoney"]["actor_name"].nunique()),
+                "lhb_seat_count": int(date_rows[date_rows["evidence_type"] == "lhb_seat"]["actor_name"].nunique()),
+                "net_amount_yi": day_net,
+                "abs_net_amount_yi": float(date_rows["abs_net_amount_yi"].sum()),
+                "cumulative_net_yi": cumulative,
+                "leading_buy_actor": leading_buy_actor,
+                "leading_buy_yi": leading_buy_yi,
+                "leading_sell_actor": leading_sell_actor,
+                "leading_sell_yi": leading_sell_yi,
+                "new_actors": _compact_unique(new_actors, max_items=5),
+                "active_actors": _compact_unique(active_actors, max_items=5),
+                "stage_label": f"主买 {_format_actor_amount(leading_buy_actor, leading_buy_yi)} / 主卖 {_format_actor_amount(leading_sell_actor, leading_sell_yi)}",
+            }
+        )
+
+    return pd.DataFrame(rows).sort_values("trade_date").reset_index(drop=True)
+
+
 def _build_lhb_reason_summary(lhb_top_list_df: pd.DataFrame | None) -> pd.DataFrame:
     if lhb_top_list_df is None or lhb_top_list_df.empty:
         return pd.DataFrame(columns=["trade_date", "reason_count", "net_amount_yi", "lhb_amount_yi", "reasons"])
@@ -287,6 +444,8 @@ def build_single_stock_hotmoney_model(
         "evidence_detail": evidence_detail,
         "actor_summary": _build_actor_summary(evidence_detail),
         "daily_summary": _build_daily_summary(evidence_detail),
+        "actor_timeline": _build_actor_timeline(evidence_detail),
+        "process_summary": _build_process_summary(evidence_detail),
         "lhb_reason_summary": _build_lhb_reason_summary(lhb_top_list_df),
     }
 
