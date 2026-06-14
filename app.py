@@ -8488,6 +8488,16 @@ def add_company_screener_rows_to_watchlist(
     report_engine=None,
 ) -> dict:
     normalized_username = normalize_username(username)
+    try:
+        logger.info(
+            "add_company_screener_rows_to_watchlist called | raw_user=%s | normalized_user=%s | row_count=%s | codes=%s",
+            username,
+            normalized_username,
+            len(selected_rows or []),
+            [str((row or {}).get("代码") or (row or {}).get("ts_code") or "") for row in (selected_rows or [])[:10]],
+        )
+    except Exception:
+        pass
     if not normalized_username:
         raise ValueError("username 不能为空")
 
@@ -8699,6 +8709,16 @@ def render_company_screener_tab():
         if selected_row_indexes:
             selected_watchlist_rows = action_df.iloc[selected_row_indexes].to_dict(orient="records")
     selected_count = len(selected_watchlist_rows)
+    try:
+        logger.info(
+            "company_screener selection state | user=%s | selected_count=%s | editor_state_keys=%s | selected_codes=%s",
+            current_username,
+            selected_count,
+            list(editor_state.keys()) if isinstance(editor_state, dict) else type(editor_state).__name__ if editor_state is not None else None,
+            [str(row.get("代码") or row.get("ts_code") or "") for row in selected_watchlist_rows[:10]],
+        )
+    except Exception:
+        pass
     can_select_all = bool(action_df[action_df["已在自选"] != "✅ 已在自选"].shape[0])
     action_cols = st.columns([1.2, 1.2, 1.6, 2.2])
     if action_cols[0].button("全选未入自选", key="company_screener_watchlist_select_all", disabled=not can_select_all):
@@ -8710,6 +8730,15 @@ def render_company_screener_tab():
     if current_username:
         if action_cols[2].button("加入选中自选", key="company_screener_watchlist_add_selected", disabled=selected_count == 0):
             try:
+                logger.info(
+                    "company_screener add button clicked | user=%s | selected_count=%s | selected_codes=%s",
+                    current_username,
+                    selected_count,
+                    [str(row.get("代码") or row.get("ts_code") or "") for row in selected_watchlist_rows[:10]],
+                )
+            except Exception:
+                pass
+            try:
                 report_engine = get_security_intraday_engine_cached()
                 summary = add_company_screener_rows_to_watchlist(
                     selected_watchlist_rows,
@@ -8718,8 +8747,13 @@ def render_company_screener_tab():
                     report_engine=report_engine,
                 )
             except Exception as exc:
+                logger.exception("company_screener add selected failed | user=%s", current_username)
                 st.error(f"加入自选失败：{exc}")
             else:
+                try:
+                    logger.info("company_screener add summary | user=%s | summary=%s", current_username, summary)
+                except Exception:
+                    pass
                 message_parts = [f"已加入 {summary['added']} 只"]
                 if summary["skipped_existing"]:
                     message_parts.append(f"跳过已在自选 {summary['skipped_existing']} 只")
