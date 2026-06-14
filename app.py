@@ -8641,6 +8641,29 @@ def render_company_screener_tab():
             watchlist_df = pd.DataFrame()
 
     action_df = build_company_screener_result_action_df(results_df, watchlist_df)
+
+    # --- Apply pending bulk-select / clear actions (set by buttons below) ---
+    pending_screener_action = st.session_state.pop("company_screener_pending_action", None)
+    if pending_screener_action == "select_all":
+        action_df["选择"] = action_df["已在自选"] != "✅ 已在自选"
+    elif pending_screener_action == "clear_all":
+        action_df["选择"] = False
+    else:
+        # Preserve previous checkbox selections across reruns
+        prev_editor_state = st.session_state.get("company_screener_result_editor")
+        if prev_editor_state is not None:
+            try:
+                if isinstance(prev_editor_state, dict) and "edited_rows" in prev_editor_state:
+                    for row_idx_str, changes in prev_editor_state["edited_rows"].items():
+                        row_idx = int(row_idx_str)
+                        if "选择" in changes and 0 <= row_idx < len(action_df):
+                            action_df.at[action_df.index[row_idx], "选择"] = bool(changes["选择"])
+                elif isinstance(prev_editor_state, pd.DataFrame) and "选择" in prev_editor_state.columns:
+                    if len(prev_editor_state) == len(action_df):
+                        action_df["选择"] = prev_editor_state["选择"].values
+            except Exception:
+                pass
+
     st.info("💡 在这张结果表里直接勾选股票，可批量加入自选；点击“查询”即可跳到个股/指数查询。")
     edited_action_df = st.data_editor(
         action_df,
@@ -8667,14 +8690,10 @@ def render_company_screener_tab():
     can_select_all = bool(action_df[action_df["已在自选"] != "✅ 已在自选"].shape[0])
     action_cols = st.columns([1.2, 1.2, 1.6, 2.2])
     if action_cols[0].button("全选未入自选", key="company_screener_watchlist_select_all", disabled=not can_select_all):
-        selectable_df = action_df.copy()
-        selectable_df["选择"] = selectable_df["已在自选"] != "✅ 已在自选"
-        st.session_state["company_screener_result_editor"] = selectable_df
+        st.session_state["company_screener_pending_action"] = "select_all"
         st.rerun()
     if action_cols[1].button("清空勾选", key="company_screener_watchlist_clear_all", disabled=action_df.empty):
-        cleared_df = action_df.copy()
-        cleared_df["选择"] = False
-        st.session_state["company_screener_result_editor"] = cleared_df
+        st.session_state["company_screener_pending_action"] = "clear_all"
         st.rerun()
     if current_username:
         if action_cols[2].button("加入选中自选", key="company_screener_watchlist_add_selected", disabled=selected_count == 0):
