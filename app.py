@@ -8696,6 +8696,7 @@ def render_company_screener_tab():
     )
 
     selected_watchlist_rows = edited_action_df[edited_action_df["选择"]].to_dict(orient="records") if not edited_action_df.empty else []
+    st.session_state["company_screener_selected_rows_cache"] = selected_watchlist_rows
     editor_state = st.session_state.get("company_screener_result_editor")
     if isinstance(editor_state, dict) and "edited_rows" in editor_state and not action_df.empty:
         selected_row_indexes: list[int] = []
@@ -8729,20 +8730,23 @@ def render_company_screener_tab():
         st.session_state["company_screener_pending_action"] = "clear_all"
         st.rerun()
     if current_username:
-        if action_cols[2].button("加入选中自选", key="company_screener_watchlist_add_selected", disabled=selected_count == 0):
+        cached_selected_rows = st.session_state.get("company_screener_selected_rows_cache")
+        effective_selected_rows = cached_selected_rows if isinstance(cached_selected_rows, list) and cached_selected_rows else selected_watchlist_rows
+        effective_selected_count = len(effective_selected_rows)
+        if action_cols[2].button("加入选中自选", key="company_screener_watchlist_add_selected", disabled=effective_selected_count == 0):
             try:
                 logger.info(
                     "company_screener add button clicked | user=%s | selected_count=%s | selected_codes=%s",
                     current_username,
-                    selected_count,
-                    [str(row.get("代码") or row.get("ts_code") or "") for row in selected_watchlist_rows[:10]],
+                    effective_selected_count,
+                    [str(row.get("代码") or row.get("ts_code") or "") for row in effective_selected_rows[:10]],
                 )
             except Exception:
                 pass
             try:
                 report_engine = get_security_intraday_engine_cached()
                 summary = add_company_screener_rows_to_watchlist(
-                    selected_watchlist_rows,
+                    effective_selected_rows,
                     current_username,
                     existing_watchlist_df=watchlist_df,
                     report_engine=report_engine,
@@ -8771,7 +8775,7 @@ def render_company_screener_tab():
                     "message": flash_message,
                 }
                 st.rerun()
-        action_cols[3].caption(f"当前登录用户：{current_username}｜已勾选 {selected_count} 只")
+        action_cols[3].caption(f"当前登录用户：{current_username}｜已勾选 {effective_selected_count} 只")
     else:
         action_cols[2].button("加入选中自选", key="company_screener_watchlist_add_selected_disabled", disabled=True)
         action_cols[3].info("先登录用户名，才能把结果表里的股票加入个人自选。")
