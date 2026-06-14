@@ -8644,39 +8644,7 @@ def render_company_screener_tab():
 
     # --- Apply pending bulk-select / clear actions (set by buttons below) ---
     pending_screener_action = st.session_state.pop("company_screener_pending_action", None)
-    if pending_screener_action == "add_selected" and current_username:
-        pending_rows = st.session_state.pop("company_screener_pending_add_rows", [])
-        if pending_rows:
-            try:
-                report_engine = get_security_intraday_engine_cached()
-                summary = add_company_screener_rows_to_watchlist(
-                    pending_rows,
-                    current_username,
-                    existing_watchlist_df=watchlist_df,
-                    report_engine=report_engine,
-                )
-            except Exception as exc:
-                st.session_state[flash_state_key] = {"level": "error", "message": f"加入自选失败：{exc}"}
-            else:
-                message_parts = [f"已加入 {summary['added']} 只"]
-                if summary["skipped_existing"]:
-                    message_parts.append(f"跳过已在自选 {summary['skipped_existing']} 只")
-                if summary["skipped_invalid"]:
-                    message_parts.append(f"跳过无效 {summary['skipped_invalid']} 只")
-                if summary["failed"]:
-                    message_parts.append(f"失败 {summary['failed']} 只")
-                flash_level = "warning" if summary["failed"] and summary["added"] == 0 else "success"
-                flash_msg = "，".join(message_parts)
-                if summary["failed_items"]:
-                    flash_msg = f"{flash_msg}。失败明细：{chr(0xff1b).join(summary['failed_items'][:3])}"
-                st.session_state[flash_state_key] = {"level": flash_level, "message": flash_msg}
-            # Reload watchlist so the table reflects new additions
-            try:
-                watchlist_df = list_watchlist_items(current_username)
-            except Exception:
-                pass
-            action_df = build_company_screener_result_action_df(results_df, watchlist_df)
-    elif pending_screener_action == "select_all":
+    if pending_screener_action == "select_all":
         action_df["选择"] = action_df["已在自选"] != "✅ 已在自选"
     elif pending_screener_action == "clear_all":
         action_df["选择"] = False
@@ -8729,9 +8697,33 @@ def render_company_screener_tab():
         st.rerun()
     if current_username:
         if action_cols[2].button("加入选中自选", key="company_screener_watchlist_add_selected", disabled=selected_count == 0):
-            st.session_state["company_screener_pending_add_rows"] = selected_watchlist_rows
-            st.session_state["company_screener_pending_action"] = "add_selected"
-            st.rerun()
+            try:
+                report_engine = get_security_intraday_engine_cached()
+                summary = add_company_screener_rows_to_watchlist(
+                    selected_watchlist_rows,
+                    current_username,
+                    existing_watchlist_df=watchlist_df,
+                    report_engine=report_engine,
+                )
+            except Exception as exc:
+                st.error(f"加入自选失败：{exc}")
+            else:
+                message_parts = [f"已加入 {summary['added']} 只"]
+                if summary["skipped_existing"]:
+                    message_parts.append(f"跳过已在自选 {summary['skipped_existing']} 只")
+                if summary["skipped_invalid"]:
+                    message_parts.append(f"跳过无效 {summary['skipped_invalid']} 只")
+                if summary["failed"]:
+                    message_parts.append(f"失败 {summary['failed']} 只")
+                flash_level = "warning" if summary["failed"] and summary["added"] == 0 else "success"
+                flash_message = "，".join(message_parts)
+                if summary["failed_items"]:
+                    flash_message = f"{flash_message}。失败明细：{'；'.join(summary['failed_items'][:3])}"
+                st.session_state[flash_state_key] = {
+                    "level": flash_level,
+                    "message": flash_message,
+                }
+                st.rerun()
         action_cols[3].caption(f"当前登录用户：{current_username}｜已勾选 {selected_count} 只")
     else:
         action_cols[2].button("加入选中自选", key="company_screener_watchlist_add_selected_disabled", disabled=True)
