@@ -8711,10 +8711,11 @@ def render_company_screener_tab():
     selected_count = len(selected_watchlist_rows)
     try:
         logger.info(
-            "company_screener selection state | user=%s | selected_count=%s | editor_state_keys=%s | selected_codes=%s",
+            "company_screener selection state | user=%s | selected_count=%s | editor_state_keys=%s | edited_rows=%s | selected_codes=%s",
             current_username,
             selected_count,
             list(editor_state.keys()) if isinstance(editor_state, dict) else type(editor_state).__name__ if editor_state is not None else None,
+            editor_state.get("edited_rows") if isinstance(editor_state, dict) else None,
             [str(row.get("代码") or row.get("ts_code") or "") for row in selected_watchlist_rows[:10]],
         )
     except Exception:
