@@ -8628,6 +8628,7 @@ def render_company_screener_tab():
                 business_kw=business_kw,
             )
             st.session_state[result_state_key] = df
+            st.session_state.pop("company_screener_action_df_cache", None)
             st.session_state[filter_state_key] = {
                 "industries": selected_industries,
                 "product_kw": product_kw,
@@ -8650,30 +8651,32 @@ def render_company_screener_tab():
             st.warning(f"读取当前自选失败：{exc}")
             watchlist_df = pd.DataFrame()
 
-    action_df = build_company_screener_result_action_df(results_df, watchlist_df)
+    # --- Build or reuse cached action_df to keep data_editor input stable ---
+    action_df_cache_key = "company_screener_action_df_cache"
+    cached_results_len = st.session_state.get("company_screener_cached_results_len", -1)
+    need_rebuild = (
+        action_df_cache_key not in st.session_state
+        or cached_results_len != len(results_df)
+        or st.session_state.pop("company_screener_force_rebuild", False)
+    )
+    if need_rebuild:
+        action_df = build_company_screener_result_action_df(results_df, watchlist_df)
+        st.session_state[action_df_cache_key] = action_df
+        st.session_state["company_screener_cached_results_len"] = len(results_df)
+    else:
+        action_df = st.session_state[action_df_cache_key]
 
     # --- Apply pending bulk-select / clear actions (set by buttons below) ---
     pending_screener_action = st.session_state.pop("company_screener_pending_action", None)
     if pending_screener_action == "select_all":
+        action_df = action_df.copy()
         action_df["选择"] = action_df["已在自选"] != "✅ 已在自选"
+        st.session_state[action_df_cache_key] = action_df
     elif pending_screener_action == "clear_all":
+        action_df = action_df.copy()
         action_df["选择"] = False
-    else:
-        # Preserve previous checkbox selections across reruns
-        prev_editor_state = st.session_state.get("company_screener_result_editor")
-        if prev_editor_state is not None:
-            try:
-                if isinstance(prev_editor_state, dict) and "edited_rows" in prev_editor_state:
-                    for row_idx_str, changes in prev_editor_state["edited_rows"].items():
-                        row_idx = int(row_idx_str)
-                        if "选择" in changes and 0 <= row_idx < len(action_df):
-                            action_df.at[action_df.index[row_idx], "选择"] = bool(changes["选择"])
-                elif isinstance(prev_editor_state, pd.DataFrame) and "选择" in prev_editor_state.columns:
-                    if len(prev_editor_state) == len(action_df):
-                        action_df["选择"] = prev_editor_state["选择"].values
-            except Exception:
-                pass
-
+        st.session_state[action_df_cache_key] = action_df
+    
     st.info("💡 在这张结果表里直接勾选股票，可批量加入自选；点击“查询”即可跳到个股/指数查询。")
     edited_action_df = st.data_editor(
         action_df,
@@ -8694,33 +8697,9 @@ def render_company_screener_tab():
         },
         key="company_screener_result_editor",
     )
-
+    
     selected_watchlist_rows = edited_action_df[edited_action_df["选择"]].to_dict(orient="records") if not edited_action_df.empty else []
-    st.session_state["company_screener_selected_rows_cache"] = selected_watchlist_rows
-    editor_state = st.session_state.get("company_screener_result_editor")
-    if isinstance(editor_state, dict) and "edited_rows" in editor_state and not action_df.empty:
-        selected_row_indexes: list[int] = []
-        for row_idx_raw, changes in editor_state["edited_rows"].items():
-            try:
-                row_idx = int(row_idx_raw)
-            except (TypeError, ValueError):
-                continue
-            if changes.get("选择") is True and 0 <= row_idx < len(action_df):
-                selected_row_indexes.append(row_idx)
-        if selected_row_indexes:
-            selected_watchlist_rows = action_df.iloc[selected_row_indexes].to_dict(orient="records")
     selected_count = len(selected_watchlist_rows)
-    try:
-        logger.info(
-            "company_screener selection state | user=%s | selected_count=%s | editor_state_keys=%s | edited_rows=%s | selected_codes=%s",
-            current_username,
-            selected_count,
-            list(editor_state.keys()) if isinstance(editor_state, dict) else type(editor_state).__name__ if editor_state is not None else None,
-            editor_state.get("edited_rows") if isinstance(editor_state, dict) else None,
-            [str(row.get("代码") or row.get("ts_code") or "") for row in selected_watchlist_rows[:10]],
-        )
-    except Exception:
-        pass
     can_select_all = bool(action_df[action_df["已在自选"] != "✅ 已在自选"].shape[0])
     action_cols = st.columns([1.2, 1.2, 1.6, 2.2])
     if action_cols[0].button("全选未入自选", key="company_screener_watchlist_select_all", disabled=not can_select_all):
@@ -8730,23 +8709,11 @@ def render_company_screener_tab():
         st.session_state["company_screener_pending_action"] = "clear_all"
         st.rerun()
     if current_username:
-        cached_selected_rows = st.session_state.get("company_screener_selected_rows_cache")
-        effective_selected_rows = cached_selected_rows if isinstance(cached_selected_rows, list) and cached_selected_rows else selected_watchlist_rows
-        effective_selected_count = len(effective_selected_rows)
-        if action_cols[2].button("加入选中自选", key="company_screener_watchlist_add_selected", disabled=effective_selected_count == 0):
-            try:
-                logger.info(
-                    "company_screener add button clicked | user=%s | selected_count=%s | selected_codes=%s",
-                    current_username,
-                    effective_selected_count,
-                    [str(row.get("代码") or row.get("ts_code") or "") for row in effective_selected_rows[:10]],
-                )
-            except Exception:
-                pass
+        if action_cols[2].button("加入选中自选", key="company_screener_watchlist_add_selected", disabled=selected_count == 0):
             try:
                 report_engine = get_security_intraday_engine_cached()
                 summary = add_company_screener_rows_to_watchlist(
-                    effective_selected_rows,
+                    selected_watchlist_rows,
                     current_username,
                     existing_watchlist_df=watchlist_df,
                     report_engine=report_engine,
@@ -8755,10 +8722,6 @@ def render_company_screener_tab():
                 logger.exception("company_screener add selected failed | user=%s", current_username)
                 st.error(f"加入自选失败：{exc}")
             else:
-                try:
-                    logger.info("company_screener add summary | user=%s | summary=%s", current_username, summary)
-                except Exception:
-                    pass
                 message_parts = [f"已加入 {summary['added']} 只"]
                 if summary["skipped_existing"]:
                     message_parts.append(f"跳过已在自选 {summary['skipped_existing']} 只")
@@ -8774,8 +8737,9 @@ def render_company_screener_tab():
                     "level": flash_level,
                     "message": flash_message,
                 }
+                st.session_state["company_screener_force_rebuild"] = True
                 st.rerun()
-        action_cols[3].caption(f"当前登录用户：{current_username}｜已勾选 {effective_selected_count} 只")
+        action_cols[3].caption(f"当前登录用户：{current_username}｜已勾选 {selected_count} 只")
     else:
         action_cols[2].button("加入选中自选", key="company_screener_watchlist_add_selected_disabled", disabled=True)
         action_cols[3].info("先登录用户名，才能把结果表里的股票加入个人自选。")
