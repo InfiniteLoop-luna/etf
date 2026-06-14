@@ -8686,6 +8686,18 @@ def render_company_screener_tab():
     )
 
     selected_watchlist_rows = edited_action_df[edited_action_df["选择"]].to_dict(orient="records") if not edited_action_df.empty else []
+    editor_state = st.session_state.get("company_screener_result_editor")
+    if isinstance(editor_state, dict) and "edited_rows" in editor_state and not action_df.empty:
+        selected_row_indexes: list[int] = []
+        for row_idx_raw, changes in editor_state["edited_rows"].items():
+            try:
+                row_idx = int(row_idx_raw)
+            except (TypeError, ValueError):
+                continue
+            if changes.get("选择") is True and 0 <= row_idx < len(action_df):
+                selected_row_indexes.append(row_idx)
+        if selected_row_indexes:
+            selected_watchlist_rows = action_df.iloc[selected_row_indexes].to_dict(orient="records")
     selected_count = len(selected_watchlist_rows)
     can_select_all = bool(action_df[action_df["已在自选"] != "✅ 已在自选"].shape[0])
     action_cols = st.columns([1.2, 1.2, 1.6, 2.2])
