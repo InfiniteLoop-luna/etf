@@ -174,6 +174,7 @@ from src.user_watchlist_store import (
     list_watchlist_items,
     normalize_username,
     remove_watchlist_item,
+    remove_watchlist_items_batch,
 )
 from src.distribution_alert_store import get_latest_alerts_for_stocks
 from src.distribution_report_store import get_daily_report, get_report_status, get_report_statuses
@@ -10901,6 +10902,38 @@ def render_watchlist_cyber_dashboard(
     """
     st.html(board_html)
 
+    # ------ 批量选择模式状态 ------
+    if "watchlist_batch_mode" not in st.session_state:
+        st.session_state["watchlist_batch_mode"] = False
+
+    batch_bar_cols = st.columns([1.2, 1, 1, 1.8])
+    with batch_bar_cols[0]:
+        if st.button(
+            "☑️ 进入批量选择" if not st.session_state["watchlist_batch_mode"] else "✖️ 退出批量选择",
+            key="watchlist_toggle_batch_mode",
+            use_container_width=True,
+        ):
+            st.session_state["watchlist_batch_mode"] = not st.session_state["watchlist_batch_mode"]
+            # 退出时清空选择
+            if not st.session_state["watchlist_batch_mode"]:
+                for item in stock_card_items:
+                    st.session_state.pop(f"watchlist_batch_sel_{item['safe_code']}", None)
+            st.rerun()
+
+    is_batch_mode = st.session_state["watchlist_batch_mode"]
+
+    if is_batch_mode:
+        with batch_bar_cols[1]:
+            if st.button("✅ 全选", key="watchlist_batch_select_all", use_container_width=True):
+                for item in stock_card_items:
+                    st.session_state[f"watchlist_batch_sel_{item['safe_code']}"] = True
+                st.rerun()
+        with batch_bar_cols[2]:
+            if st.button("⬜ 取消全选", key="watchlist_batch_deselect_all", use_container_width=True):
+                for item in stock_card_items:
+                    st.session_state[f"watchlist_batch_sel_{item['safe_code']}"] = False
+                st.rerun()
+
     with st.container(key="watchlist_card_grid"):
         columns_per_row = 6
         for start_idx in range(0, len(stock_card_items), columns_per_row):
@@ -10909,14 +10942,104 @@ def render_watchlist_cyber_dashboard(
                 with cols[offset]:
                     with st.container(key=f"watchlist_card_wrap_{item['safe_code']}"):
                         st.html(item["card_html"])
-                        if st.button(
-                            item["button_label"],
-                            key=f"watchlist_card_btn_{item['safe_code']}",
-                            use_container_width=True,
-                        ):
-                            st.session_state["watchlist_pending_focus_code"] = item["code"]
-                            st.session_state["watchlist_show_focus_detail"] = True
-                            st.rerun()
+                        if is_batch_mode:
+                            st.checkbox(
+                                "选中",
+                                key=f"watchlist_batch_sel_{item['safe_code']}",
+                                value=st.session_state.get(f"watchlist_batch_sel_{item['safe_code']}", False),
+                            )
+                        else:
+                            if st.button(
+                                item["button_label"],
+                                key=f"watchlist_card_btn_{item['safe_code']}",
+                                use_container_width=True,
+                            ):
+                                st.session_state["watchlist_pending_focus_code"] = item["code"]
+                                st.session_state["watchlist_show_focus_detail"] = True
+                                st.rerun()
+
+    # ------ 批量删除操作栏 ------
+    if is_batch_mode:
+        selected_codes = [
+            item["code"]
+            for item in stock_card_items
+            if st.session_state.get(f"watchlist_batch_sel_{item['safe_code']}", False)
+        ]
+        selected_count = len(selected_codes)
+
+        st.markdown(
+            f"**已选中 {selected_count} 只** / 共 {len(stock_card_items)} 只"
+            if selected_count > 0
+            else f"请勾选要删除的自选标的（共 {len(stock_card_items)} 只）",
+        )
+
+        if selected_count > 0:
+            # 查找 security_type 信息
+            code_to_type = dict(zip(
+                display_df["代码"].astype(str).str.strip().str.upper(),
+                display_df["security_type"].astype(str).str.strip().str.lower(),
+            ))
+            items_to_delete = [
+                (code, code_to_type.get(code, "stock"))
+                for code in selected_codes
+            ]
+            selected_names = [
+                str(
+                    display_df.loc[
+                        display_df["代码"].astype(str).str.strip().str.upper() == code, "名称"
+                    ].iloc[0]
+                )
+                if not display_df.loc[
+                    display_df["代码"].astype(str).str.strip().str.upper() == code
+                ].empty
+                else code
+                for code in selected_codes
+            ]
+
+            with batch_bar_cols[3]:
+                if st.button(
+                    f"🗑️ 批量删除 {selected_count} 只",
+                    key="watchlist_batch_delete_btn",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    st.session_state["watchlist_batch_confirm_pending"] = True
+                    st.session_state["watchlist_batch_delete_items"] = items_to_delete
+                    st.session_state["watchlist_batch_delete_names"] = selected_names
+                    st.rerun()
+
+    # ------ 批量删除确认对话框 ------
+    if st.session_state.get("watchlist_batch_confirm_pending"):
+        pending_items = st.session_state.get("watchlist_batch_delete_items", [])
+        pending_names = st.session_state.get("watchlist_batch_delete_names", [])
+        if pending_items:
+            st.warning(
+                f"⚠️ 确认要从自选中删除以下 **{len(pending_items)}** 只标的？\n\n"
+                + "、".join(pending_names[:20])
+                + (f"…等共 {len(pending_names)} 只" if len(pending_names) > 20 else "")
+            )
+            confirm_cols = st.columns([1, 1, 3])
+            with confirm_cols[0]:
+                if st.button("✅ 确认删除", key="watchlist_batch_confirm_yes", type="primary", use_container_width=True):
+                    try:
+                        deleted = remove_watchlist_items_batch(current_username, pending_items)
+                        st.session_state.pop("watchlist_batch_confirm_pending", None)
+                        st.session_state.pop("watchlist_batch_delete_items", None)
+                        st.session_state.pop("watchlist_batch_delete_names", None)
+                        st.session_state["watchlist_batch_mode"] = False
+                        # 清空所有选中状态
+                        for item in stock_card_items:
+                            st.session_state.pop(f"watchlist_batch_sel_{item['safe_code']}", None)
+                        st.success(f"已从自选中删除 {deleted} 只标的")
+                        st.rerun()
+                    except Exception as batch_del_exc:
+                        st.error(f"批量删除失败：{batch_del_exc}")
+            with confirm_cols[1]:
+                if st.button("❌ 取消", key="watchlist_batch_confirm_no", use_container_width=True):
+                    st.session_state.pop("watchlist_batch_confirm_pending", None)
+                    st.session_state.pop("watchlist_batch_delete_items", None)
+                    st.session_state.pop("watchlist_batch_delete_names", None)
+                    st.rerun()
 
 
 def preload_watchlist_reports_bg(username: str, engine) -> None:
@@ -11417,17 +11540,22 @@ def render_user_watchlist_tab() -> None:
             axis=1,
         ).tolist()
         if all_options:
-            selected_label = st.selectbox("移除自选", options=all_options, key="user_watchlist_remove_select")
-            if st.button("删除"):
-                idx = all_options.index(selected_label)
-                selected_row = watchlist_df.iloc[idx]
-                removed_count = remove_watchlist_item(
+            selected_labels = st.multiselect("移除自选（可多选）", options=all_options, key="user_watchlist_remove_multiselect")
+            if st.button("删除选中", disabled=len(selected_labels) == 0):
+                items_to_remove = []
+                for label in selected_labels:
+                    idx = all_options.index(label)
+                    row = watchlist_df.iloc[idx]
+                    items_to_remove.append((
+                        str(row.get("ts_code") or ""),
+                        str(row.get("security_type") or "stock"),
+                    ))
+                removed_count = remove_watchlist_items_batch(
                     current_username,
-                    str(selected_row.get("ts_code") or ""),
-                    str(selected_row.get("security_type") or "stock"),
+                    items_to_remove,
                 )
                 if removed_count > 0:
-                    st.success("已从自选中删除")
+                    st.success(f"已从自选中删除 {removed_count} 只")
                     st.rerun()
                 else:
                     st.warning("未删除任何记录，可能已被移除。")

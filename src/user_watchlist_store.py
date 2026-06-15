@@ -193,3 +193,53 @@ def remove_watchlist_item(
             },
         )
     return int(result.rowcount or 0)
+
+
+def remove_watchlist_items_batch(
+    username: str,
+    items: list[tuple[str, str]],
+    engine: Engine | None = None,
+) -> int:
+    """批量删除自选股票。
+
+    Parameters
+    ----------
+    username : str
+        用户名
+    items : list[tuple[str, str]]
+        每个元素为 ``(ts_code, security_type)``
+    engine : Engine | None
+        数据库引擎，为 ``None`` 时自动创建
+
+    Returns
+    -------
+    int
+        实际删除的行数
+    """
+    normalized_username = normalize_username(username)
+    if not normalized_username or not items:
+        return 0
+
+    actual_engine = engine or get_engine()
+    ensure_user_watchlist_table(actual_engine)
+
+    total_deleted = 0
+    with actual_engine.begin() as conn:
+        for ts_code, security_type in items:
+            normalized_code = str(ts_code or "").strip().upper()
+            normalized_type = str(security_type or DEFAULT_SECURITY_TYPE).strip().lower() or DEFAULT_SECURITY_TYPE
+            if not normalized_code:
+                continue
+            result = conn.execute(
+                text(
+                    f"DELETE FROM {TABLE_NAME} "
+                    "WHERE username = :username AND ts_code = :ts_code AND security_type = :security_type"
+                ),
+                {
+                    "username": normalized_username,
+                    "ts_code": normalized_code,
+                    "security_type": normalized_type,
+                },
+            )
+            total_deleted += int(result.rowcount or 0)
+    return total_deleted
