@@ -997,6 +997,23 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     box-shadow: none !important;
     opacity: 0;
 }
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stCheckbox"] {
+    position: relative;
+    z-index: 6;
+    margin-top: 0.35rem;
+    padding: 0 0.15rem;
+}
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stCheckbox"] label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: #dce8ff;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stCheckbox"] input {
+    accent-color: #4f8cff;
+}
 .ws-watchboard-stock-head,
 .ws-watchboard-stock-price-row,
 .ws-watchboard-stock-foot {
