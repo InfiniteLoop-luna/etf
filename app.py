@@ -1014,6 +1014,9 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stCheckbox"] input {
     accent-color: #4f8cff;
 }
+.st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stCheckbox"] > label {
+    cursor: pointer;
+}
 .ws-watchboard-stock-head,
 .ws-watchboard-stock-price-row,
 .ws-watchboard-stock-foot {
@@ -10960,6 +10963,14 @@ def render_watchlist_cyber_dashboard(
                     with st.container(key=f"watchlist_card_wrap_{item['safe_code']}"):
                         st.html(item["card_html"])
                         if is_batch_mode:
+                            if st.button(
+                                f"toggle_{item['code']}",
+                                key=f"watchlist_card_btn_{item['safe_code']}",
+                                use_container_width=True,
+                            ):
+                                batch_key = f"watchlist_batch_sel_{item['safe_code']}"
+                                st.session_state[batch_key] = not st.session_state.get(batch_key, False)
+                                st.rerun()
                             st.checkbox(
                                 "选中",
                                 key=f"watchlist_batch_sel_{item['safe_code']}",
