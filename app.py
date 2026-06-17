@@ -68,6 +68,7 @@ from src.fund_monitor_store import (
     build_fund_monitor_trend_df,
     build_fund_monitor_upsert_rows,
     classify_fund_monitor_import_rows,
+    delete_fund_monitor_months,
     get_engine as get_fund_monitor_engine,
     load_fund_monitor_df,
     to_fund_monitor_display_df,
@@ -14260,6 +14261,198 @@ def _collect_fund_monitor_batch_rows(editor_df: pd.DataFrame, month_text: str) -
     return _enrich_fund_monitor_rows(payload_rows)
 
 
+def _open_fund_monitor_action_panel(active_key: str) -> None:
+    if active_key == "fund_delete_month_open":
+        st.session_state["fund_delete_month_open_version"] = (
+            int(st.session_state.get("fund_delete_month_open_version", 0)) + 1
+        )
+    for panel_key in (
+        "fund_manual_month_open",
+        "fund_single_edit_open",
+        "fund_import_open",
+        "fund_delete_month_open",
+    ):
+        st.session_state[panel_key] = panel_key == active_key
+
+
+def _close_fund_monitor_action_panels() -> None:
+    for panel_key in (
+        "fund_manual_month_open",
+        "fund_single_edit_open",
+        "fund_import_open",
+        "fund_delete_month_open",
+    ):
+        st.session_state[panel_key] = False
+
+
+def _render_fund_monitor_action_panels(engine, df: pd.DataFrame, month_options: list[str]) -> None:
+    if st.session_state.get("fund_manual_month_open", False):
+        st.markdown("#### 新增 / 编辑整月数据")
+        manual_month = st.text_input("录入月份", value=month_options[0] if month_options else "", key="fund_manual_month_value")
+        editor_seed_df = _build_fund_monitor_batch_editor_df(df, manual_month)
+        editor_df = st.data_editor(
+            editor_seed_df,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="dynamic",
+            key="fund_month_editor",
+        )
+        save_col, cancel_col = st.columns(2)
+        if save_col.button("保存本月基金监测数据", key="fund_month_save"):
+            if not manual_month:
+                st.error("请先填写录入月份")
+            else:
+                rows = _collect_fund_monitor_batch_rows(editor_df, manual_month)
+                if not rows:
+                    st.warning("没有可写入的分类记录。")
+                else:
+                    try:
+                        payload_rows = build_fund_monitor_upsert_rows(rows, source_type="manual", source_file=None)
+                        upsert_fund_monitor_rows(engine, payload_rows)
+                    except Exception as exc:
+                        st.error(f"保存失败: {exc}")
+                    else:
+                        _close_fund_monitor_action_panels()
+                        st.success(f"已写入 {len(payload_rows)} 条基金监测记录")
+                        st.rerun()
+        if cancel_col.button("取消", key="fund_month_cancel"):
+            _close_fund_monitor_action_panels()
+            st.rerun()
+
+    if st.session_state.get("fund_single_edit_open", False):
+        st.markdown("#### 单分类补录 / 修改")
+        if df.empty:
+            st.info("当前暂无历史记录，请先新增月份或导入数据。")
+        else:
+            edit_month = st.selectbox("选择月份", options=month_options, key="fund_edit_month")
+            month_df = df[pd.to_datetime(df["month"]).dt.strftime("%Y-%m") == edit_month].copy()
+            month_names = _sort_fund_categories(month_df["category_name"].dropna().astype(str).unique().tolist())
+            edit_name = st.selectbox("选择分类", options=month_names, key="fund_edit_name")
+            edit_row = month_df[month_df["category_name"] == edit_name].iloc[0].to_dict() if edit_name else {}
+            with st.form("fund_single_edit_form", clear_on_submit=False):
+                edit_values = {}
+                for field, label in FUND_MONITOR_FIELD_LABELS.items():
+                    edit_values[field] = st.number_input(
+                        label,
+                        value=float(edit_row[field]) if edit_row.get(field) is not None and not pd.isna(edit_row.get(field)) else 0.0,
+                        format="%.4f",
+                    )
+                submitted = st.form_submit_button("保存单分类数据")
+                canceled = st.form_submit_button("取消")
+
+            if canceled:
+                _close_fund_monitor_action_panels()
+                st.rerun()
+
+            if submitted:
+                try:
+                    rows = build_fund_monitor_upsert_rows(
+                        _enrich_fund_monitor_rows(
+                            [
+                                {
+                                    "month": edit_month,
+                                    "category_name": edit_name,
+                                    **edit_values,
+                                }
+                            ]
+                        ),
+                        source_type="manual",
+                        source_file=None,
+                    )
+                    upsert_fund_monitor_rows(engine, rows)
+                except Exception as exc:
+                    st.error(f"保存失败: {exc}")
+                else:
+                    _close_fund_monitor_action_panels()
+                    st.success("保存成功")
+                    st.rerun()
+
+    if st.session_state.get("fund_delete_month_open", False):
+        st.markdown("#### 删除整月数据")
+        if df.empty or not month_options:
+            st.info("当前暂无可删除的基金监测月份。")
+        else:
+            delete_month = st.selectbox("选择要删除的月份", options=month_options, key="fund_delete_month")
+            month_record_count = int((pd.to_datetime(df["month"]).dt.strftime("%Y-%m") == delete_month).sum())
+            st.warning(f"将删除 {delete_month} 的全部基金监测数据，共 {month_record_count} 条分类记录。")
+            confirm_key = f"fund_delete_month_confirm_{st.session_state.get('fund_delete_month_open_version', 0)}"
+            delete_confirmed = st.checkbox(
+                f"确认删除 {delete_month} 整月数据",
+                key=confirm_key,
+            )
+            delete_col, cancel_col = st.columns(2)
+            if delete_col.button(
+                "删除整月数据",
+                key="fund_delete_month_submit",
+                type="primary",
+                disabled=not delete_confirmed,
+            ):
+                try:
+                    deleted_count = delete_fund_monitor_months(engine, [delete_month])
+                except Exception as exc:
+                    st.error(f"删除失败: {exc}")
+                else:
+                    _close_fund_monitor_action_panels()
+                    st.success(f"已删除 {delete_month} 的 {deleted_count} 条基金监测记录")
+                    st.rerun()
+            if cancel_col.button("取消", key="fund_delete_month_cancel"):
+                _close_fund_monitor_action_panels()
+                st.rerun()
+
+    if st.session_state.get("fund_import_open", False):
+        st.markdown("#### 批量导入 Excel")
+        upload = st.file_uploader(
+            "上传公募&私募基金 Excel",
+            type=["xlsx"],
+            key="fund_monitor_uploader",
+        )
+        if upload is not None:
+            try:
+                imported_df = parse_fund_monitor_workbook(upload)
+                preview = classify_fund_monitor_import_rows(imported_df, df)
+            except Exception as exc:
+                st.error(f"导入预览失败: {exc}")
+            else:
+                st.radio(
+                    "重复记录处理",
+                    ["跳过已存在记录", "覆盖已存在记录"],
+                    horizontal=True,
+                    key="fund_overwrite_mode",
+                )
+                st.write("新增记录")
+                st.dataframe(
+                    to_fund_monitor_display_df(preview["to_insert"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                st.write("覆盖记录")
+                st.dataframe(
+                    to_fund_monitor_display_df(preview["to_overwrite"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                if st.button("确认写入基金监测数据", key="fund_confirm_import"):
+                    write_df = imported_df.copy()
+                    if st.session_state["fund_overwrite_mode"] == "跳过已存在记录":
+                        write_df = preview["to_insert"].copy()
+                    if write_df.empty:
+                        st.warning("没有需要写入的记录。")
+                    else:
+                        try:
+                            rows = build_fund_monitor_upsert_rows(
+                                _enrich_fund_monitor_rows(write_df.to_dict(orient="records")),
+                                source_type="import",
+                                source_file=getattr(upload, "name", None),
+                            )
+                            upsert_fund_monitor_rows(engine, rows)
+                        except Exception as exc:
+                            st.error(f"导入写入失败: {exc}")
+                        else:
+                            _close_fund_monitor_action_panels()
+                            st.success(f"已写入 {len(rows)} 条基金监测记录")
+                            st.rerun()
+
+
 def render_fund_monitor_tab():
     st.subheader("📈 基金监测")
     st.caption("展示公募、私募与权益理财的月度规模、结构趋势与同比环比变化，支持手工录入与 Excel 批量导入。")
@@ -14268,6 +14461,8 @@ def render_fund_monitor_tab():
         ("fund_manual_month_open", False),
         ("fund_single_edit_open", False),
         ("fund_import_open", False),
+        ("fund_delete_month_open", False),
+        ("fund_delete_month_open_version", 0),
         ("fund_history_limit", "最近12个月"),
         ("fund_metric_field", "nav_amount"),
         ("fund_overwrite_mode", "跳过已存在记录"),
@@ -14283,23 +14478,35 @@ def render_fund_monitor_tab():
         st.info("请确认 PostgreSQL 连接配置可用后重试。")
         return
 
-    month_options: list[str] = []
-    action_col, status_col = st.columns([1, 3])
-    with action_col:
-        if st.button("新增月份", key="fund_add_month"):
-            st.session_state["fund_manual_month_open"] = True
-        if st.button("单分类补录/修改", key="fund_edit_single"):
-            st.session_state["fund_single_edit_open"] = True
-        if st.button("批量导入 Excel", key="fund_import_file"):
-            st.session_state["fund_import_open"] = True
+    month_options: list[str] = (
+        sorted(pd.to_datetime(df["month"]).dt.strftime("%Y-%m").unique().tolist(), reverse=True)
+        if not df.empty
+        else []
+    )
 
-    with status_col:
+    action_cols = st.columns([1, 1.2, 1.2, 1.2, 3])
+    with action_cols[0]:
+        if st.button("新增月份", key="fund_add_month"):
+            _open_fund_monitor_action_panel("fund_manual_month_open")
+    with action_cols[1]:
+        if st.button("单分类补录/修改", key="fund_edit_single"):
+            _open_fund_monitor_action_panel("fund_single_edit_open")
+    with action_cols[2]:
+        if st.button("批量导入 Excel", key="fund_import_file"):
+            _open_fund_monitor_action_panel("fund_import_open")
+    with action_cols[3]:
+        if st.button("删除整月数据", key="fund_delete_month_btn"):
+            _open_fund_monitor_action_panel("fund_delete_month_open")
+
+    with action_cols[4]:
         if df.empty:
             st.caption("最新数据月份：- | 记录数：0 | 最近更新时间：-")
         else:
             latest_month = pd.to_datetime(df["month"]).max().strftime("%Y-%m")
             updated_at = pd.to_datetime(df["updated_at"]).max().strftime("%Y-%m-%d %H:%M")
             st.caption(f"最新数据月份：{latest_month} | 记录数：{len(df)} | 最近更新时间：{updated_at}")
+
+    _render_fund_monitor_action_panels(engine, df, month_options)
 
     if df.empty:
         st.info("暂无基金监测数据，请先新增月份或批量导入。")
@@ -14310,7 +14517,6 @@ def render_fund_monitor_tab():
         all_category_names = _sort_fund_categories(
             FUND_MONITOR_DEFAULT_NAMES + df["category_name"].dropna().astype(str).unique().tolist()
         )
-        month_options = sorted(pd.to_datetime(df["month"]).dt.strftime("%Y-%m").unique().tolist(), reverse=True)
         selected_snapshot = st.selectbox("月份", options=month_options, index=0, key="fund_snapshot_month")
         selected_categories = st.multiselect(
             "分类筛选",
@@ -14421,139 +14627,6 @@ def render_fund_monitor_tab():
                 use_container_width=True,
                 hide_index=True,
             )
-
-    if st.session_state.get("fund_manual_month_open", False):
-        st.markdown("#### 新增月份")
-        manual_month = st.text_input("录入月份", value=month_options[0] if month_options else "", key="fund_manual_month_value")
-        editor_seed_df = _build_fund_monitor_batch_editor_df(df, manual_month)
-        editor_df = st.data_editor(
-            editor_seed_df,
-            use_container_width=True,
-            hide_index=True,
-            num_rows="dynamic",
-            key="fund_month_editor",
-        )
-        save_col, cancel_col = st.columns(2)
-        if save_col.button("保存本月基金监测数据", key="fund_month_save"):
-            if not manual_month:
-                st.error("请先填写录入月份")
-            else:
-                rows = _collect_fund_monitor_batch_rows(editor_df, manual_month)
-                if not rows:
-                    st.warning("没有可写入的分类记录。")
-                else:
-                    try:
-                        payload_rows = build_fund_monitor_upsert_rows(rows, source_type="manual", source_file=None)
-                        upsert_fund_monitor_rows(engine, payload_rows)
-                    except Exception as exc:
-                        st.error(f"保存失败: {exc}")
-                    else:
-                        st.session_state["fund_manual_month_open"] = False
-                        st.success(f"已写入 {len(payload_rows)} 条基金监测记录")
-                        st.rerun()
-        if cancel_col.button("取消新增月份", key="fund_month_cancel"):
-            st.session_state["fund_manual_month_open"] = False
-            st.rerun()
-
-    if st.session_state.get("fund_single_edit_open", False):
-        st.markdown("#### 单分类补录 / 修改")
-        if df.empty:
-            st.info("当前暂无历史记录，请先新增月份或导入数据。")
-        else:
-            edit_month = st.selectbox("选择月份", options=month_options, key="fund_edit_month")
-            month_df = df[pd.to_datetime(df["month"]).dt.strftime("%Y-%m") == edit_month].copy()
-            month_names = _sort_fund_categories(month_df["category_name"].dropna().astype(str).unique().tolist())
-            edit_name = st.selectbox("选择分类", options=month_names, key="fund_edit_name")
-            edit_row = month_df[month_df["category_name"] == edit_name].iloc[0].to_dict() if edit_name else {}
-            with st.form("fund_single_edit_form", clear_on_submit=False):
-                edit_values = {}
-                for field, label in FUND_MONITOR_FIELD_LABELS.items():
-                    edit_values[field] = st.number_input(
-                        label,
-                        value=float(edit_row[field]) if edit_row.get(field) is not None and not pd.isna(edit_row.get(field)) else 0.0,
-                        format="%.4f",
-                    )
-                submitted = st.form_submit_button("保存单分类数据")
-                canceled = st.form_submit_button("取消")
-
-            if canceled:
-                st.session_state["fund_single_edit_open"] = False
-                st.rerun()
-
-            if submitted:
-                try:
-                    rows = build_fund_monitor_upsert_rows(
-                        _enrich_fund_monitor_rows(
-                            [
-                                {
-                                    "month": edit_month,
-                                    "category_name": edit_name,
-                                    **edit_values,
-                                }
-                            ]
-                        ),
-                        source_type="manual",
-                        source_file=None,
-                    )
-                    upsert_fund_monitor_rows(engine, rows)
-                except Exception as exc:
-                    st.error(f"保存失败: {exc}")
-                else:
-                    st.session_state["fund_single_edit_open"] = False
-                    st.success("保存成功")
-                    st.rerun()
-
-    if st.session_state.get("fund_import_open", False):
-        upload = st.file_uploader(
-            "上传公募&私募基金 Excel",
-            type=["xlsx"],
-            key="fund_monitor_uploader",
-        )
-        if upload is not None:
-            try:
-                imported_df = parse_fund_monitor_workbook(upload)
-                preview = classify_fund_monitor_import_rows(imported_df, df)
-            except Exception as exc:
-                st.error(f"导入预览失败: {exc}")
-            else:
-                st.radio(
-                    "重复记录处理",
-                    ["跳过已存在记录", "覆盖已存在记录"],
-                    horizontal=True,
-                    key="fund_overwrite_mode",
-                )
-                st.write("新增记录")
-                st.dataframe(
-                    to_fund_monitor_display_df(preview["to_insert"]),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-                st.write("覆盖记录")
-                st.dataframe(
-                    to_fund_monitor_display_df(preview["to_overwrite"]),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-                if st.button("确认写入基金监测数据", key="fund_confirm_import"):
-                    write_df = imported_df.copy()
-                    if st.session_state["fund_overwrite_mode"] == "跳过已存在记录":
-                        write_df = preview["to_insert"].copy()
-                    if write_df.empty:
-                        st.warning("没有需要写入的记录。")
-                    else:
-                        try:
-                            rows = build_fund_monitor_upsert_rows(
-                                _enrich_fund_monitor_rows(write_df.to_dict(orient="records")),
-                                source_type="import",
-                                source_file=getattr(upload, "name", None),
-                            )
-                            upsert_fund_monitor_rows(engine, rows)
-                        except Exception as exc:
-                            st.error(f"导入写入失败: {exc}")
-                        else:
-                            st.session_state["fund_import_open"] = False
-                            st.success(f"已写入 {len(rows)} 条基金监测记录")
-                            st.rerun()
 
 def render_fund_hot_stocks_tab():
     """渲染公募基金持仓热股 Tab 页"""

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock, patch
 
 import pandas as pd
 
@@ -7,6 +8,8 @@ from src.fund_monitor_store import (
     build_fund_monitor_summary,
     build_fund_monitor_trend_df,
     classify_fund_monitor_import_rows,
+    delete_fund_monitor_months,
+    upsert_fund_monitor_rows,
 )
 
 
@@ -67,6 +70,72 @@ class FundMonitorStoreTests(unittest.TestCase):
         preview = classify_fund_monitor_import_rows(incoming, existing)
         self.assertEqual(preview["to_insert"]["category_name"].tolist(), ["私募证券投资基金"])
         self.assertEqual(preview["to_overwrite"]["category_name"].tolist(), ["合计"])
+
+    def test_upsert_fund_monitor_rows_preserves_existing_sort_metadata_when_missing(self):
+        conn = Mock()
+        context_manager = Mock()
+        context_manager.__enter__ = Mock(return_value=conn)
+        context_manager.__exit__ = Mock(return_value=False)
+        engine = Mock()
+        engine.begin.return_value = context_manager
+
+        row = {
+            "month": pd.Timestamp("2026-05-01").date(),
+            "category_name": "临时分类",
+            "category_group": None,
+            "category_level": None,
+            "sort_order": None,
+            "source_type": "manual",
+            "source_file": None,
+        }
+        numeric_fields = [
+            "fund_count",
+            "share_amount",
+            "nav_amount",
+            "unit_nav",
+            "mom_fund_count",
+            "mom_share_amount",
+            "mom_nav_amount",
+            "mom_unit_nav",
+            "yoy_fund_count",
+            "yoy_share_amount",
+            "yoy_nav_amount",
+            "yoy_unit_nav",
+        ]
+        row.update({field: None for field in numeric_fields})
+
+        with patch("src.fund_monitor_store.ensure_fund_monitor_table"):
+            upsert_fund_monitor_rows(engine, [row])
+
+        sql_text = str(conn.execute.call_args.args[0])
+        self.assertIn(
+            "sort_order = COALESCE(EXCLUDED.sort_order, macro_fund_monitor_monthly.sort_order)",
+            sql_text,
+        )
+        self.assertIn(
+            "category_group = COALESCE(EXCLUDED.category_group, macro_fund_monitor_monthly.category_group)",
+            sql_text,
+        )
+
+    def test_delete_fund_monitor_months_normalizes_and_deduplicates_input(self):
+        conn = Mock()
+        conn.execute.return_value.rowcount = 3
+        context_manager = Mock()
+        context_manager.__enter__ = Mock(return_value=conn)
+        context_manager.__exit__ = Mock(return_value=False)
+        engine = Mock()
+        engine.begin.return_value = context_manager
+
+        with patch("src.fund_monitor_store.ensure_fund_monitor_table"):
+            deleted = delete_fund_monitor_months(engine, ["2026-5", "2026/06", "2026-05-01", "  "])
+
+        self.assertEqual(deleted, 6)
+        self.assertEqual(conn.execute.call_count, 2)
+        params_list = [call.args[1] for call in conn.execute.call_args_list]
+        self.assertEqual(
+            [params["month"].isoformat() for params in params_list],
+            ["2026-05-01", "2026-06-01"],
+        )
 
 
 if __name__ == "__main__":

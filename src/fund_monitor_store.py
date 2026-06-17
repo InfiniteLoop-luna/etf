@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+from datetime import date, datetime
 
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -55,6 +57,48 @@ def build_db_url():
 
 def get_engine() -> Engine:
     return create_engine(build_db_url(), pool_pre_ping=True)
+
+
+def normalize_fund_monitor_month(value) -> date:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value.replace(day=1)
+    if isinstance(value, datetime):
+        return value.date().replace(day=1)
+
+    raw = str(value).strip()
+    if not raw:
+        raise ValueError("month 不能为空")
+
+    compact = re.sub(r"\s+", "", raw)
+    normalized = (
+        compact.replace("年", "-")
+        .replace("月", "-")
+        .replace("日", "")
+        .replace("/", "-")
+        .replace(".", "-")
+    )
+    normalized = re.sub(r"-+", "-", normalized).strip("-")
+
+    for candidate in (raw, compact, normalized):
+        try:
+            if len(candidate) == 10 and candidate.count("-") == 2:
+                return datetime.strptime(candidate, "%Y-%m-%d").date().replace(day=1)
+            if len(candidate) == 8 and candidate.isdigit():
+                return datetime.strptime(candidate, "%Y%m%d").date().replace(day=1)
+            if len(candidate) == 6 and candidate.isdigit():
+                return datetime.strptime(candidate, "%Y%m").date().replace(day=1)
+        except ValueError:
+            continue
+
+    month_match = re.fullmatch(r"(\d{4})-(\d{1,2})", normalized)
+    if month_match:
+        return date(int(month_match.group(1)), int(month_match.group(2)), 1)
+
+    day_match = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", normalized)
+    if day_match:
+        return date(int(day_match.group(1)), int(day_match.group(2)), int(day_match.group(3))).replace(day=1)
+
+    raise ValueError(f"无法识别月份格式: {value}，请使用 YYYY-MM，例如 2026-05")
 
 
 def ensure_fund_monitor_table(engine: Engine) -> None:
@@ -165,7 +209,7 @@ def build_fund_monitor_upsert_rows(rows, source_type: str, source_file: str | No
     payload_rows = []
     for row in rows:
         payload = {
-            "month": pd.to_datetime(row["month"]).date(),
+            "month": normalize_fund_monitor_month(row["month"]),
             "category_name": str(row["category_name"]).strip(),
             "category_group": row.get("category_group"),
             "category_level": row.get("category_level"),
@@ -180,6 +224,9 @@ def build_fund_monitor_upsert_rows(rows, source_type: str, source_file: str | No
 
 
 def upsert_fund_monitor_rows(engine: Engine, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+
     ensure_fund_monitor_table(engine)
     columns = [
         "month",
@@ -192,18 +239,40 @@ def upsert_fund_monitor_rows(engine: Engine, rows: list[dict]) -> int:
         "source_file",
     ]
     update_columns = ["category_group", "category_level", "sort_order", *NUMERIC_FIELDS, "source_type", "source_file"]
+    metadata_columns = {"category_group", "category_level", "sort_order"}
+    update_assignments = [
+        f"{col} = COALESCE(EXCLUDED.{col}, {TABLE_NAME}.{col})"
+        if col in metadata_columns
+        else f"{col} = EXCLUDED.{col}"
+        for col in update_columns
+    ]
     insert_sql = text(
         f"""
         INSERT INTO {TABLE_NAME} ({", ".join(columns)})
         VALUES ({", ".join(f":{col}" for col in columns)})
         ON CONFLICT (month, category_name) DO UPDATE SET
-            {", ".join(f"{col} = EXCLUDED.{col}" for col in update_columns)},
+            {", ".join(update_assignments)},
             updated_at = NOW();
         """
     )
     with engine.begin() as conn:
         conn.execute(insert_sql, rows)
     return len(rows)
+
+
+def delete_fund_monitor_months(engine: Engine, months: list) -> int:
+    ensure_fund_monitor_table(engine)
+    normalized_months = sorted({normalize_fund_monitor_month(month) for month in months if str(month).strip()})
+    if not normalized_months:
+        return 0
+
+    delete_sql = text(f"DELETE FROM {TABLE_NAME} WHERE month = :month")
+    deleted_count = 0
+    with engine.begin() as conn:
+        for month in normalized_months:
+            result = conn.execute(delete_sql, {"month": month})
+            deleted_count += int(result.rowcount or 0)
+    return deleted_count
 
 
 def load_fund_monitor_df(engine: Engine | None = None) -> pd.DataFrame:
