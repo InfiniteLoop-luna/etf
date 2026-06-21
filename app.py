@@ -8531,7 +8531,7 @@ def build_company_screener_result_action_df(
     return action_df
 
 
-COMPANY_SCREENER_TIME_FILTER_OPTIONS = ("全部", "指定日期", "最近1个月", "最近2个月", "最近3个月")
+COMPANY_SCREENER_TIME_FILTER_OPTIONS = ("全部", "指定时间段", "最近1个月", "最近2个月", "最近3个月")
 COMPANY_SCREENER_RELATIVE_MONTHS = {
     "最近1个月": 1,
     "最近2个月": 2,
@@ -8555,11 +8555,12 @@ def _coerce_company_screener_date(value, fallback=None):
     return fallback
 
 
-def _resolve_company_screener_list_date_filter(time_filter: str, selected_date) -> tuple[str | None, str | None]:
+def _resolve_company_screener_list_date_filter(time_filter: str, start_date=None, end_date=None) -> tuple[str | None, str | None]:
     today = datetime.now().date()
-    if time_filter == "指定日期":
-        target_date = _coerce_company_screener_date(selected_date, today)
-        return target_date.isoformat(), target_date.isoformat()
+    if time_filter == "指定时间段":
+        normalized_start = _coerce_company_screener_date(start_date, today)
+        normalized_end = _coerce_company_screener_date(end_date, normalized_start)
+        return normalized_start.isoformat(), normalized_end.isoformat()
 
     months = COMPANY_SCREENER_RELATIVE_MONTHS.get(time_filter)
     if months:
@@ -8761,11 +8762,18 @@ def render_company_screener_tab():
     existing_filters = st.session_state.get(filter_state_key, {})
     default_industries = existing_filters.get("industries") or ["全部"]
     default_time_filter = existing_filters.get("time_filter") or "全部"
+    if default_time_filter == "指定日期":
+        default_time_filter = "指定时间段"
     if default_time_filter not in COMPANY_SCREENER_TIME_FILTER_OPTIONS:
         default_time_filter = "全部"
-    default_selected_list_date = _coerce_company_screener_date(
-        existing_filters.get("selected_list_date"),
-        datetime.now().date(),
+    today_for_company_screener = datetime.now().date()
+    default_list_date_start = _coerce_company_screener_date(
+        existing_filters.get("selected_list_start_date") or existing_filters.get("selected_list_date"),
+        (pd.Timestamp(today_for_company_screener) - pd.DateOffset(months=1)).date(),
+    )
+    default_list_date_end = _coerce_company_screener_date(
+        existing_filters.get("selected_list_end_date") or existing_filters.get("selected_list_date"),
+        today_for_company_screener,
     )
 
     col1, col2, col3 = st.columns([1.5, 1.5, 1.5])
@@ -8793,7 +8801,7 @@ def render_company_screener_tab():
             key="company_screener_business_kw",
         )
 
-    time_col1, time_col2, time_col3 = st.columns([1.2, 1.2, 2.1])
+    time_col1, time_col2, time_col3, time_col4 = st.columns([1.1, 1.2, 1.2, 1.8])
     with time_col1:
         time_filter = st.selectbox(
             "上市日期",
@@ -8801,26 +8809,43 @@ def render_company_screener_tab():
             index=COMPANY_SCREENER_TIME_FILTER_OPTIONS.index(default_time_filter),
             key="company_screener_time_filter",
         )
-    if time_filter == "指定日期":
+    if time_filter == "指定时间段":
         with time_col2:
-            selected_list_date = st.date_input(
-                "指定日期",
-                value=default_selected_list_date,
-                key="company_screener_selected_list_date",
+            selected_list_start_date = st.date_input(
+                "开始日期",
+                value=default_list_date_start,
+                key="company_screener_selected_list_start_date",
+            )
+        with time_col3:
+            selected_list_end_date = st.date_input(
+                "结束日期",
+                value=default_list_date_end,
+                key="company_screener_selected_list_end_date",
             )
     else:
-        selected_list_date = default_selected_list_date
+        selected_list_start_date = default_list_date_start
+        selected_list_end_date = default_list_date_end
 
     list_date_start, list_date_end = _resolve_company_screener_list_date_filter(
         time_filter,
-        selected_list_date,
+        selected_list_start_date,
+        selected_list_end_date,
     )
+    is_invalid_list_date_range = bool(list_date_start and list_date_end and list_date_start > list_date_end)
     if list_date_start and list_date_end:
-        time_col3.caption(f"筛选上市日期：{list_date_start} 至 {list_date_end}")
+        if is_invalid_list_date_range:
+            time_col4.warning("开始日期不能晚于结束日期。")
+        else:
+            time_col4.caption(f"筛选上市日期：{list_date_start} 至 {list_date_end}")
     else:
-        time_col3.caption("不限制上市日期")
+        time_col4.caption("不限制上市日期")
 
-    if st.button("开始筛选", type="primary", key="company_screener_submit"):
+    if st.button(
+        "开始筛选",
+        type="primary",
+        key="company_screener_submit",
+        disabled=is_invalid_list_date_range,
+    ):
         with st.spinner("正在检索符合条件的公司..."):
             df = search_companies(
                 industries=selected_industries,
@@ -8836,7 +8861,8 @@ def render_company_screener_tab():
                 "product_kw": product_kw,
                 "business_kw": business_kw,
                 "time_filter": time_filter,
-                "selected_list_date": _coerce_company_screener_date(selected_list_date, datetime.now().date()).isoformat(),
+                "selected_list_start_date": _coerce_company_screener_date(selected_list_start_date, today_for_company_screener).isoformat(),
+                "selected_list_end_date": _coerce_company_screener_date(selected_list_end_date, today_for_company_screener).isoformat(),
                 "list_date_start": list_date_start,
                 "list_date_end": list_date_end,
             }
