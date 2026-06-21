@@ -72,6 +72,7 @@ test_*.py
 !tests/test_stock_research_akshare_enrichment.py
 !tests/test_stock_research_fact_pack.py
 !tests/test_stock_research_llm_analysis.py
+!tests/test_stock_analysis_template_report.py
 !tests/eastmoney_author_tracker/test_store.py
 !tests/eastmoney_author_tracker/test_ui.py
 verify_*.py

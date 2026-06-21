@@ -184,6 +184,7 @@ from src.stock_research_report_store import (
     get_report_status as get_stock_research_report_status,
     get_report_statuses as get_stock_research_report_statuses,
 )
+from src.stock_analysis_template_report import generate_stock_analysis_template_report_bundle
 from src.watchlist_distribution_refresh import refresh_watchlist_distribution_reports
 from src.watchlist_stock_research_refresh import refresh_watchlist_stock_research_reports
 from src.watchlist_excel_importer import (
@@ -11270,6 +11271,18 @@ def show_stock_research_report_dialog(report_md: str, report_html: str | None = 
     st.markdown(report_md)
 
 
+@st.dialog("📑 个股分析报告模板", width="large")
+def show_stock_analysis_template_report_dialog(report_html: str, file_name: str = "stock-analysis-template-report.html"):
+    st.download_button(
+        "下载 HTML 报告",
+        data=report_html,
+        file_name=file_name,
+        mime="text/html",
+        use_container_width=True,
+    )
+    components.html(report_html, height=820, scrolling=True)
+
+
 def _build_distribution_report_state(ts_code: str, status: dict | None, report_md: str | None = None) -> dict:
     ready_trade_date = (status or {}).get("latest_ready_trade_date")
     return {
@@ -11778,6 +11791,9 @@ def render_user_watchlist_tab() -> None:
             selected_research_idx = research_options.index(selected_research_label)
             selected_research_row = stock_display_df.iloc[selected_research_idx]
             selected_research_code = str(selected_research_row.get("代码") or "").strip().upper()
+            selected_research_name = str(
+                selected_research_row.get("名称") or selected_research_code
+            ).strip()
             selected_research_state = _build_stock_research_report_state(
                 selected_research_code,
                 research_status_map.get(selected_research_code),
@@ -11797,6 +11813,51 @@ def render_user_watchlist_tab() -> None:
                     show_stock_research_report_dialog(clicked_state["report_md"], clicked_state.get("report_html"))
                 else:
                     st.warning("报告状态已变化，请等待后台定时刷新完成。")
+            st.caption("模板报告为手动即时生成，不写入原有研究报告缓存。")
+            if st.button(
+                "生成模板报告",
+                key="btn_generate_watchlist_stock_template_report",
+                type="primary",
+                disabled=not selected_research_code,
+            ):
+                try:
+                    asof_trade_date = str(selected_research_row.get("数据日期") or "").strip() or None
+                    with st.spinner(f"正在生成 {selected_research_name} 的模板报告..."):
+                        template_bundle = generate_stock_analysis_template_report_bundle(
+                            selected_research_code,
+                            selected_research_name,
+                            engine=report_engine,
+                            asof_trade_date=asof_trade_date,
+                        )
+                    report_html = str(template_bundle.get("report_html") or "")
+                    if not report_html:
+                        raise RuntimeError("模板 HTML 报告内容为空")
+                    st.session_state["watchlist_template_report_bundle"] = {
+                        "ts_code": selected_research_code,
+                        "stock_name": selected_research_name,
+                        "report_html": report_html,
+                    }
+                    show_stock_analysis_template_report_dialog(
+                        report_html,
+                        file_name=f"{selected_research_code}-stock-analysis-template.html",
+                    )
+                except Exception as template_report_exc:
+                    st.error(f"生成模板报告失败：{template_report_exc}")
+            cached_template_report = st.session_state.get("watchlist_template_report_bundle")
+            if (
+                isinstance(cached_template_report, dict)
+                and str(cached_template_report.get("ts_code") or "").strip().upper() == selected_research_code
+                and str(cached_template_report.get("report_html") or "").strip()
+            ):
+                if st.button(
+                    "查看本次模板报告",
+                    key="btn_open_watchlist_stock_template_report",
+                    use_container_width=True,
+                ):
+                    show_stock_analysis_template_report_dialog(
+                        str(cached_template_report.get("report_html") or ""),
+                        file_name=f"{selected_research_code}-stock-analysis-template.html",
+                    )
 
 
 
