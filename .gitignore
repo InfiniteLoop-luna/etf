@@ -67,6 +67,7 @@ test_*.py
 !tests/test_lhb_sync.py
 !tests/test_daily_trend_recommender.py
 !tests/test_user_watchlist_store.py
+!tests/test_user_stock_pool_store.py
 !tests/test_watchlist_stock_research_refresh.py
 !tests/test_stock_research_html_renderer.py
 !tests/test_stock_research_akshare_enrichment.py

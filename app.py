@@ -8909,14 +8909,14 @@ def render_company_screener_tab():
         action_df["选择"] = False
         st.session_state[action_df_cache_key] = action_df
     
-    st.info("💡 在这张结果表里直接勾选股票，可批量加入自选；点击“查询”即可跳到个股/指数查询。")
+    st.info("💡 在这张结果表里直接勾选股票，可批量加入自选或自选池；点击“查询”即可跳到个股/指数查询。")
     edited_action_df = st.data_editor(
         action_df,
         use_container_width=True,
         hide_index=True,
         disabled=[col for col in action_df.columns if col != "选择"],
         column_config={
-            "选择": st.column_config.CheckboxColumn("选择", help="勾选后可加入自选"),
+            "选择": st.column_config.CheckboxColumn("选择", help="勾选后可加入自选或自选池"),
             "查询": st.column_config.LinkColumn(
                 "查询",
                 help="点击后跳转到个股/指数查询",
@@ -8931,10 +8931,10 @@ def render_company_screener_tab():
         key="company_screener_result_editor",
     )
     
-    selected_watchlist_rows = edited_action_df[edited_action_df["选择"]].to_dict(orient="records") if not edited_action_df.empty else []
-    selected_count = len(selected_watchlist_rows)
+    selected_company_rows = edited_action_df[edited_action_df["选择"]].to_dict(orient="records") if not edited_action_df.empty else []
+    selected_count = len(selected_company_rows)
     can_select_all = bool(action_df[action_df["已在自选"] != "✅ 已在自选"].shape[0])
-    action_cols = st.columns([1.2, 1.2, 1.6, 2.2])
+    action_cols = st.columns([1.15, 1.15, 1.45, 1.55, 2.1])
     if action_cols[0].button("全选未入自选", key="company_screener_watchlist_select_all", disabled=not can_select_all):
         st.session_state["company_screener_pending_action"] = "select_all"
         st.rerun()
@@ -8946,7 +8946,7 @@ def render_company_screener_tab():
             try:
                 report_engine = get_security_intraday_engine_cached()
                 summary = add_company_screener_rows_to_watchlist(
-                    selected_watchlist_rows,
+                    selected_company_rows,
                     current_username,
                     existing_watchlist_df=watchlist_df,
                     report_engine=report_engine,
@@ -8972,10 +8972,40 @@ def render_company_screener_tab():
                 }
                 st.session_state["company_screener_force_rebuild"] = True
                 st.rerun()
-        action_cols[3].caption(f"当前登录用户：{current_username}｜已勾选 {selected_count} 只")
+        if action_cols[3].button("加入选中自选池", key="company_screener_stock_pool_add_selected", disabled=selected_count == 0):
+            try:
+                pool_summary = import_stock_pool_rows(
+                    current_username,
+                    selected_company_rows,
+                    source_file="公司主营与产品筛选",
+                )
+            except Exception as exc:
+                logger.exception("company_screener add selected to stock pool failed | user=%s", current_username)
+                st.error(f"加入自选池失败：{exc}")
+            else:
+                message_parts = [
+                    f"新增 {pool_summary.get('added', 0)} 只",
+                    f"更新 {pool_summary.get('updated', 0)} 只",
+                ]
+                if pool_summary.get("skipped_invalid"):
+                    message_parts.append(f"跳过无效 {pool_summary.get('skipped_invalid')} 只")
+                if pool_summary.get("failed"):
+                    message_parts.append(f"失败 {pool_summary.get('failed')} 只")
+                has_pool_changes = bool(pool_summary.get("added") or pool_summary.get("updated"))
+                flash_level = "success" if has_pool_changes else "warning"
+                flash_message = "自选池：" + "，".join(message_parts)
+                if pool_summary.get("failed_items"):
+                    flash_message = f"{flash_message}。失败明细：{'；'.join(pool_summary.get('failed_items', [])[:3])}"
+                st.session_state[flash_state_key] = {
+                    "level": flash_level,
+                    "message": flash_message,
+                }
+                st.rerun()
+        action_cols[4].caption(f"当前登录用户：{current_username}｜已勾选 {selected_count} 只")
     else:
         action_cols[2].button("加入选中自选", key="company_screener_watchlist_add_selected_disabled", disabled=True)
-        action_cols[3].info("先登录用户名，才能把结果表里的股票加入个人自选。")
+        action_cols[3].button("加入选中自选池", key="company_screener_stock_pool_add_selected_disabled", disabled=True)
+        action_cols[4].info("先登录用户名，才能把结果表里的股票加入个人自选或自选池。")
 
     st.markdown("#### ✏️ 逐只订正主营与产品信息")
     st.caption("筛选结果中的每只股票都可以单独展开编辑；每次只会保存当前这一只。")

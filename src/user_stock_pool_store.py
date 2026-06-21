@@ -351,6 +351,7 @@ def import_stock_pool_rows(
             row.get("security_name")
             or row.get("name")
             or row.get("名称")
+            or row.get("简称")
             or ts_code
             or ""
         ).strip()
