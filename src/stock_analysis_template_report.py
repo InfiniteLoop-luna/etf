@@ -32,6 +32,7 @@ FINANCIAL_CHART_MARKER = "[[TEMPLATE_FINANCIAL_CHARTS]]"
 HOLDER_NUMBER_CHART_MARKER = "[[TEMPLATE_HOLDER_NUMBER_CHARTS]]"
 SHAREHOLDER_CHART_MARKER = "[[TEMPLATE_SHAREHOLDER_CHARTS]]"
 HOLDER_TRADE_CHART_MARKER = "[[TEMPLATE_HOLDER_TRADE_CHARTS]]"
+DIVIDEND_CHART_MARKER = "[[TEMPLATE_DIVIDEND_CHARTS]]"
 
 
 def _raw_text(value: Any, default: str = "-") -> str:
@@ -70,6 +71,8 @@ def _fmt_bool_st(value: Any) -> str:
 def _normalize_date_text(value: Any) -> str:
     text = str(value or "").strip()
     if not text:
+        return ""
+    if text.lower() in {"nat", "nan", "none", "null"}:
         return ""
     parsed = pd.to_datetime(text, errors="coerce")
     if pd.notna(parsed):
@@ -450,6 +453,144 @@ def _holder_trade_data(holder_trade_df: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def _normalize_dividend_frame(df: pd.DataFrame | None) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+    work = df.copy()
+    for column in ["end_date", "ann_date", "record_date", "ex_date", "pay_date", "div_listdate", "imp_ann_date", "base_date"]:
+        if column in work.columns:
+            work[column] = pd.to_datetime(work[column], errors="coerce")
+    for column in ["stk_div", "stk_bo_rate", "stk_co_rate", "cash_div", "cash_div_tax", "base_share"]:
+        if column in work.columns:
+            work[column] = pd.to_numeric(work[column], errors="coerce")
+    if "div_proc" in work.columns:
+        work["div_proc"] = work["div_proc"].astype(str).str.strip()
+    if "end_date" not in work.columns:
+        work["end_date"] = pd.NaT
+    if "ann_date" not in work.columns:
+        work["ann_date"] = pd.NaT
+    return work.sort_values(["end_date", "ann_date"], na_position="last").reset_index(drop=True)
+
+
+def _dividend_stage_rank(value: Any) -> int:
+    text = str(value or "").strip()
+    if "实施" in text:
+        return 4
+    if "股东大会" in text:
+        return 3
+    if "预案" in text:
+        return 2
+    return 1
+
+
+def _dividend_plan_rows(dividend_df: pd.DataFrame, *, limit: int = 10) -> pd.DataFrame:
+    work = _normalize_dividend_frame(dividend_df)
+    if work.empty:
+        return work
+    work["stage_rank"] = work["div_proc"].map(_dividend_stage_rank) if "div_proc" in work.columns else 1
+    work["cash_per10_tax"] = work["cash_div_tax"] * 10 if "cash_div_tax" in work.columns else None
+    work["stock_bonus_per10"] = work["stk_div"] * 10 if "stk_div" in work.columns else None
+    work["stock_transfer_per10"] = work["stk_co_rate"] * 10 if "stk_co_rate" in work.columns else None
+    if "base_share" in work.columns and "cash_div_tax" in work.columns:
+        work["cash_amount_yi"] = (work["base_share"] * work["cash_div_tax"]) / 10000.0
+    else:
+        work["cash_amount_yi"] = None
+    subset_cols = [
+        col
+        for col in ["end_date", "cash_div_tax", "stk_div", "stk_bo_rate", "stk_co_rate"]
+        if col in work.columns
+    ]
+    sort_cols = ["end_date", "stage_rank", "ann_date"]
+    work = work.sort_values(sort_cols, ascending=[False, False, False], na_position="last")
+    if subset_cols:
+        work = work.drop_duplicates(subset=subset_cols, keep="first")
+    return work.head(limit).reset_index(drop=True)
+
+
+def _dividend_chart(dividend_df: pd.DataFrame, *, limit: int = 10) -> dict[str, Any]:
+    work = _dividend_plan_rows(dividend_df, limit=50)
+    rows: list[dict[str, Any]] = []
+    if not work.empty:
+        chronological = work.sort_values(["end_date", "ann_date"], na_position="last")
+        for _, row in chronological.iterrows():
+            value = _to_float(row.get("cash_amount_yi"))
+            per10 = _to_float(row.get("cash_per10_tax"))
+            if value is None and per10 is None:
+                continue
+            rows.append(
+                {
+                    "label": _normalize_date_text(row.get("end_date")) or _normalize_date_text(row.get("ann_date")),
+                    "value": value,
+                    "line_value": per10,
+                }
+            )
+    return _chart(
+        "dividend_cash_amount",
+        "现金分红金额及每10股派息",
+        "bar_line",
+        rows[-limit:],
+        value_label="现金分红金额",
+        unit="亿元",
+        source="vw_ts_stock_dividend.cash_div_tax/base_share",
+        line_label="每10股派息",
+        line_unit="元",
+        empty_reason="vw_ts_stock_dividend 暂无可计算现金分红金额的近10年数据。",
+    )
+
+
+def _dividend_records(dividend_df: pd.DataFrame, *, limit: int = 10) -> list[dict[str, Any]]:
+    work = _dividend_plan_rows(dividend_df, limit=limit)
+    if work.empty:
+        return []
+    records: list[dict[str, Any]] = []
+    for _, row in work.iterrows():
+        records.append(
+            {
+                "end_date": _normalize_date_text(row.get("end_date")),
+                "div_proc": _raw_text(row.get("div_proc")),
+                "ann_date": _normalize_date_text(row.get("ann_date")),
+                "record_date": _normalize_date_text(row.get("record_date")),
+                "ex_date": _normalize_date_text(row.get("ex_date")),
+                "pay_date": _normalize_date_text(row.get("pay_date")),
+                "cash_per10_tax": _to_float(row.get("cash_per10_tax")),
+                "stock_bonus_per10": _to_float(row.get("stock_bonus_per10")),
+                "stock_transfer_per10": _to_float(row.get("stock_transfer_per10")),
+                "base_share_wan": _to_float(row.get("base_share")),
+                "cash_amount_yi": _to_float(row.get("cash_amount_yi")),
+            }
+        )
+    return records
+
+
+def _dividend_summary(dividend_df: pd.DataFrame) -> dict[str, Any]:
+    records = _dividend_records(dividend_df, limit=50)
+    if not records:
+        return {"record_count": 0}
+    amounts = [_to_float(row.get("cash_amount_yi")) for row in records]
+    amounts = [float(value) for value in amounts if value is not None]
+    cash_positive = [
+        row for row in records
+        if (_to_float(row.get("cash_per10_tax")) or 0.0) > 0
+    ]
+    latest = records[0]
+    return {
+        "record_count": int(len(records)),
+        "latest_end_date": _raw_text(latest.get("end_date")),
+        "latest_stage": _raw_text(latest.get("div_proc")),
+        "latest_cash_per10": _to_float(latest.get("cash_per10_tax")),
+        "total_cash_amount_yi": sum(amounts) if amounts else None,
+        "cash_positive_count": int(len(cash_positive)),
+    }
+
+
+def _dividend_data(dividend_df: pd.DataFrame) -> dict[str, Any]:
+    return {
+        "chart": _dividend_chart(dividend_df),
+        "summary": _dividend_summary(dividend_df),
+        "records": _dividend_records(dividend_df),
+    }
+
+
 def _normalize_holder_frame(df: pd.DataFrame | None) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
@@ -799,6 +940,19 @@ def load_stock_analysis_template_chart_data(
         financial_params,
         "vw_ts_stock_holdertrade",
     )
+    dividend_df = _read_sql_frame(
+        engine,
+        f"""
+        SELECT ts_code, end_date, ann_date, div_proc, stk_div, stk_bo_rate, stk_co_rate,
+               cash_div, cash_div_tax, record_date, ex_date, pay_date, div_listdate,
+               imp_ann_date, base_date, base_share
+        FROM vw_ts_stock_dividend
+        WHERE ts_code = :ts_code{announcement_date_filter}
+        ORDER BY end_date, ann_date
+        """,
+        financial_params,
+        "vw_ts_stock_dividend",
+    )
     shareholder_data = (
         shareholder_loader(ts_code_key, asof_trade_date=asof_date)
         if shareholder_loader is not None
@@ -937,6 +1091,7 @@ def load_stock_analysis_template_chart_data(
         "charts": charts,
         "holder_number_charts": _holder_number_charts(holder_df, daily_df),
         "holder_trade": _holder_trade_data(holder_trade_df),
+        "dividend": _dividend_data(dividend_df),
         "shareholder_charts": shareholder_data.get("charts") if isinstance(shareholder_data, dict) else [],
         "latest": _latest_daily_snapshot(daily_df),
         "source_rows": {
@@ -946,6 +1101,7 @@ def load_stock_analysis_template_chart_data(
             "vw_ts_stock_daily_basic": int(len(daily_df)) if daily_df is not None else 0,
             "vw_ts_stock_holdernumber": int(len(holder_df)) if holder_df is not None else 0,
             "vw_ts_stock_holdertrade": int(len(holder_trade_df)) if holder_trade_df is not None else 0,
+            "vw_ts_stock_dividend": int(len(dividend_df)) if dividend_df is not None else 0,
             **((shareholder_data.get("source_rows") or {}) if isinstance(shareholder_data, dict) else {}),
         },
         "shareholder_errors": shareholder_data.get("errors") if isinstance(shareholder_data, dict) else {},
@@ -1409,6 +1565,106 @@ def _render_holder_trade_section(chart_data: dict[str, Any] | None) -> str:
     )
 
 
+def _render_dividend_section(chart_data: dict[str, Any] | None) -> str:
+    chart_data = chart_data if isinstance(chart_data, dict) else {}
+    dividend = chart_data.get("dividend") if isinstance(chart_data.get("dividend"), dict) else {}
+    chart = dividend.get("chart") if isinstance(dividend.get("chart"), dict) else {}
+    records = [row for row in (dividend.get("records") or []) if isinstance(row, dict)]
+    summary = dividend.get("summary") if isinstance(dividend.get("summary"), dict) else {}
+    source_rows = chart_data.get("source_rows") if isinstance(chart_data.get("source_rows"), dict) else {}
+    source_text = "；".join(
+        f"{escape(str(key))}={int(value or 0)} 行"
+        for key, value in source_rows.items()
+        if str(key) == "vw_ts_stock_dividend"
+    )
+
+    has_chart_rows = bool(chart.get("rows")) if isinstance(chart, dict) else False
+    if not has_chart_rows and not records:
+        return (
+            '<section class="financial-chart-section dividend-section">'
+            "<h3>现金分红图表</h3>"
+            "<blockquote>数据缺口：尚未在 vw_ts_stock_dividend 查询到近10年分红送股数据。</blockquote>"
+            "</section>"
+        )
+
+    summary_items = [
+        ("最新分红年度", _raw_text(summary.get("latest_end_date"))),
+        ("最新进度", _raw_text(summary.get("latest_stage"))),
+        ("最新每10股派息", f"{_fmt(summary.get('latest_cash_per10'))}元"),
+        ("近10年现金分红合计", f"{_fmt(summary.get('total_cash_amount_yi'))}亿元"),
+    ]
+    summary_html = "\n".join(
+        [
+            '<div class="holder-trade-summary dividend-summary">',
+            *[
+                f'<div><span>{escape(label)}</span><strong>{escape(value)}</strong></div>'
+                for label, value in summary_items
+            ],
+            "</div>",
+        ]
+    )
+
+    chart_html = ""
+    if chart:
+        rows = [row for row in (chart.get("rows") or []) if isinstance(row, dict) and _to_float(row.get("value")) is not None]
+        caption = _chart_latest_caption(chart, rows) if rows else _raw_text(chart.get("empty_reason"), "暂无可绘制数据。")
+        chart_html = "\n".join(
+            [
+                f'<div class="chart-card" id="chart-{escape(str(chart.get("id") or ""))}">',
+                f'<h3>{escape(str(chart.get("title") or ""))}</h3>',
+                _render_chart_svg(chart),
+                '<div class="chart-legend">',
+                f'<span><i class="legend-bar"></i>{escape(str(chart.get("value_label") or ""))}</span>',
+                f'<span><i class="legend-line"></i>{escape(str(chart.get("line_label") or ""))}</span>',
+                "</div>",
+                f'<p class="chart-caption">{escape(caption)}</p>',
+                f'<p class="chart-source">数据源：{escape(str(chart.get("source") or "-"))}</p>',
+                "</div>",
+            ]
+        )
+
+    table_rows = "\n".join(
+        [
+            "<tr>"
+            f"<td>{escape(_raw_text(row.get('end_date')))}</td>"
+            f"<td>{escape(_raw_text(row.get('div_proc')))}</td>"
+            f"<td>{escape(_raw_text(row.get('ann_date')))}</td>"
+            f"<td>{escape(_raw_text(row.get('record_date')))}</td>"
+            f"<td>{escape(_raw_text(row.get('ex_date')))}</td>"
+            f"<td>{escape(_raw_text(row.get('pay_date')))}</td>"
+            f"<td>{escape(_fmt(row.get('cash_per10_tax')))}</td>"
+            f"<td>{escape(_fmt(row.get('stock_bonus_per10')))}</td>"
+            f"<td>{escape(_fmt(row.get('stock_transfer_per10')))}</td>"
+            f"<td>{escape(_fmt(row.get('base_share_wan')))}</td>"
+            f"<td>{escape(_fmt(row.get('cash_amount_yi')))}</td>"
+            "</tr>"
+            for row in records
+        ]
+    )
+    table_html = "\n".join(
+        [
+            '<div class="holder-trade-table dividend-table">',
+            "<table>",
+            "<thead><tr><th>分红年度</th><th>实施进度</th><th>预案公告日</th><th>股权登记日</th><th>除权除息日</th><th>派息日</th><th>每10股派息(税前)</th><th>每10股送股</th><th>每10股转增</th><th>基准股本(万股)</th><th>现金分红金额(亿元)</th></tr></thead>",
+            f"<tbody>{table_rows}</tbody>",
+            "</table>",
+            "</div>",
+        ]
+    )
+
+    return "\n".join(
+        [
+            '<section class="financial-chart-section dividend-section">',
+            "<h3>现金分红图表</h3>",
+            f'<p class="chart-source">已查询数据源：{source_text or "暂无行数信息"}</p>',
+            summary_html,
+            chart_html,
+            table_html,
+            "</section>",
+        ]
+    )
+
+
 def _render_shareholder_chart_section(chart_data: dict[str, Any] | None) -> str:
     chart_data = chart_data if isinstance(chart_data, dict) else {}
     charts = [chart for chart in (chart_data.get("shareholder_charts") or []) if isinstance(chart, dict)]
@@ -1707,8 +1963,9 @@ def render_stock_analysis_template_markdown(
         "",
         "### 公司历年现金分红情况（金额）",
         "",
+        DIVIDEND_CHART_MARKER,
+        "",
     ])
-    _append_template_gap(lines, "当前 FactPack 未包含历年现金分红明细。")
 
     lines.extend(
         [
@@ -1863,10 +2120,12 @@ def render_stock_analysis_template_html(
     holder_number_html = _render_holder_number_chart_section(fact_pack.get("template_chart_data") if isinstance(fact_pack.get("template_chart_data"), dict) else {})
     shareholder_html = _render_shareholder_chart_section(fact_pack.get("template_chart_data") if isinstance(fact_pack.get("template_chart_data"), dict) else {})
     holder_trade_html = _render_holder_trade_section(fact_pack.get("template_chart_data") if isinstance(fact_pack.get("template_chart_data"), dict) else {})
+    dividend_html = _render_dividend_section(fact_pack.get("template_chart_data") if isinstance(fact_pack.get("template_chart_data"), dict) else {})
     body_html = body_html.replace(f"<p>{FINANCIAL_CHART_MARKER}</p>", chart_html)
     body_html = body_html.replace(f"<p>{HOLDER_NUMBER_CHART_MARKER}</p>", holder_number_html)
     body_html = body_html.replace(f"<p>{SHAREHOLDER_CHART_MARKER}</p>", shareholder_html)
     body_html = body_html.replace(f"<p>{HOLDER_TRADE_CHART_MARKER}</p>", holder_trade_html)
+    body_html = body_html.replace(f"<p>{DIVIDEND_CHART_MARKER}</p>", dividend_html)
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>

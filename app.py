@@ -114,6 +114,7 @@ from src.navigation_config import (
     STOCK_COMPANY_SCREENER_LABEL,
     STOCK_LHB_PAGE_LABEL,
     STOCK_PAGE_OPTIONS,
+    STOCK_POOL_PAGE_LABEL,
     STOCK_SECURITY_SEARCH_LABEL,
     STOCK_TECH_PICKER_LABEL,
     STOCK_USER_WATCHLIST_LABEL,
@@ -190,6 +191,16 @@ from src.watchlist_stock_research_refresh import refresh_watchlist_stock_researc
 from src.watchlist_excel_importer import (
     import_watchlist_rows,
     parse_watchlist_import_workbook,
+)
+from src.stock_pool_excel_importer import parse_stock_pool_import_workbook
+from src.user_stock_pool_store import (
+    format_tags as format_stock_pool_tags,
+    import_stock_pool_rows,
+    list_stock_pool_items,
+    remove_stock_pool_items_batch,
+    split_tags as split_stock_pool_tags,
+    update_stock_pool_item_metadata,
+    upsert_stock_pool_item,
 )
 
 try:
@@ -6271,6 +6282,8 @@ def main():
                 render_lhb_monitor_tab()
             elif mobile_page == STOCK_USER_WATCHLIST_LABEL:
                 render_user_watchlist_tab()
+            elif mobile_page == STOCK_POOL_PAGE_LABEL:
+                render_user_stock_pool_tab()
             elif mobile_page == STOCK_COMPANY_SCREENER_LABEL:
                 render_company_screener_tab()
             elif mobile_page == FACTOR_WORKBENCH_PAGE_LABEL:
@@ -6362,6 +6375,8 @@ def main():
             render_lhb_monitor_tab()
         elif selected_page == STOCK_USER_WATCHLIST_LABEL:
             render_user_watchlist_tab()
+        elif selected_page == STOCK_POOL_PAGE_LABEL:
+            render_user_stock_pool_tab()
         elif selected_page == STOCK_COMPANY_SCREENER_LABEL:
             render_company_screener_tab()
         elif selected_page == FACTOR_WORKBENCH_PAGE_LABEL:
@@ -11861,6 +11876,429 @@ def render_user_watchlist_tab() -> None:
                         file_name=f"{selected_research_code}-stock-analysis-template.html",
                     )
 
+
+
+def _show_stock_pool_flash() -> None:
+    flash = st.session_state.pop("stock_pool_flash", None)
+    if not flash:
+        return
+
+    level = flash.get("level", "info")
+    message = flash.get("message", "")
+    if level == "success":
+        st.success(message)
+    elif level == "warning":
+        st.warning(message)
+    elif level == "error":
+        st.error(message)
+    else:
+        st.info(message)
+
+
+def _stock_pool_tag_options(pool_df: pd.DataFrame) -> list[str]:
+    tags: list[str] = []
+    seen: set[str] = set()
+    if pool_df is None or pool_df.empty or "tags" not in pool_df.columns:
+        return []
+    for value in pool_df["tags"].fillna("").astype(str).tolist():
+        for tag in split_stock_pool_tags(value):
+            tag_key = tag.lower()
+            if tag_key in seen:
+                continue
+            seen.add(tag_key)
+            tags.append(tag)
+    return tags
+
+
+def _stock_pool_industry_options(pool_df: pd.DataFrame) -> list[str]:
+    if pool_df is None or pool_df.empty or "industry" not in pool_df.columns:
+        return []
+    industries = (
+        pool_df["industry"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .replace("", "未标注行业")
+        .drop_duplicates()
+        .tolist()
+    )
+    return sorted([item for item in industries if item])
+
+
+def _filter_stock_pool_df(
+    pool_df: pd.DataFrame,
+    keyword: str,
+    selected_industries: list[str],
+    selected_tags: list[str],
+) -> pd.DataFrame:
+    if pool_df is None or pool_df.empty:
+        return pd.DataFrame()
+
+    filtered_df = pool_df.copy()
+    for column in ["security_name", "ts_code", "industry", "tags", "note", "source_file"]:
+        if column not in filtered_df.columns:
+            filtered_df[column] = ""
+        filtered_df[column] = filtered_df[column].fillna("").astype(str)
+
+    normalized_keyword = str(keyword or "").strip().lower()
+    if normalized_keyword:
+        haystack = (
+            filtered_df["security_name"]
+            + " "
+            + filtered_df["ts_code"]
+            + " "
+            + filtered_df["industry"]
+            + " "
+            + filtered_df["tags"]
+            + " "
+            + filtered_df["note"]
+        ).str.lower()
+        filtered_df = filtered_df[haystack.str.contains(normalized_keyword, regex=False, na=False)]
+
+    if selected_industries:
+        industry_labels = filtered_df["industry"].str.strip().replace("", "未标注行业")
+        filtered_df = filtered_df[industry_labels.isin(selected_industries)]
+
+    if selected_tags:
+        selected_tag_set = {tag.lower() for tag in selected_tags}
+        filtered_df = filtered_df[
+            filtered_df["tags"].map(
+                lambda value: bool({tag.lower() for tag in split_stock_pool_tags(value)} & selected_tag_set)
+            )
+        ]
+
+    return filtered_df.reset_index(drop=True)
+
+
+def _format_stock_pool_datetime(value) -> str:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return ""
+    return parsed.strftime("%Y-%m-%d %H:%M")
+
+
+def render_stock_pool_import_section(current_username: str, pool_df: pd.DataFrame) -> None:
+    is_empty_pool = pool_df is None or pool_df.empty
+    with st.expander("通过 Excel 批量导入自选池", expanded=is_empty_pool):
+        st.caption(
+            "支持“自选池20260620.xlsx”这类表：至少包含“代码 / 名称”，也可包含“行业 / 标签 / 备注”。"
+        )
+        uploaded_file = st.file_uploader(
+            "选择自选池 Excel 文件",
+            type=["xlsx", "xlsm"],
+            key="stock_pool_excel_import_file",
+        )
+        import_cols = st.columns([1.6, 1])
+        with import_cols[0]:
+            default_tags = st.text_input(
+                "导入时统一打标签（可选，多个用逗号分隔）",
+                value="",
+                placeholder="例如：自选池20260620, 中线观察",
+                key="stock_pool_import_tags",
+            )
+        with import_cols[1]:
+            st.caption(f"当前用户：{current_username}" if current_username else "请先登录后再导入")
+            if uploaded_file is not None:
+                st.caption(f"文件：{uploaded_file.name}")
+
+        import_clicked = st.button(
+            "导入到当前自选池",
+            key="stock_pool_excel_import_submit",
+            type="primary",
+            disabled=not current_username or uploaded_file is None,
+            use_container_width=True,
+        )
+        if not import_clicked:
+            return
+
+        try:
+            parsed_rows = parse_stock_pool_import_workbook(uploaded_file)
+            summary = import_stock_pool_rows(
+                current_username,
+                parsed_rows,
+                default_tags=default_tags,
+                source_file=getattr(uploaded_file, "name", ""),
+            )
+        except Exception as exc:
+            st.error(f"导入失败：{exc}")
+            return
+
+        message = (
+            f"已解析 {summary.get('parsed', 0)} 只，新增 {summary.get('added', 0)} 只"
+            f"，更新 {summary.get('updated', 0)} 只，跳过无效 {summary.get('skipped_invalid', 0)} 只"
+        )
+        if summary.get("failed"):
+            failed_preview = "；".join(summary.get("failed_items", [])[:3])
+            message = f"{message}，失败 {summary.get('failed')} 只：{failed_preview}"
+
+        if summary.get("added", 0) > 0 or summary.get("updated", 0) > 0:
+            st.session_state["stock_pool_flash"] = {"level": "success", "message": message}
+            st.rerun()
+        elif summary.get("failed"):
+            st.warning(message)
+        else:
+            st.info(message)
+
+
+def render_stock_pool_quick_add(current_username: str) -> None:
+    with st.expander("手动补充股票", expanded=False):
+        add_cols = st.columns([1.2, 1.4, 1.3, 1.6])
+        with add_cols[0]:
+            ts_code = st.text_input("股票代码", placeholder="688808 / 688808.SH", key="stock_pool_add_code")
+        with add_cols[1]:
+            security_name = st.text_input("名称（可选）", placeholder="自动留空也可以", key="stock_pool_add_name")
+        with add_cols[2]:
+            industry = st.text_input("行业（可选）", key="stock_pool_add_industry")
+        with add_cols[3]:
+            tags = st.text_input("标签（可选）", placeholder="观察, 成长", key="stock_pool_add_tags")
+
+        if st.button(
+            "加入自选池",
+            key="stock_pool_quick_add_submit",
+            type="primary",
+            disabled=not current_username or not str(ts_code or "").strip(),
+            use_container_width=True,
+        ):
+            try:
+                status = upsert_stock_pool_item(
+                    current_username,
+                    ts_code,
+                    security_name=security_name,
+                    industry=industry,
+                    tags=tags,
+                    source_file="手动添加",
+                )
+            except Exception as exc:
+                st.error(f"加入失败：{exc}")
+                return
+
+            action_label = "新增" if status == "inserted" else "更新"
+            st.session_state["stock_pool_flash"] = {
+                "level": "success",
+                "message": f"已{action_label} {ts_code} 到自选池",
+            }
+            st.rerun()
+
+
+def render_stock_pool_table(filtered_df: pd.DataFrame) -> None:
+    if filtered_df is None or filtered_df.empty:
+        st.info("当前筛选条件下没有股票。")
+        return
+
+    table_df = filtered_df.copy()
+    table_df["个股详情"] = build_security_name_jump_links(
+        table_df,
+        code_col="ts_code",
+        label_col="security_name",
+        fallback_col="ts_code",
+        nonce_key="stock_pool_detail_link_nonce",
+    )
+    table_df["名称"] = table_df["security_name"].fillna("").astype(str)
+    table_df["代码"] = table_df["ts_code"].fillna("").astype(str)
+    table_df["行业"] = table_df["industry"].fillna("").astype(str).str.strip().replace("", "未标注行业")
+    table_df["标签"] = table_df["tags"].fillna("").astype(str)
+    table_df["备注"] = table_df["note"].fillna("").astype(str)
+    table_df["来源"] = table_df["source_file"].fillna("").astype(str)
+    table_df["更新时间"] = table_df["updated_at"].map(_format_stock_pool_datetime) if "updated_at" in table_df.columns else ""
+
+    st.dataframe(
+        table_df[["个股详情", "名称", "代码", "行业", "标签", "备注", "来源", "更新时间"]],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "个股详情": st.column_config.LinkColumn(
+                "个股详情",
+                help="点击后跳转到个股/指数查询",
+                display_text="🔎 查看",
+            ),
+            "名称": st.column_config.TextColumn("名称", width="medium"),
+            "代码": st.column_config.TextColumn("代码", width="small"),
+            "行业": st.column_config.TextColumn("行业", width="medium"),
+            "标签": st.column_config.TextColumn("标签", width="large"),
+            "备注": st.column_config.TextColumn("备注", width="large"),
+            "来源": st.column_config.TextColumn("来源", width="medium"),
+            "更新时间": st.column_config.TextColumn("更新时间", width="small"),
+        },
+    )
+
+
+def render_stock_pool_metadata_editor(current_username: str, filtered_df: pd.DataFrame) -> None:
+    if filtered_df is None or filtered_df.empty:
+        return
+
+    st.markdown("### 🏷 标签与分组")
+    st.caption("直接编辑“行业 / 标签 / 备注”后保存；多个标签用逗号分隔，可用于上方筛选。")
+    editor_df = filtered_df[["ts_code", "security_name", "industry", "tags", "note"]].copy()
+    editor_df.columns = ["代码", "名称", "行业", "标签", "备注"]
+    editor_df["行业"] = editor_df["行业"].fillna("").astype(str)
+    editor_df["标签"] = editor_df["标签"].fillna("").astype(str)
+    editor_df["备注"] = editor_df["备注"].fillna("").astype(str)
+
+    edited_df = st.data_editor(
+        editor_df,
+        key="stock_pool_metadata_editor",
+        use_container_width=True,
+        hide_index=True,
+        num_rows="fixed",
+        disabled=["代码", "名称"],
+        column_config={
+            "代码": st.column_config.TextColumn("代码", width="small"),
+            "名称": st.column_config.TextColumn("名称", width="medium"),
+            "行业": st.column_config.TextColumn("行业", width="medium"),
+            "标签": st.column_config.TextColumn("标签", width="large"),
+            "备注": st.column_config.TextColumn("备注", width="large"),
+        },
+    )
+
+    save_cols = st.columns([1, 2])
+    with save_cols[0]:
+        save_clicked = st.button(
+            "保存标签/备注",
+            key="stock_pool_metadata_save",
+            type="primary",
+            use_container_width=True,
+        )
+    with save_cols[1]:
+        st.caption("保存会写回当前筛选结果中的股票。")
+
+    if not save_clicked:
+        return
+
+    original_by_code = {
+        str(row.get("ts_code") or "").strip().upper(): row
+        for _, row in filtered_df.iterrows()
+    }
+    update_count = 0
+    for _, row in edited_df.iterrows():
+        code = str(row.get("代码") or "").strip().upper()
+        if not code or code not in original_by_code:
+            continue
+        original = original_by_code[code]
+        new_industry = str(row.get("行业") or "").strip()
+        new_tags = format_stock_pool_tags(row.get("标签") or "")
+        new_note = str(row.get("备注") or "").strip()
+        old_industry = str(original.get("industry") or "").strip()
+        old_tags = format_stock_pool_tags(original.get("tags") or "")
+        old_note = str(original.get("note") or "").strip()
+        if (new_industry, new_tags, new_note) == (old_industry, old_tags, old_note):
+            continue
+
+        update_count += update_stock_pool_item_metadata(
+            current_username,
+            code,
+            industry=new_industry,
+            tags=new_tags,
+            note=new_note,
+        )
+
+    if update_count > 0:
+        st.session_state["stock_pool_flash"] = {
+            "level": "success",
+            "message": f"已保存 {update_count} 只股票的标签/备注",
+        }
+        st.rerun()
+    else:
+        st.info("没有检测到需要保存的修改。")
+
+
+def render_stock_pool_delete_section(current_username: str, filtered_df: pd.DataFrame) -> None:
+    if filtered_df is None or filtered_df.empty:
+        return
+
+    with st.expander("删除自选池条目", expanded=False):
+        option_df = filtered_df[["ts_code", "security_name"]].copy()
+        option_labels = option_df.apply(
+            lambda row: f"{str(row.get('security_name') or row.get('ts_code') or '').strip()}（{str(row.get('ts_code') or '').strip()}）",
+            axis=1,
+        ).tolist()
+        selected_labels = st.multiselect(
+            "选择要删除的股票",
+            options=option_labels,
+            key="stock_pool_remove_multiselect",
+        )
+        if st.button(
+            "删除选中",
+            key="stock_pool_remove_submit",
+            disabled=len(selected_labels) == 0,
+            use_container_width=True,
+        ):
+            codes_to_remove = []
+            for label in selected_labels:
+                idx = option_labels.index(label)
+                codes_to_remove.append(str(option_df.iloc[idx]["ts_code"] or ""))
+            removed_count = remove_stock_pool_items_batch(current_username, codes_to_remove)
+            if removed_count > 0:
+                st.session_state["stock_pool_flash"] = {
+                    "level": "success",
+                    "message": f"已从自选池删除 {removed_count} 只股票",
+                }
+                st.rerun()
+            else:
+                st.warning("未删除任何记录，可能已被移除。")
+
+
+def render_user_stock_pool_tab() -> None:
+    st.subheader("🗂 自选池")
+    st.caption("独立于“自选管理”的用户股票池，适合批量导入、打标签分组、按行业筛选和跳转个股详情。")
+
+    current_username = get_logged_in_username()
+    if not current_username:
+        st.info("请先登录用户名，再查看和管理你的自选池。")
+        return
+
+    _show_stock_pool_flash()
+
+    try:
+        pool_df = list_stock_pool_items(current_username)
+    except Exception as exc:
+        st.error(f"加载自选池失败：{exc}")
+        return
+
+    render_stock_pool_import_section(current_username, pool_df)
+    render_stock_pool_quick_add(current_username)
+
+    if pool_df is None or pool_df.empty:
+        st.info("你的自选池还是空的，可以先导入“自选池20260620.xlsx”这类 Excel。")
+        return
+
+    all_tags = _stock_pool_tag_options(pool_df)
+    industry_options = _stock_pool_industry_options(pool_df)
+
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("自选池股票", f"{len(pool_df):,} 只")
+    metric_cols[1].metric("行业数量", f"{len([item for item in industry_options if item != '未标注行业']):,}")
+    metric_cols[2].metric("标签数量", f"{len(all_tags):,}")
+    latest_update = ""
+    if "updated_at" in pool_df.columns and not pool_df["updated_at"].isna().all():
+        latest_update = _format_stock_pool_datetime(pool_df["updated_at"].max())
+    metric_cols[3].metric("最近更新", latest_update or "-")
+
+    filter_cols = st.columns([1.2, 1.4, 1.4])
+    with filter_cols[0]:
+        keyword = st.text_input(
+            "搜索",
+            placeholder="代码、名称、行业、标签、备注",
+            key="stock_pool_keyword",
+        )
+    with filter_cols[1]:
+        selected_industries = st.multiselect(
+            "行业筛选",
+            options=industry_options,
+            key="stock_pool_industry_filter",
+        )
+    with filter_cols[2]:
+        selected_tags = st.multiselect(
+            "标签筛选",
+            options=all_tags,
+            key="stock_pool_tag_filter",
+        )
+
+    filtered_df = _filter_stock_pool_df(pool_df, keyword, selected_industries, selected_tags)
+    st.caption(f"当前显示 {len(filtered_df):,} / {len(pool_df):,} 只股票")
+
+    render_stock_pool_table(filtered_df)
+    render_stock_pool_metadata_editor(current_username, filtered_df)
+    render_stock_pool_delete_section(current_username, filtered_df)
 
 
 def render_security_search_tab():

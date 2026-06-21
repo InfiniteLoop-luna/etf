@@ -50,6 +50,7 @@ DELISTED_PURGE_TARGETS = [
     {"table_name": "ts_stock_company", "join_expr": "t.ts_code = d.ts_code"},
     {"table_name": "ts_stock_holdernumber", "join_expr": "t.ts_code = d.ts_code"},
     {"table_name": "ts_stock_holdertrade", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stock_dividend", "join_expr": "t.ts_code = d.ts_code"},
     {"table_name": "ts_stock_namechange", "join_expr": "t.ts_code = d.ts_code"},
     {"table_name": "ts_stock_custom_info", "join_expr": "t.ts_code = d.ts_code"},
     {"table_name": "ts_stock_daily", "join_expr": "t.ts_code = d.ts_code"},
@@ -81,6 +82,7 @@ DATASET_TABLES = {
     "stock_company": "ts_stock_company",
     "stock_holdernumber": "ts_stock_holdernumber",
     "stock_holdertrade": "ts_stock_holdertrade",
+    "dividend": "ts_stock_dividend",
     "income": "ts_stock_income",
     "balancesheet": "ts_stock_balancesheet",
     "cashflow": "ts_stock_cashflow",
@@ -116,6 +118,26 @@ STOCK_BASIC_FIELDS = ",".join(
         "is_hs",
         "act_name",
         "act_ent_type",
+    ]
+)
+DIVIDEND_FIELDS = ",".join(
+    [
+        "ts_code",
+        "end_date",
+        "ann_date",
+        "div_proc",
+        "stk_div",
+        "stk_bo_rate",
+        "stk_co_rate",
+        "cash_div",
+        "cash_div_tax",
+        "record_date",
+        "ex_date",
+        "pay_date",
+        "div_listdate",
+        "imp_ann_date",
+        "base_date",
+        "base_share",
     ]
 )
 NORMALIZED_VIEW_SPECS = {
@@ -182,6 +204,24 @@ NORMALIZED_VIEW_SPECS = {
             ("numeric", "after_ratio"),
             ("numeric", "avg_price"),
             ("numeric", "total_share"),
+        ],
+    },
+    "dividend": {
+        "view_name": "vw_ts_stock_dividend",
+        "columns": [
+            ("text", "div_proc"),
+            ("numeric", "stk_div"),
+            ("numeric", "stk_bo_rate"),
+            ("numeric", "stk_co_rate"),
+            ("numeric", "cash_div"),
+            ("numeric", "cash_div_tax"),
+            ("date", "record_date"),
+            ("date", "ex_date"),
+            ("date", "pay_date"),
+            ("date", "div_listdate"),
+            ("date", "imp_ann_date"),
+            ("date", "base_date"),
+            ("numeric", "base_share"),
         ],
     },
     "income": {
@@ -479,7 +519,7 @@ logger = logging.getLogger(__name__)
 FINANCIAL_DATASETS = {"income", "balancesheet", "cashflow", "fina_indicator"}
 DAILY_DATASETS = {"daily", "daily_basic", "index_dailybasic", "stk_week_month_adj"}
 MACRO_DATASETS = {"cn_gdp", "cn_cpi", "cn_ppi", "cn_m", "shibor", "shibor_lpr"}
-ANNOUNCEMENT_DATASETS = {"stock_holdernumber", "stock_holdertrade"}
+ANNOUNCEMENT_DATASETS = {"stock_holdernumber", "stock_holdertrade", "dividend"}
 BACKFILL_SKIP_TS_CODES = {
     "ts_stock_income": {
         "302132.SZ",
@@ -977,6 +1017,18 @@ def resolve_business_key(dataset_name: str, payload: dict) -> str:
             "after_share",
             "after_ratio",
         ],
+        "dividend": [
+            "ts_code",
+            "end_date",
+            "ann_date",
+            "div_proc",
+            "cash_div_tax",
+            "stk_div",
+            "record_date",
+            "ex_date",
+            "pay_date",
+            "imp_ann_date",
+        ],
         "daily": ["ts_code", "trade_date"],
         "daily_basic": ["ts_code", "trade_date"],
         "index_dailybasic": ["ts_code", "trade_date"],
@@ -1369,6 +1421,19 @@ def _iter_date_chunks(start_date: str, end_date: str, chunk_days: int = 14) -> l
     return windows
 
 
+def _iter_calendar_dates(start_date: str, end_date: str) -> list[str]:
+    start = datetime.strptime(start_date, "%Y%m%d").date()
+    end = datetime.strptime(end_date, "%Y%m%d").date()
+    if start > end:
+        return []
+    dates = []
+    current = start
+    while current <= end:
+        dates.append(current.strftime("%Y%m%d"))
+        current += timedelta(days=1)
+    return dates
+
+
 def _filter_dataframe_date_column(df: pd.DataFrame, column_name: str, start_date: str, end_date: str) -> pd.DataFrame:
     if df is None or df.empty or column_name not in df.columns:
         return pd.DataFrame() if df is None else df.copy()
@@ -1420,6 +1485,39 @@ def fetch_stock_holdertrade(pro, start_date: str, end_date: str) -> pd.DataFrame
             "change_vol",
             "after_share",
             "after_ratio",
+        ]
+        if col in result.columns
+    ]
+    if subset_cols:
+        result = result.drop_duplicates(subset=subset_cols, keep="last")
+    return result.reset_index(drop=True)
+
+
+def fetch_dividend(pro, start_date: str, end_date: str) -> pd.DataFrame:
+    frames = []
+    for ann_date in _iter_calendar_dates(start_date, end_date):
+        df = pro.dividend(ann_date=ann_date, fields=DIVIDEND_FIELDS)
+        df = _filter_dataframe_date_column(df, "ann_date", ann_date, ann_date)
+        if df is not None and not df.empty:
+            frames.append(df)
+        time.sleep(DEFAULT_API_SLEEP)
+
+    result = combine_frames(frames)
+    if result.empty:
+        return result
+    subset_cols = [
+        col
+        for col in [
+            "ts_code",
+            "end_date",
+            "ann_date",
+            "div_proc",
+            "cash_div_tax",
+            "stk_div",
+            "record_date",
+            "ex_date",
+            "pay_date",
+            "imp_ann_date",
         ]
         if col in result.columns
     ]
@@ -2183,6 +2281,13 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
                 raw_df = pd.DataFrame()
             else:
                 raw_df = fetch_stock_holdertrade(pro, start_date, end_date)
+        elif dataset_name == "dividend":
+            if args.backfill_missing_history:
+                raw_df = fetch_dividend(pro, args.financial_start, end_date)
+            elif start_date is None or start_date > end_date:
+                raw_df = pd.DataFrame()
+            else:
+                raw_df = fetch_dividend(pro, start_date, end_date)
         elif dataset_name in FINANCIAL_DATASETS:
             if args.backfill_missing_history:
                 written = fetch_financial_dataset_missing_history(pro, engine, dataset_name, table_name, run_end_date)

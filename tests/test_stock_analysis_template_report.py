@@ -101,6 +101,7 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                 "vw_ts_stock_daily_basic": 3,
                 "vw_ts_stock_holdernumber": 3,
                 "vw_ts_stock_holdertrade": 2,
+                "vw_ts_stock_dividend": 2,
                 "tushare_top10_holders": 4,
                 "tushare_top10_floatholders": 4,
             },
@@ -211,6 +212,45 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                     }
                 ],
             },
+            "dividend": {
+                "chart": {
+                    "id": "dividend_cash_amount",
+                    "title": "现金分红金额及每10股派息",
+                    "kind": "bar_line",
+                    "value_label": "现金分红金额",
+                    "unit": "亿元",
+                    "line_label": "每10股派息",
+                    "line_unit": "元",
+                    "source": "vw_ts_stock_dividend.cash_div_tax/base_share",
+                    "rows": [
+                        {"label": "2024-12-31", "value": 2.1014, "line_value": 3.8},
+                        {"label": "2025-12-31", "value": 2.1014, "line_value": 3.8},
+                    ],
+                },
+                "summary": {
+                    "record_count": 2,
+                    "latest_end_date": "2025-12-31",
+                    "latest_stage": "预案",
+                    "latest_cash_per10": 3.8,
+                    "total_cash_amount_yi": 4.2028,
+                    "cash_positive_count": 2,
+                },
+                "records": [
+                    {
+                        "end_date": "2025-12-31",
+                        "div_proc": "预案",
+                        "ann_date": "2026-04-29",
+                        "record_date": "",
+                        "ex_date": "",
+                        "pay_date": "",
+                        "cash_per10_tax": 3.8,
+                        "stock_bonus_per10": 0.0,
+                        "stock_transfer_per10": 0.0,
+                        "base_share_wan": 55300.0,
+                        "cash_amount_yi": 2.1014,
+                    }
+                ],
+            },
             "shareholder_charts": [
                 {
                     "id": "top10_holders",
@@ -315,6 +355,10 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
         self.assertIn("vw_ts_stock_holdertrade=2 行", report)
         self.assertIn("中国振华电子集团有限公司", report)
         self.assertNotIn("当前 FactPack 未包含高管股东增减持明细", report)
+        self.assertIn("现金分红金额及每10股派息", report)
+        self.assertIn("vw_ts_stock_dividend=2 行", report)
+        self.assertIn("每10股派息(税前)", report)
+        self.assertNotIn("当前 FactPack 未包含历年现金分红明细", report)
         self.assertIn("图17：前十大股东", report)
         self.assertIn("图18：前十大股东变化情况（持股数量及持股比例）", report)
         self.assertIn("图19：前十大流通股东", report)
@@ -462,6 +506,26 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                     total_share REAL
                 )
             """))
+            conn.execute(text("""
+                CREATE TABLE vw_ts_stock_dividend (
+                    ts_code TEXT,
+                    end_date TEXT,
+                    ann_date TEXT,
+                    div_proc TEXT,
+                    stk_div REAL,
+                    stk_bo_rate REAL,
+                    stk_co_rate REAL,
+                    cash_div REAL,
+                    cash_div_tax REAL,
+                    record_date TEXT,
+                    ex_date TEXT,
+                    pay_date TEXT,
+                    div_listdate TEXT,
+                    imp_ann_date TEXT,
+                    base_date TEXT,
+                    base_share REAL
+                )
+            """))
             for end_date, revenue, net_profit in [
                 ("2024-03-31", 10_000_000_000, 1_000_000_000),
                 ("2024-06-30", 22_000_000_000, 2_500_000_000),
@@ -533,6 +597,24 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                         "change_vol": change_vol,
                     },
                 )
+            for end_date, ann_date, div_proc, cash_div_tax, base_share in [
+                ("2024-12-31", "2025-04-24", "预案", 0.38, 55300.0),
+                ("2024-12-31", "2025-06-04", "实施", 0.38, 55300.0),
+                ("2025-12-31", "2026-04-29", "预案", 0.38, 55300.0),
+            ]:
+                conn.execute(
+                    text("""
+                        INSERT INTO vw_ts_stock_dividend
+                        VALUES ('000733.SZ', :end_date, :ann_date, :div_proc, 0, NULL, 0, 0, :cash_div_tax, '2025-06-10', '2025-06-11', '2025-06-11', NULL, '2025-06-04', :end_date, :base_share)
+                    """),
+                    {
+                        "end_date": end_date,
+                        "ann_date": ann_date,
+                        "div_proc": div_proc,
+                        "cash_div_tax": cash_div_tax,
+                        "base_share": base_share,
+                    },
+                )
 
         chart_data = load_stock_analysis_template_chart_data(
             "000733.SZ",
@@ -565,6 +647,13 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
         self.assertAlmostEqual(holder_trade["summary"]["net_change_wan"], 226.46)
         self.assertEqual(holder_trade["records"][0]["holder_name"], "中国振华电子集团有限公司")
         self.assertEqual(holder_trade["chart"]["rows"][-1]["value"], 40.04)
+        self.assertEqual(chart_data["source_rows"]["vw_ts_stock_dividend"], 3)
+        dividend = chart_data["dividend"]
+        self.assertEqual(dividend["summary"]["record_count"], 2)
+        self.assertEqual(dividend["summary"]["latest_end_date"], "2025-12-31")
+        self.assertAlmostEqual(dividend["summary"]["total_cash_amount_yi"], 4.2028)
+        self.assertEqual(dividend["records"][0]["cash_per10_tax"], 3.8)
+        self.assertAlmostEqual(dividend["chart"]["rows"][-1]["value"], 2.1014)
 
 
 if __name__ == "__main__":

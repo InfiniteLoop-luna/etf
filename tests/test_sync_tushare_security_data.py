@@ -11,6 +11,7 @@ from src.sync_tushare_security_data import (
     DATASET_TABLES,
     NORMALIZED_VIEW_SPECS,
     build_stock_basic_change_summary,
+    fetch_dividend,
     fetch_stock_holdertrade,
     prepare_records,
     purge_delisted_stock_history,
@@ -63,6 +64,67 @@ class FakeEngine:
 
 
 class StockSyncChangeLogTests(unittest.TestCase):
+    def test_dividend_dataset_is_registered_for_landing_and_view(self):
+        self.assertEqual(DATASET_TABLES["dividend"], "ts_stock_dividend")
+        view_spec = NORMALIZED_VIEW_SPECS["dividend"]
+        self.assertEqual(view_spec["view_name"], "vw_ts_stock_dividend")
+        self.assertIn(("numeric", "cash_div_tax"), view_spec["columns"])
+        self.assertIn(("numeric", "base_share"), view_spec["columns"])
+
+    def test_dividend_records_use_stage_aware_business_key(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "ts_code": "000733.SZ",
+                    "end_date": "20241231",
+                    "ann_date": "20250424",
+                    "div_proc": "实施",
+                    "cash_div_tax": 0.38,
+                    "stk_div": 0.0,
+                    "record_date": "20250610",
+                    "ex_date": "20250611",
+                    "pay_date": "20250611",
+                    "imp_ann_date": "20250604",
+                    "base_share": 55300.0,
+                }
+            ]
+        )
+
+        prepared = prepare_records("dividend", df)
+
+        self.assertEqual(len(prepared), 1)
+        self.assertEqual(prepared.iloc[0]["dataset_name"], "dividend")
+        self.assertIn("dividend|000733.SZ|20241231|20250424|实施", prepared.iloc[0]["business_key"])
+        self.assertEqual(str(prepared.iloc[0]["ann_date"]), "2025-04-24")
+
+    def test_fetch_dividend_queries_each_announcement_date(self):
+        class FakePro:
+            def __init__(self):
+                self.calls = []
+
+            def dividend(self, **kwargs):
+                self.calls.append(kwargs)
+                return pd.DataFrame(
+                    [
+                        {
+                            "ts_code": "000733.SZ",
+                            "end_date": "20241231",
+                            "ann_date": kwargs["ann_date"],
+                            "div_proc": "实施",
+                            "cash_div_tax": 0.38,
+                            "base_share": 55300.0,
+                        }
+                    ]
+                )
+
+        fake_pro = FakePro()
+
+        result = fetch_dividend(fake_pro, "20250101", "20250103")
+
+        self.assertEqual([call["ann_date"] for call in fake_pro.calls], ["20250101", "20250102", "20250103"])
+        self.assertTrue(all("base_share" in str(call.get("fields")) for call in fake_pro.calls))
+        self.assertEqual(len(result), 3)
+
     def test_stock_holdertrade_dataset_is_registered_for_landing_and_view(self):
         self.assertEqual(DATASET_TABLES["stock_holdertrade"], "ts_stock_holdertrade")
         view_spec = NORMALIZED_VIEW_SPECS["stock_holdertrade"]

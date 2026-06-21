@@ -97,6 +97,12 @@ SIDEBAR_MODULES = (
                 "standard",
             ),
             SidebarPage(
+                "stock_pool",
+                "🗂 自选池",
+                "独立分组股票池",
+                "standard",
+            ),
+            SidebarPage(
                 "company_screener",
                 "🏢 公司筛选",
                 "按公司维度筛选",
