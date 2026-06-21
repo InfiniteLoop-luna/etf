@@ -99,6 +99,8 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                 "vw_ts_stock_fina_indicator": 6,
                 "vw_ts_stock_cashflow": 6,
                 "vw_ts_stock_daily_basic": 3,
+                "tushare_top10_holders": 4,
+                "tushare_top10_floatholders": 4,
             },
             "latest": {
                 "trade_date": "2026-05-23",
@@ -141,6 +143,66 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                     ],
                 },
             ],
+            "shareholder_charts": [
+                {
+                    "id": "top10_holders",
+                    "title": "图17：前十大股东",
+                    "kind": "horizontal_bar",
+                    "value_label": "持股数量",
+                    "unit": "万股",
+                    "line_label": "持股比例",
+                    "line_unit": "%",
+                    "source": "Tushare top10_holders（个股查询同源接口）",
+                    "period": "2026-03-31",
+                    "rows": [
+                        {"label": "第一大股东", "value": 12000.0, "ratio": 21.5},
+                        {"label": "第二大股东", "value": 6000.0, "ratio": 10.7},
+                    ],
+                },
+                {
+                    "id": "top10_holders_change",
+                    "title": "图18：前十大股东变化情况（持股数量及持股比例）",
+                    "kind": "bar_line",
+                    "value_label": "前十合计持股数量",
+                    "unit": "万股",
+                    "line_label": "前十合计持股比例",
+                    "line_unit": "%",
+                    "source": "Tushare top10_holders（个股查询同源接口）",
+                    "rows": [
+                        {"label": "2025-12-31", "value": 28000.0, "growth_pct": 48.0},
+                        {"label": "2026-03-31", "value": 30000.0, "growth_pct": 51.0},
+                    ],
+                },
+                {
+                    "id": "top10_float_holders",
+                    "title": "图19：前十大流通股东",
+                    "kind": "horizontal_bar",
+                    "value_label": "持股数量",
+                    "unit": "万股",
+                    "line_label": "持股比例",
+                    "line_unit": "%",
+                    "source": "Tushare top10_floatholders（个股查询同源接口）",
+                    "period": "2026-03-31",
+                    "rows": [
+                        {"label": "流通股东A", "value": 10000.0, "ratio": 18.2},
+                        {"label": "流通股东B", "value": 5500.0, "ratio": 9.5},
+                    ],
+                },
+                {
+                    "id": "top10_float_holders_change",
+                    "title": "图20：前十大流通股东变化情况（持股数量及持股比例）",
+                    "kind": "bar_line",
+                    "value_label": "前十合计持股数量",
+                    "unit": "万股",
+                    "line_label": "前十合计持股比例",
+                    "line_unit": "%",
+                    "source": "Tushare top10_floatholders（个股查询同源接口）",
+                    "rows": [
+                        {"label": "2025-12-31", "value": 24000.0, "growth_pct": 43.0},
+                        {"label": "2026-03-31", "value": 26000.0, "growth_pct": 46.0},
+                    ],
+                },
+            ],
         }
 
     def test_render_template_report_contains_docx_template_sections_and_llm_advice(self):
@@ -177,8 +239,14 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
         self.assertIn("图1：收入（柱状图）及增长率（折线图）（年度）", report)
         self.assertIn("图8：静态市盈率", report)
         self.assertIn("chart-svg", report)
-        self.assertIn("已查询数据库：vw_ts_stock_income=6 行", report)
+        self.assertIn("已查询数据源：vw_ts_stock_income=6 行", report)
+        self.assertIn("图17：前十大股东", report)
+        self.assertIn("图18：前十大股东变化情况（持股数量及持股比例）", report)
+        self.assertIn("图19：前十大流通股东", report)
+        self.assertIn("图20：前十大流通股东变化情况（持股数量及持股比例）", report)
+        self.assertIn("Tushare top10_floatholders（个股查询同源接口）", report)
         self.assertNotIn("当前底稿保留最新值，年度序列需补充后绘制", report)
+        self.assertNotIn("待接入股东结构数据", report)
         self.assertIn("产业景气度和现金流改善形成跟踪价值。", report)
         self.assertIn("MACD、MA（5、10、20、30、60、120、233、250）、EMA（5、30）、交易量、金叉&amp;死叉等指标分析", report)
         self.assertIn("</html>", report)
@@ -336,7 +404,12 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                     {"trade_date": trade_date, "pe": pe, "pe_ttm": pe_ttm, "total_mv": total_mv},
                 )
 
-        chart_data = load_stock_analysis_template_chart_data("000733.SZ", engine=engine, asof_trade_date="2026-06-18")
+        chart_data = load_stock_analysis_template_chart_data(
+            "000733.SZ",
+            engine=engine,
+            asof_trade_date="2026-06-18",
+            shareholder_loader=None,
+        )
         charts = {chart["id"]: chart for chart in chart_data["charts"]}
 
         self.assertEqual(chart_data["source_rows"]["vw_ts_stock_income"], 6)

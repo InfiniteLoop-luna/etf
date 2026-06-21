@@ -13,7 +13,7 @@ from src.sync_tushare_security_data import build_db_url
 logger = logging.getLogger(__name__)
 
 TEMPLATE_REPORT_TABLE = "ts_stock_analysis_template_reports"
-TEMPLATE_REPORT_VERSION = "stock-analysis-template-html-v2"
+TEMPLATE_REPORT_VERSION = "stock-analysis-template-html-v3"
 
 
 def get_engine() -> Engine:
