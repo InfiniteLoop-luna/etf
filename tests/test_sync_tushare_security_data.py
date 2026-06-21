@@ -8,7 +8,11 @@ from unittest.mock import patch
 import pandas as pd
 
 from src.sync_tushare_security_data import (
+    DATASET_TABLES,
+    NORMALIZED_VIEW_SPECS,
     build_stock_basic_change_summary,
+    fetch_stock_holdertrade,
+    prepare_records,
     purge_delisted_stock_history,
     record_stock_change_log,
 )
@@ -59,6 +63,66 @@ class FakeEngine:
 
 
 class StockSyncChangeLogTests(unittest.TestCase):
+    def test_stock_holdertrade_dataset_is_registered_for_landing_and_view(self):
+        self.assertEqual(DATASET_TABLES["stock_holdertrade"], "ts_stock_holdertrade")
+        view_spec = NORMALIZED_VIEW_SPECS["stock_holdertrade"]
+        self.assertEqual(view_spec["view_name"], "vw_ts_stock_holdertrade")
+        self.assertIn(("numeric", "change_vol"), view_spec["columns"])
+        self.assertIn(("numeric", "after_ratio"), view_spec["columns"])
+
+    def test_stock_holdertrade_records_use_stable_business_key(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "ts_code": "000733.SZ",
+                    "ann_date": "20250424",
+                    "holder_name": "中国振华电子集团有限公司",
+                    "holder_type": "C",
+                    "in_de": "IN",
+                    "change_vol": 400400.0,
+                    "after_share": 171837944.0,
+                    "after_ratio": 31.0307,
+                }
+            ]
+        )
+
+        prepared = prepare_records("stock_holdertrade", df)
+
+        self.assertEqual(len(prepared), 1)
+        self.assertEqual(prepared.iloc[0]["dataset_name"], "stock_holdertrade")
+        self.assertIn("stock_holdertrade|000733.SZ|20250424", prepared.iloc[0]["business_key"])
+        self.assertEqual(str(prepared.iloc[0]["ann_date"]), "2025-04-24")
+
+    def test_fetch_stock_holdertrade_splits_by_trade_type(self):
+        class FakePro:
+            def __init__(self):
+                self.calls = []
+
+            def stk_holdertrade(self, **kwargs):
+                self.calls.append(kwargs)
+                return pd.DataFrame(
+                    [
+                        {
+                            "ts_code": "000733.SZ",
+                            "ann_date": kwargs["start_date"],
+                            "holder_name": f"holder-{kwargs['trade_type']}",
+                            "holder_type": "C",
+                            "in_de": kwargs["trade_type"],
+                            "change_vol": 100.0 if kwargs["trade_type"] == "IN" else -50.0,
+                            "after_share": 1000.0,
+                            "after_ratio": 1.0,
+                        }
+                    ]
+                )
+
+        fake_pro = FakePro()
+
+        result = fetch_stock_holdertrade(fake_pro, "20250101", "20250110")
+
+        self.assertEqual([call["trade_type"] for call in fake_pro.calls], ["IN", "DE"])
+        self.assertEqual(len(result), 2)
+        self.assertEqual(set(result["in_de"]), {"IN", "DE"})
+
     @patch("src.sync_tushare_security_data.load_existing_stock_basic_snapshot")
     def test_build_stock_basic_change_summary_detects_add_and_delist(self, mock_load_snapshot):
         mock_load_snapshot.return_value = pd.DataFrame(

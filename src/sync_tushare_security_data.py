@@ -49,6 +49,7 @@ STOCK_CHANGE_LOG_TABLE = "tushare_stock_sync_change_log"
 DELISTED_PURGE_TARGETS = [
     {"table_name": "ts_stock_company", "join_expr": "t.ts_code = d.ts_code"},
     {"table_name": "ts_stock_holdernumber", "join_expr": "t.ts_code = d.ts_code"},
+    {"table_name": "ts_stock_holdertrade", "join_expr": "t.ts_code = d.ts_code"},
     {"table_name": "ts_stock_namechange", "join_expr": "t.ts_code = d.ts_code"},
     {"table_name": "ts_stock_custom_info", "join_expr": "t.ts_code = d.ts_code"},
     {"table_name": "ts_stock_daily", "join_expr": "t.ts_code = d.ts_code"},
@@ -79,6 +80,7 @@ DATASET_TABLES = {
     "stock_basic": "ts_stock_basic",
     "stock_company": "ts_stock_company",
     "stock_holdernumber": "ts_stock_holdernumber",
+    "stock_holdertrade": "ts_stock_holdertrade",
     "income": "ts_stock_income",
     "balancesheet": "ts_stock_balancesheet",
     "cashflow": "ts_stock_cashflow",
@@ -166,6 +168,20 @@ NORMALIZED_VIEW_SPECS = {
         "view_name": "vw_ts_stock_holdernumber",
         "columns": [
             ("integral_numeric", "holder_num"),
+        ],
+    },
+    "stock_holdertrade": {
+        "view_name": "vw_ts_stock_holdertrade",
+        "columns": [
+            ("text", "holder_name"),
+            ("text", "holder_type"),
+            ("text", "in_de"),
+            ("numeric", "change_vol"),
+            ("numeric", "change_ratio"),
+            ("numeric", "after_share"),
+            ("numeric", "after_ratio"),
+            ("numeric", "avg_price"),
+            ("numeric", "total_share"),
         ],
     },
     "income": {
@@ -463,7 +479,7 @@ logger = logging.getLogger(__name__)
 FINANCIAL_DATASETS = {"income", "balancesheet", "cashflow", "fina_indicator"}
 DAILY_DATASETS = {"daily", "daily_basic", "index_dailybasic", "stk_week_month_adj"}
 MACRO_DATASETS = {"cn_gdp", "cn_cpi", "cn_ppi", "cn_m", "shibor", "shibor_lpr"}
-ANNOUNCEMENT_DATASETS = {"stock_holdernumber"}
+ANNOUNCEMENT_DATASETS = {"stock_holdernumber", "stock_holdertrade"}
 BACKFILL_SKIP_TS_CODES = {
     "ts_stock_income": {
         "302132.SZ",
@@ -951,6 +967,16 @@ def resolve_business_key(dataset_name: str, payload: dict) -> str:
         "stock_basic": ["ts_code"],
         "stock_company": ["ts_code"],
         "stock_holdernumber": ["ts_code", "end_date", "ann_date"],
+        "stock_holdertrade": [
+            "ts_code",
+            "ann_date",
+            "holder_name",
+            "holder_type",
+            "in_de",
+            "change_vol",
+            "after_share",
+            "after_ratio",
+        ],
         "daily": ["ts_code", "trade_date"],
         "daily_basic": ["ts_code", "trade_date"],
         "index_dailybasic": ["ts_code", "trade_date"],
@@ -1365,6 +1391,38 @@ def fetch_stock_holdernumber(pro, start_date: str, end_date: str) -> pd.DataFram
     if result.empty:
         return result
     subset_cols = [col for col in ["ts_code", "end_date", "ann_date"] if col in result.columns]
+    if subset_cols:
+        result = result.drop_duplicates(subset=subset_cols, keep="last")
+    return result.reset_index(drop=True)
+
+
+def fetch_stock_holdertrade(pro, start_date: str, end_date: str) -> pd.DataFrame:
+    frames = []
+    for window_start, window_end in _iter_date_chunks(start_date, end_date, chunk_days=14):
+        for trade_type in ["IN", "DE"]:
+            df = pro.stk_holdertrade(start_date=window_start, end_date=window_end, trade_type=trade_type)
+            df = _filter_dataframe_date_column(df, "ann_date", window_start, window_end)
+            if df is not None and not df.empty:
+                frames.append(df)
+            time.sleep(DEFAULT_API_SLEEP)
+
+    result = combine_frames(frames)
+    if result.empty:
+        return result
+    subset_cols = [
+        col
+        for col in [
+            "ts_code",
+            "ann_date",
+            "holder_name",
+            "holder_type",
+            "in_de",
+            "change_vol",
+            "after_share",
+            "after_ratio",
+        ]
+        if col in result.columns
+    ]
     if subset_cols:
         result = result.drop_duplicates(subset=subset_cols, keep="last")
     return result.reset_index(drop=True)
@@ -2120,6 +2178,11 @@ def sync_dataset(engine: Engine, pro, dataset_name: str, args, run_end_date: str
                 raw_df = pd.DataFrame()
             else:
                 raw_df = fetch_stock_holdernumber(pro, start_date, end_date)
+        elif dataset_name == "stock_holdertrade":
+            if start_date is None or start_date > end_date:
+                raw_df = pd.DataFrame()
+            else:
+                raw_df = fetch_stock_holdertrade(pro, start_date, end_date)
         elif dataset_name in FINANCIAL_DATASETS:
             if args.backfill_missing_history:
                 written = fetch_financial_dataset_missing_history(pro, engine, dataset_name, table_name, run_end_date)

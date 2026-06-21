@@ -100,6 +100,7 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                 "vw_ts_stock_cashflow": 6,
                 "vw_ts_stock_daily_basic": 3,
                 "vw_ts_stock_holdernumber": 3,
+                "vw_ts_stock_holdertrade": 2,
                 "tushare_top10_holders": 4,
                 "tushare_top10_floatholders": 4,
             },
@@ -174,6 +175,42 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                     ],
                 },
             ],
+            "holder_trade": {
+                "chart": {
+                    "id": "holder_trade_net_change",
+                    "title": "股东/高管增减持净变动（按公告日）",
+                    "kind": "bar_line",
+                    "value_label": "净增减持数量",
+                    "unit": "万股",
+                    "line_label": "公告笔数",
+                    "line_unit": "条",
+                    "source": "vw_ts_stock_holdertrade.change_vol",
+                    "rows": [
+                        {"label": "2025-01-24", "value": 186.42, "line_value": 1},
+                        {"label": "2025-04-24", "value": 40.04, "line_value": 1},
+                    ],
+                },
+                "summary": {
+                    "record_count": 2,
+                    "latest_ann_date": "2025-04-24",
+                    "increase_count": 2,
+                    "decrease_count": 0,
+                    "net_change_wan": 226.46,
+                },
+                "records": [
+                    {
+                        "ann_date": "2025-04-24",
+                        "holder_name": "中国振华电子集团有限公司",
+                        "holder_type": "公司",
+                        "direction": "增持",
+                        "change_vol_wan": 40.04,
+                        "change_ratio": 0.0723,
+                        "after_share_wan": 17183.7944,
+                        "after_ratio": 31.0307,
+                        "avg_price": None,
+                    }
+                ],
+            },
             "shareholder_charts": [
                 {
                     "id": "top10_holders",
@@ -274,6 +311,10 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
         self.assertIn("图15：股东数量（柱状）及变化率（折线）", report)
         self.assertIn("图16：股东数量（柱状）与股价趋势（折线）", report)
         self.assertIn("vw_ts_stock_holdernumber.holder_num", report)
+        self.assertIn("股东/高管增减持净变动（按公告日）", report)
+        self.assertIn("vw_ts_stock_holdertrade=2 行", report)
+        self.assertIn("中国振华电子集团有限公司", report)
+        self.assertNotIn("当前 FactPack 未包含高管股东增减持明细", report)
         self.assertIn("图17：前十大股东", report)
         self.assertIn("图18：前十大股东变化情况（持股数量及持股比例）", report)
         self.assertIn("图19：前十大流通股东", report)
@@ -406,6 +447,21 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                     holder_num REAL
                 )
             """))
+            conn.execute(text("""
+                CREATE TABLE vw_ts_stock_holdertrade (
+                    ts_code TEXT,
+                    ann_date TEXT,
+                    holder_name TEXT,
+                    holder_type TEXT,
+                    in_de TEXT,
+                    change_vol REAL,
+                    change_ratio REAL,
+                    after_share REAL,
+                    after_ratio REAL,
+                    avg_price REAL,
+                    total_share REAL
+                )
+            """))
             for end_date, revenue, net_profit in [
                 ("2024-03-31", 10_000_000_000, 1_000_000_000),
                 ("2024-06-30", 22_000_000_000, 2_500_000_000),
@@ -461,6 +517,22 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                     """),
                     {"end_date": end_date, "ann_date": end_date, "holder_num": holder_num},
                 )
+            for ann_date, holder_name, in_de, change_vol in [
+                ("2025-01-24", "中国振华电子集团有限公司", "IN", 1_864_200),
+                ("2025-04-24", "中国振华电子集团有限公司", "IN", 400_400),
+            ]:
+                conn.execute(
+                    text("""
+                        INSERT INTO vw_ts_stock_holdertrade
+                        VALUES ('000733.SZ', :ann_date, :holder_name, 'C', :in_de, :change_vol, 0.1, 171837944, 31.03, NULL, 171837944)
+                    """),
+                    {
+                        "ann_date": ann_date,
+                        "holder_name": holder_name,
+                        "in_de": in_de,
+                        "change_vol": change_vol,
+                    },
+                )
 
         chart_data = load_stock_analysis_template_chart_data(
             "000733.SZ",
@@ -486,6 +558,13 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
         self.assertEqual(holder_charts["holder_number_change"]["rows"][-1]["value"], 12000.0)
         self.assertAlmostEqual(holder_charts["holder_number_change"]["rows"][-1]["line_value"], -20.0)
         self.assertEqual(holder_charts["holder_number_price"]["rows"][-1]["line_value"], 10.7)
+        self.assertEqual(chart_data["source_rows"]["vw_ts_stock_holdertrade"], 2)
+        holder_trade = chart_data["holder_trade"]
+        self.assertEqual(holder_trade["summary"]["record_count"], 2)
+        self.assertEqual(holder_trade["summary"]["latest_ann_date"], "2025-04-24")
+        self.assertAlmostEqual(holder_trade["summary"]["net_change_wan"], 226.46)
+        self.assertEqual(holder_trade["records"][0]["holder_name"], "中国振华电子集团有限公司")
+        self.assertEqual(holder_trade["chart"]["rows"][-1]["value"], 40.04)
 
 
 if __name__ == "__main__":
