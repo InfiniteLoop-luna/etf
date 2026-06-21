@@ -9,6 +9,7 @@ BACKUP_BRANCH="${STOCK_BUSINESS_BACKUP_BRANCH:-main}"
 BACKUP_SUBDIR="${STOCK_BUSINESS_BACKUP_SUBDIR:-stock_business}"
 GIT_USER_NAME="${STOCK_BUSINESS_BACKUP_GIT_USER_NAME:-etf-backup-bot}"
 GIT_USER_EMAIL="${STOCK_BUSINESS_BACKUP_GIT_USER_EMAIL:-etf-backup-bot@users.noreply.github.com}"
+PREFERRED_GITHUB_HOST_ALIAS="${STOCK_BUSINESS_BACKUP_GIT_HOST_ALIAS:-github.com-etf}"
 
 if [[ -z "$BACKUP_GIT_URL" ]]; then
   echo "[$(date -Is)] stock-business-github-backup: STOCK_BUSINESS_BACKUP_GIT_URL not set, skip GitHub backup"
@@ -32,15 +33,51 @@ if [[ ${#excel_files[@]} -eq 0 ]]; then
   exit 0
 fi
 
+normalize_git_remote() {
+  local remote_url="$1"
+  local preferred_host="$2"
+
+  if [[ -z "$preferred_host" ]]; then
+    printf '%s\n' "$remote_url"
+    return 0
+  fi
+
+  case "$remote_url" in
+    git@github.com:*)
+      printf '%s\n' "git@${preferred_host}:${remote_url#git@github.com:}"
+      return 0
+      ;;
+    https://github.com/*)
+      printf '%s\n' "git@${preferred_host}:${remote_url#https://github.com/}"
+      return 0
+      ;;
+    ssh://git@github.com/*)
+      printf '%s\n' "git@${preferred_host}:${remote_url#ssh://git@github.com/}"
+      return 0
+      ;;
+    git@${preferred_host}:*|ssh://git@${preferred_host}/*)
+      printf '%s\n' "$remote_url"
+      return 0
+      ;;
+    *)
+      printf '%s\n' "$remote_url"
+      return 0
+      ;;
+  esac
+}
+
+NORMALIZED_BACKUP_GIT_URL="$(normalize_git_remote "$BACKUP_GIT_URL" "$PREFERRED_GITHUB_HOST_ALIAS")"
+
 if [[ -d "$BACKUP_DIR/.git" ]]; then
   cd "$BACKUP_DIR"
+  git remote set-url origin "$NORMALIZED_BACKUP_GIT_URL"
 else
   if [[ -d "$BACKUP_DIR" && -n "$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
     echo "[$(date -Is)] stock-business-github-backup: backup dir exists but is not a git repo: $BACKUP_DIR"
     exit 1
   fi
   mkdir -p "$(dirname "$BACKUP_DIR")"
-  git clone "$BACKUP_GIT_URL" "$BACKUP_DIR"
+  git clone "$NORMALIZED_BACKUP_GIT_URL" "$BACKUP_DIR"
   cd "$BACKUP_DIR"
 fi
 
