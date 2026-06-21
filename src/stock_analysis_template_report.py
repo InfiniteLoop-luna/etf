@@ -29,6 +29,7 @@ LLMAnalyzer = Callable[[dict[str, Any]], dict[str, Any] | None]
 ChartDataLoader = Callable[..., dict[str, Any]]
 ShareholderDataLoader = Callable[..., dict[str, Any]]
 FINANCIAL_CHART_MARKER = "[[TEMPLATE_FINANCIAL_CHARTS]]"
+HOLDER_NUMBER_CHART_MARKER = "[[TEMPLATE_HOLDER_NUMBER_CHARTS]]"
 SHAREHOLDER_CHART_MARKER = "[[TEMPLATE_SHAREHOLDER_CHARTS]]"
 
 
@@ -218,6 +219,104 @@ def _daily_line_series(
             }
         )
     return rows
+
+
+def _holder_number_change_series(holder_df: pd.DataFrame, *, limit: int = 12) -> list[dict[str, Any]]:
+    work = _latest_period_rows(holder_df, "end_date", ["holder_num"])
+    if work.empty or "holder_num" not in work.columns:
+        return []
+    rows: list[dict[str, Any]] = []
+    previous_value: float | None = None
+    for _, row in work.iterrows():
+        value = _to_float(row.get("holder_num"))
+        if value is None:
+            continue
+        rows.append(
+            {
+                "label": pd.to_datetime(row["end_date"]).strftime("%Y-%m-%d"),
+                "value": value,
+                "line_value": _pct_change(value, previous_value),
+            }
+        )
+        previous_value = value
+    return rows[-limit:]
+
+
+def _holder_number_price_series(
+    holder_df: pd.DataFrame,
+    daily_df: pd.DataFrame,
+    *,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    holders = _latest_period_rows(holder_df, "end_date", ["holder_num"])
+    prices = _latest_period_rows(daily_df, "trade_date", ["close"])
+    if holders.empty or prices.empty or "holder_num" not in holders.columns or "close" not in prices.columns:
+        return []
+    holders = holders.dropna(subset=["end_date", "holder_num"]).sort_values("end_date")
+    prices = prices.dropna(subset=["trade_date", "close"]).sort_values("trade_date")
+    if holders.empty or prices.empty:
+        return []
+    aligned = pd.merge_asof(
+        holders,
+        prices[["trade_date", "close"]],
+        left_on="end_date",
+        right_on="trade_date",
+        direction="forward",
+    )
+    if "close" in aligned.columns and aligned["close"].isna().any():
+        fallback = pd.merge_asof(
+            holders,
+            prices[["trade_date", "close"]],
+            left_on="end_date",
+            right_on="trade_date",
+            direction="backward",
+        )
+        aligned["close"] = aligned["close"].fillna(fallback.get("close"))
+        aligned["trade_date"] = aligned["trade_date"].fillna(fallback.get("trade_date"))
+    rows: list[dict[str, Any]] = []
+    for _, row in aligned.iterrows():
+        value = _to_float(row.get("holder_num"))
+        close = _to_float(row.get("close"))
+        if value is None:
+            continue
+        rows.append(
+            {
+                "label": pd.to_datetime(row["end_date"]).strftime("%Y-%m-%d"),
+                "value": value,
+                "line_value": close,
+                "price_date": _normalize_date_text(row.get("trade_date")),
+            }
+        )
+    return rows[-limit:]
+
+
+def _holder_number_charts(holder_df: pd.DataFrame, daily_df: pd.DataFrame) -> list[dict[str, Any]]:
+    return [
+        _chart(
+            "holder_number_change",
+            "图15：股东数量（柱状）及变化率（折线）",
+            "bar_line",
+            _holder_number_change_series(holder_df),
+            value_label="股东数量",
+            unit="户",
+            source="vw_ts_stock_holdernumber.holder_num",
+            line_label="变化率",
+            line_unit="%",
+            empty_reason="vw_ts_stock_holdernumber 暂无足够历史股东人数序列。",
+        ),
+        _chart(
+            "holder_number_price",
+            "图16：股东数量（柱状）与股价趋势（折线）",
+            "bar_line",
+            _holder_number_price_series(holder_df, daily_df),
+            value_label="股东数量",
+            unit="户",
+            source="vw_ts_stock_holdernumber.holder_num + vw_ts_stock_daily_basic.close",
+            line_label="收盘价",
+            line_unit="元",
+            empty_reason="vw_ts_stock_holdernumber 或 vw_ts_stock_daily_basic.close 暂无足够可对齐序列。",
+        ),
+    ]
 
 
 def _normalize_holder_frame(df: pd.DataFrame | None) -> pd.DataFrame:
@@ -535,7 +634,7 @@ def load_stock_analysis_template_chart_data(
     daily_df = _read_sql_frame(
         engine,
         f"""
-        SELECT ts_code, trade_date, pe, pe_ttm, dv_ratio, dv_ttm,
+        SELECT ts_code, trade_date, close, pe, pe_ttm, dv_ratio, dv_ttm,
                total_mv, circ_mv, total_share, float_share
         FROM vw_ts_stock_daily_basic
         WHERE ts_code = :ts_code{daily_date_filter}
@@ -543,6 +642,17 @@ def load_stock_analysis_template_chart_data(
         """,
         daily_params,
         "vw_ts_stock_daily_basic",
+    )
+    holder_df = _read_sql_frame(
+        engine,
+        f"""
+        SELECT ts_code, end_date, ann_date, holder_num
+        FROM vw_ts_stock_holdernumber
+        WHERE ts_code = :ts_code{financial_date_filter}
+        ORDER BY end_date, ann_date
+        """,
+        financial_params,
+        "vw_ts_stock_holdernumber",
     )
     shareholder_data = (
         shareholder_loader(ts_code_key, asof_trade_date=asof_date)
@@ -680,6 +790,7 @@ def load_stock_analysis_template_chart_data(
     ]
     return {
         "charts": charts,
+        "holder_number_charts": _holder_number_charts(holder_df, daily_df),
         "shareholder_charts": shareholder_data.get("charts") if isinstance(shareholder_data, dict) else [],
         "latest": _latest_daily_snapshot(daily_df),
         "source_rows": {
@@ -687,6 +798,7 @@ def load_stock_analysis_template_chart_data(
             "vw_ts_stock_fina_indicator": int(len(fina_df)) if fina_df is not None else 0,
             "vw_ts_stock_cashflow": int(len(cashflow_df)) if cashflow_df is not None else 0,
             "vw_ts_stock_daily_basic": int(len(daily_df)) if daily_df is not None else 0,
+            "vw_ts_stock_holdernumber": int(len(holder_df)) if holder_df is not None else 0,
             **((shareholder_data.get("source_rows") or {}) if isinstance(shareholder_data, dict) else {}),
         },
         "shareholder_errors": shareholder_data.get("errors") if isinstance(shareholder_data, dict) else {},
@@ -797,13 +909,16 @@ def _chart_bounds(values: list[float]) -> tuple[float, float]:
 def _chart_latest_caption(chart: dict[str, Any], rows: list[dict[str, Any]]) -> str:
     latest = rows[-1] if rows else {}
     value = _to_float(latest.get("value"))
-    growth = _to_float(latest.get("growth_pct"))
+    line_value = _to_float(latest.get("line_value"))
+    if line_value is None:
+        line_value = _to_float(latest.get("growth_pct"))
     label = _raw_text(latest.get("label"), "-")
     value_label = _raw_text(chart.get("value_label"), "指标")
     unit = _raw_text(chart.get("unit"), "")
     parts = [f"{label} {value_label} {_fmt(value)}{unit if value is not None else ''}"]
-    if growth is not None:
-        parts.append(f"{_raw_text(chart.get('line_label'), '增长率')} {_fmt(growth, suffix='%')}")
+    if line_value is not None:
+        line_unit = _raw_text(chart.get("line_unit"), "")
+        parts.append(f"{_raw_text(chart.get('line_label'), '增长率')} {_fmt(line_value)}{line_unit}")
     return "，".join(parts)
 
 
@@ -917,13 +1032,14 @@ def _render_chart_svg(chart: dict[str, Any]) -> str:
             pieces.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.4" class="value-point"/>')
 
     growth_rows = [
-        (index, _to_float(row.get("growth_pct")))
+        (index, _to_float(row.get("line_value")) if _to_float(row.get("line_value")) is not None else _to_float(row.get("growth_pct")))
         for index, row in enumerate(rows)
-        if _to_float(row.get("growth_pct")) is not None
+        if (_to_float(row.get("line_value")) if _to_float(row.get("line_value")) is not None else _to_float(row.get("growth_pct"))) is not None
     ]
     if chart_kind == "bar_line" and growth_rows:
         growth_values = [float(value) for _, value in growth_rows if value is not None]
         growth_min, growth_max = _chart_bounds(growth_values)
+        line_unit = _raw_text(chart.get("line_unit"), "")
 
         def y_right(value: float) -> float:
             return bottom - ((value - growth_min) / (growth_max - growth_min)) * plot_height
@@ -932,8 +1048,8 @@ def _render_chart_svg(chart: dict[str, Any]) -> str:
             [
                 f'<line x1="{right}" y1="{top}" x2="{right}" y2="{bottom}" class="axis axis-right"/>',
                 f'<text x="{right}" y="18" text-anchor="end" class="axis-label">{_svg_text(chart.get("line_unit"))}</text>',
-                f'<text x="{right}" y="{top + 4}" text-anchor="end" class="tick-label">{_svg_text(_fmt(growth_max, suffix="%"))}</text>',
-                f'<text x="{right}" y="{bottom - 4}" text-anchor="end" class="tick-label">{_svg_text(_fmt(growth_min, suffix="%"))}</text>',
+                f'<text x="{right}" y="{top + 4}" text-anchor="end" class="tick-label">{_svg_text(_fmt(growth_max, suffix=line_unit))}</text>',
+                f'<text x="{right}" y="{bottom - 4}" text-anchor="end" class="tick-label">{_svg_text(_fmt(growth_min, suffix=line_unit))}</text>',
             ]
         )
         points = [(x_at(index), y_right(float(value))) for index, value in growth_rows if value is not None]
@@ -991,6 +1107,55 @@ def _render_financial_chart_section(chart_data: dict[str, Any] | None) -> str:
             '<section class="financial-chart-section">',
             "<h3>模板财务图表</h3>",
             f'<p class="chart-source">已查询数据源：{source_text or "暂无行数信息"}</p>',
+            '<div class="chart-grid">',
+            *cards,
+            "</div>",
+            "</section>",
+        ]
+    )
+
+
+def _render_holder_number_chart_section(chart_data: dict[str, Any] | None) -> str:
+    chart_data = chart_data if isinstance(chart_data, dict) else {}
+    charts = [chart for chart in (chart_data.get("holder_number_charts") or []) if isinstance(chart, dict)]
+    source_rows = chart_data.get("source_rows") if isinstance(chart_data.get("source_rows"), dict) else {}
+    holder_source_rows = {
+        key: value for key, value in source_rows.items()
+        if str(key) in {"vw_ts_stock_holdernumber", "vw_ts_stock_daily_basic"}
+    }
+    if not charts:
+        return (
+            '<section class="financial-chart-section holder-number-chart-section">'
+            "<h3>股东数量图表</h3>"
+            "<blockquote>数据缺口：尚未查询到可绘制的股东人数历史序列。</blockquote>"
+            "</section>"
+        )
+    source_text = "；".join(f"{escape(str(key))}={int(value or 0)} 行" for key, value in holder_source_rows.items())
+    cards: list[str] = []
+    for chart in charts:
+        rows = [row for row in (chart.get("rows") or []) if isinstance(row, dict) and _to_float(row.get("value")) is not None]
+        caption = _chart_latest_caption(chart, rows) if rows else _raw_text(chart.get("empty_reason"), "暂无可绘制数据。")
+        cards.append(
+            "\n".join(
+                [
+                    f'<div class="chart-card" id="chart-{escape(str(chart.get("id") or ""))}">',
+                    f'<h3>{escape(str(chart.get("title") or ""))}</h3>',
+                    _render_chart_svg(chart),
+                    '<div class="chart-legend">',
+                    f'<span><i class="legend-bar"></i>{escape(str(chart.get("value_label") or ""))}</span>',
+                    f'<span><i class="legend-line"></i>{escape(str(chart.get("line_label") or ""))}</span>' if chart.get("kind") == "bar_line" else "",
+                    "</div>",
+                    f'<p class="chart-caption">{escape(caption)}</p>',
+                    f'<p class="chart-source">数据源：{escape(str(chart.get("source") or "-"))}</p>',
+                    "</div>",
+                ]
+            )
+        )
+    return "\n".join(
+        [
+            '<section class="financial-chart-section holder-number-chart-section">',
+            "<h3>股东数量图表</h3>",
+            f'<p class="chart-source">已查询个股查询同源历史数据：{source_text or "暂无行数信息"}</p>',
             '<div class="chart-grid">',
             *cards,
             "</div>",
@@ -1371,8 +1536,7 @@ def render_stock_analysis_template_markdown(
             "",
             f"- 最新股东数量：{_fmt(profile.get('holder_num'), 0)}",
             f"- 股东数量截止日：{_raw_text(profile.get('holder_end_date'))}",
-            "- 图15：股东数量（柱状）及变化率（折线）：当前底稿只含最新股东数量，历史序列需补充后绘制。",
-            "- 图16：股东数量（柱状）与股价趋势（折线）：当前底稿可提供股价趋势，股东历史序列需补充。",
+            HOLDER_NUMBER_CHART_MARKER,
             "",
             "### 所有报告期前十大股东分析",
             "",
@@ -1450,8 +1614,10 @@ def render_stock_analysis_template_html(
     markdown_text = render_stock_analysis_template_markdown(fact_pack, llm_result)
     body_html = _markdown_to_body_html(markdown_text)
     chart_html = _render_financial_chart_section(fact_pack.get("template_chart_data") if isinstance(fact_pack.get("template_chart_data"), dict) else {})
+    holder_number_html = _render_holder_number_chart_section(fact_pack.get("template_chart_data") if isinstance(fact_pack.get("template_chart_data"), dict) else {})
     shareholder_html = _render_shareholder_chart_section(fact_pack.get("template_chart_data") if isinstance(fact_pack.get("template_chart_data"), dict) else {})
     body_html = body_html.replace(f"<p>{FINANCIAL_CHART_MARKER}</p>", chart_html)
+    body_html = body_html.replace(f"<p>{HOLDER_NUMBER_CHART_MARKER}</p>", holder_number_html)
     body_html = body_html.replace(f"<p>{SHAREHOLDER_CHART_MARKER}</p>", shareholder_html)
     return f"""<!doctype html>
 <html lang="zh-CN">

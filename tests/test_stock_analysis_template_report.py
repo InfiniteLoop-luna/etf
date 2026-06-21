@@ -99,6 +99,7 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                 "vw_ts_stock_fina_indicator": 6,
                 "vw_ts_stock_cashflow": 6,
                 "vw_ts_stock_daily_basic": 3,
+                "vw_ts_stock_holdernumber": 3,
                 "tushare_top10_holders": 4,
                 "tushare_top10_floatholders": 4,
             },
@@ -140,6 +141,36 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                         {"label": "2026-05-21", "value": 17.8},
                         {"label": "2026-05-22", "value": 18.0},
                         {"label": "2026-05-23", "value": 18.2},
+                    ],
+                },
+            ],
+            "holder_number_charts": [
+                {
+                    "id": "holder_number_change",
+                    "title": "图15：股东数量（柱状）及变化率（折线）",
+                    "kind": "bar_line",
+                    "value_label": "股东数量",
+                    "unit": "户",
+                    "line_label": "变化率",
+                    "line_unit": "%",
+                    "source": "vw_ts_stock_holdernumber.holder_num",
+                    "rows": [
+                        {"label": "2025-12-31", "value": 15000, "line_value": None},
+                        {"label": "2026-03-31", "value": 12345, "line_value": -17.7},
+                    ],
+                },
+                {
+                    "id": "holder_number_price",
+                    "title": "图16：股东数量（柱状）与股价趋势（折线）",
+                    "kind": "bar_line",
+                    "value_label": "股东数量",
+                    "unit": "户",
+                    "line_label": "收盘价",
+                    "line_unit": "元",
+                    "source": "vw_ts_stock_holdernumber.holder_num + vw_ts_stock_daily_basic.close",
+                    "rows": [
+                        {"label": "2025-12-31", "value": 15000, "line_value": 9.5},
+                        {"label": "2026-03-31", "value": 12345, "line_value": 10.7},
                     ],
                 },
             ],
@@ -240,12 +271,16 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
         self.assertIn("图8：静态市盈率", report)
         self.assertIn("chart-svg", report)
         self.assertIn("已查询数据源：vw_ts_stock_income=6 行", report)
+        self.assertIn("图15：股东数量（柱状）及变化率（折线）", report)
+        self.assertIn("图16：股东数量（柱状）与股价趋势（折线）", report)
+        self.assertIn("vw_ts_stock_holdernumber.holder_num", report)
         self.assertIn("图17：前十大股东", report)
         self.assertIn("图18：前十大股东变化情况（持股数量及持股比例）", report)
         self.assertIn("图19：前十大流通股东", report)
         self.assertIn("图20：前十大流通股东变化情况（持股数量及持股比例）", report)
         self.assertIn("Tushare top10_floatholders（个股查询同源接口）", report)
         self.assertNotIn("当前底稿保留最新值，年度序列需补充后绘制", report)
+        self.assertNotIn("历史序列需补充后绘制", report)
         self.assertNotIn("待接入股东结构数据", report)
         self.assertIn("产业景气度和现金流改善形成跟踪价值。", report)
         self.assertIn("MACD、MA（5、10、20、30、60、120、233、250）、EMA（5、30）、交易量、金叉&amp;死叉等指标分析", report)
@@ -352,6 +387,7 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                 CREATE TABLE vw_ts_stock_daily_basic (
                     ts_code TEXT,
                     trade_date TEXT,
+                    close REAL,
                     pe REAL,
                     pe_ttm REAL,
                     dv_ratio REAL,
@@ -360,6 +396,14 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                     circ_mv REAL,
                     total_share REAL,
                     float_share REAL
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE vw_ts_stock_holdernumber (
+                    ts_code TEXT,
+                    end_date TEXT,
+                    ann_date TEXT,
+                    holder_num REAL
                 )
             """))
             for end_date, revenue, net_profit in [
@@ -391,17 +435,31 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                     """),
                     {"end_date": end_date, "ann_date": end_date, "cashflow": net_profit * 1.1},
                 )
-            for trade_date, pe, pe_ttm, total_mv in [
-                ("2026-06-16", 18.0, 20.0, 1_600_000),
-                ("2026-06-17", 18.5, 20.5, 1_650_000),
-                ("2026-06-18", 19.0, 21.0, 1_700_000),
+            for trade_date, close, pe, pe_ttm, total_mv in [
+                ("2025-12-31", 9.5, 16.0, 18.0, 1_450_000),
+                ("2026-03-31", 10.7, 17.0, 19.0, 1_520_000),
+                ("2026-06-16", 11.2, 18.0, 20.0, 1_600_000),
+                ("2026-06-17", 11.4, 18.5, 20.5, 1_650_000),
+                ("2026-06-18", 11.6, 19.0, 21.0, 1_700_000),
             ]:
                 conn.execute(
                     text("""
                         INSERT INTO vw_ts_stock_daily_basic
-                        VALUES ('000733.SZ', :trade_date, :pe, :pe_ttm, 1.1, 1.2, :total_mv, 1500000, 160000, 120000)
+                        VALUES ('000733.SZ', :trade_date, :close, :pe, :pe_ttm, 1.1, 1.2, :total_mv, 1500000, 160000, 120000)
                     """),
-                    {"trade_date": trade_date, "pe": pe, "pe_ttm": pe_ttm, "total_mv": total_mv},
+                    {"trade_date": trade_date, "close": close, "pe": pe, "pe_ttm": pe_ttm, "total_mv": total_mv},
+                )
+            for end_date, holder_num in [
+                ("2025-09-30", 18000),
+                ("2025-12-31", 15000),
+                ("2026-03-31", 12000),
+            ]:
+                conn.execute(
+                    text("""
+                        INSERT INTO vw_ts_stock_holdernumber
+                        VALUES ('000733.SZ', :end_date, :ann_date, :holder_num)
+                    """),
+                    {"end_date": end_date, "ann_date": end_date, "holder_num": holder_num},
                 )
 
         chart_data = load_stock_analysis_template_chart_data(
@@ -422,6 +480,12 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
         self.assertEqual(charts["deducted_profit_annual"]["rows"][-1]["value"], 81.0)
         self.assertEqual(charts["static_pe"]["rows"][-1]["value"], 19.0)
         self.assertEqual(chart_data["latest"]["total_mv_yi"], 170.0)
+        holder_charts = {chart["id"]: chart for chart in chart_data["holder_number_charts"]}
+        self.assertEqual(chart_data["source_rows"]["vw_ts_stock_holdernumber"], 3)
+        self.assertEqual(holder_charts["holder_number_change"]["rows"][-1]["label"], "2026-03-31")
+        self.assertEqual(holder_charts["holder_number_change"]["rows"][-1]["value"], 12000.0)
+        self.assertAlmostEqual(holder_charts["holder_number_change"]["rows"][-1]["line_value"], -20.0)
+        self.assertEqual(holder_charts["holder_number_price"]["rows"][-1]["line_value"], 10.7)
 
 
 if __name__ == "__main__":
