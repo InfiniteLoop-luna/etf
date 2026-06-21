@@ -8477,12 +8477,21 @@ def render_tech_picker_tab():
 
     render_tech_picker_jump_table(filtered_df)
 
+def _format_company_screener_list_date(value) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.notna(parsed):
+        return parsed.strftime("%Y-%m-%d")
+    return str(value).strip()
+
+
 def build_company_screener_result_action_df(
     results_df: pd.DataFrame,
     existing_watchlist_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     if results_df is None or results_df.empty:
-        return pd.DataFrame(columns=["选择", "序号", "查询", "代码", "简称", "行业", "标签", "已在自选", "主要业务", "产品及服务"])
+        return pd.DataFrame(columns=["选择", "序号", "查询", "代码", "简称", "行业", "上市日期", "标签", "已在自选", "主要业务", "产品及服务"])
 
     existing_codes: set[str] = set()
     if isinstance(existing_watchlist_df, pd.DataFrame) and not existing_watchlist_df.empty and "ts_code" in existing_watchlist_df.columns:
@@ -8510,6 +8519,7 @@ def build_company_screener_result_action_df(
         "代码": base_df["代码"],
         "简称": base_df["简称"],
         "行业": results_df.get("industry", pd.Series([""] * len(results_df))).fillna("").astype(str).str.strip(),
+        "上市日期": results_df.get("list_date", pd.Series([""] * len(results_df))).map(_format_company_screener_list_date),
         "主要业务": results_df.get("main_business", pd.Series([""] * len(results_df))).fillna("").astype(str),
         "产品及服务": results_df.get("product", pd.Series([""] * len(results_df))).fillna("").astype(str),
     })
@@ -8519,6 +8529,44 @@ def build_company_screener_result_action_df(
         action_df["标签"] = ""
     action_df["已在自选"] = action_df["代码"].map(lambda code: "✅ 已在自选" if code in existing_codes else "")
     return action_df
+
+
+COMPANY_SCREENER_TIME_FILTER_OPTIONS = ("全部", "指定日期", "最近1个月", "最近2个月", "最近3个月")
+COMPANY_SCREENER_RELATIVE_MONTHS = {
+    "最近1个月": 1,
+    "最近2个月": 2,
+    "最近3个月": 3,
+}
+
+
+def _coerce_company_screener_date(value, fallback=None):
+    if value is None:
+        return fallback
+    if isinstance(value, datetime):
+        return value.date()
+    if hasattr(value, "date") and not isinstance(value, str):
+        try:
+            return value.date()
+        except Exception:
+            pass
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.notna(parsed):
+        return parsed.date()
+    return fallback
+
+
+def _resolve_company_screener_list_date_filter(time_filter: str, selected_date) -> tuple[str | None, str | None]:
+    today = datetime.now().date()
+    if time_filter == "指定日期":
+        target_date = _coerce_company_screener_date(selected_date, today)
+        return target_date.isoformat(), target_date.isoformat()
+
+    months = COMPANY_SCREENER_RELATIVE_MONTHS.get(time_filter)
+    if months:
+        start_date = (pd.Timestamp(today) - pd.DateOffset(months=months)).date()
+        return start_date.isoformat(), today.isoformat()
+
+    return None, None
 
 
 
@@ -8712,6 +8760,13 @@ def render_company_screener_tab():
 
     existing_filters = st.session_state.get(filter_state_key, {})
     default_industries = existing_filters.get("industries") or ["全部"]
+    default_time_filter = existing_filters.get("time_filter") or "全部"
+    if default_time_filter not in COMPANY_SCREENER_TIME_FILTER_OPTIONS:
+        default_time_filter = "全部"
+    default_selected_list_date = _coerce_company_screener_date(
+        existing_filters.get("selected_list_date"),
+        datetime.now().date(),
+    )
 
     col1, col2, col3 = st.columns([1.5, 1.5, 1.5])
     with col1:
@@ -8738,12 +8793,41 @@ def render_company_screener_tab():
             key="company_screener_business_kw",
         )
 
+    time_col1, time_col2, time_col3 = st.columns([1.2, 1.2, 2.1])
+    with time_col1:
+        time_filter = st.selectbox(
+            "上市日期",
+            options=list(COMPANY_SCREENER_TIME_FILTER_OPTIONS),
+            index=COMPANY_SCREENER_TIME_FILTER_OPTIONS.index(default_time_filter),
+            key="company_screener_time_filter",
+        )
+    if time_filter == "指定日期":
+        with time_col2:
+            selected_list_date = st.date_input(
+                "指定日期",
+                value=default_selected_list_date,
+                key="company_screener_selected_list_date",
+            )
+    else:
+        selected_list_date = default_selected_list_date
+
+    list_date_start, list_date_end = _resolve_company_screener_list_date_filter(
+        time_filter,
+        selected_list_date,
+    )
+    if list_date_start and list_date_end:
+        time_col3.caption(f"筛选上市日期：{list_date_start} 至 {list_date_end}")
+    else:
+        time_col3.caption("不限制上市日期")
+
     if st.button("开始筛选", type="primary", key="company_screener_submit"):
         with st.spinner("正在检索符合条件的公司..."):
             df = search_companies(
                 industries=selected_industries,
                 product_kw=product_kw,
                 business_kw=business_kw,
+                list_date_start=list_date_start,
+                list_date_end=list_date_end,
             )
             st.session_state[result_state_key] = df
             st.session_state.pop("company_screener_action_df_cache", None)
@@ -8751,6 +8835,10 @@ def render_company_screener_tab():
                 "industries": selected_industries,
                 "product_kw": product_kw,
                 "business_kw": business_kw,
+                "time_filter": time_filter,
+                "selected_list_date": _coerce_company_screener_date(selected_list_date, datetime.now().date()).isoformat(),
+                "list_date_start": list_date_start,
+                "list_date_end": list_date_end,
             }
             if df.empty:
                 st.warning("没有检索到符合条件的公司，请尝试调整关键词。")
@@ -8810,6 +8898,7 @@ def render_company_screener_tab():
             ),
             "标签": st.column_config.TextColumn("标签", width="small"),
             "已在自选": st.column_config.TextColumn("已在自选", width="small"),
+            "上市日期": st.column_config.TextColumn("上市日期", width="small"),
             "主要业务": st.column_config.TextColumn("主要业务", width="large"),
             "产品及服务": st.column_config.TextColumn("产品及服务", width="large"),
         },
@@ -8951,8 +9040,11 @@ def render_company_screener_tab():
                                 industries=latest_filters.get("industries"),
                                 product_kw=latest_filters.get("product_kw"),
                                 business_kw=latest_filters.get("business_kw"),
+                                list_date_start=latest_filters.get("list_date_start"),
+                                list_date_end=latest_filters.get("list_date_end"),
                             )
                             st.session_state[result_state_key] = refreshed_df
+                            st.session_state.pop("company_screener_action_df_cache", None)
                             st.session_state.pop(mb_key, None)
                             st.session_state.pop(pd_key, None)
                             if validation["action"] == "clear":

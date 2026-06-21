@@ -761,7 +761,14 @@ def search_security(keyword: str, security_type: str = 'all', limit: int = 20, e
     """
     return pd.read_sql(text(sql), engine, params=params)
 
-def search_companies(industries: list = None, product_kw: str = None, business_kw: str = None, engine=None) -> pd.DataFrame:
+def search_companies(
+    industries: list = None,
+    product_kw: str = None,
+    business_kw: str = None,
+    list_date_start: str | None = None,
+    list_date_end: str | None = None,
+    engine=None,
+) -> pd.DataFrame:
     if engine is None:
         engine = _get_engine()
 
@@ -785,20 +792,35 @@ def search_companies(industries: list = None, product_kw: str = None, business_k
         conditions.append("c.main_business ILIKE :business_kw")
         params['business_kw'] = f"%{business_kw}%"
 
+    normalized_list_date_start = str(list_date_start).strip() if list_date_start else ""
+    normalized_list_date_end = str(list_date_end).strip() if list_date_end else ""
+    if normalized_list_date_start:
+        conditions.append("b.list_date >= CAST(:list_date_start AS date)")
+        params["list_date_start"] = normalized_list_date_start
+    if normalized_list_date_end:
+        conditions.append("b.list_date <= CAST(:list_date_end AS date)")
+        params["list_date_end"] = normalized_list_date_end
+
     where_clause = " AND ".join(conditions)
+    order_clause = (
+        "b.list_date DESC NULLS LAST, b.ts_code"
+        if normalized_list_date_start or normalized_list_date_end
+        else "b.ts_code"
+    )
 
     sql = f"""
         SELECT 
             b.ts_code,
             b.name,
             b.industry,
+            b.list_date,
             {HAS_EVER_ST_SQL} AS has_ever_st,
             c.main_business,
             c.business_scope AS product
         FROM {STOCK_BASIC_VIEW} b
         LEFT JOIN vw_ts_stock_company c ON b.ts_code = c.ts_code
         WHERE {where_clause}
-        ORDER BY b.ts_code
+        ORDER BY {order_clause}
     """
     return pd.read_sql(text(sql), engine, params=params)
 
