@@ -1,0 +1,10 @@
+[Unit]
+Description=ETF stock business daily Excel backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/etf-app
+ExecStart=/usr/local/bin/etf-stock-business-daily.sh

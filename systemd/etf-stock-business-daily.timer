@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ETF stock business backup at 21:00 Asia/Shanghai
+
+[Timer]
+OnCalendar=*-*-* 13:00:00 UTC
+Persistent=true
+Unit=etf-stock-business-daily.service
+
+[Install]
+WantedBy=timers.target

@@ -9,6 +9,9 @@ This directory contains repo-managed systemd/runtime assets for the ETF VPS.
 - `etf-daily-8pm.service`
 - `etf-daily-8pm.timer`
 - `etf-daily-8pm.sh`
+- `etf-stock-business-daily.service`
+- `etf-stock-business-daily.timer`
+- `etf-stock-business-daily.sh`
 
 ## Current production mapping
 
@@ -17,6 +20,9 @@ Production currently uses:
 - `/etc/systemd/system/etf-daily-8pm.service`
 - `/etc/systemd/system/etf-daily-8pm.timer`
 - `/usr/local/bin/etf-daily-8pm.sh`
+- `/etc/systemd/system/etf-stock-business-daily.service`
+- `/etc/systemd/system/etf-stock-business-daily.timer`
+- `/usr/local/bin/etf-stock-business-daily.sh`
 
 ## Sync commands on VPS
 
@@ -29,7 +35,46 @@ systemctl restart etf-daily-8pm.timer
 systemctl status etf-daily-8pm.timer --no-pager
 ```
 
+## Stock business daily Excel backup
+
+This timer exports `output/stock_business/个股业务范围_YYYYMMDD.xlsx`
+from the project PostgreSQL database every day at 21:00 Asia/Shanghai.
+If `STOCK_BUSINESS_BACKUP_GIT_URL` is configured, the same run also pushes
+the exported Excel files to a separate GitHub backup repository.
+
+Recommended `/opt/etf-app/.env` settings:
+
+```bash
+STOCK_BUSINESS_BACKUP_GIT_URL=git@github.com:YOUR_ACCOUNT/YOUR_BACKUP_REPO.git
+STOCK_BUSINESS_BACKUP_DIR=/opt/etf-stock-business-backup
+STOCK_BUSINESS_BACKUP_BRANCH=main
+STOCK_BUSINESS_BACKUP_SUBDIR=stock_business
+```
+
+The VPS user running the service must be able to push to that GitHub repo
+non-interactively, typically via an SSH deploy key with write access.
+
+```bash
+install -m 755 systemd/etf-stock-business-daily.sh /usr/local/bin/etf-stock-business-daily.sh
+install -m 644 systemd/etf-stock-business-daily.service /etc/systemd/system/etf-stock-business-daily.service
+install -m 644 systemd/etf-stock-business-daily.timer /etc/systemd/system/etf-stock-business-daily.timer
+systemctl daemon-reload
+systemctl enable --now etf-stock-business-daily.timer
+systemctl list-timers etf-stock-business-daily.timer --no-pager
+```
+
+Manual one-shot validation:
+
+```bash
+systemctl start etf-stock-business-daily.service
+journalctl -u etf-stock-business-daily.service -n 80 --no-pager
+ls -lh /opt/etf-app/output/stock_business/
+git -C /opt/etf-stock-business-backup log --oneline -5
+```
+
 ## Notes
 
 - `etf-daily-8pm.sh` must not mutate tracked repo files at runtime.
 - Nightly behavior overrides should flow through environment variables consumed by `scripts/etf-data-update.sh`.
+- `etf-stock-business-daily.sh` reads `/opt/etf-app/.env` and uses `/opt/etf-app/.venv/bin/python`.
+- GitHub backup should use a private backup repository unless the exported business data is intended to be public.
