@@ -11832,6 +11832,8 @@ def render_user_watchlist_tab() -> None:
                     report_html = str(template_bundle.get("report_html") or "")
                     if not report_html:
                         raise RuntimeError("模板 HTML 报告内容为空")
+                    if template_bundle.get("cache_hit"):
+                        st.info("已读取今日缓存，未重新查询序列或调用大模型。")
                     st.session_state["watchlist_template_report_bundle"] = {
                         "ts_code": selected_research_code,
                         "stock_name": selected_research_name,

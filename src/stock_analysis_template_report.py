@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import logging
 import re
 from html import escape
 from typing import Any, Callable
 
 import pandas as pd
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from src.stock_analysis_template_report_store import (
+    get_cached_template_report,
+    save_template_report,
+    today_report_date,
+)
 from src.stock_research_akshare_enrichment import should_enable_stock_research_akshare
 from src.stock_research_fact_pack import build_stock_research_fact_pack
 from src.stock_research_llm_analysis import (
@@ -15,8 +22,12 @@ from src.stock_research_llm_analysis import (
 )
 
 
+logger = logging.getLogger(__name__)
+
 FactPackBuilder = Callable[..., dict[str, Any]]
 LLMAnalyzer = Callable[[dict[str, Any]], dict[str, Any] | None]
+ChartDataLoader = Callable[..., dict[str, Any]]
+FINANCIAL_CHART_MARKER = "[[TEMPLATE_FINANCIAL_CHARTS]]"
 
 
 def _raw_text(value: Any, default: str = "-") -> str:
@@ -50,6 +61,418 @@ def _fmt_bool_st(value: Any) -> str:
     if not text:
         return "-"
     return "是" if text.lower() in {"1", "true", "yes", "y", "是"} else text
+
+
+def _normalize_date_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    parsed = pd.to_datetime(text, errors="coerce")
+    if pd.notna(parsed):
+        return parsed.strftime("%Y-%m-%d")
+    if len(text) == 8 and text.isdigit():
+        return f"{text[:4]}-{text[4:6]}-{text[6:]}"
+    return text[:10]
+
+
+def _read_sql_frame(engine: Engine, sql: str, params: dict[str, Any], source_name: str) -> pd.DataFrame:
+    try:
+        return pd.read_sql(text(sql), engine, params=params)
+    except Exception as exc:
+        logger.warning("Failed to load template report data from %s: %s", source_name, exc)
+        return pd.DataFrame()
+
+
+def _latest_period_rows(df: pd.DataFrame, date_col: str, value_cols: list[str]) -> pd.DataFrame:
+    if df is None or df.empty or date_col not in df.columns:
+        return pd.DataFrame()
+    work = df.copy()
+    work[date_col] = pd.to_datetime(work[date_col], errors="coerce")
+    if "ann_date" in work.columns:
+        work["ann_date"] = pd.to_datetime(work["ann_date"], errors="coerce")
+    for column in value_cols:
+        if column in work.columns:
+            work[column] = pd.to_numeric(work[column], errors="coerce")
+    work = work.dropna(subset=[date_col])
+    if work.empty:
+        return work
+    sort_cols = [date_col] + (["ann_date"] if "ann_date" in work.columns else [])
+    work = work.sort_values(sort_cols, na_position="first")
+    return work.drop_duplicates(subset=[date_col], keep="last").sort_values(date_col)
+
+
+def _pct_change(current: float | None, previous: float | None) -> float | None:
+    if current is None or previous in {None, 0}:
+        return None
+    return (current / previous - 1.0) * 100.0
+
+
+def _scaled(value: Any, scale: float) -> float | None:
+    parsed = _to_float(value)
+    if parsed is None:
+        return None
+    return parsed / scale
+
+
+def _annual_series(df: pd.DataFrame, value_col: str, *, scale: float = 1.0, limit: int = 8) -> list[dict[str, Any]]:
+    work = _latest_period_rows(df, "end_date", [value_col])
+    if work.empty or value_col not in work.columns:
+        return []
+    annual = work[
+        work["end_date"].dt.month.eq(12)
+        & work["end_date"].dt.day.eq(31)
+    ].copy()
+    rows: list[dict[str, Any]] = []
+    previous_value: float | None = None
+    for _, row in annual.iterrows():
+        value = _scaled(row.get(value_col), scale)
+        if value is None:
+            continue
+        rows.append(
+            {
+                "label": str(int(row["end_date"].year)),
+                "value": value,
+                "growth_pct": _pct_change(value, previous_value),
+            }
+        )
+        previous_value = value
+    return rows[-limit:]
+
+
+def _quarterly_single_period_series(
+    df: pd.DataFrame,
+    value_col: str,
+    *,
+    scale: float = 1.0,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    work = _latest_period_rows(df, "end_date", [value_col])
+    if work.empty or value_col not in work.columns:
+        return []
+    work["year"] = work["end_date"].dt.year.astype(int)
+    work["quarter"] = work["end_date"].dt.quarter.astype(int)
+
+    cumulative_by_period: dict[tuple[int, int], float] = {}
+    for _, row in work.iterrows():
+        raw_value = _to_float(row.get(value_col))
+        if raw_value is not None:
+            cumulative_by_period[(int(row["year"]), int(row["quarter"]))] = raw_value
+
+    rows: list[dict[str, Any]] = []
+    single_by_period: dict[tuple[int, int], float] = {}
+    for _, row in work.iterrows():
+        year = int(row["year"])
+        quarter = int(row["quarter"])
+        cumulative_value = cumulative_by_period.get((year, quarter))
+        if cumulative_value is None:
+            continue
+        if quarter == 1:
+            single_value = cumulative_value
+        else:
+            previous_cumulative = cumulative_by_period.get((year, quarter - 1))
+            if previous_cumulative is None:
+                continue
+            single_value = cumulative_value - previous_cumulative
+        value = single_value / scale
+        single_by_period[(year, quarter)] = value
+        rows.append(
+            {
+                "label": f"{year}Q{quarter}",
+                "value": value,
+                "year": year,
+                "quarter": quarter,
+            }
+        )
+
+    for row in rows:
+        previous = single_by_period.get((int(row["year"]) - 1, int(row["quarter"])))
+        row["growth_pct"] = _pct_change(_to_float(row.get("value")), previous)
+    return rows[-limit:]
+
+
+def _daily_line_series(
+    df: pd.DataFrame,
+    value_col: str,
+    *,
+    scale: float = 1.0,
+    limit: int = 180,
+    fallback_col: str | None = None,
+) -> list[dict[str, Any]]:
+    value_cols = [value_col] + ([fallback_col] if fallback_col else [])
+    work = _latest_period_rows(df, "trade_date", [column for column in value_cols if column])
+    if work.empty:
+        return []
+    rows: list[dict[str, Any]] = []
+    for _, row in work.tail(limit).iterrows():
+        value = _scaled(row.get(value_col), scale)
+        if value is None and fallback_col:
+            value = _scaled(row.get(fallback_col), scale)
+        if value is None:
+            continue
+        rows.append(
+            {
+                "label": pd.to_datetime(row["trade_date"]).strftime("%Y-%m-%d"),
+                "value": value,
+            }
+        )
+    return rows
+
+
+def _chart(
+    chart_id: str,
+    title: str,
+    kind: str,
+    rows: list[dict[str, Any]],
+    *,
+    value_label: str,
+    unit: str,
+    source: str,
+    line_label: str = "增长率",
+    line_unit: str = "%",
+    empty_reason: str = "",
+) -> dict[str, Any]:
+    has_values = any(_to_float(row.get("value")) is not None for row in rows)
+    return {
+        "id": chart_id,
+        "title": title,
+        "kind": kind,
+        "value_label": value_label,
+        "unit": unit,
+        "line_label": line_label,
+        "line_unit": line_unit,
+        "source": source,
+        "rows": rows if has_values else [],
+        "empty_reason": empty_reason or f"{source} 暂无可用序列。",
+    }
+
+
+def _latest_daily_snapshot(daily_df: pd.DataFrame) -> dict[str, Any]:
+    work = _latest_period_rows(
+        daily_df,
+        "trade_date",
+        ["pe", "pe_ttm", "dv_ratio", "dv_ttm", "total_mv", "circ_mv", "total_share", "float_share"],
+    )
+    if work.empty:
+        return {}
+    latest = work.iloc[-1]
+    return {
+        "trade_date": pd.to_datetime(latest["trade_date"]).strftime("%Y-%m-%d"),
+        "pe": _to_float(latest.get("pe")),
+        "pe_ttm": _to_float(latest.get("pe_ttm")),
+        "dv_ratio": _to_float(latest.get("dv_ratio")),
+        "dv_ttm": _to_float(latest.get("dv_ttm")),
+        "total_mv_yi": _scaled(latest.get("total_mv"), 10000.0),
+        "circ_mv_yi": _scaled(latest.get("circ_mv"), 10000.0),
+        "total_share_yi": _scaled(latest.get("total_share"), 10000.0),
+        "float_share_yi": _scaled(latest.get("float_share"), 10000.0),
+    }
+
+
+def load_stock_analysis_template_chart_data(
+    ts_code: str,
+    *,
+    engine: Engine,
+    asof_trade_date: str | None = None,
+) -> dict[str, Any]:
+    ts_code_key = str(ts_code or "").strip().upper()
+    asof_date = _normalize_date_text(asof_trade_date)
+    if not ts_code_key:
+        return {"charts": [], "latest": {}, "source_rows": {}}
+
+    financial_params: dict[str, Any] = {"ts_code": ts_code_key}
+    financial_date_filter = ""
+    daily_date_filter = ""
+    if asof_date:
+        financial_date_filter = " AND end_date <= :asof_trade_date"
+        daily_date_filter = " AND trade_date <= :asof_trade_date"
+        financial_params["asof_trade_date"] = asof_date
+    daily_params = dict(financial_params)
+
+    income_df = _read_sql_frame(
+        engine,
+        f"""
+        SELECT ts_code, end_date, ann_date, total_revenue,
+               COALESCE(n_income_attr_p, n_income) AS net_profit
+        FROM vw_ts_stock_income
+        WHERE ts_code = :ts_code{financial_date_filter}
+        ORDER BY end_date, ann_date
+        """,
+        financial_params,
+        "vw_ts_stock_income",
+    )
+    fina_df = _read_sql_frame(
+        engine,
+        f"""
+        SELECT ts_code, end_date, ann_date, profit_dedt
+        FROM vw_ts_stock_fina_indicator
+        WHERE ts_code = :ts_code{financial_date_filter}
+        ORDER BY end_date, ann_date
+        """,
+        financial_params,
+        "vw_ts_stock_fina_indicator",
+    )
+    cashflow_df = _read_sql_frame(
+        engine,
+        f"""
+        SELECT ts_code, end_date, ann_date, n_cashflow_act
+        FROM vw_ts_stock_cashflow
+        WHERE ts_code = :ts_code{financial_date_filter}
+        ORDER BY end_date, ann_date
+        """,
+        financial_params,
+        "vw_ts_stock_cashflow",
+    )
+    daily_df = _read_sql_frame(
+        engine,
+        f"""
+        SELECT ts_code, trade_date, pe, pe_ttm, dv_ratio, dv_ttm,
+               total_mv, circ_mv, total_share, float_share
+        FROM vw_ts_stock_daily_basic
+        WHERE ts_code = :ts_code{daily_date_filter}
+        ORDER BY trade_date
+        """,
+        daily_params,
+        "vw_ts_stock_daily_basic",
+    )
+
+    charts = [
+        _chart(
+            "revenue_annual",
+            "图1：收入（柱状图）及增长率（折线图）（年度）",
+            "bar_line",
+            _annual_series(income_df, "total_revenue", scale=100000000.0),
+            value_label="营业收入",
+            unit="亿元",
+            source="vw_ts_stock_income.total_revenue",
+        ),
+        _chart(
+            "revenue_quarterly",
+            "图2：收入及增长率（季度）",
+            "bar_line",
+            _quarterly_single_period_series(income_df, "total_revenue", scale=100000000.0),
+            value_label="单季营业收入",
+            unit="亿元",
+            source="vw_ts_stock_income.total_revenue",
+        ),
+        _chart(
+            "net_profit_annual",
+            "图3：净利润及增长率（年度）",
+            "bar_line",
+            _annual_series(income_df, "net_profit", scale=100000000.0),
+            value_label="净利润",
+            unit="亿元",
+            source="vw_ts_stock_income.n_income_attr_p/n_income",
+        ),
+        _chart(
+            "net_profit_quarterly",
+            "图4：净利润及增长率（季度）",
+            "bar_line",
+            _quarterly_single_period_series(income_df, "net_profit", scale=100000000.0),
+            value_label="单季净利润",
+            unit="亿元",
+            source="vw_ts_stock_income.n_income_attr_p/n_income",
+        ),
+        _chart(
+            "deducted_profit_annual",
+            "图5：扣非净利润及增长率（年度）",
+            "bar_line",
+            _annual_series(fina_df, "profit_dedt", scale=100000000.0),
+            value_label="扣非净利润",
+            unit="亿元",
+            source="vw_ts_stock_fina_indicator.profit_dedt",
+        ),
+        _chart(
+            "deducted_profit_quarterly",
+            "图6：扣非净利润及增长率（季度）",
+            "bar_line",
+            _quarterly_single_period_series(fina_df, "profit_dedt", scale=100000000.0),
+            value_label="单季扣非净利润",
+            unit="亿元",
+            source="vw_ts_stock_fina_indicator.profit_dedt",
+        ),
+        _chart(
+            "operating_cashflow_quarterly",
+            "图7：经营性现金流净额（季度）",
+            "bar",
+            _quarterly_single_period_series(cashflow_df, "n_cashflow_act", scale=100000000.0),
+            value_label="单季经营性现金流净额",
+            unit="亿元",
+            source="vw_ts_stock_cashflow.n_cashflow_act",
+        ),
+        _chart(
+            "static_pe",
+            "图8：静态市盈率",
+            "line",
+            _daily_line_series(daily_df, "pe"),
+            value_label="静态市盈率",
+            unit="倍",
+            source="vw_ts_stock_daily_basic.pe",
+        ),
+        _chart(
+            "dynamic_pe",
+            "图9：动态市盈率",
+            "line",
+            _daily_line_series(daily_df, "pe_ttm"),
+            value_label="动态市盈率",
+            unit="倍",
+            source="vw_ts_stock_daily_basic.pe_ttm",
+        ),
+        _chart(
+            "dividend_yield",
+            "图10：股息率",
+            "line",
+            _daily_line_series(daily_df, "dv_ttm", fallback_col="dv_ratio"),
+            value_label="股息率",
+            unit="%",
+            source="vw_ts_stock_daily_basic.dv_ttm/dv_ratio",
+        ),
+        _chart(
+            "total_market_value",
+            "图11：总市值",
+            "line",
+            _daily_line_series(daily_df, "total_mv", scale=10000.0),
+            value_label="总市值",
+            unit="亿元",
+            source="vw_ts_stock_daily_basic.total_mv",
+        ),
+        _chart(
+            "circulating_market_value",
+            "图12：流通市值",
+            "line",
+            _daily_line_series(daily_df, "circ_mv", scale=10000.0),
+            value_label="流通市值",
+            unit="亿元",
+            source="vw_ts_stock_daily_basic.circ_mv",
+        ),
+        _chart(
+            "total_share",
+            "图13：总股本",
+            "line",
+            _daily_line_series(daily_df, "total_share", scale=10000.0),
+            value_label="总股本",
+            unit="亿股",
+            source="vw_ts_stock_daily_basic.total_share",
+        ),
+        _chart(
+            "float_share",
+            "图14：流通股本",
+            "line",
+            _daily_line_series(daily_df, "float_share", scale=10000.0),
+            value_label="流通股本",
+            unit="亿股",
+            source="vw_ts_stock_daily_basic.float_share",
+        ),
+    ]
+    return {
+        "charts": charts,
+        "latest": _latest_daily_snapshot(daily_df),
+        "source_rows": {
+            "vw_ts_stock_income": int(len(income_df)) if income_df is not None else 0,
+            "vw_ts_stock_fina_indicator": int(len(fina_df)) if fina_df is not None else 0,
+            "vw_ts_stock_cashflow": int(len(cashflow_df)) if cashflow_df is not None else 0,
+            "vw_ts_stock_daily_basic": int(len(daily_df)) if daily_df is not None else 0,
+        },
+    }
 
 
 def _markdown_table(headers: list[str], rows: list[list[str]]) -> list[str]:
@@ -134,6 +557,189 @@ def _markdown_to_body_html(markdown_text: str) -> str:
         html.append(f"<p>{_inline_html(stripped)}</p>")
         i += 1
     return "\n".join(html)
+
+
+def _svg_text(value: Any) -> str:
+    return escape(str(value or ""))
+
+
+def _chart_bounds(values: list[float]) -> tuple[float, float]:
+    valid = [float(value) for value in values if _to_float(value) is not None]
+    if not valid:
+        return 0.0, 1.0
+    low = min(valid + [0.0])
+    high = max(valid + [0.0])
+    if low == high:
+        padding = max(abs(high) * 0.15, 1.0)
+        return low - padding, high + padding
+    padding = (high - low) * 0.12
+    return low - padding, high + padding
+
+
+def _chart_latest_caption(chart: dict[str, Any], rows: list[dict[str, Any]]) -> str:
+    latest = rows[-1] if rows else {}
+    value = _to_float(latest.get("value"))
+    growth = _to_float(latest.get("growth_pct"))
+    label = _raw_text(latest.get("label"), "-")
+    value_label = _raw_text(chart.get("value_label"), "指标")
+    unit = _raw_text(chart.get("unit"), "")
+    parts = [f"{label} {value_label} {_fmt(value)}{unit if value is not None else ''}"]
+    if growth is not None:
+        parts.append(f"{_raw_text(chart.get('line_label'), '增长率')} {_fmt(growth, suffix='%')}")
+    return "，".join(parts)
+
+
+def _render_chart_svg(chart: dict[str, Any]) -> str:
+    rows = [
+        row for row in (chart.get("rows") or [])
+        if isinstance(row, dict) and _to_float(row.get("value")) is not None
+    ]
+    if not rows:
+        reason = _raw_text(chart.get("empty_reason"), "暂无可绘制数据。")
+        source = _raw_text(chart.get("source"), "-")
+        return (
+            '<div class="chart-empty">'
+            f"<p>数据缺口：{escape(reason)}</p>"
+            f"<p>数据源：{escape(source)}</p>"
+            "</div>"
+        )
+
+    width = 760
+    height = 270
+    left = 58
+    right = 704
+    top = 28
+    bottom = 214
+    plot_width = right - left
+    plot_height = bottom - top
+    values = [_to_float(row.get("value")) or 0.0 for row in rows]
+    value_min, value_max = _chart_bounds(values)
+
+    def y_left(value: float) -> float:
+        return bottom - ((value - value_min) / (value_max - value_min)) * plot_height
+
+    def x_at(index: int) -> float:
+        if len(rows) == 1:
+            return left + plot_width / 2
+        return left + index * (plot_width / (len(rows) - 1))
+
+    zero_y = y_left(0.0)
+    pieces: list[str] = [
+        f'<svg class="chart-svg" viewBox="0 0 {width} {height}" role="img" aria-label="{_svg_text(chart.get("title"))}">',
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{bottom}" class="axis"/>',
+        f'<line x1="{left}" y1="{bottom}" x2="{right}" y2="{bottom}" class="axis"/>',
+        f'<line x1="{left}" y1="{zero_y:.1f}" x2="{right}" y2="{zero_y:.1f}" class="zero-line"/>',
+        f'<text x="{left}" y="18" class="axis-label">{_svg_text(chart.get("unit"))}</text>',
+        f'<text x="{left}" y="{bottom + 30}" class="tick-label">{_svg_text(rows[0].get("label"))}</text>',
+        f'<text x="{right}" y="{bottom + 30}" text-anchor="end" class="tick-label">{_svg_text(rows[-1].get("label"))}</text>',
+        f'<text x="{left}" y="{top + 4}" class="tick-label">{_svg_text(_fmt(value_max))}</text>',
+        f'<text x="{left}" y="{bottom - 4}" class="tick-label">{_svg_text(_fmt(value_min))}</text>',
+    ]
+
+    chart_kind = str(chart.get("kind") or "line")
+    if chart_kind in {"bar", "bar_line"}:
+        step = plot_width / max(len(rows), 1)
+        bar_width = max(min(step * 0.48, 30), 6)
+        for index, row in enumerate(rows):
+            value = _to_float(row.get("value")) or 0.0
+            x = x_at(index) - bar_width / 2
+            y = y_left(value)
+            rect_y = min(y, zero_y)
+            rect_height = max(abs(zero_y - y), 1.0)
+            css_class = "bar-positive" if value >= 0 else "bar-negative"
+            pieces.append(
+                f'<rect x="{x:.1f}" y="{rect_y:.1f}" width="{bar_width:.1f}" height="{rect_height:.1f}" class="{css_class}"/>'
+            )
+
+    if chart_kind == "line":
+        points = [(x_at(index), y_left(_to_float(row.get("value")) or 0.0)) for index, row in enumerate(rows)]
+        if len(points) > 1:
+            point_str = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+            pieces.append(f'<polyline points="{point_str}" class="value-line"/>')
+        for x, y in points[-24:]:
+            pieces.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.4" class="value-point"/>')
+
+    growth_rows = [
+        (index, _to_float(row.get("growth_pct")))
+        for index, row in enumerate(rows)
+        if _to_float(row.get("growth_pct")) is not None
+    ]
+    if chart_kind == "bar_line" and growth_rows:
+        growth_values = [float(value) for _, value in growth_rows if value is not None]
+        growth_min, growth_max = _chart_bounds(growth_values)
+
+        def y_right(value: float) -> float:
+            return bottom - ((value - growth_min) / (growth_max - growth_min)) * plot_height
+
+        pieces.extend(
+            [
+                f'<line x1="{right}" y1="{top}" x2="{right}" y2="{bottom}" class="axis axis-right"/>',
+                f'<text x="{right}" y="18" text-anchor="end" class="axis-label">{_svg_text(chart.get("line_unit"))}</text>',
+                f'<text x="{right}" y="{top + 4}" text-anchor="end" class="tick-label">{_svg_text(_fmt(growth_max, suffix="%"))}</text>',
+                f'<text x="{right}" y="{bottom - 4}" text-anchor="end" class="tick-label">{_svg_text(_fmt(growth_min, suffix="%"))}</text>',
+            ]
+        )
+        points = [(x_at(index), y_right(float(value))) for index, value in growth_rows if value is not None]
+        if len(points) > 1:
+            point_str = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+            pieces.append(f'<polyline points="{point_str}" class="growth-line"/>')
+        for x, y in points:
+            pieces.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.8" class="growth-point"/>')
+
+    if len(rows) > 2:
+        step = max(1, len(rows) // 5)
+        for index, row in enumerate(rows):
+            if index not in {0, len(rows) - 1} and index % step == 0:
+                pieces.append(
+                    f'<text x="{x_at(index):.1f}" y="{bottom + 30}" text-anchor="middle" class="tick-label">{_svg_text(row.get("label"))}</text>'
+                )
+    pieces.append("</svg>")
+    return "\n".join(pieces)
+
+
+def _render_financial_chart_section(chart_data: dict[str, Any] | None) -> str:
+    chart_data = chart_data if isinstance(chart_data, dict) else {}
+    charts = [chart for chart in (chart_data.get("charts") or []) if isinstance(chart, dict)]
+    source_rows = chart_data.get("source_rows") if isinstance(chart_data.get("source_rows"), dict) else {}
+    if not charts:
+        return (
+            '<section class="financial-chart-section">'
+            "<h3>模板财务图表</h3>"
+            "<blockquote>数据缺口：尚未查询到可绘制的财务与估值序列。</blockquote>"
+            "</section>"
+        )
+    source_text = "；".join(f"{escape(str(key))}={int(value or 0)} 行" for key, value in source_rows.items())
+    cards: list[str] = []
+    for chart in charts:
+        rows = [row for row in (chart.get("rows") or []) if isinstance(row, dict) and _to_float(row.get("value")) is not None]
+        caption = _chart_latest_caption(chart, rows) if rows else _raw_text(chart.get("empty_reason"), "暂无可绘制数据。")
+        cards.append(
+            "\n".join(
+                [
+                    f'<div class="chart-card" id="chart-{escape(str(chart.get("id") or ""))}">',
+                    f'<h3>{escape(str(chart.get("title") or ""))}</h3>',
+                    _render_chart_svg(chart),
+                    '<div class="chart-legend">',
+                    f'<span><i class="legend-bar"></i>{escape(str(chart.get("value_label") or ""))}</span>',
+                    f'<span><i class="legend-line"></i>{escape(str(chart.get("line_label") or ""))}</span>' if chart.get("kind") == "bar_line" else "",
+                    "</div>",
+                    f'<p class="chart-caption">{escape(caption)}</p>',
+                    f'<p class="chart-source">数据源：{escape(str(chart.get("source") or "-"))}</p>',
+                    "</div>",
+                ]
+            )
+        )
+    return "\n".join(
+        [
+            '<section class="financial-chart-section">',
+            "<h3>模板财务图表</h3>",
+            f'<p class="chart-source">已查询数据库：{source_text or "暂无行数信息"}</p>',
+            '<div class="chart-grid">',
+            *cards,
+            "</div>",
+            "</section>",
+        ]
+    )
 
 
 def _price_frame(fact_pack: dict[str, Any]) -> pd.DataFrame:
@@ -314,6 +920,8 @@ def render_stock_analysis_template_markdown(
     profile = fact_pack.get("profile") or {}
     price = fact_pack.get("price_metrics") or {}
     valuation = fact_pack.get("valuation_snapshot") or {}
+    chart_data = fact_pack.get("template_chart_data") if isinstance(fact_pack.get("template_chart_data"), dict) else {}
+    chart_latest = chart_data.get("latest") if isinstance(chart_data.get("latest"), dict) else {}
     financial = (fact_pack.get("financial_metrics") or {}).get("latest") or {}
     quality = fact_pack.get("data_quality") or {}
     technical = _technical_snapshot(fact_pack)
@@ -391,23 +999,17 @@ def render_stock_analysis_template_markdown(
                     ["ROE", _fmt(financial.get("roe"), suffix="%")],
                     ["毛利率", _fmt(financial.get("gross_margin"), suffix="%")],
                     ["资产负债率", _fmt(financial.get("debt_to_assets"), suffix="%")],
-                    ["静态/动态市盈率参考", _fmt(valuation.get("pe_ttm"))],
-                    ["股息率", "暂无股息率数据，需接入分红收益率字段。"],
-                    ["总市值", _fmt(valuation.get("total_mv_yi"), suffix=" 亿")],
-                    ["流通市值", _fmt(valuation.get("circ_mv_yi"), suffix=" 亿")],
-                    ["总股本", "暂无总股本字段，需接入股本结构。"],
-                    ["流通股本", "暂无流通股本字段，需接入股本结构。"],
+                    ["静态市盈率", _fmt(chart_latest.get("pe") or valuation.get("pe"))],
+                    ["动态市盈率", _fmt(chart_latest.get("pe_ttm") or valuation.get("pe_ttm"))],
+                    ["股息率", _fmt(chart_latest.get("dv_ttm") or chart_latest.get("dv_ratio"), suffix="%")],
+                    ["总市值", _fmt(chart_latest.get("total_mv_yi") or valuation.get("total_mv_yi"), suffix=" 亿")],
+                    ["流通市值", _fmt(chart_latest.get("circ_mv_yi") or valuation.get("circ_mv_yi"), suffix=" 亿")],
+                    ["总股本", _fmt(chart_latest.get("total_share_yi"), suffix=" 亿股")],
+                    ["流通股本", _fmt(chart_latest.get("float_share_yi"), suffix=" 亿股")],
                 ],
             ),
             "",
-            "- 图1：收入（柱状图）及增长率（折线图）（年度）：当前底稿保留最新值，年度序列需补充后绘制。",
-            "- 图2：收入及增长率（季度）：当前底稿保留最新值，季度序列需补充后绘制。",
-            "- 图3：净利润及增长率（年度）：当前底稿保留最新值，年度序列需补充后绘制。",
-            "- 图4：净利润及增长率（季度）：当前底稿保留最新值，季度序列需补充后绘制。",
-            "- 图5：扣非净利润及增长率（年度）：当前底稿未包含扣非净利润。",
-            "- 图6：扣非净利润及增长率（季度）：当前底稿未包含扣非净利润。",
-            "- 图7：经营性现金流净额（季度）：当前底稿保留最新经营现金流值。",
-            "- 图8：静态市盈率；图9：动态市盈率；图10：股息率；图11：总市值；图12：流通市值；图13：总股本；图14：流通股本。",
+            FINANCIAL_CHART_MARKER,
             "",
             f"### {stock_name}公司各产品&服务收入分析",
             "",
@@ -535,6 +1137,8 @@ def render_stock_analysis_template_html(
     title = f"{stock_name}公司分析报告"
     markdown_text = render_stock_analysis_template_markdown(fact_pack, llm_result)
     body_html = _markdown_to_body_html(markdown_text)
+    chart_html = _render_financial_chart_section(fact_pack.get("template_chart_data") if isinstance(fact_pack.get("template_chart_data"), dict) else {})
+    body_html = body_html.replace(f"<p>{FINANCIAL_CHART_MARKER}</p>", chart_html)
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -625,6 +1229,101 @@ def render_stock_analysis_template_html(
     }}
     hr {{ border: 0; border-top: 1px solid var(--line); margin: 28px 0 16px; }}
     strong {{ color: var(--accent); }}
+    .financial-chart-section {{
+      margin: 18px 0 24px;
+    }}
+    .chart-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 10px;
+    }}
+    .chart-card {{
+      border: 1px solid var(--line);
+      background: #fbfdff;
+      padding: 14px;
+      break-inside: avoid;
+    }}
+    .chart-card h3 {{
+      margin-top: 0;
+      font-size: 14px;
+    }}
+    .chart-svg {{
+      width: 100%;
+      height: auto;
+      display: block;
+      background: #fff;
+      border: 1px solid #edf1f5;
+    }}
+    .axis, .zero-line {{
+      stroke: #c9d4df;
+      stroke-width: 1;
+    }}
+    .zero-line {{
+      stroke-dasharray: 4 4;
+    }}
+    .axis-label, .tick-label {{
+      fill: var(--muted);
+      font-size: 11px;
+    }}
+    .bar-positive {{
+      fill: #2f7bbd;
+      opacity: 0.86;
+    }}
+    .bar-negative {{
+      fill: #c65d4a;
+      opacity: 0.86;
+    }}
+    .value-line {{
+      fill: none;
+      stroke: #1f4e79;
+      stroke-width: 2.4;
+    }}
+    .value-point {{
+      fill: #1f4e79;
+    }}
+    .growth-line {{
+      fill: none;
+      stroke: #c05a00;
+      stroke-width: 2.2;
+    }}
+    .growth-point {{
+      fill: #c05a00;
+    }}
+    .chart-legend {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }}
+    .chart-legend i {{
+      display: inline-block;
+      width: 14px;
+      height: 8px;
+      margin-right: 5px;
+      vertical-align: 1px;
+    }}
+    .legend-bar {{ background: #2f7bbd; }}
+    .legend-line {{
+      height: 2px !important;
+      background: #c05a00;
+    }}
+    .chart-caption, .chart-source {{
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }}
+    .chart-empty {{
+      min-height: 160px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      border: 1px dashed var(--line);
+      background: #fff;
+      padding: 12px;
+    }}
     .footer-note {{
       margin-top: 20px;
       color: var(--muted);
@@ -638,6 +1337,7 @@ def render_stock_analysis_template_html(
     }}
     @media (max-width: 760px) {{
       .report-paper {{ padding: 24px 16px; }}
+      .chart-grid {{ grid-template-columns: 1fr; }}
       h1 {{ font-size: 24px; }}
       h2 {{ font-size: 18px; }}
     }}
@@ -669,21 +1369,35 @@ def generate_stock_analysis_template_report_bundle(
     engine: Engine,
     asof_trade_date: str | None = None,
     allow_live_fetch: bool | None = None,
+    report_date: str | None = None,
+    use_report_cache: bool = True,
+    save_report: bool = True,
+    force_refresh: bool = False,
     fact_pack_builder: FactPackBuilder = build_stock_research_fact_pack,
     llm_analyzer: LLMAnalyzer = analyze_stock_research_payload,
+    chart_data_loader: ChartDataLoader = load_stock_analysis_template_chart_data,
 ) -> dict[str, Any]:
-    """Generate the docx-template-style stock report on demand.
+    """Generate the docx-template-style stock report on demand."""
+    ts_code_key = str(ts_code or "").strip().upper()
+    report_date_key = _normalize_date_text(report_date) or today_report_date()
+    if use_report_cache and not force_refresh:
+        cached_report = get_cached_template_report(engine, ts_code_key, report_date_key)
+        if cached_report and str(cached_report.get("report_html") or "").strip():
+            return {
+                "report_html": str(cached_report.get("report_html") or ""),
+                "fact_pack": cached_report.get("fact_pack") or {},
+                "llm_result": cached_report.get("llm_result"),
+                "report_date": report_date_key,
+                "cache_hit": True,
+            }
 
-    The function intentionally has no persistence side effects. The caller decides
-    when to invoke it and how to display the returned report.
-    """
     live_fetch_enabled = (
         should_enable_stock_research_akshare()
         if allow_live_fetch is None
         else bool(allow_live_fetch)
     )
     fact_pack = fact_pack_builder(
-        ts_code,
+        ts_code_key,
         stock_name,
         engine=engine,
         asof_trade_date=asof_trade_date,
@@ -691,9 +1405,29 @@ def generate_stock_analysis_template_report_bundle(
     )
     llm_result = llm_analyzer(fact_pack)
     normalized_llm = normalize_stock_research_llm_result(llm_result)
+    chart_data = chart_data_loader(
+        ts_code_key,
+        engine=engine,
+        asof_trade_date=asof_trade_date or fact_pack.get("asof_trade_date"),
+    )
+    fact_pack = dict(fact_pack)
+    fact_pack["template_chart_data"] = chart_data
     report_html = render_stock_analysis_template_html(fact_pack, normalized_llm)
+    if save_report:
+        save_template_report(
+            engine,
+            ts_code_key,
+            report_html,
+            stock_name=stock_name or str(fact_pack.get("stock_name") or ""),
+            report_date=report_date_key,
+            asof_trade_date=str(fact_pack.get("asof_trade_date") or asof_trade_date or ""),
+            fact_pack=fact_pack,
+            llm_result=normalized_llm,
+        )
     return {
         "report_html": report_html,
         "fact_pack": fact_pack,
         "llm_result": normalized_llm,
+        "report_date": report_date_key,
+        "cache_hit": False,
     }

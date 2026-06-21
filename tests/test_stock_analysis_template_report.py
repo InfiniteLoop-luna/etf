@@ -2,9 +2,11 @@ import unittest
 from unittest.mock import Mock
 
 from sqlalchemy import create_engine
+from sqlalchemy import text
 
 from src.stock_analysis_template_report import (
     generate_stock_analysis_template_report_bundle,
+    load_stock_analysis_template_chart_data,
     render_stock_analysis_template_html,
 )
 
@@ -55,6 +57,7 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
                 {"trade_date": "2026-05-23", "open": 10.5, "close": 10.7, "low": 10.4, "high": 11.0, "vol": 1200},
             ],
             "financial_tail": [{"end_date": "2026-03-31", "roe": 9.7}],
+            "template_chart_data": self._sample_chart_data(),
             "supplemental": {
                 "business_composition": {
                     "status": "ok",
@@ -89,6 +92,57 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
             "step_analysis": {"step0": "锁定自选股跟踪"},
         }
 
+    def _sample_chart_data(self):
+        return {
+            "source_rows": {
+                "vw_ts_stock_income": 6,
+                "vw_ts_stock_fina_indicator": 6,
+                "vw_ts_stock_cashflow": 6,
+                "vw_ts_stock_daily_basic": 3,
+            },
+            "latest": {
+                "trade_date": "2026-05-23",
+                "pe": 18.2,
+                "pe_ttm": 22.3,
+                "dv_ttm": 1.4,
+                "total_mv_yi": 180.5,
+                "circ_mv_yi": 160.2,
+                "total_share_yi": 16.9,
+                "float_share_yi": 13.4,
+            },
+            "charts": [
+                {
+                    "id": "revenue_annual",
+                    "title": "图1：收入（柱状图）及增长率（折线图）（年度）",
+                    "kind": "bar_line",
+                    "value_label": "营业收入",
+                    "unit": "亿元",
+                    "line_label": "增长率",
+                    "line_unit": "%",
+                    "source": "vw_ts_stock_income.total_revenue",
+                    "rows": [
+                        {"label": "2024", "value": 30.0, "growth_pct": None},
+                        {"label": "2025", "value": 36.0, "growth_pct": 20.0},
+                    ],
+                },
+                {
+                    "id": "static_pe",
+                    "title": "图8：静态市盈率",
+                    "kind": "line",
+                    "value_label": "静态市盈率",
+                    "unit": "倍",
+                    "line_label": "增长率",
+                    "line_unit": "%",
+                    "source": "vw_ts_stock_daily_basic.pe",
+                    "rows": [
+                        {"label": "2026-05-21", "value": 17.8},
+                        {"label": "2026-05-22", "value": 18.0},
+                        {"label": "2026-05-23", "value": 18.2},
+                    ],
+                },
+            ],
+        }
+
     def test_render_template_report_contains_docx_template_sections_and_llm_advice(self):
         report = render_stock_analysis_template_html(
             self._sample_fact_pack(),
@@ -120,6 +174,11 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
         for section in expected_sections:
             self.assertIn(section, report)
         self.assertIn("数据&amp;信息来源——WealthSpark 决策看板 &amp; tushare", report)
+        self.assertIn("图1：收入（柱状图）及增长率（折线图）（年度）", report)
+        self.assertIn("图8：静态市盈率", report)
+        self.assertIn("chart-svg", report)
+        self.assertIn("已查询数据库：vw_ts_stock_income=6 行", report)
+        self.assertNotIn("当前底稿保留最新值，年度序列需补充后绘制", report)
         self.assertIn("产业景气度和现金流改善形成跟踪价值。", report)
         self.assertIn("MACD、MA（5、10、20、30、60、120、233、250）、EMA（5、30）、交易量、金叉&amp;死叉等指标分析", report)
         self.assertIn("</html>", report)
@@ -128,22 +187,168 @@ class StockAnalysisTemplateReportTests(unittest.TestCase):
         engine = create_engine("sqlite:///:memory:")
         fact_pack_builder = Mock(return_value=self._sample_fact_pack())
         llm_analyzer = Mock(return_value=self._sample_llm_result())
+        chart_data_loader = Mock(return_value=self._sample_chart_data())
 
         bundle = generate_stock_analysis_template_report_bundle(
             "000733.SZ",
             "振华科技",
             engine=engine,
             allow_live_fetch=False,
+            report_date="2026-06-21",
             fact_pack_builder=fact_pack_builder,
             llm_analyzer=llm_analyzer,
+            chart_data_loader=chart_data_loader,
         )
 
         self.assertIn("<h2>投资建议</h2>", bundle["report_html"])
+        self.assertIn("图1：收入（柱状图）及增长率（折线图）（年度）", bundle["report_html"])
         self.assertNotIn("report_md", bundle)
+        self.assertFalse(bundle["cache_hit"])
         self.assertEqual(bundle["fact_pack"]["ts_code"], "000733.SZ")
         self.assertEqual(bundle["llm_result"]["verdict"], "谨慎跟踪")
         fact_pack_builder.assert_called_once()
         llm_analyzer.assert_called_once_with(bundle["fact_pack"])
+        chart_data_loader.assert_called_once()
+
+    def test_generate_template_report_reuses_same_day_database_cache(self):
+        engine = create_engine("sqlite:///:memory:")
+        fact_pack_builder = Mock(return_value=self._sample_fact_pack())
+        llm_analyzer = Mock(return_value=self._sample_llm_result())
+        chart_data_loader = Mock(return_value=self._sample_chart_data())
+
+        first = generate_stock_analysis_template_report_bundle(
+            "000733.SZ",
+            "振华科技",
+            engine=engine,
+            allow_live_fetch=False,
+            report_date="2026-06-21",
+            fact_pack_builder=fact_pack_builder,
+            llm_analyzer=llm_analyzer,
+            chart_data_loader=chart_data_loader,
+        )
+        fact_pack_builder.reset_mock(side_effect=True)
+        llm_analyzer.reset_mock(side_effect=True)
+        chart_data_loader.reset_mock(side_effect=True)
+        fact_pack_builder.side_effect = AssertionError("fact pack should not be rebuilt")
+        llm_analyzer.side_effect = AssertionError("llm should not be called")
+        chart_data_loader.side_effect = AssertionError("chart data should not be reloaded")
+
+        second = generate_stock_analysis_template_report_bundle(
+            "000733.SZ",
+            "振华科技",
+            engine=engine,
+            allow_live_fetch=False,
+            report_date="2026-06-21",
+            fact_pack_builder=fact_pack_builder,
+            llm_analyzer=llm_analyzer,
+            chart_data_loader=chart_data_loader,
+        )
+
+        self.assertFalse(first["cache_hit"])
+        self.assertTrue(second["cache_hit"])
+        self.assertEqual(second["report_html"], first["report_html"])
+        fact_pack_builder.assert_not_called()
+        llm_analyzer.assert_not_called()
+        chart_data_loader.assert_not_called()
+
+    def test_chart_data_loader_queries_database_series(self):
+        engine = create_engine("sqlite:///:memory:")
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE vw_ts_stock_income (
+                    ts_code TEXT,
+                    end_date TEXT,
+                    ann_date TEXT,
+                    total_revenue REAL,
+                    n_income_attr_p REAL,
+                    n_income REAL
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE vw_ts_stock_fina_indicator (
+                    ts_code TEXT,
+                    end_date TEXT,
+                    ann_date TEXT,
+                    profit_dedt REAL
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE vw_ts_stock_cashflow (
+                    ts_code TEXT,
+                    end_date TEXT,
+                    ann_date TEXT,
+                    n_cashflow_act REAL
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE vw_ts_stock_daily_basic (
+                    ts_code TEXT,
+                    trade_date TEXT,
+                    pe REAL,
+                    pe_ttm REAL,
+                    dv_ratio REAL,
+                    dv_ttm REAL,
+                    total_mv REAL,
+                    circ_mv REAL,
+                    total_share REAL,
+                    float_share REAL
+                )
+            """))
+            for end_date, revenue, net_profit in [
+                ("2024-03-31", 10_000_000_000, 1_000_000_000),
+                ("2024-06-30", 22_000_000_000, 2_500_000_000),
+                ("2024-12-31", 50_000_000_000, 6_000_000_000),
+                ("2025-03-31", 15_000_000_000, 1_500_000_000),
+                ("2025-06-30", 33_000_000_000, 3_600_000_000),
+                ("2025-12-31", 75_000_000_000, 9_000_000_000),
+            ]:
+                conn.execute(
+                    text("""
+                        INSERT INTO vw_ts_stock_income
+                        VALUES ('000733.SZ', :end_date, :ann_date, :revenue, :profit, :profit)
+                    """),
+                    {"end_date": end_date, "ann_date": end_date, "revenue": revenue, "profit": net_profit},
+                )
+                conn.execute(
+                    text("""
+                        INSERT INTO vw_ts_stock_fina_indicator
+                        VALUES ('000733.SZ', :end_date, :ann_date, :profit)
+                    """),
+                    {"end_date": end_date, "ann_date": end_date, "profit": net_profit * 0.9},
+                )
+                conn.execute(
+                    text("""
+                        INSERT INTO vw_ts_stock_cashflow
+                        VALUES ('000733.SZ', :end_date, :ann_date, :cashflow)
+                    """),
+                    {"end_date": end_date, "ann_date": end_date, "cashflow": net_profit * 1.1},
+                )
+            for trade_date, pe, pe_ttm, total_mv in [
+                ("2026-06-16", 18.0, 20.0, 1_600_000),
+                ("2026-06-17", 18.5, 20.5, 1_650_000),
+                ("2026-06-18", 19.0, 21.0, 1_700_000),
+            ]:
+                conn.execute(
+                    text("""
+                        INSERT INTO vw_ts_stock_daily_basic
+                        VALUES ('000733.SZ', :trade_date, :pe, :pe_ttm, 1.1, 1.2, :total_mv, 1500000, 160000, 120000)
+                    """),
+                    {"trade_date": trade_date, "pe": pe, "pe_ttm": pe_ttm, "total_mv": total_mv},
+                )
+
+        chart_data = load_stock_analysis_template_chart_data("000733.SZ", engine=engine, asof_trade_date="2026-06-18")
+        charts = {chart["id"]: chart for chart in chart_data["charts"]}
+
+        self.assertEqual(chart_data["source_rows"]["vw_ts_stock_income"], 6)
+        self.assertEqual(charts["revenue_annual"]["rows"][-1]["label"], "2025")
+        self.assertEqual(charts["revenue_annual"]["rows"][-1]["value"], 750.0)
+        revenue_quarterly = charts["revenue_quarterly"]["rows"]
+        self.assertEqual(revenue_quarterly[-1]["label"], "2025Q2")
+        self.assertEqual(revenue_quarterly[-1]["value"], 180.0)
+        self.assertAlmostEqual(revenue_quarterly[-1]["growth_pct"], 50.0)
+        self.assertEqual(charts["deducted_profit_annual"]["rows"][-1]["value"], 81.0)
+        self.assertEqual(charts["static_pe"]["rows"][-1]["value"], 19.0)
+        self.assertEqual(chart_data["latest"]["total_mv_yi"], 170.0)
 
 
 if __name__ == "__main__":
