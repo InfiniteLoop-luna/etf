@@ -60,7 +60,7 @@ for file_path in "${excel_files[@]}"; do
   cp -f "$file_path" "$BACKUP_SUBDIR/"
 done
 
-git add "$BACKUP_SUBDIR"
+git add -f "$BACKUP_SUBDIR"
 if git diff --cached --quiet; then
   echo "[$(date -Is)] stock-business-github-backup: no changes to commit"
   exit 0
