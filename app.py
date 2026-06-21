@@ -186,6 +186,10 @@ from src.stock_research_report_store import (
 )
 from src.watchlist_distribution_refresh import refresh_watchlist_distribution_reports
 from src.watchlist_stock_research_refresh import refresh_watchlist_stock_research_reports
+from src.watchlist_excel_importer import (
+    import_watchlist_rows,
+    parse_watchlist_import_workbook,
+)
 
 try:
     from src.security_trend_model import (
@@ -8592,6 +8596,82 @@ def add_company_screener_rows_to_watchlist(
     }
 
 
+def import_uploaded_watchlist_to_user(
+    uploaded_file,
+    username: str,
+    *,
+    existing_watchlist_df: pd.DataFrame | None = None,
+    report_engine=None,
+) -> dict:
+    normalized_username = normalize_username(username)
+    if not normalized_username:
+        raise ValueError("Please login before importing watchlist items")
+
+    parsed_rows = parse_watchlist_import_workbook(uploaded_file)
+    actual_existing_df = (
+        existing_watchlist_df
+        if existing_watchlist_df is not None
+        else list_watchlist_items(normalized_username)
+    )
+    summary = import_watchlist_rows(
+        normalized_username,
+        parsed_rows,
+        existing_watchlist_df=actual_existing_df,
+    )
+    summary["parsed"] = len(parsed_rows)
+
+    if report_engine is not None and summary.get("added", 0) > 0:
+        trigger_watchlist_bulk_refresh_bg(normalized_username, report_engine)
+
+    return summary
+
+
+def trigger_watchlist_bulk_refresh_bg(username: str, engine) -> None:
+    import threading
+
+    normalized_username = normalize_username(username)
+    if not normalized_username or engine is None:
+        return
+
+    def _worker():
+        try:
+            logger.info("Started watchlist distribution bulk refresh after Excel import for %s", normalized_username)
+            dist_summary = refresh_watchlist_distribution_reports(engine, username=normalized_username)
+            logger.info(
+                "Finished watchlist distribution bulk refresh after Excel import for %s: %s",
+                normalized_username,
+                dist_summary,
+            )
+        except Exception as dist_exc:
+            logger.error(
+                "Watchlist distribution bulk refresh after Excel import crashed for %s: %s",
+                normalized_username,
+                dist_exc,
+            )
+
+        try:
+            logger.info("Started stock research bulk refresh after Excel import for %s", normalized_username)
+            research_summary = refresh_watchlist_stock_research_reports(
+                engine,
+                username=normalized_username,
+                force=False,
+            )
+            logger.info(
+                "Finished stock research bulk refresh after Excel import for %s: %s",
+                normalized_username,
+                research_summary,
+            )
+        except Exception as research_exc:
+            logger.error(
+                "Stock research bulk refresh after Excel import crashed for %s: %s",
+                normalized_username,
+                research_exc,
+            )
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+
+
 
 def render_company_screener_tab():
     st.subheader("🏢 公司主营与产品筛选")
@@ -11276,6 +11356,90 @@ def should_show_distribution_report_section(security_type: str, already_in_watch
     return str(security_type or "").strip().lower() == "stock" and bool(already_in_watchlist)
 
 
+def _show_watchlist_import_flash() -> None:
+    flash = st.session_state.pop("watchlist_import_flash", None)
+    if not flash:
+        return
+
+    level = flash.get("level", "info")
+    message = flash.get("message", "")
+    if level == "success":
+        st.success(message)
+    elif level == "warning":
+        st.warning(message)
+    elif level == "error":
+        st.error(message)
+    else:
+        st.info(message)
+
+
+def _clear_watchlist_session_caches() -> None:
+    for key in [
+        "watchlist_enriched_session_cache",
+        "watchlist_report_status_session_cache",
+        "watchlist_alert_text_session_cache",
+    ]:
+        st.session_state.pop(key, None)
+
+
+def render_watchlist_excel_import_section(
+    current_username: str,
+    watchlist_df: pd.DataFrame,
+    report_engine,
+) -> None:
+    is_empty_watchlist = watchlist_df is None or watchlist_df.empty
+    with st.expander("通过 Excel 批量导入自选池", expanded=is_empty_watchlist):
+        st.caption("支持“自选池20260620.xlsx”格式：第一行包含“代码 / 名称”，6 位 A 股代码会自动补全 SH、SZ、BJ 后缀。")
+        uploaded_file = st.file_uploader(
+            "选择自选池 Excel 文件",
+            type=["xlsx", "xlsm"],
+            key="watchlist_excel_import_file",
+        )
+        import_cols = st.columns([1, 2])
+        with import_cols[0]:
+            import_clicked = st.button(
+                "导入到当前用户",
+                key="watchlist_excel_import_submit",
+                type="primary",
+                disabled=not current_username or uploaded_file is None,
+                use_container_width=True,
+            )
+        with import_cols[1]:
+            st.caption(f"当前用户：{current_username}" if current_username else "请先登录后再导入")
+
+        if not import_clicked:
+            return
+
+        try:
+            summary = import_uploaded_watchlist_to_user(
+                uploaded_file,
+                current_username,
+                existing_watchlist_df=watchlist_df,
+                report_engine=report_engine,
+            )
+        except Exception as exc:
+            st.error(f"导入失败：{exc}")
+            return
+
+        message = (
+            f"已解析 {summary.get('parsed', 0)} 只，新增 {summary.get('added', 0)} 只"
+            f"，跳过已存在 {summary.get('skipped_existing', 0)} 只"
+            f"，跳过无效 {summary.get('skipped_invalid', 0)} 只"
+        )
+        if summary.get("failed"):
+            failed_preview = "；".join(summary.get("failed_items", [])[:3])
+            message = f"{message}，失败 {summary.get('failed')} 只：{failed_preview}"
+
+        if summary.get("added", 0) > 0:
+            _clear_watchlist_session_caches()
+            st.session_state["watchlist_import_flash"] = {"level": "success", "message": message}
+            st.rerun()
+        elif summary.get("failed"):
+            st.warning(message)
+        else:
+            st.info(message)
+
+
 def render_user_watchlist_tab() -> None:
     st.subheader("⭐ 自选管理")
     st.caption("登录后管理自己的自选股票，支持从个股查询页一键加入。全景数据总览，辅助投资决策。")
@@ -11285,6 +11449,8 @@ def render_user_watchlist_tab() -> None:
         st.info("请先登录用户名，再查看和管理你的自选。")
         return
 
+    _show_watchlist_import_flash()
+
     try:
         watchlist_df = list_watchlist_items(current_username)
     except Exception as exc:
@@ -11292,6 +11458,7 @@ def render_user_watchlist_tab() -> None:
         return
 
     report_engine = get_security_intraday_engine_cached()
+    render_watchlist_excel_import_section(current_username, watchlist_df, report_engine)
 
     if watchlist_df is None or watchlist_df.empty:
         st.info("你的自选还是空的，先去个股/指数查询页加几只吧～")

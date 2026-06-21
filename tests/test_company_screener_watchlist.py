@@ -67,6 +67,52 @@ class CompanyScreenerWatchlistTests(unittest.TestCase):
         self.assertEqual(distribution_calls, [("alice", "000001.SZ", "ENGINE")])
         self.assertEqual(research_calls, [("alice", "000001.SZ", "ENGINE")])
 
+    def test_import_uploaded_watchlist_to_user_parses_and_triggers_refresh_for_added_codes(self):
+        parsed_rows = [
+            {"ts_code": "688808.SH", "security_name": "联讯仪器", "security_type": "stock"},
+            {"ts_code": "300887.SZ", "security_name": "谱尼测试", "security_type": "stock"},
+        ]
+        existing_df = pd.DataFrame(columns=["ts_code", "security_type", "security_name"])
+        bulk_refresh_calls = []
+
+        with patch.object(app, "parse_watchlist_import_workbook", return_value=parsed_rows):
+            with patch.object(
+                app,
+                "import_watchlist_rows",
+                return_value={
+                    "added": 2,
+                    "added_codes": ["688808.SH", "300887.SZ"],
+                    "skipped_existing": 0,
+                    "skipped_invalid": 0,
+                    "failed": 0,
+                    "failed_items": [],
+                },
+            ) as import_mock:
+                with patch.object(
+                    app,
+                    "trigger_watchlist_bulk_refresh_bg",
+                    side_effect=lambda user, engine: bulk_refresh_calls.append((user, engine)),
+                ):
+                    summary = app.import_uploaded_watchlist_to_user(
+                        object(),
+                        " alice ",
+                        existing_watchlist_df=existing_df,
+                        report_engine="ENGINE",
+                    )
+
+        import_mock.assert_called_once_with(
+            "alice",
+            parsed_rows,
+            existing_watchlist_df=existing_df,
+        )
+        self.assertEqual(summary["parsed"], 2)
+        self.assertEqual(summary["added"], 2)
+        self.assertEqual(bulk_refresh_calls, [("alice", "ENGINE")])
+
+    def test_import_uploaded_watchlist_to_user_requires_login(self):
+        with self.assertRaises(ValueError):
+            app.import_uploaded_watchlist_to_user(object(), "")
+
 
 if __name__ == "__main__":
     unittest.main()
