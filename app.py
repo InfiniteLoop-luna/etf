@@ -262,9 +262,122 @@ CHART_DOWN_FILL = "rgba(42, 157, 143, 0.20)"
 CHART_NAVY_SOFT_FILL = "rgba(27, 38, 59, 0.10)"
 CHART_GOLD_SOFT_FILL = "rgba(212, 175, 55, 0.12)"
 CHART_SERIES = [THEME_NAVY, THEME_PRIMARY, "#4F6785", "#5B8E7D", "#C28C4E", THEME_PURPLE]
-VOLUME_STACKED_HOVER_RIGHT_MARGIN = 160
-VOLUME_STACKED_HOVER_DISTANCE = 60
+TIME_SERIES_HOVER_RIGHT_MARGIN = 160
+TIME_SERIES_HOVER_DISTANCE = 60
+TIME_SERIES_HOVER_TARGET_WIDTH = 42
+TIME_SERIES_XAXIS_RIGHT_PAD_RATIO = 0.05
+TIME_SERIES_DAILY_MIN_RIGHT_PAD = pd.Timedelta(days=30)
+TIME_SERIES_INTRADAY_MIN_RIGHT_PAD = pd.Timedelta(minutes=20)
+VOLUME_STACKED_HOVER_RIGHT_MARGIN = TIME_SERIES_HOVER_RIGHT_MARGIN
+VOLUME_STACKED_HOVER_DISTANCE = TIME_SERIES_HOVER_DISTANCE
 VOLUME_STACKED_XAXIS_RIGHT_PAD_DAYS = 75
+
+
+def _coerce_datetime_series(values) -> pd.Series:
+    if values is None:
+        return pd.Series(dtype="datetime64[ns]")
+    try:
+        series = pd.Series(values)
+    except Exception:
+        series = pd.Series([values])
+    return pd.to_datetime(series, errors="coerce").dropna()
+
+
+def _coerce_numeric_series(values) -> pd.Series:
+    if values is None:
+        return pd.Series(dtype="float64")
+    if isinstance(values, pd.DataFrame):
+        return pd.to_numeric(values.stack(), errors="coerce").dropna()
+    if isinstance(values, (list, tuple)) and values and all(isinstance(item, pd.Series) for item in values):
+        return pd.to_numeric(pd.concat(values, ignore_index=True), errors="coerce").dropna()
+    try:
+        series = pd.Series(values)
+    except Exception:
+        series = pd.Series([values])
+    return pd.to_numeric(series, errors="coerce").dropna()
+
+
+def _max_timedelta(left: pd.Timedelta, right: pd.Timedelta) -> pd.Timedelta:
+    return left if left >= right else right
+
+
+def apply_time_series_hover_affordance(
+    fig: go.Figure,
+    x_values,
+    y_values=None,
+    *,
+    min_right_pad: pd.Timedelta = TIME_SERIES_DAILY_MIN_RIGHT_PAD,
+    latest_label: str = "最新",
+    add_latest_marker: bool = True,
+    add_hover_target: bool = True,
+) -> go.Figure:
+    dates = _coerce_datetime_series(x_values)
+    if dates.empty:
+        return fig
+
+    earliest = dates.min()
+    latest = dates.max()
+    span = latest - earliest
+    proportional_pad = span * TIME_SERIES_XAXIS_RIGHT_PAD_RATIO if span > pd.Timedelta(0) else pd.Timedelta(0)
+    right_pad = _max_timedelta(proportional_pad, min_right_pad)
+
+    fig.update_layout(
+        hoverdistance=TIME_SERIES_HOVER_DISTANCE,
+        margin=dict(r=TIME_SERIES_HOVER_RIGHT_MARGIN),
+    )
+    fig.update_xaxes(range=[earliest, latest + right_pad])
+
+    if add_hover_target:
+        y_series = _coerce_numeric_series(y_values)
+        if y_series.empty:
+            y0, y1 = 0.0, 1.0
+        else:
+            y0 = float(y_series.min())
+            y1 = float(y_series.max())
+            if y0 == y1:
+                padding = max(abs(y0) * 0.01, 1.0)
+                y0 -= padding
+                y1 += padding
+        fig.add_trace(go.Scatter(
+            x=[latest, latest],
+            y=[y0, y1],
+            mode="lines",
+            name="latest-day-hover-target",
+            line=dict(color="rgba(212, 175, 55, 0.01)", width=TIME_SERIES_HOVER_TARGET_WIDTH),
+            hovertemplate="<extra></extra>",
+            showlegend=False,
+        ))
+
+    if add_latest_marker:
+        date_format = "%H:%M" if (latest - earliest) <= pd.Timedelta(days=1) else "%Y-%m-%d"
+        fig.add_shape(
+            type="line",
+            xref="x",
+            yref="paper",
+            x0=latest,
+            x1=latest,
+            y0=0,
+            y1=1,
+            line=dict(color=THEME_PRIMARY, width=1.5, dash="dot"),
+            layer="above",
+        )
+        fig.add_annotation(
+            x=latest,
+            y=1.02,
+            xref="x",
+            yref="paper",
+            text=f"{latest_label} {latest:{date_format}}",
+            showarrow=False,
+            xanchor="left",
+            yanchor="bottom",
+            xshift=6,
+            font=dict(size=11, color=THEME_TEXT),
+            bgcolor="rgba(255, 255, 255, 0.72)",
+            bordercolor=THEME_BORDER_SOFT,
+            borderwidth=1,
+            borderpad=3,
+        )
+    return fig
 
 # Legacy inline CSS retired; shared Professional Gold theme is injected below.
 
@@ -2485,6 +2598,11 @@ def render_strategy_comparison_panel():
             margin=dict(l=20, r=20, t=60, b=20),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
+        apply_time_series_hover_affordance(
+            daily_fig,
+            date_x,
+            [plot_df[label] for _key, label, _color in strategy_meta],
+        )
         daily_fig.update_yaxes(tickformat=".0%", title_text="5日收益")
         daily_fig.update_xaxes(title_text="交易日")
 
@@ -2505,6 +2623,11 @@ def render_strategy_comparison_panel():
             hovermode="x unified",
             margin=dict(l=20, r=20, t=60, b=20),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        apply_time_series_hover_affordance(
+            cum_fig,
+            date_x,
+            [plot_df[f"{label}_cum"] for _key, label, _color in strategy_meta],
         )
         cum_fig.update_yaxes(tickformat=".0%", title_text="累计收益")
         cum_fig.update_xaxes(title_text="交易日")
@@ -5305,6 +5428,7 @@ def create_security_kline_chart(
         xaxis_rangeslider_visible=False,
         margin=dict(l=20, r=20, t=60, b=20),
     )
+    apply_time_series_hover_affordance(fig, chart_df["trade_date"], chart_df[close_col])
     fig.update_yaxes(title_text="价格", row=1, col=1, fixedrange=True)
     fig.update_yaxes(title_text=y_title, row=2, col=1, fixedrange=True)
     if show_macd:
@@ -5425,6 +5549,12 @@ def create_security_intraday_chart(
         xaxis_rangeslider_visible=False,
         margin=dict(l=20, r=20, t=60, b=20),
     )
+    apply_time_series_hover_affordance(
+        fig,
+        chart_df["trade_time"],
+        chart_df["close"],
+        min_right_pad=TIME_SERIES_INTRADAY_MIN_RIGHT_PAD,
+    )
     fig.update_yaxes(title_text="价格", row=1, col=1, fixedrange=True)
     fig.update_yaxes(title_text=y_title, row=2, col=1, fixedrange=True)
     fig.update_xaxes(
@@ -5478,6 +5608,7 @@ def create_metric_line_chart(
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
+    apply_time_series_hover_affordance(fig, chart_df[x_col], chart_df[y_col])
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR)
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR)
     return fig
@@ -5708,6 +5839,8 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
+    if fig.data:
+        apply_time_series_hover_affordance(fig, filtered_df['date'], filtered_df['value'])
 
     # 网格线样式
     fig.update_xaxes(
@@ -6035,6 +6168,7 @@ def create_volume_total_line(df: pd.DataFrame) -> go.Figure:
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
+    apply_time_series_hover_affordance(fig, daily_total['trade_date'], daily_total['amount'])
 
     fig.update_xaxes(
         showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
@@ -9848,6 +9982,7 @@ def create_change_curve_chart(
         ),
         margin=dict(l=20, r=20, t=60, b=20)
     )
+    apply_time_series_hover_affordance(fig, chart_df['trade_date'], chart_df[value_col])
     fig.update_xaxes(
         showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
         showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
@@ -9963,6 +10098,7 @@ def create_change_bar_chart(
         bargap=0.18,
         barmode='group'
     )
+    apply_time_series_hover_affordance(fig, chart_df['trade_date'], chart_df[value_col])
     fig.update_xaxes(
         showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
         showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
@@ -10042,6 +10178,12 @@ def create_macro_line_chart(
         ),
         margin=dict(l=20, r=20, t=60, b=20)
     )
+    if fig.data:
+        apply_time_series_hover_affordance(
+            fig,
+            chart_df["trade_date"],
+            [chart_df[column] for column, _label in series if column in chart_df.columns],
+        )
     fig.update_xaxes(
         showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
         showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
@@ -10294,6 +10436,7 @@ def render_etf_trend_tab():
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
+    apply_time_series_hover_affordance(fig, chart_data['trade_date'], chart_data[metric_col])
     fig.update_xaxes(
         showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
         showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
@@ -12971,6 +13114,7 @@ def render_security_search_tab():
                         ].copy()
 
                     fig_holder_trend = make_subplots(specs=[[{"secondary_y": True}]])
+                    price_plot = pd.DataFrame()
 
                     # Stock price line (left Y)
                     if not price_for_holder.empty:
@@ -13046,6 +13190,12 @@ def render_security_search_tab():
                             font=dict(size=12),
                         ),
                         barmode='overlay',
+                    )
+                    apply_time_series_hover_affordance(
+                        fig_holder_trend,
+                        holder_ts_df['end_date'],
+                        price_plot['close'] if not price_plot.empty else holder_ts_df['holder_num'],
+                        add_hover_target=not price_plot.empty,
                     )
                     fig_holder_trend.update_xaxes(
                         showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
@@ -13510,6 +13660,7 @@ def render_security_search_tab():
         font=dict(family='Inter, PingFang SC, sans-serif'),
         margin=dict(l=20, r=20, t=60, b=20)
     )
+    apply_time_series_hover_affordance(fig, chart_df['trade_date'], chart_df['metric_value'])
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR)
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR, fixedrange=True)
     st.plotly_chart(fig, use_container_width=True)
@@ -14106,6 +14257,7 @@ def render_wide_index_tab():
         ),
         margin=dict(l=20, r=20, t=60, b=20)
     )
+    apply_time_series_hover_affordance(fig, chart_df['trade_date'], chart_df[metric_col])
     fig.update_xaxes(
         showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
         showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
@@ -16691,6 +16843,7 @@ def render_moneyflow_tab():
                 margin=dict(l=20, r=20, t=60, b=20),
                 legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
             )
+            apply_time_series_hover_affordance(fig_hist, df_hist["trade_date"], df_hist["net_mf_amount"])
             fig_hist.update_xaxes(showgrid=True, gridcolor=CHART_GRID_COLOR)
             fig_hist.update_yaxes(showgrid=True, gridcolor=CHART_GRID_COLOR, zeroline=True, zerolinecolor=CHART_ZERO_LINE_COLOR, zerolinewidth=1.5)
             st.plotly_chart(fig_hist, use_container_width=True)
@@ -16730,6 +16883,16 @@ def render_moneyflow_tab():
                     margin=dict(l=20, r=20, t=60, b=20),
                     hovermode="x unified",
                     legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+                )
+                apply_time_series_hover_affordance(
+                    fig_force,
+                    recent["trade_date"],
+                    [
+                        recent.get("buy_elg_amount", pd.Series(dtype=float)).astype(float),
+                        -recent.get("sell_elg_amount", pd.Series(dtype=float)).astype(float),
+                        recent.get("buy_lg_amount", pd.Series(dtype=float)).astype(float),
+                        -recent.get("sell_lg_amount", pd.Series(dtype=float)).astype(float),
+                    ],
                 )
                 fig_force.update_xaxes(showgrid=True, gridcolor=CHART_GRID_COLOR)
                 fig_force.update_yaxes(showgrid=True, gridcolor=CHART_GRID_COLOR, zeroline=True, zerolinecolor=CHART_ZERO_LINE_COLOR, zerolinewidth=1.5)
@@ -16775,6 +16938,7 @@ def render_moneyflow_tab():
                         font=dict(family="Inter, PingFang SC, sans-serif"),
                         margin=dict(l=20, r=20, t=60, b=20),
                     )
+                    apply_time_series_hover_affordance(fig_ths, _ths["trade_date"], _ths["net_amount"])
                     st.plotly_chart(fig_ths, use_container_width=True)
                 else:
                     st.info("THS口径暂无数据（会在查询时按需拉取，拉取起点 2025-01-01）。")
@@ -16817,6 +16981,7 @@ def render_moneyflow_tab():
                         font=dict(family="Inter, PingFang SC, sans-serif"),
                         margin=dict(l=20, r=20, t=60, b=20),
                     )
+                    apply_time_series_hover_affordance(fig_dc, _dc["trade_date"], _dc["net_amount"])
                     st.plotly_chart(fig_dc, use_container_width=True)
                 else:
                     st.info("DC口径暂无数据（会在查询时按需拉取，拉取起点 2025-01-01）。")
@@ -17096,6 +17261,7 @@ def render_moneyflow_tab():
                             yaxis_title="净流入（亿元）",
                             legend_title_text="板块",
                             hovermode="x unified",
+                            hoverdistance=TIME_SERIES_HOVER_DISTANCE,
                             xaxis=dict(type="date", tickformat="%Y-%m-%d", tickangle=-35, showgrid=True, range=[curve_dates[0], pd.to_datetime(curve_dates[-1]) + pd.Timedelta(days=12)]),
                             yaxis=dict(range=y_range, autorange=False, showgrid=True),
                             annotations=first_ann,
@@ -17307,6 +17473,7 @@ def render_moneyflow_tab():
                     margin=dict(l=20, r=20, t=60, b=20),
                     legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
                 )
+                apply_time_series_hover_affordance(fig_hsgt, df_hsgt["trade_date"], north_vals)
                 fig_hsgt.update_xaxes(showgrid=True, gridcolor=CHART_GRID_COLOR)
                 fig_hsgt.update_yaxes(
                     showgrid=True, gridcolor=CHART_GRID_COLOR,
@@ -17343,6 +17510,11 @@ def render_moneyflow_tab():
                         margin=dict(l=20, r=20, t=60, b=20),
                         hovermode="x unified",
                         legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+                    )
+                    apply_time_series_hover_affordance(
+                        fig_detail,
+                        df_hsgt["trade_date"],
+                        [df_hsgt["hgt"].astype(float), df_hsgt["sgt"].astype(float)],
                     )
                     fig_detail.update_xaxes(showgrid=True, gridcolor=CHART_GRID_COLOR)
                     fig_detail.update_yaxes(showgrid=True, gridcolor=CHART_GRID_COLOR)
