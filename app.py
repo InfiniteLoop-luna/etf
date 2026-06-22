@@ -1741,6 +1741,24 @@ def load_security_top10_shareholders(symbol: str, period: str) -> dict:
     }
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_security_fund_holding_detail(symbol: str, period: str, fund_type_filter: str = "全部") -> pd.DataFrame:
+    from src.fund_hot_stocks import query_stock_fund_holding_detail
+
+    ts_code = str(symbol or "").strip().upper()
+    period_norm = str(period or "").replace("-", "").strip()
+    normalized_fund_type = None if str(fund_type_filter or "").strip() in {"", "全部"} else fund_type_filter
+    if not ts_code:
+        return pd.DataFrame()
+
+    return query_stock_fund_holding_detail(
+        symbol=ts_code,
+        period=period_norm or None,
+        top_n=300,
+        fund_type_filter=normalized_fund_type,
+    )
+
+
 @st.cache_resource
 def get_trend_reco_engine_cached():
     try:
@@ -10457,6 +10475,121 @@ def _render_top10_shareholder_panel(top10_holders, top10_floatholders, stock_tit
             st.info("当前报告期暂无前十大流通股东数据。")
 
 
+def _render_security_fund_holding_panel(selected_code: str, title_name: str, period_options: list[str]) -> None:
+    with st.expander("🏦 公募基金持仓", expanded=False):
+        if not period_options:
+            st.info("暂无公募基金持仓报告期数据。")
+            return
+
+        fund_type_options = ["全部", "混合型", "股票型", "债券型", "ETF", "QDII", "LOF", "货币型"]
+        fund_col_period, fund_col_type, fund_col_count, fund_col_btn = st.columns([1.2, 1.2, 1.0, 1.0])
+        with fund_col_period:
+            fund_period_key = f"security_fund_period_{selected_code}"
+            if fund_period_key not in st.session_state or st.session_state[fund_period_key] not in period_options:
+                st.session_state[fund_period_key] = period_options[0]
+            holding_period = st.selectbox("基金持仓报告期", options=period_options, key=fund_period_key)
+        with fund_col_type:
+            fund_type_filter = st.selectbox("基金类型", options=fund_type_options, index=0, key=f"security_fund_type_{selected_code}")
+        with fund_col_count:
+            holding_top_n = st.selectbox("显示基金数", [20, 50, 100, 300], index=1, key=f"security_fund_top_n_{selected_code}")
+        with fund_col_btn:
+            st.caption(" ")
+            query_clicked = st.button("查询基金持仓", type="primary", key=f"btn_security_fund_holding_{selected_code}")
+
+        if st.session_state.get("security_fund_last_code") != selected_code:
+            st.session_state["security_fund_holding_df"] = pd.DataFrame()
+            st.session_state["security_fund_holding_status"] = "待查询"
+            st.session_state["security_fund_last_code"] = selected_code
+
+        query_signature = f"{selected_code}|{holding_period}|{fund_type_filter}|{holding_top_n}"
+        auto_query_needed = st.session_state.get("security_fund_last_signature") != query_signature
+        if query_clicked or auto_query_needed:
+            try:
+                fund_holding_df = load_security_fund_holding_detail(
+                    symbol=selected_code,
+                    period=str(holding_period).replace("-", ""),
+                    fund_type_filter=fund_type_filter,
+                )
+                if isinstance(fund_holding_df, pd.DataFrame) and not fund_holding_df.empty:
+                    fund_holding_df = fund_holding_df.head(int(holding_top_n)).copy()
+                st.session_state["security_fund_holding_df"] = fund_holding_df
+                st.session_state["security_fund_holding_status"] = (
+                    "查询成功"
+                    if isinstance(fund_holding_df, pd.DataFrame) and not fund_holding_df.empty
+                    else "该报告期暂无基金持仓"
+                )
+            except Exception as exc:
+                logger.warning(f"load_security_fund_holding_detail failed: {exc}", exc_info=True)
+                st.session_state["security_fund_holding_df"] = pd.DataFrame()
+                st.session_state["security_fund_holding_status"] = "查询异常"
+            finally:
+                st.session_state["security_fund_last_signature"] = query_signature
+
+        status = st.session_state.get("security_fund_holding_status", "待查询")
+        st.info(f"📌 当前个股：{title_name}（{selected_code}）｜报告期：{holding_period}｜状态：{status}")
+
+        fund_holding_df = st.session_state.get("security_fund_holding_df")
+        if not isinstance(fund_holding_df, pd.DataFrame) or fund_holding_df.empty:
+            return
+
+        fund_holding_df = fund_holding_df.copy()
+        fund_holding_df["fund_name"] = fund_holding_df.get("fund_name", fund_holding_df.get("fund_code", "")).fillna(fund_holding_df.get("fund_code", ""))
+        fund_holding_df["mkv_yi"] = pd.to_numeric(fund_holding_df.get("mkv"), errors="coerce").fillna(0) / 1e8
+        fund_holding_df["delta_mkv_yi"] = pd.to_numeric(fund_holding_df.get("delta_mkv"), errors="coerce").fillna(0) / 1e8
+        fund_holding_df["holding_change_flag"] = fund_holding_df.get("holding_change_flag", "").replace({
+            "new": "新进",
+            "increase": "加仓",
+            "decrease": "减仓",
+            "stable": "持平",
+        })
+
+        holding_metrics = st.columns(4)
+        holding_metrics[0].metric("持有基金数", f"{len(fund_holding_df):,}")
+        holding_metrics[1].metric("持仓总市值", f"{fund_holding_df['mkv_yi'].sum():,.2f} 亿")
+        holding_metrics[2].metric("新进基金", f"{int((fund_holding_df['holding_change_flag'] == '新进').sum())}")
+        holding_metrics[3].metric("加仓基金", f"{int((fund_holding_df['holding_change_flag'] == '加仓').sum())}")
+
+        plot_df = fund_holding_df.head(min(len(fund_holding_df), 20)).copy()
+        fig_holding = go.Figure(go.Bar(
+            x=plot_df["mkv_yi"],
+            y=plot_df["fund_name"],
+            orientation="h",
+            marker=dict(color=plot_df["mkv_yi"], colorscale="Viridis", showscale=False),
+            text=plot_df["mkv_yi"].map(lambda v: f"{v:,.2f}亿" if pd.notna(v) else "-"),
+            textposition="outside",
+            hovertemplate="%{y}<br>持仓市值：%{x:,.2f} 亿<extra></extra>",
+        ))
+        fig_holding.update_layout(
+            title=dict(text=f"{title_name} 持仓基金 Top{len(plot_df)}", x=0.02, font=dict(size=17, color=THEME_TEXT)),
+            xaxis_title="持仓市值（亿元）",
+            height=max(380, len(plot_df) * 26),
+            template="wealthspark_balanced",
+            paper_bgcolor=CHART_PAPER_BG,
+            plot_bgcolor=CHART_BG,
+            font=dict(family="Inter, PingFang SC, sans-serif"),
+            margin=dict(l=120, r=40, t=55, b=20),
+            yaxis=dict(autorange="reversed"),
+        )
+        st.plotly_chart(fig_holding, use_container_width=True)
+
+        management_series = fund_holding_df.get("management", pd.Series([""] * len(fund_holding_df)))
+        show_df = pd.DataFrame({
+            "基金代码": fund_holding_df["fund_code"],
+            "基金名称": fund_holding_df["fund_name"],
+            "管理人": management_series,
+            "持仓市值(亿)": fund_holding_df["mkv_yi"],
+            "持仓数量": pd.to_numeric(fund_holding_df.get("amount"), errors="coerce"),
+            "占基金股票市值比(%)": pd.to_numeric(fund_holding_df.get("stk_mkv_ratio"), errors="coerce"),
+            "占流通股本比例(%)": pd.to_numeric(fund_holding_df.get("stk_float_ratio"), errors="coerce"),
+            "市值变化(亿)": fund_holding_df["delta_mkv_yi"],
+            "变动类型": fund_holding_df["holding_change_flag"],
+        })
+        for col in ["持仓市值(亿)", "占基金股票市值比(%)", "占流通股本比例(%)", "市值变化(亿)"]:
+            show_df[col] = pd.to_numeric(show_df[col], errors="coerce").map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+        show_df["持仓数量"] = pd.to_numeric(show_df["持仓数量"], errors="coerce").map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
+        st.dataframe(show_df, use_container_width=True, hide_index=True)
+
+
 @st.cache_data(ttl=300)
 def load_watchlist_enriched_data(ts_codes: tuple, security_types: tuple) -> pd.DataFrame:
     rows = []
@@ -12946,6 +13079,9 @@ def render_security_search_tab():
                             else:
                                 update_stock_custom_info(selected_code, mb_stripped, pd_stripped)
                                 st.success("更新成功！请重新点击关键字刷新搜索结果。")
+
+        fund_holding_period_options = load_fund_hot_stock_periods()
+        _render_security_fund_holding_panel(selected_code, title_name, fund_holding_period_options)
 
         top10_panel_pref_key = "security_top10_panel_expanded"
         if top10_panel_pref_key not in st.session_state:
@@ -15506,7 +15642,7 @@ def render_fund_hot_stocks_tab():
     fund_type_options = ["全部", "混合型", "股票型", "债券型", "ETF", "QDII", "LOF", "货币型"]
     selected_fund_type = st.selectbox("基金类型筛选", fund_type_options, index=0, key="fh_fund_type_filter")
 
-    sub_top, sub_stock, sub_fund = st.tabs(["🔥 热股榜", "🔎 个股持仓透视", "🏦 基金偏好分析"])
+    sub_top, sub_stock, sub_fund = st.tabs(["🔥 热股榜", "🔎 个股持仓透视", "🏦 基金持仓查询"])
 
     with sub_top:
         sort_options = {
@@ -15983,10 +16119,20 @@ def render_fund_hot_stocks_tab():
             st.info("该股票在所选报告期暂无基金持仓明细。可能原因：当前季度未被基金持有，或该股票尚未纳入本期聚合数据。")
 
     with sub_fund:
-        st.markdown("#### 🏦 基金偏好分析")
-        st.caption("输入基金代码 / 基金名称，支持模糊匹配后选择基金，再查看该基金在当前报告期的偏好持仓。")
+        st.markdown("#### 🏦 基金持仓查询")
+        st.caption("输入基金代码 / 基金名称，查看该基金在选定报告期披露的股票持仓。")
 
-        fund_col1, fund_col2, fund_col3 = st.columns([1.5, 1.6, 1])
+        def _normalize_direct_fund_code(raw) -> str:
+            value = str(raw or "").strip().upper()
+            if not value:
+                return ""
+            if "." in value:
+                return value
+            if len(value) == 6 and value.isdigit():
+                return f"{value}.OF"
+            return ""
+
+        fund_col1, fund_col2, fund_col3, fund_col4 = st.columns([1.4, 1.8, 1.0, 1.0])
         with fund_col1:
             fund_keyword = st.text_input(
                 "基金代码 / 基金名称",
@@ -15998,6 +16144,7 @@ def render_fund_hot_stocks_tab():
             fund_candidates = pd.DataFrame()
             fund_option_labels = []
             fund_selected_row = None
+            direct_fund_code = _normalize_direct_fund_code(fund_keyword)
             if fund_keyword:
                 try:
                     fund_candidates = search_funds(fund_keyword, limit=30, engine=_fh_engine)
@@ -16006,8 +16153,12 @@ def render_fund_hot_stocks_tab():
                     fund_candidates = pd.DataFrame()
 
             if fund_keyword and (fund_candidates is None or len(fund_candidates) == 0):
-                st.warning("未找到匹配基金，请换个代码、名称或关键词再试。")
-                st.text_input("匹配基金", value="没有匹配结果", disabled=True, key="fh_fund_match_placeholder")
+                if direct_fund_code:
+                    st.info(f"未在基金基础表匹配到候选，将按基金代码 {direct_fund_code} 直接查询持仓。")
+                    st.text_input("匹配基金", value=direct_fund_code, disabled=True, key="fh_fund_match_placeholder")
+                else:
+                    st.warning("未找到匹配基金，请换个代码、名称或关键词再试。")
+                    st.text_input("匹配基金", value="没有匹配结果", disabled=True, key="fh_fund_match_placeholder")
             elif fund_candidates is not None and len(fund_candidates) > 0:
                 fund_option_labels = [
                     f"{str(row.get('name') or row.get('fund_code') or '')}（{str(row.get('fund_code') or '')}｜{str(row.get('management') or '未知管理人')}｜{str(row.get('fund_type') or '未知类型')}）"
@@ -16020,32 +16171,43 @@ def render_fund_hot_stocks_tab():
                 st.text_input("匹配基金", value="请输入关键词后自动匹配", disabled=True, key="fh_fund_match_placeholder")
         with fund_col3:
             fund_period = st.selectbox("报告期", periods, index=0, key="fh_fund_period")
+        with fund_col4:
+            fund_top_n = st.selectbox("显示持仓数", [10, 20, 30, 50, 100, 300], index=3, key="fh_fund_top_n")
 
-        if st.button("查询基金偏好", type="primary", key="btn_fh_fund_query"):
+        if st.button("查询基金持仓", type="primary", key="btn_fh_fund_query"):
             st.session_state["fh_fund_error"] = ""
             st.session_state["fh_fund_result"] = pd.DataFrame()
             st.session_state["fh_fund_keyword"] = fund_keyword
-            if fund_selected_row is None:
+            st.session_state["fh_fund_last_query_period"] = fund_period
+            if fund_selected_row is None and not direct_fund_code:
                 st.session_state["fh_fund_code"] = ""
                 if fund_keyword:
                     st.session_state["fh_fund_error"] = "没有匹配到基金，请先从候选结果中选择基金。"
                 else:
                     st.session_state["fh_fund_error"] = "请先输入基金代码/名称，并从匹配结果中选择基金。"
             else:
-                fund_code = str(fund_selected_row.get("fund_code") or "").strip().upper()
+                fund_code = (
+                    str(fund_selected_row.get("fund_code") or "").strip().upper()
+                    if fund_selected_row is not None
+                    else direct_fund_code
+                )
                 st.session_state["fh_fund_code"] = fund_code
-                st.session_state["fh_fund_name"] = str(fund_selected_row.get("name") or fund_code).strip()
+                st.session_state["fh_fund_name"] = (
+                    str(fund_selected_row.get("name") or fund_code).strip()
+                    if fund_selected_row is not None
+                    else fund_code
+                )
                 try:
                     fund_df = query_fund_preference_snapshot(
                         fund_code=fund_code,
                         period=fund_period.replace("-", ""),
-                        top_n=30,
+                        top_n=int(fund_top_n),
                         engine=_fh_engine,
                     )
                     st.session_state["fh_fund_result"] = fund_df
                 except Exception as exc:
                     logger.error(f"query_fund_preference_snapshot failed: {exc}", exc_info=True)
-                    st.session_state["fh_fund_error"] = "基金偏好分析查询失败，请检查基金选择结果或稍后重试。"
+                    st.session_state["fh_fund_error"] = "基金持仓查询失败，请检查基金代码、报告期或稍后重试。"
 
         fund_error = st.session_state.get("fh_fund_error", "")
         if fund_error:
@@ -16065,15 +16227,18 @@ def render_fund_hot_stocks_tab():
 
             fund_name = str(fund_df.iloc[0].get("fund_name") or st.session_state.get("fh_fund_name") or st.session_state.get("fh_fund_code", ""))
             management = str(fund_df.iloc[0].get("management") or "-")
-            st.info(f"📌 当前基金：{fund_name}｜管理人：{management}｜报告期：{fund_period}")
+            fund_type = str(fund_df.iloc[0].get("fund_type") or fund_df.iloc[0].get("invest_type") or "-")
+            fund_query_period = st.session_state.get("fh_fund_last_query_period", fund_period)
+            st.info(f"📌 当前基金：{fund_name}｜管理人：{management}｜类型：{fund_type}｜报告期：{fund_query_period}")
 
             fund_metrics = st.columns(4)
-            fund_metrics[0].metric("偏好持仓数", f"{len(fund_df):,}")
+            fund_metrics[0].metric("披露持仓数", f"{len(fund_df):,}")
             fund_metrics[1].metric("持仓总市值", f"{fund_df['mkv_yi'].sum():,.2f} 亿")
             fund_metrics[2].metric("新进持仓", f"{int((fund_df['holding_change_flag'] == '新进').sum())}")
-            fund_metrics[3].metric("加仓持仓", f"{int((fund_df['holding_change_flag'] == '加仓').sum())}")
+            top10_ratio = pd.to_numeric(fund_df.get("stk_mkv_ratio"), errors="coerce").fillna(0).head(10).sum()
+            fund_metrics[3].metric("前十持仓占比", f"{top10_ratio:,.2f}%")
 
-            pref_plot = fund_df.head(15).copy()
+            pref_plot = fund_df.head(min(len(fund_df), 20)).copy()
             fig_pref = go.Figure(go.Bar(
                 x=pref_plot["mkv_yi"],
                 y=pref_plot["stock_name"],
@@ -16084,7 +16249,7 @@ def render_fund_hot_stocks_tab():
                 hovertemplate="%{y}<br>持仓市值：%{x:,.2f} 亿<extra></extra>",
             ))
             fig_pref.update_layout(
-                title=dict(text="基金偏好持仓 Top15", x=0.02, font=dict(size=17, color=THEME_TEXT)),
+                title=dict(text=f"基金披露持仓 Top{len(pref_plot)}", x=0.02, font=dict(size=17, color=THEME_TEXT)),
                 xaxis_title="持仓市值（亿元）",
                 height=max(380, len(pref_plot) * 26),
                 template="wealthspark_balanced",
@@ -16096,13 +16261,35 @@ def render_fund_hot_stocks_tab():
             )
             st.plotly_chart(fig_pref, use_container_width=True)
 
-            pref_show = fund_df[["stock_name", "symbol", "mkv_yi", "delta_mkv_yi", "stk_mkv_ratio", "holding_change_flag"]].copy()
-            pref_show.columns = ["股票", "代码", "持仓市值(亿)", "市值变化(亿)", "占基金股票市值比(%)", "变动类型"]
-            for col in ["持仓市值(亿)", "市值变化(亿)", "占基金股票市值比(%)"]:
+            pref_show = fund_df[[
+                "stock_name",
+                "symbol",
+                "mkv_yi",
+                "amount",
+                "stk_mkv_ratio",
+                "stk_float_ratio",
+                "delta_mkv_yi",
+                "holding_change_flag",
+                "ann_date",
+            ]].copy()
+            pref_show.columns = [
+                "股票",
+                "代码",
+                "持仓市值(亿)",
+                "持仓数量",
+                "占基金股票市值比(%)",
+                "占流通股本比例(%)",
+                "市值变化(亿)",
+                "变动类型",
+                "公告日",
+            ]
+            for col in ["持仓市值(亿)", "占基金股票市值比(%)", "占流通股本比例(%)", "市值变化(亿)"]:
                 pref_show[col] = pd.to_numeric(pref_show[col], errors="coerce").map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
+            pref_show["持仓数量"] = pd.to_numeric(pref_show["持仓数量"], errors="coerce").map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
+            pref_show["公告日"] = pd.to_datetime(pref_show["公告日"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("-")
             st.dataframe(pref_show, use_container_width=True, hide_index=True)
         elif fund_df is not None and fund_df.empty and not fund_error and st.session_state.get("fh_fund_code"):
-            st.info("该基金在所选报告期暂无可用偏好持仓数据。")
+            st.info("该基金在所选报告期暂无可用持仓数据。")
 
 
 def render_moneyflow_tab():

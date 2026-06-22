@@ -1170,6 +1170,8 @@ def query_fund_preference_snapshot(
     ), cur AS (
         SELECT
             p.fund_code,
+            p.ann_date,
+            p.end_date,
             p.symbol,
             sb.name AS stock_name,
             p.mkv,
@@ -1195,6 +1197,10 @@ def query_fund_preference_snapshot(
         c.fund_code,
         fb.name AS fund_name,
         fb.management,
+        fb.fund_type,
+        fb.invest_type,
+        c.ann_date,
+        c.end_date,
         c.symbol,
         COALESCE(c.stock_name, c.symbol) AS stock_name,
         c.mkv,
