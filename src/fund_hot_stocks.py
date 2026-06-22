@@ -107,6 +107,38 @@ def normalize_period(raw: Optional[str]) -> Optional[str]:
     return pd.Timestamp(d).to_period("Q").end_time.date().strftime("%Y%m%d")
 
 
+def normalize_fund_ts_code(raw) -> Optional[str]:
+    if raw is None:
+        return None
+    try:
+        if pd.isna(raw):
+            return None
+    except (TypeError, ValueError):
+        pass
+    code = str(raw).strip().upper()
+    if not code:
+        return None
+    if "." in code:
+        return code
+    if len(code) == 6 and code.isdigit():
+        return f"{code}.OF"
+    return code
+
+
+def _dedupe_normalized_fund_codes(fund_codes: Optional[Iterable[str]], limit: Optional[int] = None) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw_code in fund_codes or []:
+        code = normalize_fund_ts_code(raw_code)
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        result.append(code)
+        if limit and len(result) >= int(limit):
+            break
+    return result
+
+
 def iter_quarter_periods(start_period: str, end_period: str) -> list[str]:
     s = pd.Timestamp(parse_yyyymmdd(start_period)).to_period("Q")
     e = pd.Timestamp(parse_yyyymmdd(end_period)).to_period("Q")
@@ -456,6 +488,178 @@ def resolve_portfolio_periods(
     return iter_quarter_periods(start_p, end_p)
 
 
+def query_fund_codes_for_portfolio_sync(
+    engine: Engine,
+    fund_codes: Optional[Iterable[str]] = None,
+    fund_keyword: Optional[str] = None,
+    management_keyword: Optional[str] = None,
+    statuses: Optional[Iterable[str]] = ("L",),
+    limit: Optional[int] = None,
+) -> list[str]:
+    explicit_codes = _dedupe_normalized_fund_codes(fund_codes, limit=limit)
+    if explicit_codes:
+        return explicit_codes
+
+    where_clauses = ["fund_code IS NOT NULL"]
+    params: dict[str, object] = {}
+
+    if fund_keyword:
+        params["fund_keyword"] = f"%{str(fund_keyword).strip()}%"
+        where_clauses.append("(fund_code ILIKE :fund_keyword OR name ILIKE :fund_keyword)")
+
+    if management_keyword:
+        params["management_keyword"] = f"%{str(management_keyword).strip()}%"
+        where_clauses.append("management ILIKE :management_keyword")
+
+    normalized_statuses = [str(s).strip().upper() for s in statuses or [] if str(s).strip()]
+    if normalized_statuses:
+        placeholders = []
+        for idx, status in enumerate(normalized_statuses):
+            key = f"status_{idx}"
+            params[key] = status
+            placeholders.append(f":{key}")
+        where_clauses.append(f"COALESCE(status, '') IN ({', '.join(placeholders)})")
+
+    sql = f"""
+    SELECT DISTINCT fund_code
+    FROM vw_fund_basic
+    WHERE {' AND '.join(where_clauses)}
+    ORDER BY fund_code
+    """
+    if limit:
+        params["limit"] = int(limit)
+        sql += "\nLIMIT :limit"
+
+    with engine.connect() as conn:
+        df = pd.read_sql(text(sql), conn, params=params)
+
+    if df is None or df.empty:
+        return []
+
+    return _dedupe_normalized_fund_codes(df["fund_code"].tolist(), limit=limit)
+
+
+def query_missing_fund_portfolio_tasks(
+    engine: Engine,
+    periods: Iterable[str],
+    fund_codes: Optional[Iterable[str]] = None,
+    fund_keyword: Optional[str] = None,
+    management_keyword: Optional[str] = None,
+    statuses: Optional[Iterable[str]] = ("L",),
+    limit: Optional[int] = None,
+) -> list[dict[str, str]]:
+    normalized_periods = []
+    seen_periods = set()
+    for raw_period in periods or []:
+        p = normalize_period(raw_period)
+        if not p or p in seen_periods:
+            continue
+        seen_periods.add(p)
+        normalized_periods.append(p)
+    if not normalized_periods:
+        return []
+
+    params: dict[str, object] = {}
+    period_values = []
+    for idx, p in enumerate(normalized_periods):
+        key = f"period_{idx}"
+        params[key] = p
+        period_values.append(f"(to_date(:{key}, 'YYYYMMDD'))")
+    period_cte = f"periods(period) AS (VALUES {', '.join(period_values)})"
+
+    explicit_codes = _dedupe_normalized_fund_codes(fund_codes, limit=limit)
+    if explicit_codes:
+        fund_values = []
+        for idx, fund_code in enumerate(explicit_codes):
+            key = f"fund_code_{idx}"
+            params[key] = fund_code
+            fund_values.append(f"(:{key})")
+        fund_cte = f"funds(fund_code) AS (VALUES {', '.join(fund_values)})"
+    else:
+        where_clauses = ["fund_code IS NOT NULL"]
+
+        if fund_keyword:
+            params["fund_keyword"] = f"%{str(fund_keyword).strip()}%"
+            where_clauses.append("(fund_code ILIKE :fund_keyword OR name ILIKE :fund_keyword)")
+
+        if management_keyword:
+            params["management_keyword"] = f"%{str(management_keyword).strip()}%"
+            where_clauses.append("management ILIKE :management_keyword")
+
+        normalized_statuses = [str(s).strip().upper() for s in statuses or [] if str(s).strip()]
+        if normalized_statuses:
+            placeholders = []
+            for idx, status in enumerate(normalized_statuses):
+                key = f"status_{idx}"
+                params[key] = status
+                placeholders.append(f":{key}")
+            where_clauses.append(f"COALESCE(status, '') IN ({', '.join(placeholders)})")
+
+        limit_sql = ""
+        if limit:
+            params["limit"] = int(limit)
+            limit_sql = "\n        LIMIT :limit"
+
+        fund_cte = f"""
+        funds AS (
+            SELECT DISTINCT fund_code
+            FROM vw_fund_basic
+            WHERE {' AND '.join(where_clauses)}
+            ORDER BY fund_code{limit_sql}
+        )
+        """
+
+    sql = f"""
+    WITH {period_cte},
+    {fund_cte}
+    SELECT
+        f.fund_code,
+        to_char(p.period, 'YYYYMMDD') AS period
+    FROM funds f
+    CROSS JOIN periods p
+    LEFT JOIN vw_fund_portfolio v
+      ON v.fund_code = f.fund_code
+     AND v.end_date = p.period
+    WHERE v.fund_code IS NULL
+    ORDER BY p.period, f.fund_code
+    """
+
+    with engine.connect() as conn:
+        df = pd.read_sql(text(sql), conn, params=params)
+
+    if df is None or df.empty:
+        return []
+
+    tasks: list[dict[str, str]] = []
+    for row in df.to_dict("records"):
+        fund_code = normalize_fund_ts_code(row.get("fund_code"))
+        period_value = normalize_period(row.get("period"))
+        if fund_code and period_value:
+            tasks.append({"fund_code": fund_code, "period": period_value})
+    return tasks
+
+
+def _upsert_fund_portfolio_rows(engine: Engine, rows: list[dict]) -> int:
+    return upsert_rows(
+        engine,
+        DATASET_TABLES["fund_portfolio"],
+        "fund_portfolio",
+        rows,
+        business_key_fn=lambda r: make_business_key(
+            "fund_portfolio",
+            str(r.get("ts_code", "")).strip().upper(),
+            normalize_period(r.get("end_date")) or yyyymmdd(r.get("end_date")),
+            yyyymmdd(r.get("ann_date")),
+            str(r.get("symbol", "")).strip().upper(),
+        ),
+        ts_code_fn=lambda r: str(r.get("ts_code", "")).strip().upper() or None,
+        ann_date_fn=lambda r: r.get("ann_date"),
+        end_date_fn=lambda r: r.get("end_date"),
+        period_fn=lambda r: normalize_period(r.get("end_date")) or normalize_period(r.get("period")),
+        chunk_size=100,
+    )
+
+
 def sync_fund_portfolio(
     engine: Engine,
     pro,
@@ -483,24 +687,7 @@ def sync_fund_portfolio(
             continue
 
         rows = df.to_dict("records")
-        n = upsert_rows(
-            engine,
-            DATASET_TABLES["fund_portfolio"],
-            "fund_portfolio",
-            rows,
-            business_key_fn=lambda r: make_business_key(
-                "fund_portfolio",
-                str(r.get("ts_code", "")).strip().upper(),
-                normalize_period(r.get("end_date")) or yyyymmdd(r.get("end_date")),
-                yyyymmdd(r.get("ann_date")),
-                str(r.get("symbol", "")).strip().upper(),
-            ),
-            ts_code_fn=lambda r: str(r.get("ts_code", "")).strip().upper() or None,
-            ann_date_fn=lambda r: r.get("ann_date"),
-            end_date_fn=lambda r: r.get("end_date"),
-            period_fn=lambda r: normalize_period(r.get("end_date")) or normalize_period(r.get("period")),
-            chunk_size=100,
-        )
+        n = _upsert_fund_portfolio_rows(engine, rows)
         logger.info(f"fund_portfolio period={p}: 写入 {n} 行")
         total += n
         time.sleep(DEFAULT_API_SLEEP)
@@ -512,6 +699,153 @@ def sync_fund_portfolio(
 # ---------------------------------------------------------------------------
 # 季度聚合
 # ---------------------------------------------------------------------------
+
+def sync_fund_portfolio_by_fund(
+    engine: Engine,
+    pro,
+    period: Optional[str] = None,
+    start_period: Optional[str] = None,
+    end_period: Optional[str] = None,
+    fund_codes: Optional[Iterable[str]] = None,
+    fund_keyword: Optional[str] = None,
+    management_keyword: Optional[str] = None,
+    statuses: Optional[Iterable[str]] = ("L",),
+    limit: Optional[int] = None,
+    api_sleep: Optional[float] = DEFAULT_API_SLEEP,
+) -> int:
+    periods = resolve_portfolio_periods(engine, period=period, start_period=start_period, end_period=end_period)
+    if not periods:
+        logger.info("fund_portfolio by_fund: no periods to sync")
+        return 0
+
+    fund_code_list = query_fund_codes_for_portfolio_sync(
+        engine,
+        fund_codes=fund_codes,
+        fund_keyword=fund_keyword,
+        management_keyword=management_keyword,
+        statuses=statuses,
+        limit=limit,
+    )
+    if not fund_code_list:
+        logger.warning("fund_portfolio by_fund: no fund codes matched")
+        return 0
+
+    sleep_seconds = max(0.0, float(DEFAULT_API_SLEEP if api_sleep is None else api_sleep))
+    total = 0
+    for p in periods:
+        period_total = 0
+        for fund_code in fund_code_list:
+            try:
+                df = pro.fund_portfolio(ts_code=fund_code, period=p)
+            except Exception as exc:
+                logger.warning(f"fund_portfolio ts_code={fund_code} period={p} fetch failed: {exc}")
+                if sleep_seconds:
+                    time.sleep(sleep_seconds)
+                continue
+
+            if df is None or df.empty:
+                logger.info(f"fund_portfolio ts_code={fund_code} period={p}: 0 rows")
+                if sleep_seconds:
+                    time.sleep(sleep_seconds)
+                continue
+
+            rows = []
+            for row in df.to_dict("records"):
+                normalized_row = dict(row)
+                normalized_row["ts_code"] = normalize_fund_ts_code(normalized_row.get("ts_code")) or fund_code
+                normalized_row["end_date"] = normalized_row.get("end_date") or p
+                rows.append(normalized_row)
+
+            n = _upsert_fund_portfolio_rows(engine, rows)
+            period_total += n
+            total += n
+            logger.info(f"fund_portfolio ts_code={fund_code} period={p}: wrote {n} rows")
+            if sleep_seconds:
+                time.sleep(sleep_seconds)
+
+        logger.info(f"fund_portfolio by_fund period={p}: wrote {period_total} rows")
+
+    logger.info(
+        f"fund_portfolio by_fund sync finished: funds={len(fund_code_list)}, periods={len(periods)}, rows={total}"
+    )
+    return total
+
+
+def sync_fund_portfolio_dynamic(
+    engine: Engine,
+    pro,
+    period: Optional[str] = None,
+    start_period: Optional[str] = None,
+    end_period: Optional[str] = None,
+    fund_codes: Optional[Iterable[str]] = None,
+    fund_keyword: Optional[str] = None,
+    management_keyword: Optional[str] = None,
+    statuses: Optional[Iterable[str]] = ("L",),
+    limit: Optional[int] = None,
+    refresh_basic: bool = True,
+    api_sleep: Optional[float] = DEFAULT_API_SLEEP,
+) -> dict[str, int]:
+    periods = resolve_portfolio_periods(engine, period=period, start_period=start_period, end_period=end_period)
+    result = {
+        "fund_basic": 0,
+        "fund_portfolio": 0,
+        "missing_tasks": 0,
+    }
+    if not periods:
+        logger.info("fund_portfolio dynamic: no periods to sync")
+        return result
+
+    if refresh_basic:
+        result["fund_basic"] = sync_fund_basic(engine, pro)
+
+    tasks = query_missing_fund_portfolio_tasks(
+        engine,
+        periods=periods,
+        fund_codes=fund_codes,
+        fund_keyword=fund_keyword,
+        management_keyword=management_keyword,
+        statuses=statuses,
+        limit=limit,
+    )
+    result["missing_tasks"] = len(tasks)
+    if not tasks:
+        logger.info("fund_portfolio dynamic: no missing fund-period tasks")
+        return result
+
+    sleep_seconds = max(0.0, float(DEFAULT_API_SLEEP if api_sleep is None else api_sleep))
+    for task in tasks:
+        fund_code = task["fund_code"]
+        p = task["period"]
+        try:
+            df = pro.fund_portfolio(ts_code=fund_code, period=p)
+        except Exception as exc:
+            logger.warning(f"fund_portfolio dynamic ts_code={fund_code} period={p} fetch failed: {exc}")
+            if sleep_seconds:
+                time.sleep(sleep_seconds)
+            continue
+
+        if df is None or df.empty:
+            logger.info(f"fund_portfolio dynamic ts_code={fund_code} period={p}: 0 rows")
+            if sleep_seconds:
+                time.sleep(sleep_seconds)
+            continue
+
+        rows = []
+        for row in df.to_dict("records"):
+            normalized_row = dict(row)
+            normalized_row["ts_code"] = normalize_fund_ts_code(normalized_row.get("ts_code")) or fund_code
+            normalized_row["end_date"] = normalized_row.get("end_date") or p
+            rows.append(normalized_row)
+
+        n = _upsert_fund_portfolio_rows(engine, rows)
+        result["fund_portfolio"] += n
+        logger.info(f"fund_portfolio dynamic ts_code={fund_code} period={p}: wrote {n} rows")
+        if sleep_seconds:
+            time.sleep(sleep_seconds)
+
+    logger.info(f"fund_portfolio dynamic sync finished: {result}")
+    return result
+
 
 def _compute_heat_score(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
