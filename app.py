@@ -263,6 +263,8 @@ CHART_NAVY_SOFT_FILL = "rgba(27, 38, 59, 0.10)"
 CHART_GOLD_SOFT_FILL = "rgba(212, 175, 55, 0.12)"
 CHART_SERIES = [THEME_NAVY, THEME_PRIMARY, "#4F6785", "#5B8E7D", "#C28C4E", THEME_PURPLE]
 VOLUME_STACKED_HOVER_RIGHT_MARGIN = 160
+VOLUME_STACKED_HOVER_DISTANCE = 60
+VOLUME_STACKED_XAXIS_RIGHT_PAD_DAYS = 75
 
 # Legacy inline CSS retired; shared Professional Gold theme is injected below.
 
@@ -5843,6 +5845,27 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
         '科创板': THEME_PURPLE,
     }
 
+    trade_dates = (
+        pd.to_datetime(df['trade_date'], errors='coerce').dropna()
+        if 'trade_date' in df.columns
+        else pd.Series(dtype='datetime64[ns]')
+    )
+    latest_trade_date = None
+    latest_total_amount = None
+    xaxis_range = None
+    if not trade_dates.empty:
+        earliest_trade_date = trade_dates.min()
+        latest_trade_date = trade_dates.max()
+        xaxis_range = [
+            earliest_trade_date,
+            latest_trade_date + pd.Timedelta(days=VOLUME_STACKED_XAXIS_RIGHT_PAD_DAYS),
+        ]
+        if 'amount' in df.columns:
+            latest_trade_mask = pd.to_datetime(df['trade_date'], errors='coerce') == latest_trade_date
+            latest_amounts = pd.to_numeric(df.loc[latest_trade_mask, 'amount'], errors='coerce').dropna()
+            if not latest_amounts.empty:
+                latest_total_amount = float(latest_amounts.sum())
+
     fig = go.Figure()
 
     for sector_name in ['沪市主板', '深市主板', '创业板', '科创板']:
@@ -5856,6 +5879,17 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
                 hovertemplate=f'<b>{sector_name}</b><br>%{{x|%Y-%m-%d}}<br>成交额: %{{y:.2f}} 亿元<extra></extra>'
             ))
 
+    if latest_trade_date is not None and latest_total_amount and latest_total_amount > 0:
+        fig.add_trace(go.Scatter(
+            x=[latest_trade_date, latest_trade_date],
+            y=[0, latest_total_amount],
+            mode="lines",
+            name="latest-day-hover-target",
+            line=dict(color="rgba(212, 175, 55, 0.01)", width=42),
+            hovertemplate="<extra></extra>",
+            showlegend=False,
+        ))
+
     fig.update_layout(
         barmode='stack',
         title=dict(
@@ -5866,6 +5900,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
         xaxis_title='日期',
         yaxis_title='成交额（亿元）',
         hovermode='x unified',
+        hoverdistance=VOLUME_STACKED_HOVER_DISTANCE,
         legend=dict(
             orientation='h',
             yanchor='bottom',
@@ -5883,9 +5918,39 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
         margin=dict(l=20, r=VOLUME_STACKED_HOVER_RIGHT_MARGIN, t=60, b=20)
     )
 
+    if latest_trade_date is not None:
+        fig.add_shape(
+            type="line",
+            xref="x",
+            yref="paper",
+            x0=latest_trade_date,
+            x1=latest_trade_date,
+            y0=0,
+            y1=1,
+            line=dict(color=THEME_PRIMARY, width=1.5, dash="dot"),
+            layer="above",
+        )
+        fig.add_annotation(
+            x=latest_trade_date,
+            y=1.02,
+            xref="x",
+            yref="paper",
+            text=f"最新 {latest_trade_date:%Y-%m-%d}",
+            showarrow=False,
+            xanchor="left",
+            yanchor="bottom",
+            xshift=6,
+            font=dict(size=11, color=THEME_TEXT),
+            bgcolor="rgba(255, 255, 255, 0.72)",
+            bordercolor=THEME_BORDER_SOFT,
+            borderwidth=1,
+            borderpad=3,
+        )
+
     fig.update_xaxes(
         showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
-        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR,
+        range=xaxis_range
     )
     fig.update_yaxes(
         showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
