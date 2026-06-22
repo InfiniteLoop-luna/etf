@@ -262,6 +262,7 @@ CHART_DOWN_FILL = "rgba(42, 157, 143, 0.20)"
 CHART_NAVY_SOFT_FILL = "rgba(27, 38, 59, 0.10)"
 CHART_GOLD_SOFT_FILL = "rgba(212, 175, 55, 0.12)"
 CHART_SERIES = [THEME_NAVY, THEME_PRIMARY, "#4F6785", "#5B8E7D", "#C28C4E", THEME_PURPLE]
+VOLUME_STACKED_HOVER_RIGHT_MARGIN = 160
 
 # Legacy inline CSS retired; shared Professional Gold theme is injected below.
 
@@ -5879,7 +5880,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
         font=dict(family='Inter, PingFang SC, sans-serif'),
-        margin=dict(l=20, r=20, t=60, b=20)
+        margin=dict(l=20, r=VOLUME_STACKED_HOVER_RIGHT_MARGIN, t=60, b=20)
     )
 
     fig.update_xaxes(
