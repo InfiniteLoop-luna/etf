@@ -118,6 +118,7 @@ from src.navigation_config import (
     STOCK_SECURITY_SEARCH_LABEL,
     STOCK_TECH_PICKER_LABEL,
     STOCK_USER_WATCHLIST_LABEL,
+    STOCK_FUND_WATCHLIST_LABEL,
 )
 from src.sidebar_navigation import (
     SIDEBAR_MODULES,
@@ -6500,6 +6501,8 @@ def main():
                 render_lhb_monitor_tab()
             elif mobile_page == STOCK_USER_WATCHLIST_LABEL:
                 render_user_watchlist_tab()
+            elif mobile_page == STOCK_FUND_WATCHLIST_LABEL:
+                render_fund_watchlist_tab()
             elif mobile_page == STOCK_POOL_PAGE_LABEL:
                 render_user_stock_pool_tab()
             elif mobile_page == STOCK_COMPANY_SCREENER_LABEL:
@@ -6593,6 +6596,8 @@ def main():
             render_lhb_monitor_tab()
         elif selected_page == STOCK_USER_WATCHLIST_LABEL:
             render_user_watchlist_tab()
+        elif selected_page == STOCK_FUND_WATCHLIST_LABEL:
+            render_fund_watchlist_tab()
         elif selected_page == STOCK_POOL_PAGE_LABEL:
             render_user_stock_pool_tab()
         elif selected_page == STOCK_COMPANY_SCREENER_LABEL:
@@ -15797,6 +15802,144 @@ def render_fund_monitor_tab():
                 use_container_width=True,
                 hide_index=True,
             )
+
+
+def render_fund_watchlist_tab() -> None:
+    from src.fund_hot_stocks import (
+        get_engine as get_fund_hot_engine,
+        query_fund_preference_snapshot,
+        search_funds,
+    )
+
+    st.subheader("?? ??????")
+    st.caption("????????????????????????????")
+
+    current_username = get_logged_in_username()
+    if not current_username:
+        st.info("?????????????????????")
+        return
+
+    try:
+        watchlist_df = list_watchlist_items(current_username, security_type="fund")
+    except Exception as exc:
+        st.error(f"?????????{exc}")
+        return
+
+    if watchlist_df is None or watchlist_df.empty:
+        st.info("?????????????????????????????????")
+        return
+
+    try:
+        fund_engine = get_fund_hot_engine()
+    except Exception as exc:
+        st.error(f"????????????{exc}")
+        return
+
+    st.metric("??????", f"{len(watchlist_df):,} ?")
+
+    remove_options = watchlist_df.apply(
+        lambda row: f"{str(row.get('security_name') or row.get('ts_code') or '').strip()}?{str(row.get('ts_code') or '').strip()}?",
+        axis=1,
+    ).tolist()
+    selected_labels = st.multiselect("???????????", options=remove_options, key="fund_watchlist_remove_multiselect")
+    if st.button("??????", disabled=len(selected_labels) == 0, key="fund_watchlist_remove_button"):
+        items_to_remove = []
+        for label in selected_labels:
+            idx = remove_options.index(label)
+            row = watchlist_df.iloc[idx]
+            items_to_remove.append((str(row.get("ts_code") or ""), "fund"))
+        removed_count = remove_watchlist_items_batch(current_username, items_to_remove)
+        if removed_count > 0:
+            st.success(f"????????? {removed_count} ?")
+            st.rerun()
+        else:
+            st.warning("????????????????")
+
+    st.divider()
+
+    for _, row in watchlist_df.iterrows():
+        fund_code = str(row.get("ts_code") or "").strip().upper()
+        display_name = str(row.get("security_name") or fund_code).strip() or fund_code
+
+        search_df = pd.DataFrame()
+        try:
+            search_df = search_funds(fund_code, limit=5, engine=fund_engine)
+        except Exception:
+            search_df = pd.DataFrame()
+
+        meta_row = None
+        if search_df is not None and not search_df.empty:
+            exact_rows = search_df[search_df["fund_code"].astype(str).str.upper() == fund_code]
+            meta_row = exact_rows.iloc[0] if not exact_rows.empty else search_df.iloc[0]
+
+        try:
+            holding_df = query_fund_preference_snapshot(fund_code=fund_code, top_n=10, engine=fund_engine)
+        except Exception as exc:
+            st.warning(f"{display_name} ???????{exc}")
+            holding_df = pd.DataFrame()
+
+        card_title = display_name if display_name == fund_code else f"{display_name}?{fund_code}?"
+        with st.container(border=True):
+            st.markdown(f"### {card_title}")
+
+            management = str(
+                (meta_row.get("management") if meta_row is not None else "")
+                or (holding_df.iloc[0].get("management") if holding_df is not None and not holding_df.empty else "")
+                or "-"
+            )
+            fund_type = str(
+                (meta_row.get("fund_type") if meta_row is not None else "")
+                or (holding_df.iloc[0].get("fund_type") if holding_df is not None and not holding_df.empty else "")
+                or (holding_df.iloc[0].get("invest_type") if holding_df is not None and not holding_df.empty else "")
+                or "-"
+            )
+
+            latest_end_date = None
+            if holding_df is not None and not holding_df.empty and "end_date" in holding_df.columns:
+                latest_end_date = pd.to_datetime(holding_df["end_date"].iloc[0], errors="coerce")
+            elif meta_row is not None and "latest_end_date" in search_df.columns:
+                latest_end_date = pd.to_datetime(meta_row.get("latest_end_date"), errors="coerce")
+            latest_end_label = latest_end_date.strftime("%Y-%m-%d") if latest_end_date is not None and not pd.isna(latest_end_date) else "-"
+
+            issue_amount = pd.to_numeric(meta_row.get("issue_amount") if meta_row is not None else None, errors="coerce")
+            issue_amount_label = f"{issue_amount:,.2f} ??" if pd.notna(issue_amount) else "-"
+
+            total_mkv_yi = 0.0
+            top10_ratio = 0.0
+            holding_count = 0
+            if holding_df is not None and not holding_df.empty:
+                total_mkv_yi = pd.to_numeric(holding_df["mkv"], errors="coerce").fillna(0).sum() / 1e8
+                top10_ratio = pd.to_numeric(holding_df["stk_mkv_ratio"], errors="coerce").fillna(0).head(10).sum()
+                holding_count = len(holding_df)
+
+            metric_cols = st.columns(5)
+            metric_cols[0].metric("???", management)
+            metric_cols[1].metric("????", fund_type)
+            metric_cols[2].metric("?????", latest_end_label)
+            metric_cols[3].metric("?????", f"{total_mkv_yi:,.2f} ?" if total_mkv_yi else "-")
+            metric_cols[4].metric("????", issue_amount_label)
+
+            sub_cols = st.columns(3)
+            sub_cols[0].metric("?????", f"{holding_count:,}")
+            sub_cols[1].metric("??????", f"{top10_ratio:,.2f}%" if top10_ratio else "-")
+            added_at = pd.to_datetime(row.get("created_at"), errors="coerce")
+            sub_cols[2].metric("????", added_at.strftime("%Y-%m-%d") if added_at is not None and not pd.isna(added_at) else "-")
+
+            if holding_df is not None and not holding_df.empty:
+                preview_df = holding_df.copy()
+                preview_df["????(?)"] = pd.to_numeric(preview_df["mkv"], errors="coerce").fillna(0) / 1e8
+                preview_df["????(%)"] = pd.to_numeric(preview_df["stk_mkv_ratio"], errors="coerce").fillna(0)
+                preview_df["????"] = preview_df["holding_change_flag"].replace({
+                    "new": "??",
+                    "increase": "??",
+                    "decrease": "??",
+                    "stable": "??",
+                })
+                preview_show = preview_df[["stock_name", "symbol", "????(?)", "????(%)", "????"]].copy()
+                preview_show.columns = ["????", "??", "????(?)", "????(%)", "??"]
+                st.dataframe(preview_show.head(10), use_container_width=True, hide_index=True)
+            else:
+                st.info("?????????????????????")
 
 def render_fund_hot_stocks_tab():
     """渲染公募基金持仓热股 Tab 页"""

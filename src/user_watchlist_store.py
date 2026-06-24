@@ -50,13 +50,24 @@ def ensure_user_watchlist_table(engine: Engine) -> None:
             conn.execute(text(statement))
 
 
-def list_watchlist_items(username: str, engine: Engine | None = None) -> pd.DataFrame:
+def list_watchlist_items(
+    username: str,
+    engine: Engine | None = None,
+    security_type: str | None = None,
+) -> pd.DataFrame:
     normalized_username = normalize_username(username)
     if not normalized_username:
         return pd.DataFrame(columns=EMPTY_WATCHLIST_COLUMNS)
 
+    normalized_type = str(security_type or "").strip().lower()
     actual_engine = engine or get_engine()
     ensure_user_watchlist_table(actual_engine)
+
+    where_clauses = ["username = :username"]
+    params = {"username": normalized_username}
+    if normalized_type:
+        where_clauses.append("security_type = :security_type")
+        params["security_type"] = normalized_type
 
     sql = f"""
     SELECT
@@ -67,10 +78,10 @@ def list_watchlist_items(username: str, engine: Engine | None = None) -> pd.Data
         created_at,
         updated_at
     FROM {TABLE_NAME}
-    WHERE username = :username
+    WHERE {' AND '.join(where_clauses)}
     ORDER BY updated_at DESC, ts_code ASC
     """
-    return pd.read_sql(text(sql), actual_engine, params={"username": normalized_username})
+    return pd.read_sql(text(sql), actual_engine, params=params)
 
 
 def is_in_watchlist(
