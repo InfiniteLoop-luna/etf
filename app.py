@@ -16591,24 +16591,73 @@ def render_fund_hot_stocks_tab():
             fund_df["mkv_yi"] = pd.to_numeric(fund_df["mkv"], errors="coerce").fillna(0) / 1e8
             fund_df["delta_mkv_yi"] = pd.to_numeric(fund_df["delta_mkv"], errors="coerce").fillna(0) / 1e8
             fund_df["holding_change_flag"] = fund_df["holding_change_flag"].replace({
-                "new": "新进",
-                "increase": "加仓",
-                "decrease": "减仓",
-                "stable": "持平",
+                "new": "New",
+                "increase": "Increase",
+                "decrease": "Decrease",
+                "stable": "Stable",
             })
 
-            fund_name = str(fund_df.iloc[0].get("fund_name") or st.session_state.get("fh_fund_name") or st.session_state.get("fh_fund_code", ""))
+            fund_name = str(
+                fund_df.iloc[0].get("fund_name")
+                or st.session_state.get("fh_fund_name")
+                or st.session_state.get("fh_fund_code", "")
+            )
             management = str(fund_df.iloc[0].get("management") or "-")
             fund_type = str(fund_df.iloc[0].get("fund_type") or fund_df.iloc[0].get("invest_type") or "-")
             fund_query_period = st.session_state.get("fh_fund_last_query_period", fund_period)
-            st.info(f"📌 当前基金：{fund_name}｜管理人：{management}｜类型：{fund_type}｜报告期：{fund_query_period}")
+            st.info(
+                f"Current fund: {fund_name} | Manager: {management} | Type: {fund_type} | Report period: {fund_query_period}"
+            )
 
             fund_metrics = st.columns(4)
-            fund_metrics[0].metric("披露持仓数", f"{len(fund_df):,}")
-            fund_metrics[1].metric("持仓总市值", f"{fund_df['mkv_yi'].sum():,.2f} 亿")
-            fund_metrics[2].metric("新进持仓", f"{int((fund_df['holding_change_flag'] == '新进').sum())}")
+            fund_metrics[0].metric("Holding Count", f"{len(fund_df):,}")
+            fund_metrics[1].metric("Holding MV", f"{fund_df['mkv_yi'].sum():,.2f} bn CNY")
+            fund_metrics[2].metric("New Holdings", f"{int((fund_df['holding_change_flag'] == 'New').sum())}")
             top10_ratio = pd.to_numeric(fund_df.get("stk_mkv_ratio"), errors="coerce").fillna(0).head(10).sum()
-            fund_metrics[3].metric("前十持仓占比", f"{top10_ratio:,.2f}%")
+            fund_metrics[3].metric("Top10 Weight", f"{top10_ratio:,.2f}%")
+
+            current_username = get_logged_in_username()
+            fund_watchlist_cols = st.columns([1.3, 2.2])
+            if current_username:
+                try:
+                    already_in_fund_watchlist = is_in_watchlist(
+                        current_username,
+                        st.session_state.get("fh_fund_code", ""),
+                        security_type="fund",
+                    )
+                except Exception as watchlist_check_exc:
+                    st.warning(f"Check fund watchlist status failed: {watchlist_check_exc}")
+                    already_in_fund_watchlist = False
+
+                button_label = "Already in fund watchlist" if already_in_fund_watchlist else "Add to fund watchlist"
+                if fund_watchlist_cols[0].button(
+                    button_label,
+                    key=f"btn_add_fund_watchlist_{st.session_state.get('fh_fund_code', '')}",
+                    disabled=already_in_fund_watchlist,
+                ):
+                    try:
+                        add_watchlist_item(
+                            current_username,
+                            st.session_state.get("fh_fund_code", ""),
+                            security_name=fund_name,
+                            security_type="fund",
+                        )
+                        st.success(f"Added {fund_name} to {current_username}'s fund watchlist")
+                        st.rerun()
+                    except Exception as add_watchlist_exc:
+                        st.error(f"Add fund watchlist failed: {add_watchlist_exc}")
+                fund_watchlist_cols[1].caption(
+                    f"Current user: {current_username} | Added funds appear in the board below"
+                )
+            else:
+                fund_watchlist_cols[0].button(
+                    "Add to fund watchlist",
+                    key=f"btn_add_fund_watchlist_disabled_{st.session_state.get('fh_fund_code', '')}",
+                    disabled=True,
+                )
+                fund_watchlist_cols[1].info(
+                    "Log in with your username to save this fund into your watchlist."
+                )
 
             pref_plot = fund_df.head(min(len(fund_df), 20)).copy()
             fig_pref = go.Figure(go.Bar(
@@ -16616,13 +16665,13 @@ def render_fund_hot_stocks_tab():
                 y=pref_plot["stock_name"],
                 orientation="h",
                 marker=dict(color=pref_plot["mkv_yi"], colorscale="Bluered", showscale=False),
-                text=pref_plot["mkv_yi"].map(lambda v: f"{v:,.2f}亿" if pd.notna(v) else "-"),
+                text=pref_plot["mkv_yi"].map(lambda v: f"{v:,.2f} bn" if pd.notna(v) else "-"),
                 textposition="outside",
-                hovertemplate="%{y}<br>持仓市值：%{x:,.2f} 亿<extra></extra>",
+                hovertemplate="%{y}<br>Holding MV: %{x:,.2f} bn<extra></extra>",
             ))
             fig_pref.update_layout(
-                title=dict(text=f"基金披露持仓 Top{len(pref_plot)}", x=0.02, font=dict(size=17, color=THEME_TEXT)),
-                xaxis_title="持仓市值（亿元）",
+                title=dict(text=f"Fund Holdings Top {len(pref_plot)}", x=0.02, font=dict(size=17, color=THEME_TEXT)),
+                xaxis_title="Holding MV (bn CNY)",
                 height=max(380, len(pref_plot) * 26),
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
@@ -16645,20 +16694,20 @@ def render_fund_hot_stocks_tab():
                 "ann_date",
             ]].copy()
             pref_show.columns = [
-                "股票",
-                "代码",
-                "持仓市值(亿)",
-                "持仓数量",
-                "占基金股票市值比(%)",
-                "占流通股本比例(%)",
-                "市值变化(亿)",
-                "变动类型",
-                "公告日",
+                "Stock",
+                "Code",
+                "Holding MV (bn)",
+                "Amount",
+                "Weight in Fund (%)",
+                "Float Weight (%)",
+                "MV Change (bn)",
+                "Change",
+                "Announcement Date",
             ]
-            for col in ["持仓市值(亿)", "占基金股票市值比(%)", "占流通股本比例(%)", "市值变化(亿)"]:
+            for col in ["Holding MV (bn)", "Weight in Fund (%)", "Float Weight (%)", "MV Change (bn)"]:
                 pref_show[col] = pd.to_numeric(pref_show[col], errors="coerce").map(lambda v: f"{v:,.2f}" if pd.notna(v) else "-")
-            pref_show["持仓数量"] = pd.to_numeric(pref_show["持仓数量"], errors="coerce").map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
-            pref_show["公告日"] = pd.to_datetime(pref_show["公告日"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("-")
+            pref_show["Amount"] = pd.to_numeric(pref_show["Amount"], errors="coerce").map(lambda v: f"{v:,.0f}" if pd.notna(v) else "-")
+            pref_show["Announcement Date"] = pd.to_datetime(pref_show["Announcement Date"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("-")
             st.dataframe(pref_show, use_container_width=True, hide_index=True)
         elif fund_df is not None and fund_df.empty and not fund_error and st.session_state.get("fh_fund_code"):
             st.info("该基金在所选报告期暂无可用持仓数据。")
