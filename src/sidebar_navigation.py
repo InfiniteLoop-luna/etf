@@ -97,6 +97,12 @@ SIDEBAR_MODULES = (
                 "standard",
             ),
             SidebarPage(
+                "fund_watchlist",
+                "?? ????",
+                "???????????",
+                "standard",
+            ),
+            SidebarPage(
                 "stock_pool",
                 "🗂 自选池",
                 "独立分组股票池",
