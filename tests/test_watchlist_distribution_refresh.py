@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -290,6 +291,24 @@ class WatchlistDistributionRefreshTests(unittest.TestCase):
         self.assertEqual(summary["generated"], 1)
         report_generator.assert_called_once()
         self.assertEqual(report_generator.call_args.args[0], "000733.SZ")
+
+
+class WatchlistNightlyScriptTests(unittest.TestCase):
+    def test_nightly_script_wraps_watchlist_refreshes_with_timeouts(self):
+        script_path = Path("scripts/etf-data-update.sh")
+        content = script_path.read_text(encoding="utf-8")
+
+        self.assertIn("ETF_WATCHLIST_DISTRIBUTION_TIMEOUT_SECONDS", content)
+        self.assertIn("ETF_WATCHLIST_STOCK_RESEARCH_TIMEOUT_SECONDS", content)
+        self.assertIn(
+            'timeout "${WATCHLIST_DISTRIBUTION_TIMEOUT_SECONDS}s" env TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/update_watchlist_distribution_reports.py',
+            content,
+        )
+        self.assertIn(
+            'timeout "${WATCHLIST_STOCK_RESEARCH_TIMEOUT_SECONDS}s" env TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/update_watchlist_stock_research_reports.py',
+            content,
+        )
+        self.assertIn("failed or timed out", content)
 
 
 if __name__ == "__main__":

@@ -82,14 +82,17 @@ if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/
   echo "[$(date -Is)] etf-data-update: warning - update_distribution_alerts.py failed, skip and continue"
 fi
 
+WATCHLIST_DISTRIBUTION_TIMEOUT_SECONDS="${ETF_WATCHLIST_DISTRIBUTION_TIMEOUT_SECONDS:-1800}"
+WATCHLIST_STOCK_RESEARCH_TIMEOUT_SECONDS="${ETF_WATCHLIST_STOCK_RESEARCH_TIMEOUT_SECONDS:-1800}"
+
 echo "[$(date -Is)] etf-data-update: run update_watchlist_distribution_reports.py"
-if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/update_watchlist_distribution_reports.py; then
-  echo "[$(date -Is)] etf-data-update: warning - update_watchlist_distribution_reports.py failed, skip and continue"
+if ! timeout "${WATCHLIST_DISTRIBUTION_TIMEOUT_SECONDS}s" env TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/update_watchlist_distribution_reports.py; then
+  echo "[$(date -Is)] etf-data-update: warning - update_watchlist_distribution_reports.py failed or timed out, skip and continue"
 fi
 
 echo "[$(date -Is)] etf-data-update: run update_watchlist_stock_research_reports.py"
-if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/update_watchlist_stock_research_reports.py; then
-  echo "[$(date -Is)] etf-data-update: warning - update_watchlist_stock_research_reports.py failed, skip and continue"
+if ! timeout "${WATCHLIST_STOCK_RESEARCH_TIMEOUT_SECONDS}s" env TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/update_watchlist_stock_research_reports.py; then
+  echo "[$(date -Is)] etf-data-update: warning - update_watchlist_stock_research_reports.py failed or timed out, skip and continue"
 fi
 
 echo "[$(date -Is)] etf-data-update: restart streamlit"

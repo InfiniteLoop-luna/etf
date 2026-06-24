@@ -521,10 +521,28 @@ def query_fund_codes_for_portfolio_sync(
         where_clauses.append(f"COALESCE(status, '') IN ({', '.join(placeholders)})")
 
     sql = f"""
-    SELECT DISTINCT fund_code
-    FROM vw_fund_basic
-    WHERE {' AND '.join(where_clauses)}
-    ORDER BY fund_code
+    WITH basic_codes AS (
+        SELECT DISTINCT fund_code
+        FROM vw_fund_basic
+        WHERE {' AND '.join(where_clauses)}
+    ),
+    portfolio_codes AS (
+        SELECT DISTINCT p.fund_code
+        FROM vw_fund_portfolio p
+        LEFT JOIN vw_fund_basic b ON b.fund_code = p.fund_code
+        WHERE p.fund_code IS NOT NULL
+          AND b.fund_code IS NULL
+          AND (NOT EXISTS (SELECT 1 FROM basic_codes) OR p.fund_code NOT IN (SELECT fund_code FROM basic_codes))
+    ),
+    merged AS (
+        SELECT fund_code, 1 AS priority FROM basic_codes
+        UNION ALL
+        SELECT fund_code, 2 AS priority FROM portfolio_codes
+    )
+    SELECT fund_code
+    FROM merged
+    GROUP BY fund_code
+    ORDER BY MIN(priority), fund_code
     """
     if limit:
         params["limit"] = int(limit)
@@ -601,11 +619,29 @@ def query_missing_fund_portfolio_tasks(
             limit_sql = "\n        LIMIT :limit"
 
         fund_cte = f"""
-        funds AS (
+        basic_funds AS (
             SELECT DISTINCT fund_code
             FROM vw_fund_basic
             WHERE {' AND '.join(where_clauses)}
-            ORDER BY fund_code{limit_sql}
+        ),
+        portfolio_only_funds AS (
+            SELECT DISTINCT p.fund_code
+            FROM vw_fund_portfolio p
+            LEFT JOIN vw_fund_basic b ON b.fund_code = p.fund_code
+            WHERE p.fund_code IS NOT NULL
+              AND b.fund_code IS NULL
+              AND (NOT EXISTS (SELECT 1 FROM basic_funds) OR p.fund_code NOT IN (SELECT fund_code FROM basic_funds))
+        ),
+        merged_funds AS (
+            SELECT fund_code, 1 AS priority FROM basic_funds
+            UNION ALL
+            SELECT fund_code, 2 AS priority FROM portfolio_only_funds
+        ),
+        funds AS (
+            SELECT fund_code
+            FROM merged_funds
+            GROUP BY fund_code
+            ORDER BY MIN(priority), fund_code{limit_sql}
         )
         """
 
@@ -1443,24 +1479,79 @@ def search_funds(
         return pd.DataFrame()
 
     kw = keyword.upper()
+    normalized_direct_code = normalize_fund_ts_code(keyword) or kw
+    bare_code = normalized_direct_code.split(".", 1)[0]
     sql = """
+    WITH basic AS (
+        SELECT
+            fund_code,
+            name,
+            management,
+            fund_type,
+            invest_type,
+            status,
+            1 AS source_priority,
+            0 AS holding_priority,
+            NULL::date AS latest_end_date
+        FROM vw_fund_basic
+    ),
+    portfolio_only AS (
+        SELECT
+            p.fund_code,
+            NULL::text AS name,
+            NULL::text AS management,
+            NULL::text AS fund_type,
+            NULL::text AS invest_type,
+            NULL::text AS status,
+            2 AS source_priority,
+            1 AS holding_priority,
+            MAX(p.end_date) AS latest_end_date
+        FROM vw_fund_portfolio p
+        LEFT JOIN vw_fund_basic b ON b.fund_code = p.fund_code
+        WHERE b.fund_code IS NULL
+        GROUP BY p.fund_code
+    ),
+    merged AS (
+        SELECT * FROM basic
+        UNION ALL
+        SELECT * FROM portfolio_only
+    )
     SELECT
         fund_code,
-        name,
-        management,
-        fund_type
-    FROM vw_fund_basic
+        COALESCE(name, fund_code) AS name,
+        COALESCE(management, '持仓表补全') AS management,
+        COALESCE(fund_type, invest_type, CASE WHEN fund_code LIKE '%.SH' OR fund_code LIKE '%.SZ' THEN '场内基金/ETF' ELSE '未知类型' END) AS fund_type,
+        invest_type,
+        status,
+        latest_end_date,
+        source_priority,
+        holding_priority,
+        CASE
+            WHEN UPPER(fund_code) = :exact THEN 0
+            WHEN replace(replace(replace(UPPER(fund_code), '.OF', ''), '.SZ', ''), '.SH', '') = :bare_code_upper THEN 1
+            WHEN UPPER(COALESCE(name, '')) = :exact THEN 2
+            WHEN UPPER(COALESCE(name, '')) LIKE :prefix_upper THEN 3
+            WHEN UPPER(COALESCE(management, '')) LIKE :prefix_upper THEN 4
+            WHEN UPPER(fund_code) LIKE :prefix_upper THEN 5
+            ELSE 9
+        END AS match_rank,
+        CASE
+            WHEN COALESCE(name, '') ILIKE :contains THEN POSITION(:keyword_in_name IN UPPER(COALESCE(name, '')))
+            ELSE 999999
+        END AS name_pos,
+        LENGTH(COALESCE(name, fund_code)) AS name_len
+    FROM merged
     WHERE fund_code ILIKE :prefix
+       OR replace(replace(replace(fund_code, '.OF', ''), '.SZ', ''), '.SH', '') = :bare_code
        OR COALESCE(name, '') ILIKE :contains
        OR COALESCE(management, '') ILIKE :contains
     ORDER BY
-        CASE
-            WHEN UPPER(fund_code) = :exact THEN 0
-            WHEN UPPER(COALESCE(name, '')) = :exact THEN 1
-            WHEN UPPER(fund_code) LIKE :prefix_upper THEN 2
-            WHEN UPPER(COALESCE(name, '')) LIKE :prefix_upper THEN 3
-            ELSE 9
-        END,
+        match_rank,
+        name_pos,
+        holding_priority DESC,
+        latest_end_date DESC NULLS LAST,
+        source_priority,
+        name_len,
         fund_code
     LIMIT :limit
     """
@@ -1472,8 +1563,11 @@ def search_funds(
             params={
                 'prefix': f'{keyword}%',
                 'contains': f'%{keyword}%',
-                'exact': kw,
+                'exact': normalized_direct_code,
                 'prefix_upper': f'{kw}%',
+                'bare_code': bare_code,
+                'bare_code_upper': bare_code.upper(),
+                'keyword_in_name': kw,
                 'limit': int(limit),
             },
         )

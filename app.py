@@ -16363,6 +16363,7 @@ def render_fund_hot_stocks_tab():
             fund_option_labels = []
             fund_selected_row = None
             direct_fund_code = _normalize_direct_fund_code(fund_keyword)
+            direct_fund_query_mode = False
             if fund_keyword:
                 try:
                     fund_candidates = search_funds(fund_keyword, limit=30, engine=_fh_engine)
@@ -16370,9 +16371,20 @@ def render_fund_hot_stocks_tab():
                     st.warning(f"匹配基金失败：{exc}")
                     fund_candidates = pd.DataFrame()
 
+            if fund_candidates is not None and len(fund_candidates) > 0 and direct_fund_code:
+                normalized_direct_code = direct_fund_code.upper()
+                matched_direct_rows = fund_candidates[
+                    fund_candidates["fund_code"].astype(str).str.upper() == normalized_direct_code
+                ]
+                if not matched_direct_rows.empty:
+                    fund_selected_row = matched_direct_rows.iloc[0]
+
             if fund_keyword and (fund_candidates is None or len(fund_candidates) == 0):
                 if direct_fund_code:
-                    st.info(f"未在基金基础表匹配到候选，将按基金代码 {direct_fund_code} 直接查询持仓。")
+                    direct_fund_query_mode = True
+                    st.info(
+                        f"未在基金基础表匹配到候选，将先按基金代码 {direct_fund_code} 直接查询；若该代码已失效或换码，结果可能为空，建议改用基金名称搜索。"
+                    )
                     st.text_input("匹配基金", value=direct_fund_code, disabled=True, key="fh_fund_match_placeholder")
                 else:
                     st.warning("未找到匹配基金，请换个代码、名称或关键词再试。")
@@ -16397,7 +16409,7 @@ def render_fund_hot_stocks_tab():
             st.session_state["fh_fund_result"] = pd.DataFrame()
             st.session_state["fh_fund_keyword"] = fund_keyword
             st.session_state["fh_fund_last_query_period"] = fund_period
-            if fund_selected_row is None and not direct_fund_code:
+            if fund_selected_row is None and not direct_fund_query_mode:
                 st.session_state["fh_fund_code"] = ""
                 if fund_keyword:
                     st.session_state["fh_fund_error"] = "没有匹配到基金，请先从候选结果中选择基金。"
@@ -16423,6 +16435,10 @@ def render_fund_hot_stocks_tab():
                         engine=_fh_engine,
                     )
                     st.session_state["fh_fund_result"] = fund_df
+                    if (fund_df is None or fund_df.empty) and direct_fund_query_mode:
+                        st.session_state["fh_fund_error"] = (
+                            f"基金代码 {fund_code} 在当前基金基础/持仓数据中未查到结果。这个代码可能已经失效、换码，或当前报告期暂无披露；建议改用基金名称重新搜索。"
+                        )
                 except Exception as exc:
                     logger.error(f"query_fund_preference_snapshot failed: {exc}", exc_info=True)
                     st.session_state["fh_fund_error"] = "基金持仓查询失败，请检查基金代码、报告期或稍后重试。"
