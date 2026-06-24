@@ -15806,38 +15806,38 @@ def render_fund_watchlist_board() -> None:
         search_funds,
     )
 
-    st.subheader("?? ??????")
-    st.caption("????????????????????????????")
+    st.subheader("Fund Watchlist Board")
+    st.caption("View your saved funds, top holdings, latest disclosure date, and fund scale in one board.")
 
     current_username = get_logged_in_username()
     if not current_username:
-        st.info("?????????????????????")
+        st.info("No recent holding details were found for this fund.")
         return
 
     try:
         watchlist_df = list_watchlist_items(current_username, security_type="fund")
     except Exception as exc:
-        st.error(f"?????????{exc}")
+        st.error(f"Failed to load fund watchlist: {exc}")
         return
 
     if watchlist_df is None or watchlist_df.empty:
-        st.info("?????????????????????????????????")
+        st.info("Your fund watchlist is empty. Add funds from the fund holding query section above.")
         return
 
     try:
         fund_engine = get_fund_hot_engine()
     except Exception as exc:
-        st.error(f"????????????{exc}")
+        st.error(f"Failed to connect to fund holdings database: {exc}")
         return
 
-    st.metric("??????", f"{len(watchlist_df):,} ?")
+    st.metric("Fund Count", f"{len(watchlist_df):,}")
 
     remove_options = watchlist_df.apply(
         lambda row: f"{str(row.get('security_name') or row.get('ts_code') or '').strip()}?{str(row.get('ts_code') or '').strip()}?",
         axis=1,
     ).tolist()
-    selected_labels = st.multiselect("???????????", options=remove_options, key="fund_watchlist_remove_multiselect")
-    if st.button("??????", disabled=len(selected_labels) == 0, key="fund_watchlist_remove_button"):
+    selected_labels = st.multiselect("Remove funds from watchlist", options=remove_options, key="fund_watchlist_remove_multiselect")
+    if st.button("Remove selected funds", disabled=len(selected_labels) == 0, key="fund_watchlist_remove_button"):
         items_to_remove = []
         for label in selected_labels:
             idx = remove_options.index(label)
@@ -15845,10 +15845,10 @@ def render_fund_watchlist_board() -> None:
             items_to_remove.append((str(row.get("ts_code") or ""), "fund"))
         removed_count = remove_watchlist_items_batch(current_username, items_to_remove)
         if removed_count > 0:
-            st.success(f"????????? {removed_count} ?")
+            st.success(f"Removed {removed_count} fund(s) from watchlist")
             st.rerun()
         else:
-            st.warning("????????????????")
+            st.warning("No records were removed. They may have already been deleted.")
 
     st.divider()
 
@@ -15870,10 +15870,10 @@ def render_fund_watchlist_board() -> None:
         try:
             holding_df = query_fund_preference_snapshot(fund_code=fund_code, top_n=10, engine=fund_engine)
         except Exception as exc:
-            st.warning(f"{display_name} ???????{exc}")
+            st.warning(f"{display_name}: failed to load holdings: {exc}")
             holding_df = pd.DataFrame()
 
-        card_title = display_name if display_name == fund_code else f"{display_name}?{fund_code}?"
+        card_title = display_name if display_name == fund_code else f"{display_name} ({fund_code})"
         with st.container(border=True):
             st.markdown(f"### {card_title}")
 
@@ -15897,7 +15897,7 @@ def render_fund_watchlist_board() -> None:
             latest_end_label = latest_end_date.strftime("%Y-%m-%d") if latest_end_date is not None and not pd.isna(latest_end_date) else "-"
 
             issue_amount = pd.to_numeric(meta_row.get("issue_amount") if meta_row is not None else None, errors="coerce")
-            issue_amount_label = f"{issue_amount:,.2f} ??" if pd.notna(issue_amount) else "-"
+            issue_amount_label = f"{issue_amount:,.2f} bn shares" if pd.notna(issue_amount) else "-"
 
             total_mkv_yi = 0.0
             top10_ratio = 0.0
@@ -15908,33 +15908,33 @@ def render_fund_watchlist_board() -> None:
                 holding_count = len(holding_df)
 
             metric_cols = st.columns(5)
-            metric_cols[0].metric("???", management)
-            metric_cols[1].metric("????", fund_type)
-            metric_cols[2].metric("?????", latest_end_label)
-            metric_cols[3].metric("?????", f"{total_mkv_yi:,.2f} ?" if total_mkv_yi else "-")
-            metric_cols[4].metric("????", issue_amount_label)
+            metric_cols[0].metric("Manager", management)
+            metric_cols[1].metric("Fund Type", fund_type)
+            metric_cols[2].metric("Latest Disclosure", latest_end_label)
+            metric_cols[3].metric("Holding MV", f"{total_mkv_yi:,.2f} bn CNY" if total_mkv_yi else "-")
+            metric_cols[4].metric("Fund Scale", issue_amount_label)
 
             sub_cols = st.columns(3)
-            sub_cols[0].metric("?????", f"{holding_count:,}")
-            sub_cols[1].metric("??????", f"{top10_ratio:,.2f}%" if top10_ratio else "-")
+            sub_cols[0].metric("Holding Count", f"{holding_count:,}")
+            sub_cols[1].metric("Top10 Weight", f"{top10_ratio:,.2f}%" if top10_ratio else "-")
             added_at = pd.to_datetime(row.get("created_at"), errors="coerce")
-            sub_cols[2].metric("????", added_at.strftime("%Y-%m-%d") if added_at is not None and not pd.isna(added_at) else "-")
+            sub_cols[2].metric("Added On", added_at.strftime("%Y-%m-%d") if added_at is not None and not pd.isna(added_at) else "-")
 
             if holding_df is not None and not holding_df.empty:
                 preview_df = holding_df.copy()
-                preview_df["????(?)"] = pd.to_numeric(preview_df["mkv"], errors="coerce").fillna(0) / 1e8
-                preview_df["????(%)"] = pd.to_numeric(preview_df["stk_mkv_ratio"], errors="coerce").fillna(0)
-                preview_df["????"] = preview_df["holding_change_flag"].replace({
-                    "new": "??",
-                    "increase": "??",
-                    "decrease": "??",
-                    "stable": "??",
+                preview_df["Holding MV (bn)"] = pd.to_numeric(preview_df["mkv"], errors="coerce").fillna(0) / 1e8
+                preview_df["Weight (%)"] = pd.to_numeric(preview_df["stk_mkv_ratio"], errors="coerce").fillna(0)
+                preview_df["Change"] = preview_df["holding_change_flag"].replace({
+                    "new": "New",
+                    "increase": "Increase",
+                    "decrease": "Decrease",
+                    "stable": "Stable",
                 })
-                preview_show = preview_df[["stock_name", "symbol", "????(?)", "????(%)", "????"]].copy()
-                preview_show.columns = ["????", "??", "????(?)", "????(%)", "??"]
+                preview_show = preview_df[["stock_name", "symbol", "Holding MV (bn)", "Weight (%)", "Change"]].copy()
+                preview_show.columns = ["Top Holding", "Code", "Holding MV (bn)", "Weight (%)", "Change"]
                 st.dataframe(preview_show.head(10), use_container_width=True, hide_index=True)
             else:
-                st.info("?????????????????????")
+                st.info("No recent holding details were found for this fund.")
 
 def render_fund_hot_stocks_tab():
     """渲染公募基金持仓热股 Tab 页"""
