@@ -118,7 +118,6 @@ from src.navigation_config import (
     STOCK_SECURITY_SEARCH_LABEL,
     STOCK_TECH_PICKER_LABEL,
     STOCK_USER_WATCHLIST_LABEL,
-    STOCK_FUND_WATCHLIST_LABEL,
 )
 from src.sidebar_navigation import (
     SIDEBAR_MODULES,
@@ -6501,8 +6500,6 @@ def main():
                 render_lhb_monitor_tab()
             elif mobile_page == STOCK_USER_WATCHLIST_LABEL:
                 render_user_watchlist_tab()
-            elif mobile_page == STOCK_FUND_WATCHLIST_LABEL:
-                render_fund_watchlist_tab()
             elif mobile_page == STOCK_POOL_PAGE_LABEL:
                 render_user_stock_pool_tab()
             elif mobile_page == STOCK_COMPANY_SCREENER_LABEL:
@@ -6596,8 +6593,6 @@ def main():
             render_lhb_monitor_tab()
         elif selected_page == STOCK_USER_WATCHLIST_LABEL:
             render_user_watchlist_tab()
-        elif selected_page == STOCK_FUND_WATCHLIST_LABEL:
-            render_fund_watchlist_tab()
         elif selected_page == STOCK_POOL_PAGE_LABEL:
             render_user_stock_pool_tab()
         elif selected_page == STOCK_COMPANY_SCREENER_LABEL:
@@ -15804,7 +15799,7 @@ def render_fund_monitor_tab():
             )
 
 
-def render_fund_watchlist_tab() -> None:
+def render_fund_watchlist_board() -> None:
     from src.fund_hot_stocks import (
         get_engine as get_fund_hot_engine,
         query_fund_preference_snapshot,
@@ -16667,6 +16662,10 @@ def render_fund_hot_stocks_tab():
             st.dataframe(pref_show, use_container_width=True, hide_index=True)
         elif fund_df is not None and fund_df.empty and not fund_error and st.session_state.get("fh_fund_code"):
             st.info("该基金在所选报告期暂无可用持仓数据。")
+
+
+    st.markdown("---")
+    render_fund_watchlist_board()
 
 
 def render_moneyflow_tab():
