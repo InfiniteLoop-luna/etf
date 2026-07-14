@@ -223,6 +223,7 @@ class FundPortfolioByFundSyncTests(unittest.TestCase):
                     "fund_type": "场内基金/ETF",
                     "invest_type": None,
                     "status": None,
+                    "issue_amount": None,
                     "latest_end_date": pd.Timestamp("2026-06-30"),
                     "source_priority": 2,
                     "holding_priority": 1,
@@ -240,6 +241,7 @@ class FundPortfolioByFundSyncTests(unittest.TestCase):
         sql_text = str(mock_read_sql.call_args.args[0])
         params = mock_read_sql.call_args.kwargs["params"]
         self.assertIn("portfolio_only", sql_text)
+        self.assertIn("issue_amount", sql_text)
         self.assertEqual(params["exact"], "159915.OF")
         self.assertEqual(params["bare_code"], "159915")
         self.assertEqual(params["prefix_upper"], "159915%")

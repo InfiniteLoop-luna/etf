@@ -1490,6 +1490,7 @@ def search_funds(
             fund_type,
             invest_type,
             status,
+            issue_amount,
             1 AS source_priority,
             0 AS holding_priority,
             NULL::date AS latest_end_date
@@ -1503,6 +1504,7 @@ def search_funds(
             NULL::text AS fund_type,
             NULL::text AS invest_type,
             NULL::text AS status,
+            NULL::numeric AS issue_amount,
             2 AS source_priority,
             1 AS holding_priority,
             MAX(p.end_date) AS latest_end_date
@@ -1523,6 +1525,7 @@ def search_funds(
         COALESCE(fund_type, invest_type, CASE WHEN fund_code LIKE '%.SH' OR fund_code LIKE '%.SZ' THEN '场内基金/ETF' ELSE '未知类型' END) AS fund_type,
         invest_type,
         status,
+        issue_amount,
         latest_end_date,
         source_priority,
         holding_priority,

@@ -17,6 +17,20 @@ from src.sidebar_navigation import (
 
 
 class SidebarNavigationTests(unittest.TestCase):
+    def test_fund_watchlist_page_belongs_to_fund_module_and_is_searchable(self):
+        page = get_page_by_id("fund_watchlist")
+
+        self.assertEqual(page.label, "⭐ 自选基金")
+        self.assertEqual(page.description, "管理个人自选基金与持仓结构")
+        self.assertEqual(page.toolbar_variant, "standard")
+        self.assertEqual(get_module_id_for_page_id("fund_watchlist"), "fund")
+        self.assertIn("⭐ 自选基金", get_page_labels("基金"))
+
+        results = search_sidebar_pages("自选基金")
+        self.assertGreater(len(results), 0)
+        self.assertEqual(results[0].page_id, "fund_watchlist")
+        self.assertEqual(results[0].module_id, "fund")
+
     def test_lookup_helpers_return_expected_stock_page_metadata(self):
         module = get_module_by_id("stock")
         page = get_page_by_id("security_search")
@@ -121,7 +135,9 @@ class SidebarNavigationTests(unittest.TestCase):
             get_page_labels("股票"),
             [
                 "🔎 个股/指数查询",
+                "🐉 龙虎榜",
                 "⭐ 自选管理",
+                "🗂 自选池",
                 "🏢 公司筛选",
                 "🎯 技术选股",
                 "🧠 因子选股工作台",

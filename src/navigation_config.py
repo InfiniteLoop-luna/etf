@@ -30,6 +30,7 @@ ETF_RATIO_PAGE_LABEL = _page_label("基金", "etf_ratio")
 ETF_TREND_PAGE_LABEL = _page_label("基金", "etf_trend")
 ETF_WIDE_INDEX_PAGE_LABEL = _page_label("基金", "wide_index")
 ETF_FUND_MONITOR_PAGE_LABEL = _page_label("基金", "fund_monitor")
+ETF_FUND_WATCHLIST_PAGE_LABEL = _page_label("基金", "fund_watchlist")
 
 STOCK_SECURITY_SEARCH_LABEL = _page_label("股票", "security_search")
 STOCK_LHB_PAGE_LABEL = _page_label("股票", "lhb_monitor")

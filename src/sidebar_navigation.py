@@ -71,6 +71,12 @@ SIDEBAR_MODULES = (
                 "基金监测看板",
                 "standard",
             ),
+            SidebarPage(
+                "fund_watchlist",
+                "⭐ 自选基金",
+                "管理个人自选基金与持仓结构",
+                "standard",
+            ),
         ),
     ),
     SidebarModule(

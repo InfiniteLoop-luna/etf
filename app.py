@@ -96,6 +96,7 @@ from src.navigation_config import (
     DECISION_RECO_EVAL_PAGE_LABEL,
     DECISION_TODAY_PAGE_LABEL,
     ETF_FUND_MONITOR_PAGE_LABEL,
+    ETF_FUND_WATCHLIST_PAGE_LABEL,
     ETF_MAIN_PAGE_LABEL,
     ETF_PAGE_OPTIONS,
     ETF_RATIO_PAGE_LABEL,
@@ -141,6 +142,12 @@ from src.factor_workbench import (
     get_factor_workbench_trade_dates,
     get_score_preset,
     load_factor_workbench_frame,
+)
+from src.fund_watchlist_dashboard import (
+    build_fund_watchlist_item,
+    build_fund_watchlist_summary,
+    build_fund_watchlist_table,
+    sort_fund_watchlist_items,
 )
 from src.page_filter_utils import (
     build_metric_categories,
@@ -1289,6 +1296,449 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     .ws-watchboard-all-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+}
+</style>
+"""
+
+FUND_WATCHLIST_DASHBOARD_CSS = """
+<style>
+.ws-fund-watchboard {
+    --fw-bg:#030816;
+    --fw-panel:rgba(5,17,39,.92);
+    --fw-panel-strong:rgba(3,12,30,.97);
+    --fw-line:rgba(70,126,255,.54);
+    --fw-line-soft:rgba(70,126,255,.22);
+    --fw-cyan:#22d7ff;
+    --fw-blue:#2f7bff;
+    --fw-red:#ff3f55;
+    --fw-green:#20dfb8;
+    --fw-text:#f5f9ff;
+    --fw-muted:#93a9ca;
+    box-sizing:border-box;
+    position:relative;
+    overflow:hidden;
+    margin:.65rem 0 1rem;
+    padding:1rem;
+    color:var(--fw-text);
+    border:1px solid var(--fw-line);
+    border-radius:12px;
+    background:
+        radial-gradient(circle at 8% 0%,rgba(47,123,255,.28),transparent 32%),
+        radial-gradient(circle at 90% 8%,rgba(34,215,255,.14),transparent 26%),
+        linear-gradient(180deg,#061128 0%,var(--fw-bg) 100%);
+    box-shadow:0 18px 48px rgba(4,11,30,.26),inset 0 0 34px rgba(47,123,255,.08);
+}
+.ws-fund-watchboard::before {
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    background-image:
+        linear-gradient(rgba(64,125,255,.045) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(64,125,255,.045) 1px,transparent 1px);
+    background-size:48px 48px;
+    mask-image:linear-gradient(180deg,rgba(0,0,0,.72),rgba(0,0,0,.1));
+}
+.ws-fund-watchboard * { box-sizing:border-box; }
+.ws-fund-watchboard__eyebrow {
+    position:relative;
+    z-index:1;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:.8rem;
+    margin-bottom:.8rem;
+    color:var(--fw-muted);
+    font-size:.78rem;
+    letter-spacing:.04em;
+}
+.ws-fund-watchboard__eyebrow strong {
+    color:var(--fw-cyan);
+    font-size:.82rem;
+    letter-spacing:.1em;
+}
+.ws-fund-watchboard__summary {
+    position:relative;
+    z-index:1;
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:.72rem;
+}
+.ws-fund-watchboard__metric {
+    min-width:0;
+    padding:.86rem .9rem;
+    border:1px solid var(--fw-line-soft);
+    border-radius:10px;
+    background:linear-gradient(145deg,rgba(9,28,61,.92),rgba(4,14,34,.9));
+    box-shadow:inset 0 0 18px rgba(47,123,255,.07);
+}
+.ws-fund-watchboard__metric label {
+    display:block;
+    margin-bottom:.28rem;
+    color:var(--fw-muted);
+    font-size:.72rem;
+}
+.ws-fund-watchboard__metric strong {
+    display:block;
+    overflow:hidden;
+    color:var(--fw-text);
+    font-size:clamp(1.05rem,2vw,1.48rem);
+    line-height:1.2;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+.ws-fund-watchboard__metric span {
+    display:block;
+    margin-top:.24rem;
+    color:#6f8fbd;
+    font-size:.66rem;
+}
+.ws-fund-watchboard__metric.is-accent strong { color:var(--fw-cyan); }
+.ws-fund-watchboard__metric.is-change strong { color:var(--fw-green); }
+.ws-fund-watchboard__cards {
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:.72rem;
+}
+.ws-fund-watchboard__card {
+    min-height:230px;
+    padding:.92rem;
+    border:1px solid var(--fw-line-soft);
+    border-radius:10px;
+    background:
+        linear-gradient(145deg,rgba(9,29,64,.96),rgba(3,13,32,.98));
+    box-shadow:inset 0 0 20px rgba(47,123,255,.08);
+    transition:border-color 150ms ease,transform 150ms ease,box-shadow 150ms ease;
+}
+.ws-fund-watchboard__card:hover {
+    transform:translateY(-2px);
+    border-color:rgba(34,215,255,.7);
+    box-shadow:inset 0 0 24px rgba(34,215,255,.08),0 12px 28px rgba(2,8,24,.3);
+}
+.ws-fund-watchboard__card.is-active {
+    border-color:var(--fw-cyan);
+    box-shadow:inset 0 0 26px rgba(34,215,255,.12),0 0 0 1px rgba(34,215,255,.16);
+}
+.ws-fund-watchboard__card-head {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:.7rem;
+}
+.ws-fund-watchboard__card-title {
+    min-width:0;
+}
+.ws-fund-watchboard__card-title strong {
+    display:block;
+    overflow:hidden;
+    color:var(--fw-text);
+    font-size:.96rem;
+    line-height:1.35;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+.ws-fund-watchboard__card-title span {
+    color:var(--fw-muted);
+    font-size:.69rem;
+    letter-spacing:.04em;
+}
+.ws-fund-watchboard__badge {
+    flex:none;
+    max-width:42%;
+    overflow:hidden;
+    padding:.18rem .48rem;
+    color:#cfe0ff;
+    border:1px solid rgba(70,126,255,.3);
+    border-radius:999px;
+    background:rgba(47,123,255,.12);
+    font-size:.64rem;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+.ws-fund-watchboard__ratio {
+    margin:.82rem 0 .7rem;
+    color:var(--fw-cyan);
+    font-size:1.52rem;
+    font-weight:900;
+    line-height:1;
+}
+.ws-fund-watchboard__ratio small {
+    display:block;
+    margin-bottom:.28rem;
+    color:var(--fw-muted);
+    font-size:.66rem;
+    font-weight:600;
+}
+.ws-fund-watchboard__ratio.is-low { color:var(--fw-green); }
+.ws-fund-watchboard__ratio.is-high { color:var(--fw-red); }
+.ws-fund-watchboard__card-metrics {
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:.45rem;
+}
+.ws-fund-watchboard__card-metrics div {
+    min-width:0;
+    padding:.48rem .55rem;
+    border:1px solid rgba(70,126,255,.15);
+    border-radius:7px;
+    background:rgba(3,12,30,.58);
+}
+.ws-fund-watchboard__card-metrics label,
+.ws-fund-watchboard__changes label {
+    display:block;
+    color:var(--fw-muted);
+    font-size:.61rem;
+}
+.ws-fund-watchboard__card-metrics strong {
+    display:block;
+    overflow:hidden;
+    margin-top:.1rem;
+    color:#e9f2ff;
+    font-size:.77rem;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+.ws-fund-watchboard__changes {
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:.38rem;
+    margin-top:.55rem;
+}
+.ws-fund-watchboard__changes strong {
+    display:block;
+    margin-top:.06rem;
+    color:#dce8ff;
+    font-size:.76rem;
+}
+.ws-fund-watchboard__changes .is-positive strong { color:var(--fw-green); }
+.ws-fund-watchboard__changes .is-negative strong { color:var(--fw-red); }
+.ws-fund-watchboard__date {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:.5rem;
+    margin-top:.62rem;
+    padding-top:.52rem;
+    color:#7895bf;
+    border-top:1px solid rgba(70,126,255,.13);
+    font-size:.63rem;
+}
+.ws-fund-watchboard__date .is-error { color:#ff8392; }
+.ws-fund-watchboard__focus {
+    display:grid;
+    grid-template-columns:minmax(240px,.85fr) minmax(0,1.7fr);
+    gap:1rem;
+    margin-top:1.1rem;
+    padding:1rem;
+    color:var(--fw-text);
+    border:1px solid var(--fw-line);
+    border-radius:12px;
+    background:
+        radial-gradient(circle at 0% 0%,rgba(47,123,255,.2),transparent 34%),
+        linear-gradient(160deg,#061128,#020615);
+    box-shadow:inset 0 0 30px rgba(47,123,255,.08);
+}
+.ws-fund-watchboard__focus-overview {
+    padding:.25rem .35rem .25rem .15rem;
+}
+.ws-fund-watchboard__focus-kicker {
+    color:var(--fw-cyan);
+    font-size:.7rem;
+    font-weight:800;
+    letter-spacing:.12em;
+}
+.ws-fund-watchboard__focus h3 {
+    margin:.35rem 0 .05rem;
+    color:var(--fw-text);
+    font-size:1.25rem;
+}
+.ws-fund-watchboard__focus-code {
+    color:var(--fw-muted);
+    font-size:.74rem;
+}
+.ws-fund-watchboard__focus-main {
+    display:grid;
+    grid-template-columns:116px minmax(0,1fr);
+    align-items:center;
+    gap:.9rem;
+    margin-top:.85rem;
+}
+.ws-fund-watchboard__ring {
+    display:grid;
+    width:110px;
+    height:110px;
+    place-items:center;
+    border-radius:50%;
+    background:conic-gradient(var(--fw-cyan) var(--ratio),rgba(70,126,255,.16) 0);
+    box-shadow:0 0 24px rgba(34,215,255,.14);
+}
+.ws-fund-watchboard__ring::before {
+    content:"";
+    grid-area:1/1;
+    width:82px;
+    height:82px;
+    border-radius:50%;
+    background:#061229;
+    box-shadow:inset 0 0 16px rgba(47,123,255,.18);
+}
+.ws-fund-watchboard__ring span {
+    z-index:1;
+    grid-area:1/1;
+    text-align:center;
+    color:var(--fw-muted);
+    font-size:.61rem;
+}
+.ws-fund-watchboard__ring strong {
+    display:block;
+    color:var(--fw-text);
+    font-size:1.08rem;
+}
+.ws-fund-watchboard__facts {
+    display:grid;
+    gap:.38rem;
+}
+.ws-fund-watchboard__fact {
+    display:flex;
+    justify-content:space-between;
+    gap:.8rem;
+    padding-bottom:.32rem;
+    border-bottom:1px solid rgba(70,126,255,.12);
+    color:var(--fw-muted);
+    font-size:.68rem;
+}
+.ws-fund-watchboard__fact strong {
+    color:#e7f0ff;
+    font-size:.7rem;
+    text-align:right;
+}
+.ws-fund-watchboard__holdings {
+    min-width:0;
+    padding:.2rem 0 .1rem;
+}
+.ws-fund-watchboard__holdings-head {
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:.8rem;
+    margin-bottom:.65rem;
+}
+.ws-fund-watchboard__holdings-head strong {
+    color:var(--fw-text);
+    font-size:.92rem;
+}
+.ws-fund-watchboard__holdings-head span {
+    color:var(--fw-muted);
+    font-size:.65rem;
+}
+.ws-fund-watchboard__table-wrap {
+    overflow-x:auto;
+    border:1px solid rgba(70,126,255,.18);
+    border-radius:8px;
+}
+.ws-fund-watchboard__holdings table {
+    width:100%;
+    min-width:560px;
+    border-collapse:collapse;
+    font-size:.68rem;
+}
+.ws-fund-watchboard__holdings th {
+    padding:.56rem .6rem;
+    color:#8fa9d0;
+    background:rgba(47,123,255,.1);
+    font-weight:700;
+    text-align:left;
+    white-space:nowrap;
+}
+.ws-fund-watchboard__holdings td {
+    padding:.5rem .6rem;
+    color:#dce8ff;
+    border-top:1px solid rgba(70,126,255,.1);
+    white-space:nowrap;
+}
+.ws-fund-watchboard__holdings td.is-positive { color:var(--fw-green); }
+.ws-fund-watchboard__holdings td.is-negative { color:var(--fw-red); }
+.ws-fund-watchboard__empty {
+    display:grid;
+    min-height:180px;
+    place-items:center;
+    color:var(--fw-muted);
+    border:1px dashed rgba(70,126,255,.28);
+    border-radius:8px;
+    background:rgba(3,12,30,.5);
+    text-align:center;
+}
+.ws-fund-watchboard__error {
+    margin-top:.72rem;
+    padding:.58rem .68rem;
+    color:#ffb5be;
+    border:1px solid rgba(255,63,85,.3);
+    border-radius:7px;
+    background:rgba(255,63,85,.08);
+    font-size:.68rem;
+}
+.st-key-fund_watchlist_card_grid {
+    margin-top:.35rem;
+    padding:.72rem;
+    border:1px solid rgba(70,126,255,.42);
+    border-radius:12px;
+    background:linear-gradient(180deg,rgba(6,17,40,.94),rgba(2,6,21,.96));
+    box-shadow:inset 0 0 30px rgba(47,123,255,.07);
+}
+.st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] {
+    position:relative;
+    min-height:230px;
+}
+.st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] [data-testid="stHtml"] {
+    position:relative;
+    z-index:1;
+    margin-bottom:-230px;
+    pointer-events:none;
+}
+.st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] [data-testid="stButton"] {
+    position:relative;
+    z-index:5;
+    margin:0;
+}
+.st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] [data-testid="stButton"] > button {
+    width:100%;
+    height:230px;
+    min-height:230px;
+    padding:0;
+    border:0 !important;
+    background:transparent !important;
+    color:transparent !important;
+    box-shadow:none !important;
+    opacity:0;
+    cursor:pointer;
+    font-size:0 !important;
+}
+.st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] [data-testid="stCheckbox"] {
+    position:relative;
+    z-index:6;
+    margin-top:.3rem;
+}
+.st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] [data-testid="stCheckbox"] label {
+    color:#dce8ff;
+    font-size:.76rem;
+    font-weight:700;
+}
+.st-key-fund_watchlist_table_wrap {
+    padding:.72rem;
+    border:1px solid rgba(70,126,255,.35);
+    border-radius:12px;
+    background:linear-gradient(180deg,rgba(6,17,40,.94),rgba(2,6,21,.96));
+}
+@media (max-width:900px) {
+    .ws-fund-watchboard__summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .ws-fund-watchboard__cards { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .ws-fund-watchboard__focus { grid-template-columns:1fr; }
+}
+@media (max-width:620px) {
+    .ws-fund-watchboard { padding:.72rem; }
+    .ws-fund-watchboard__cards { grid-template-columns:1fr; }
+    .ws-fund-watchboard__focus { padding:.75rem; }
+    .ws-fund-watchboard__focus-main { grid-template-columns:1fr; }
+    .ws-fund-watchboard__ring { margin:0 auto; }
 }
 </style>
 """
@@ -6477,16 +6927,20 @@ def main():
                 key="iphone_page_etf",
             )
             st.caption(f"当前位置：基金 / {mobile_page}")
-            if mobile_page == "📈 主要宽基ETF份额":
+            if mobile_page == ETF_MAIN_PAGE_LABEL:
                 render_etf_tab()
-            elif mobile_page == "🥧 ETF分类占比":
+            elif mobile_page == ETF_RATIO_PAGE_LABEL:
                 render_etf_category_ratio_tab()
-            elif mobile_page == "📈 ETF分类趋势":
+            elif mobile_page == ETF_TREND_PAGE_LABEL:
                 render_etf_trend_tab()
-            elif mobile_page == "📈 基金监测":
-                render_fund_monitor_tab()
-            else:
+            elif mobile_page == ETF_WIDE_INDEX_PAGE_LABEL:
                 render_wide_index_tab()
+            elif mobile_page == ETF_FUND_MONITOR_PAGE_LABEL:
+                render_fund_monitor_tab()
+            elif mobile_page == ETF_FUND_WATCHLIST_PAGE_LABEL:
+                render_fund_watchlist_tab()
+            else:
+                render_etf_tab()
         elif mobile_group == "股票":
             mobile_page = st.selectbox(
                 "页面",
@@ -6583,6 +7037,8 @@ def main():
             render_fund_monitor_tab()
         elif selected_page == ETF_WIDE_INDEX_PAGE_LABEL:
             render_wide_index_tab()
+        elif selected_page == ETF_FUND_WATCHLIST_PAGE_LABEL:
+            render_fund_watchlist_tab()
         else:
             render_etf_tab()
 
@@ -15799,142 +16255,564 @@ def render_fund_monitor_tab():
             )
 
 
-def render_fund_watchlist_board() -> None:
-    from src.fund_hot_stocks import (
-        get_engine as get_fund_hot_engine,
-        query_fund_preference_snapshot,
-        search_funds,
+
+FUND_WATCHLIST_SESSION_CACHE_TTL_SECONDS = 900
+
+
+def _clear_fund_watchlist_session_cache() -> None:
+    st.session_state.pop("fund_watchlist_dashboard_cache", None)
+
+
+def _show_fund_watchlist_flash() -> None:
+    flash = st.session_state.pop("fund_watchlist_flash", None)
+    if not isinstance(flash, dict):
+        return
+    level = str(flash.get("level") or "info")
+    message = str(flash.get("message") or "")
+    if message:
+        getattr(st, level, st.info)(message)
+
+
+def load_fund_watchlist_dashboard_data(
+    watchlist_df: pd.DataFrame,
+    fund_engine,
+) -> list[dict]:
+    from src.fund_hot_stocks import query_fund_preference_snapshot, search_funds
+
+    items = []
+    for _, watchlist_row in watchlist_df.iterrows():
+        fund_code = str(watchlist_row.get("ts_code") or "").strip().upper()
+        meta_df = pd.DataFrame()
+        holding_df = pd.DataFrame()
+        errors = []
+
+        try:
+            meta_df = search_funds(fund_code, limit=5, engine=fund_engine)
+        except Exception as exc:
+            logger.warning("fund watchlist metadata load failed for %s: %s", fund_code, exc)
+            errors.append(f"基础信息读取失败：{exc}")
+
+        try:
+            holding_df = query_fund_preference_snapshot(
+                fund_code=fund_code,
+                top_n=10,
+                engine=fund_engine,
+            )
+        except Exception as exc:
+            logger.warning("fund watchlist holdings load failed for %s: %s", fund_code, exc)
+            errors.append(f"持仓读取失败：{exc}")
+
+        items.append(
+            build_fund_watchlist_item(
+                watchlist_row,
+                meta_df,
+                holding_df,
+                load_error="；".join(errors),
+            )
+        )
+    return items
+
+
+def load_fund_watchlist_dashboard_data_session_cached(
+    username: str,
+    watchlist_df: pd.DataFrame,
+    fund_engine,
+) -> list[dict]:
+    codes = tuple(watchlist_df["ts_code"].astype(str).str.strip().str.upper().tolist())
+    now = time.time()
+    cache = st.session_state.get("fund_watchlist_dashboard_cache")
+    if (
+        isinstance(cache, dict)
+        and cache.get("username") == username
+        and cache.get("codes") == codes
+        and now - float(cache.get("saved_at", 0.0))
+        < FUND_WATCHLIST_SESSION_CACHE_TTL_SECONDS
+    ):
+        return cache["items"]
+
+    items = load_fund_watchlist_dashboard_data(watchlist_df, fund_engine)
+    st.session_state["fund_watchlist_dashboard_cache"] = {
+        "username": username,
+        "codes": codes,
+        "saved_at": now,
+        "items": items,
+    }
+    return items
+
+
+def _fund_watchlist_text(value, fallback: str = "-") -> str:
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        return escape(fallback)
+    text = str(value).strip()
+    return escape(text or fallback)
+
+
+def _fund_watchlist_date_label(value) -> str:
+    timestamp = pd.to_datetime(value, errors="coerce")
+    return timestamp.strftime("%Y-%m-%d") if not pd.isna(timestamp) else "-"
+
+
+def _fund_watchlist_number_label(value, suffix: str, digits: int = 2) -> str:
+    number = pd.to_numeric(value, errors="coerce")
+    if pd.isna(number):
+        return "-"
+    return f"{float(number):,.{digits}f} {suffix}".strip()
+
+
+def _fund_watchlist_ratio_class(value) -> str:
+    if value is None:
+        return ""
+    if value >= 60:
+        return " is-high"
+    if value <= 40:
+        return " is-low"
+    return ""
+
+
+def render_fund_watchlist_summary(summary: dict) -> None:
+    latest_label = _fund_watchlist_date_label(summary.get("latest_end_date"))
+    average_ratio = summary.get("average_top10_ratio")
+    average_ratio_label = f"{float(average_ratio):.2f}%" if average_ratio is not None else "-"
+    positive_count = int(summary.get("positive_change_count", 0))
+    decrease_count = int(summary.get("decrease_count", 0))
+    st.html(
+        f"""
+        <section class="ws-fund-watchboard" aria-label="自选基金组合总览">
+            <div class="ws-fund-watchboard__eyebrow">
+                <strong>FUND WATCHBOARD</strong>
+                <span>持仓快照 · 结构对比 · 个人自选</span>
+            </div>
+            <div class="ws-fund-watchboard__summary">
+                <div class="ws-fund-watchboard__metric is-accent">
+                    <label>自选基金</label>
+                    <strong>{int(summary.get("fund_count", 0))} 只</strong>
+                    <span>当前账号已保存</span>
+                </div>
+                <div class="ws-fund-watchboard__metric">
+                    <label>最新披露期</label>
+                    <strong>{latest_label}</strong>
+                    <span>按已加载持仓快照</span>
+                </div>
+                <div class="ws-fund-watchboard__metric">
+                    <label>平均 Top10 集中度</label>
+                    <strong>{average_ratio_label}</strong>
+                    <span>仅反映持仓结构差异</span>
+                </div>
+                <div class="ws-fund-watchboard__metric is-change">
+                    <label>持仓变动</label>
+                    <strong>+{positive_count} / -{decrease_count}</strong>
+                    <span>新进与增持 / 减持</span>
+                </div>
+            </div>
+        </section>
+        """
     )
 
-    st.subheader("Fund Watchlist Board")
-    st.caption("View your saved funds, top holdings, latest disclosure date, and fund scale in one board.")
+
+def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
+    active_class = " is-active" if item["fund_code"] == focus_code else ""
+    ratio_class = _fund_watchlist_ratio_class(item.get("top10_ratio"))
+    ratio_label = f"{float(item['top10_ratio']):.2f}%" if item.get("top10_ratio") is not None else "-"
+    issue_label = _fund_watchlist_number_label(item.get("issue_amount"), "亿份")
+    holding_value_label = _fund_watchlist_number_label(item.get("holding_market_value"), "亿元")
+    latest_label = _fund_watchlist_date_label(item.get("latest_end_date"))
+    status_html = (
+        '<span class="is-error">数据加载不完整</span>'
+        if item.get("load_error")
+        else f"<span>披露 {latest_label}</span>"
+    )
+    return f"""
+    <article class="ws-fund-watchboard__card{active_class}">
+        <div class="ws-fund-watchboard__card-head">
+            <div class="ws-fund-watchboard__card-title">
+                <strong>{_fund_watchlist_text(item.get("fund_name"))}</strong>
+                <span>{_fund_watchlist_text(item.get("fund_code"))}</span>
+            </div>
+            <span class="ws-fund-watchboard__badge">{_fund_watchlist_text(item.get("fund_type"))}</span>
+        </div>
+        <div class="ws-fund-watchboard__ratio{ratio_class}">
+            <small>Top10 集中度</small>
+            {ratio_label}
+        </div>
+        <div class="ws-fund-watchboard__card-metrics">
+            <div><label>基金规模</label><strong>{issue_label}</strong></div>
+            <div><label>前十大持仓市值</label><strong>{holding_value_label}</strong></div>
+        </div>
+        <div class="ws-fund-watchboard__changes">
+            <div class="is-positive"><label>新进</label><strong>{int(item.get("new_count", 0))}</strong></div>
+            <div class="is-positive"><label>增持</label><strong>{int(item.get("increase_count", 0))}</strong></div>
+            <div class="is-negative"><label>减持</label><strong>{int(item.get("decrease_count", 0))}</strong></div>
+        </div>
+        <div class="ws-fund-watchboard__date">
+            {status_html}
+            <span>持仓 {int(item.get("holding_count", 0))} 只</span>
+        </div>
+    </article>
+    """
+
+
+def _clear_fund_watchlist_batch_state(items: list[dict], *, clear_mode: bool = False) -> None:
+    for item in items:
+        st.session_state.pop(f"fund_watchlist_batch_sel_{item['safe_code']}", None)
+    st.session_state.pop("fund_watchlist_table_batch_selection", None)
+    st.session_state.pop("fund_watchlist_batch_confirm_pending", None)
+    st.session_state.pop("fund_watchlist_batch_delete_items", None)
+    st.session_state.pop("fund_watchlist_batch_delete_names", None)
+    if clear_mode:
+        st.session_state["fund_watchlist_batch_mode"] = False
+
+
+def _selected_fund_watchlist_items(items: list[dict]) -> list[dict]:
+    return [
+        item
+        for item in items
+        if st.session_state.get(f"fund_watchlist_batch_sel_{item['safe_code']}", False)
+    ]
+
+
+def _sync_fund_watchlist_table_batch_selection(items: list[dict]) -> None:
+    selected_codes = set(st.session_state.get("fund_watchlist_table_batch_selection", []))
+    for item in items:
+        st.session_state[f"fund_watchlist_batch_sel_{item['safe_code']}"] = (
+            item["fund_code"] in selected_codes
+        )
+
+
+def render_fund_watchlist_batch_actions(
+    items: list[dict],
+    current_username: str,
+    *,
+    toggle_container,
+) -> None:
+    if "fund_watchlist_batch_mode" not in st.session_state:
+        st.session_state["fund_watchlist_batch_mode"] = False
+
+    with toggle_container:
+        if st.button(
+            "☑️ 批量管理" if not st.session_state["fund_watchlist_batch_mode"] else "✖️ 退出批量",
+            key="fund_watchlist_toggle_batch_mode",
+            use_container_width=True,
+        ):
+            st.session_state["fund_watchlist_batch_mode"] = not st.session_state["fund_watchlist_batch_mode"]
+            if not st.session_state["fund_watchlist_batch_mode"]:
+                _clear_fund_watchlist_batch_state(items)
+            st.rerun()
+
+    if not st.session_state["fund_watchlist_batch_mode"]:
+        return
+
+    selected_items = _selected_fund_watchlist_items(items)
+    selected_count = len(selected_items)
+    action_cols = st.columns([1, 1, 1.35, 2.4])
+
+    with action_cols[0]:
+        if st.button("✅ 全选", key="fund_watchlist_batch_select_all", use_container_width=True):
+            for item in items:
+                st.session_state[f"fund_watchlist_batch_sel_{item['safe_code']}"] = True
+            st.session_state["fund_watchlist_table_batch_selection"] = [item["fund_code"] for item in items]
+            st.rerun()
+
+    with action_cols[1]:
+        if st.button("⬜ 取消全选", key="fund_watchlist_batch_deselect_all", use_container_width=True):
+            for item in items:
+                st.session_state[f"fund_watchlist_batch_sel_{item['safe_code']}"] = False
+            st.session_state["fund_watchlist_table_batch_selection"] = []
+            st.rerun()
+
+    action_cols[2].caption(f"已选 {selected_count} / {len(items)} 只基金")
+
+    with action_cols[3]:
+        if st.button(
+            f"🗑️ 删除已选基金（{selected_count}）",
+            key="fund_watchlist_batch_delete_button",
+            type="primary",
+            disabled=selected_count == 0,
+            use_container_width=True,
+        ):
+            st.session_state["fund_watchlist_batch_confirm_pending"] = True
+            st.session_state["fund_watchlist_batch_delete_items"] = [
+                (item["fund_code"], "fund") for item in selected_items
+            ]
+            st.session_state["fund_watchlist_batch_delete_names"] = [item["fund_name"] for item in selected_items]
+            st.rerun()
+
+    if not st.session_state.get("fund_watchlist_batch_confirm_pending"):
+        return
+
+    pending_items = st.session_state.get("fund_watchlist_batch_delete_items", [])
+    pending_names = st.session_state.get("fund_watchlist_batch_delete_names", [])
+    if not pending_items:
+        return
+
+    st.warning(
+        f"确认从自选基金中删除以下 **{len(pending_items)}** 只基金？\n\n"
+        + "、".join(str(name) for name in pending_names[:12])
+        + ("…" if len(pending_names) > 12 else "")
+    )
+    confirm_cols = st.columns([1, 1, 3])
+    with confirm_cols[0]:
+        if st.button(
+            "确认删除",
+            key="fund_watchlist_batch_confirm_yes",
+            type="primary",
+            use_container_width=True,
+        ):
+            try:
+                deleted = remove_watchlist_items_batch(current_username, pending_items)
+                _clear_fund_watchlist_session_cache()
+                st.session_state.pop("fund_watchlist_focus_code", None)
+                _clear_fund_watchlist_batch_state(items, clear_mode=True)
+                st.session_state["fund_watchlist_flash"] = {
+                    "level": "success",
+                    "message": f"已从自选基金中删除 {deleted} 只基金",
+                }
+                st.rerun()
+            except Exception as exc:
+                st.error(f"删除自选基金失败：{exc}")
+
+    with confirm_cols[1]:
+        if st.button("取消", key="fund_watchlist_batch_confirm_no", use_container_width=True):
+            st.session_state.pop("fund_watchlist_batch_confirm_pending", None)
+            st.session_state.pop("fund_watchlist_batch_delete_items", None)
+            st.session_state.pop("fund_watchlist_batch_delete_names", None)
+            st.rerun()
+
+
+def render_fund_watchlist_cards(items: list[dict], *, focus_code: str) -> None:
+    is_batch_mode = bool(st.session_state.get("fund_watchlist_batch_mode"))
+    st.session_state["fund_watchlist_batch_last_view"] = "看板"
+
+    with st.container(key="fund_watchlist_card_grid"):
+        for start_idx in range(0, len(items), 3):
+            cols = st.columns(3)
+            for offset, item in enumerate(items[start_idx : start_idx + 3]):
+                with cols[offset]:
+                    with st.container(key=f"fund_watchlist_card_wrap_{item['safe_code']}"):
+                        st.html(_build_fund_watchlist_card_html(item, focus_code))
+                        if st.button(
+                            f"查看 {item['fund_name']} 详情",
+                            key=f"fund_watchlist_card_button_{item['safe_code']}",
+                            use_container_width=True,
+                        ):
+                            if is_batch_mode:
+                                selection_key = f"fund_watchlist_batch_sel_{item['safe_code']}"
+                                st.session_state[selection_key] = not bool(st.session_state.get(selection_key, False))
+                            else:
+                                st.session_state["fund_watchlist_focus_code"] = item["fund_code"]
+                            st.rerun()
+
+                        if is_batch_mode:
+                            st.checkbox("选择此基金", key=f"fund_watchlist_batch_sel_{item['safe_code']}")
+
+
+def render_fund_watchlist_table(items: list[dict], *, focus_code: str) -> str:
+    is_batch_mode = bool(st.session_state.get("fund_watchlist_batch_mode"))
+    previous_view = st.session_state.get("fund_watchlist_batch_last_view")
+    st.session_state["fund_watchlist_batch_last_view"] = "表格"
+
+    if is_batch_mode:
+        current_selected_codes = [item["fund_code"] for item in _selected_fund_watchlist_items(items)]
+        if previous_view != "表格":
+            st.session_state["fund_watchlist_table_batch_selection"] = current_selected_codes
+        st.multiselect(
+            "选择要批量管理的基金",
+            options=[item["fund_code"] for item in items],
+            format_func=lambda code: next(
+                (f"{item['fund_name']}（{item['fund_code']}）" for item in items if item["fund_code"] == code),
+                code,
+            ),
+            key="fund_watchlist_table_batch_selection",
+            on_change=_sync_fund_watchlist_table_batch_selection,
+            args=(items,),
+            placeholder="勾选要删除的基金",
+        )
+
+    with st.container(key="fund_watchlist_table_wrap"):
+        st.dataframe(
+            build_fund_watchlist_table(items),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "基金规模(亿份)": st.column_config.NumberColumn(format="%.2f"),
+                "持仓市值(亿元)": st.column_config.NumberColumn(format="%.2f"),
+                "Top10 集中度(%)": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.2f%%"),
+            },
+        )
+
+    focus_labels = {
+        f"{item['fund_name']}（{item['fund_code']}）": item["fund_code"]
+        for item in items
+    }
+    valid_labels = list(focus_labels)
+    current_label = next(
+        (label for label, code in focus_labels.items() if code == focus_code),
+        valid_labels[0],
+    )
+    if st.session_state.get("fund_watchlist_table_focus") not in valid_labels:
+        st.session_state["fund_watchlist_table_focus"] = current_label
+    selected_label = st.selectbox("报告 / 操作焦点", valid_labels, key="fund_watchlist_table_focus")
+    selected_code = focus_labels[selected_label]
+    st.session_state["fund_watchlist_focus_code"] = selected_code
+    return selected_code
+
+
+def render_fund_watchlist_focus_detail(item: dict) -> None:
+    ratio = item.get("top10_ratio")
+    ratio_value = 0.0 if ratio is None else max(0.0, min(float(ratio), 100.0))
+    ratio_label = "-" if ratio is None else f"{float(ratio):.2f}%"
+    latest_label = _fund_watchlist_date_label(item.get("latest_end_date"))
+    added_label = _fund_watchlist_date_label(item.get("added_at"))
+
+    holding_rows = []
+    for holding in item.get("holdings", []):
+        tone_class = ""
+        if holding.get("change_flag") in {"new", "increase"}:
+            tone_class = ' class="is-positive"'
+        elif holding.get("change_flag") == "decrease":
+            tone_class = ' class="is-negative"'
+        holding_rows.append(
+            "<tr>"
+            f"<td>{_fund_watchlist_text(holding.get('stock_name'))}</td>"
+            f"<td>{_fund_watchlist_text(holding.get('symbol'))}</td>"
+            f"<td>{_fund_watchlist_number_label(holding.get('market_value_yi'), '亿')}</td>"
+            f"<td>{_fund_watchlist_number_label(holding.get('weight'), '%')}</td>"
+            f"<td{tone_class}>{_fund_watchlist_text(holding.get('change_label'))}</td>"
+            "</tr>"
+        )
+
+    if holding_rows:
+        holdings_html = f"""
+        <div class="ws-fund-watchboard__table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>股票名称</th>
+                        <th>股票代码</th>
+                        <th>持仓市值</th>
+                        <th>持仓权重</th>
+                        <th>持仓变化</th>
+                    </tr>
+                </thead>
+                <tbody>{''.join(holding_rows)}</tbody>
+            </table>
+        </div>
+        """
+    else:
+        holdings_html = """
+        <div class="ws-fund-watchboard__empty">
+            <div><strong>暂无持仓快照</strong><br>当前基金可能尚未披露，或所选数据源暂未覆盖。</div>
+        </div>
+        """
+
+    error_html = (
+        f'<div class="ws-fund-watchboard__error">{_fund_watchlist_text(item.get("load_error"))}</div>'
+        if item.get("load_error")
+        else ""
+    )
+
+    st.html(
+        f"""
+        <section class="ws-fund-watchboard__focus" aria-label="聚焦基金详情">
+            <div class="ws-fund-watchboard__focus-overview">
+                <div class="ws-fund-watchboard__focus-kicker">当前聚焦基金</div>
+                <h3>{_fund_watchlist_text(item.get("fund_name"))}</h3>
+                <div class="ws-fund-watchboard__focus-code">{_fund_watchlist_text(item.get("fund_code"))}</div>
+                <div class="ws-fund-watchboard__focus-main">
+                    <div class="ws-fund-watchboard__ring" style="--ratio:{ratio_value}%">
+                        <span><strong>{ratio_label}</strong>Top10 集中度</span>
+                    </div>
+                    <div class="ws-fund-watchboard__facts">
+                        <div class="ws-fund-watchboard__fact"><span>基金管理人</span><strong>{_fund_watchlist_text(item.get("management"))}</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>基金类型</span><strong>{_fund_watchlist_text(item.get("fund_type"))}</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>最新披露日期</span><strong>{latest_label}</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>持仓数量</span><strong>{int(item.get("holding_count", 0))} 只</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>加入自选日期</span><strong>{added_label}</strong></div>
+                    </div>
+                </div>
+                {error_html}
+            </div>
+            <div class="ws-fund-watchboard__holdings">
+                <div class="ws-fund-watchboard__holdings-head">
+                    <strong>前十大持仓明细</strong>
+                    <span>持仓市值单位：亿元</span>
+                </div>
+                {holdings_html}
+            </div>
+        </section>
+        """
+    )
+
+
+def render_fund_watchlist_tab() -> None:
+    from src.fund_hot_stocks import get_engine as get_fund_hot_engine
+
+    st.subheader("⭐ 自选基金")
+    st.caption("追踪自选基金的持仓结构、披露进度与集中度变化")
+    _show_fund_watchlist_flash()
 
     current_username = get_logged_in_username()
     if not current_username:
-        st.info("No recent holding details were found for this fund.")
+        st.info("请先登录用户名，再查看和管理你的自选基金。")
         return
 
     try:
         watchlist_df = list_watchlist_items(current_username, security_type="fund")
     except Exception as exc:
-        st.error(f"Failed to load fund watchlist: {exc}")
+        st.error(f"加载自选基金失败：{exc}")
         return
 
     if watchlist_df is None or watchlist_df.empty:
-        st.info("Your fund watchlist is empty. Add funds from the fund holding query section above.")
+        st.info("你的自选基金还是空的，请从“公募持仓热股”的基金持仓查询区域添加。")
         return
 
     try:
         fund_engine = get_fund_hot_engine()
     except Exception as exc:
-        st.error(f"Failed to connect to fund holdings database: {exc}")
+        st.error(f"连接基金持仓数据库失败：{exc}")
         return
 
-    st.metric("Fund Count", f"{len(watchlist_df):,}")
+    with st.spinner("正在加载自选基金持仓数据..."):
+        items = load_fund_watchlist_dashboard_data_session_cached(current_username, watchlist_df, fund_engine)
 
-    remove_options = watchlist_df.apply(
-        lambda row: f"{str(row.get('security_name') or row.get('ts_code') or '').strip()}?{str(row.get('ts_code') or '').strip()}?",
-        axis=1,
-    ).tolist()
-    selected_labels = st.multiselect("Remove funds from watchlist", options=remove_options, key="fund_watchlist_remove_multiselect")
-    if st.button("Remove selected funds", disabled=len(selected_labels) == 0, key="fund_watchlist_remove_button"):
-        items_to_remove = []
-        for label in selected_labels:
-            idx = remove_options.index(label)
-            row = watchlist_df.iloc[idx]
-            items_to_remove.append((str(row.get("ts_code") or ""), "fund"))
-        removed_count = remove_watchlist_items_batch(current_username, items_to_remove)
-        if removed_count > 0:
-            st.success(f"Removed {removed_count} fund(s) from watchlist")
-            st.rerun()
-        else:
-            st.warning("No records were removed. They may have already been deleted.")
+    if not items:
+        st.info("当前没有可展示的自选基金，请稍后重试。")
+        return
 
-    st.divider()
+    st.markdown(FUND_WATCHLIST_DASHBOARD_CSS, unsafe_allow_html=True)
+    render_fund_watchlist_summary(build_fund_watchlist_summary(items))
 
-    for _, row in watchlist_df.iterrows():
-        fund_code = str(row.get("ts_code") or "").strip().upper()
-        display_name = str(row.get("security_name") or fund_code).strip() or fund_code
+    control_cols = st.columns([1.1, 1.4, 1.2])
+    with control_cols[0]:
+        view_mode = st.radio("视图模式", ["看板", "表格"], horizontal=True, key="fund_watchlist_view_mode")
+    with control_cols[1]:
+        sort_label = st.selectbox(
+            "排序方式",
+            ["Top10 集中度", "基金规模", "持仓市值", "披露日期"],
+            key="fund_watchlist_sort_label",
+        )
 
-        search_df = pd.DataFrame()
-        try:
-            search_df = search_funds(fund_code, limit=5, engine=fund_engine)
-        except Exception:
-            search_df = pd.DataFrame()
+    sorted_items = sort_fund_watchlist_items(items, sort_label)
+    valid_codes = [item["fund_code"] for item in sorted_items]
+    focus_code = str(st.session_state.get("fund_watchlist_focus_code") or "").strip().upper()
+    if focus_code not in valid_codes:
+        focus_code = valid_codes[0]
+        st.session_state["fund_watchlist_focus_code"] = focus_code
 
-        meta_row = None
-        if search_df is not None and not search_df.empty:
-            exact_rows = search_df[search_df["fund_code"].astype(str).str.upper() == fund_code]
-            meta_row = exact_rows.iloc[0] if not exact_rows.empty else search_df.iloc[0]
+    render_fund_watchlist_batch_actions(
+        sorted_items,
+        current_username,
+        toggle_container=control_cols[2],
+    )
 
-        try:
-            holding_df = query_fund_preference_snapshot(fund_code=fund_code, top_n=10, engine=fund_engine)
-        except Exception as exc:
-            st.warning(f"{display_name}: failed to load holdings: {exc}")
-            holding_df = pd.DataFrame()
+    if view_mode == "看板":
+        render_fund_watchlist_cards(sorted_items, focus_code=focus_code)
+        focus_code = str(st.session_state.get("fund_watchlist_focus_code") or focus_code)
+    else:
+        focus_code = render_fund_watchlist_table(sorted_items, focus_code=focus_code)
 
-        card_title = display_name if display_name == fund_code else f"{display_name} ({fund_code})"
-        with st.container(border=True):
-            st.markdown(f"### {card_title}")
+    focus_item = next(item for item in sorted_items if item["fund_code"] == focus_code)
+    render_fund_watchlist_focus_detail(focus_item)
 
-            management = str(
-                (meta_row.get("management") if meta_row is not None else "")
-                or (holding_df.iloc[0].get("management") if holding_df is not None and not holding_df.empty else "")
-                or "-"
-            )
-            fund_type = str(
-                (meta_row.get("fund_type") if meta_row is not None else "")
-                or (holding_df.iloc[0].get("fund_type") if holding_df is not None and not holding_df.empty else "")
-                or (holding_df.iloc[0].get("invest_type") if holding_df is not None and not holding_df.empty else "")
-                or "-"
-            )
-
-            latest_end_date = None
-            if holding_df is not None and not holding_df.empty and "end_date" in holding_df.columns:
-                latest_end_date = pd.to_datetime(holding_df["end_date"].iloc[0], errors="coerce")
-            elif meta_row is not None and "latest_end_date" in search_df.columns:
-                latest_end_date = pd.to_datetime(meta_row.get("latest_end_date"), errors="coerce")
-            latest_end_label = latest_end_date.strftime("%Y-%m-%d") if latest_end_date is not None and not pd.isna(latest_end_date) else "-"
-
-            issue_amount = pd.to_numeric(meta_row.get("issue_amount") if meta_row is not None else None, errors="coerce")
-            issue_amount_label = f"{issue_amount:,.2f} bn shares" if pd.notna(issue_amount) else "-"
-
-            total_mkv_yi = 0.0
-            top10_ratio = 0.0
-            holding_count = 0
-            if holding_df is not None and not holding_df.empty:
-                total_mkv_yi = pd.to_numeric(holding_df["mkv"], errors="coerce").fillna(0).sum() / 1e8
-                top10_ratio = pd.to_numeric(holding_df["stk_mkv_ratio"], errors="coerce").fillna(0).head(10).sum()
-                holding_count = len(holding_df)
-
-            metric_cols = st.columns(5)
-            metric_cols[0].metric("Manager", management)
-            metric_cols[1].metric("Fund Type", fund_type)
-            metric_cols[2].metric("Latest Disclosure", latest_end_label)
-            metric_cols[3].metric("Holding MV", f"{total_mkv_yi:,.2f} bn CNY" if total_mkv_yi else "-")
-            metric_cols[4].metric("Fund Scale", issue_amount_label)
-
-            sub_cols = st.columns(3)
-            sub_cols[0].metric("Holding Count", f"{holding_count:,}")
-            sub_cols[1].metric("Top10 Weight", f"{top10_ratio:,.2f}%" if top10_ratio else "-")
-            added_at = pd.to_datetime(row.get("created_at"), errors="coerce")
-            sub_cols[2].metric("Added On", added_at.strftime("%Y-%m-%d") if added_at is not None and not pd.isna(added_at) else "-")
-
-            if holding_df is not None and not holding_df.empty:
-                preview_df = holding_df.copy()
-                preview_df["Holding MV (bn)"] = pd.to_numeric(preview_df["mkv"], errors="coerce").fillna(0) / 1e8
-                preview_df["Weight (%)"] = pd.to_numeric(preview_df["stk_mkv_ratio"], errors="coerce").fillna(0)
-                preview_df["Change"] = preview_df["holding_change_flag"].replace({
-                    "new": "New",
-                    "increase": "Increase",
-                    "decrease": "Decrease",
-                    "stable": "Stable",
-                })
-                preview_show = preview_df[["stock_name", "symbol", "Holding MV (bn)", "Weight (%)", "Change"]].copy()
-                preview_show.columns = ["Top Holding", "Code", "Holding MV (bn)", "Weight (%)", "Change"]
-                st.dataframe(preview_show.head(10), use_container_width=True, hide_index=True)
-            else:
-                st.info("No recent holding details were found for this fund.")
 
 def render_fund_hot_stocks_tab():
     """渲染公募基金持仓热股 Tab 页"""
@@ -16626,10 +17504,10 @@ def render_fund_hot_stocks_tab():
                         security_type="fund",
                     )
                 except Exception as watchlist_check_exc:
-                    st.warning(f"Check fund watchlist status failed: {watchlist_check_exc}")
+                    st.warning(f"读取自选基金状态失败：{watchlist_check_exc}")
                     already_in_fund_watchlist = False
 
-                button_label = "Already in fund watchlist" if already_in_fund_watchlist else "Add to fund watchlist"
+                button_label = "已加入自选基金" if already_in_fund_watchlist else "加入自选基金"
                 if fund_watchlist_cols[0].button(
                     button_label,
                     key=f"btn_add_fund_watchlist_{st.session_state.get('fh_fund_code', '')}",
@@ -16642,21 +17520,22 @@ def render_fund_hot_stocks_tab():
                             security_name=fund_name,
                             security_type="fund",
                         )
-                        st.success(f"Added {fund_name} to {current_username}'s fund watchlist")
+                        _clear_fund_watchlist_session_cache()
+                        st.success(f"已将 {fund_name} 加入 {current_username} 的自选基金")
                         st.rerun()
                     except Exception as add_watchlist_exc:
-                        st.error(f"Add fund watchlist failed: {add_watchlist_exc}")
+                        st.error(f"加入自选基金失败：{add_watchlist_exc}")
                 fund_watchlist_cols[1].caption(
-                    f"Current user: {current_username} | Added funds appear in the board below"
+                    f"当前用户：{current_username}｜加入后可在“基金 / 自选基金”独立页面统一管理"
                 )
             else:
                 fund_watchlist_cols[0].button(
-                    "Add to fund watchlist",
+                    "加入自选基金",
                     key=f"btn_add_fund_watchlist_disabled_{st.session_state.get('fh_fund_code', '')}",
                     disabled=True,
                 )
                 fund_watchlist_cols[1].info(
-                    "Log in with your username to save this fund into your watchlist."
+                    "请先登录用户名，再把该基金加入个人自选基金。"
                 )
 
             pref_plot = fund_df.head(min(len(fund_df), 20)).copy()
@@ -16711,12 +17590,6 @@ def render_fund_hot_stocks_tab():
             st.dataframe(pref_show, use_container_width=True, hide_index=True)
         elif fund_df is not None and fund_df.empty and not fund_error and st.session_state.get("fh_fund_code"):
             st.info("该基金在所选报告期暂无可用持仓数据。")
-
-
-    st.markdown("---")
-    render_fund_watchlist_board()
-
-
 def render_moneyflow_tab():
     """渲染资金流向 Tab 页"""
     from src.moneyflow_fetcher import (

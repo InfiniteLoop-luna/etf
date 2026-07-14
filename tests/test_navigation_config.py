@@ -4,7 +4,11 @@ from unittest.mock import patch
 import pandas as pd
 import streamlit as st
 
-from src.navigation_config import ETF_PAGE_OPTIONS, STOCK_PAGE_OPTIONS
+from src.navigation_config import (
+    ETF_FUND_WATCHLIST_PAGE_LABEL,
+    ETF_PAGE_OPTIONS,
+    STOCK_PAGE_OPTIONS,
+)
 from app import (
     HISTORICAL_ST_BADGE_TEXT,
     build_security_jump_links,
@@ -114,14 +118,18 @@ class NavigationConfigTests(unittest.TestCase):
     def test_stock_page_options_include_user_watchlist(self):
         self.assertIn("⭐ 自选管理", STOCK_PAGE_OPTIONS)
 
+    def test_fund_page_options_include_standalone_watchlist(self):
+        self.assertEqual(ETF_FUND_WATCHLIST_PAGE_LABEL, "⭐ 自选基金")
+        self.assertIn("⭐ 自选基金", ETF_PAGE_OPTIONS)
+
     def test_navigation_option_labels_remain_stable(self):
         self.assertEqual(
             ETF_PAGE_OPTIONS,
-            ["📈 主要宽基ETF份额", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "📈 基金监测"],
+            ["📈 主要宽基ETF份额", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "📈 基金监测", "⭐ 自选基金"],
         )
         self.assertEqual(
             STOCK_PAGE_OPTIONS,
-            ["🔎 个股/指数查询", "⭐ 自选管理", "🏢 公司筛选", "🎯 技术选股", "🧠 因子选股工作台", "🧭 观点跟踪"],
+            ["🔎 个股/指数查询", "🐉 龙虎榜", "⭐ 自选管理", "🗂 自选池", "🏢 公司筛选", "🎯 技术选股", "🧠 因子选股工作台", "🧭 观点跟踪"],
         )
 
 
