@@ -41,6 +41,22 @@ def test_fund_watchlist_dashboard_exposes_view_sort_focus_and_batch_controls():
     assert "remove_watchlist_items_batch(current_username, pending_items)" in APP_SOURCE
 
 
+def test_fund_watchlist_page_owns_the_add_and_manage_flow():
+    assert "render_fund_watchlist_add_panel" in APP_SOURCE
+    assert "查看持仓不再是添加自选的前置步骤" in APP_SOURCE
+    assert "请从上方搜索并添加第一只基金" in APP_SOURCE
+    assert "fund_watchlist_add_search_form" in APP_SOURCE
+    assert 'security_type="fund"' in APP_SOURCE
+
+
+def test_hot_stock_fund_query_keeps_a_direct_watchlist_shortcut():
+    body = _fund_hot_stocks_body()
+
+    assert '"查看自选基金"' in body
+    assert "queue_fund_watchlist_navigation()" in body
+    assert "btn_open_fund_watchlist" in body
+
+
 def test_fund_watchlist_copy_and_fields_are_chinese_fund_semantics():
     for text in [
         "请先登录用户名，再查看和管理你的自选基金。",

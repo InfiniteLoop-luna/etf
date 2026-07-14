@@ -1728,6 +1728,23 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     border-radius:12px;
     background:linear-gradient(180deg,rgba(6,17,40,.94),rgba(2,6,21,.96));
 }
+.st-key-fund_watchlist_add_panel {
+    margin:.75rem 0 1rem;
+    padding:.85rem 1rem 1rem;
+    border:1px solid rgba(70,126,255,.34);
+    border-radius:12px;
+    background:
+        radial-gradient(circle at 96% 0%,rgba(34,215,255,.12),transparent 30%),
+        linear-gradient(145deg,rgba(8,26,57,.94),rgba(3,12,30,.96));
+    box-shadow:inset 0 0 24px rgba(47,123,255,.06);
+}
+.st-key-fund_watchlist_add_panel h4 {
+    margin:.1rem 0 .15rem;
+    color:#f5f9ff;
+}
+.st-key-fund_watchlist_add_panel p {
+    color:#93a9ca;
+}
 @media (max-width:900px) {
     .ws-fund-watchboard__summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ws-fund-watchboard__cards { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -3454,6 +3471,20 @@ def _navigate_desktop_sidebar_to(
     st.session_state["sidebar_expanded_module_id"] = module.id
     if clear_search:
         st.session_state["sidebar_search_query_pending_reset"] = True
+
+
+def queue_fund_watchlist_navigation() -> None:
+    """Queue a safe cross-module jump before navigation widgets are created."""
+    st.session_state["pending_fund_watchlist_navigation"] = True
+
+
+def consume_pending_fund_watchlist_navigation() -> None:
+    if not st.session_state.pop("pending_fund_watchlist_navigation", False):
+        return
+
+    _navigate_desktop_sidebar_to("fund", "fund_watchlist")
+    st.session_state["iphone_group_radio"] = "基金"
+    st.session_state["iphone_page_etf"] = ETF_FUND_WATCHLIST_PAGE_LABEL
 
 
 def render_desktop_sidebar_navigation() -> tuple[str, str]:
@@ -6812,6 +6843,7 @@ def render_volume_tab():
 def main():
     """主应用逻辑"""
     hydrate_security_jump_from_query_params()
+    consume_pending_fund_watchlist_navigation()
 
     # ===== iPhone only mode (no sidebar dependency) =====
     iphone_mode = get_query_param_value("iphone_mode").strip() == "1"
@@ -16743,11 +16775,124 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
     )
 
 
+def render_fund_watchlist_add_panel(
+    current_username: str,
+    fund_engine,
+    watchlist_df: pd.DataFrame,
+) -> None:
+    from src.fund_hot_stocks import search_funds
+
+    existing_codes = set()
+    if watchlist_df is not None and not watchlist_df.empty and "ts_code" in watchlist_df.columns:
+        existing_codes = set(
+            watchlist_df["ts_code"].astype(str).str.strip().str.upper()
+        )
+
+    with st.container(key="fund_watchlist_add_panel"):
+        st.markdown("#### ➕ 添加自选基金")
+        st.caption("输入基金代码、名称或管理人，搜索后可直接加入；查看持仓不再是添加自选的前置步骤。")
+
+        with st.form("fund_watchlist_add_search_form", border=False):
+            search_cols = st.columns([3.4, 1])
+            with search_cols[0]:
+                keyword = st.text_input(
+                    "搜索基金",
+                    placeholder="如 000001.OF、招商中证白酒、易方达",
+                    key="fund_watchlist_add_keyword",
+                    label_visibility="collapsed",
+                ).strip()
+            with search_cols[1]:
+                search_submitted = st.form_submit_button(
+                    "搜索基金",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+        if search_submitted:
+            if not keyword:
+                st.warning("请输入基金代码、名称或管理人。")
+                st.session_state.pop("fund_watchlist_add_search_result", None)
+            else:
+                try:
+                    candidates = search_funds(keyword, limit=30, engine=fund_engine)
+                    st.session_state["fund_watchlist_add_search_result"] = {
+                        "username": current_username,
+                        "keyword": keyword,
+                        "candidates": candidates,
+                    }
+                except Exception as exc:
+                    st.session_state.pop("fund_watchlist_add_search_result", None)
+                    st.error(f"搜索基金失败：{exc}")
+
+        payload = st.session_state.get("fund_watchlist_add_search_result")
+        candidates = pd.DataFrame()
+        if isinstance(payload, dict) and payload.get("username") == current_username:
+            stored_candidates = payload.get("candidates")
+            if isinstance(stored_candidates, pd.DataFrame):
+                candidates = stored_candidates
+
+        if search_submitted and candidates.empty and keyword:
+            st.info("没有找到匹配基金，请尝试完整代码、基金简称或管理人名称。")
+
+        if candidates.empty:
+            return
+
+        candidate_rows = [row for _, row in candidates.iterrows()]
+        candidate_options = list(range(len(candidate_rows)))
+        if st.session_state.get("fund_watchlist_add_candidate") not in candidate_options:
+            st.session_state["fund_watchlist_add_candidate"] = 0
+        selected_idx = st.selectbox(
+            "选择基金",
+            options=candidate_options,
+            format_func=lambda idx: (
+                f"{str(candidate_rows[idx].get('name') or candidate_rows[idx].get('fund_code') or '-')}"
+                f"（{str(candidate_rows[idx].get('fund_code') or '-')}｜"
+                f"{str(candidate_rows[idx].get('management') or '未知管理人')}｜"
+                f"{str(candidate_rows[idx].get('fund_type') or '未知类型')}）"
+            ),
+            key="fund_watchlist_add_candidate",
+        )
+        selected_row = candidate_rows[int(selected_idx)]
+        fund_code = str(selected_row.get("fund_code") or "").strip().upper()
+        fund_name = str(selected_row.get("name") or fund_code).strip() or fund_code
+        already_saved = fund_code in existing_codes
+
+        add_cols = st.columns([1.2, 2.4])
+        with add_cols[0]:
+            if st.button(
+                "已在自选基金" if already_saved else "加入自选基金",
+                key=f"fund_watchlist_add_selected_{fund_code}",
+                type="primary",
+                disabled=already_saved or not fund_code,
+                use_container_width=True,
+            ):
+                try:
+                    add_watchlist_item(
+                        current_username,
+                        fund_code,
+                        security_name=fund_name,
+                        security_type="fund",
+                    )
+                    _clear_fund_watchlist_session_cache()
+                    st.session_state.pop("fund_watchlist_add_search_result", None)
+                    st.session_state["fund_watchlist_flash"] = {
+                        "level": "success",
+                        "message": f"已将 {fund_name} 加入自选基金",
+                    }
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"加入自选基金失败：{exc}")
+        add_cols[1].caption(
+            "加入后会立即出现在下方看板中；持仓快照会按现有基金数据自动加载。"
+        )
+
+
 def render_fund_watchlist_tab() -> None:
     from src.fund_hot_stocks import get_engine as get_fund_hot_engine
 
     st.subheader("⭐ 自选基金")
     st.caption("追踪自选基金的持仓结构、披露进度与集中度变化")
+    st.markdown(FUND_WATCHLIST_DASHBOARD_CSS, unsafe_allow_html=True)
     _show_fund_watchlist_flash()
 
     current_username = get_logged_in_username()
@@ -16761,14 +16906,16 @@ def render_fund_watchlist_tab() -> None:
         st.error(f"加载自选基金失败：{exc}")
         return
 
-    if watchlist_df is None or watchlist_df.empty:
-        st.info("你的自选基金还是空的，请从“公募持仓热股”的基金持仓查询区域添加。")
-        return
-
     try:
         fund_engine = get_fund_hot_engine()
     except Exception as exc:
         st.error(f"连接基金持仓数据库失败：{exc}")
+        return
+
+    render_fund_watchlist_add_panel(current_username, fund_engine, watchlist_df)
+
+    if watchlist_df is None or watchlist_df.empty:
+        st.info("你的自选基金还是空的，请从上方搜索并添加第一只基金。")
         return
 
     with st.spinner("正在加载自选基金持仓数据..."):
@@ -16778,7 +16925,6 @@ def render_fund_watchlist_tab() -> None:
         st.info("当前没有可展示的自选基金，请稍后重试。")
         return
 
-    st.markdown(FUND_WATCHLIST_DASHBOARD_CSS, unsafe_allow_html=True)
     render_fund_watchlist_summary(build_fund_watchlist_summary(items))
 
     control_cols = st.columns([1.1, 1.4, 1.2])
@@ -17495,7 +17641,15 @@ def render_fund_hot_stocks_tab():
             fund_metrics[3].metric("Top10 Weight", f"{top10_ratio:,.2f}%")
 
             current_username = get_logged_in_username()
-            fund_watchlist_cols = st.columns([1.3, 2.2])
+            fund_watchlist_cols = st.columns([1.2, 1.2, 2.2])
+            if fund_watchlist_cols[1].button(
+                "查看自选基金",
+                key="btn_open_fund_watchlist",
+                use_container_width=True,
+            ):
+                queue_fund_watchlist_navigation()
+                st.rerun()
+
             if current_username:
                 try:
                     already_in_fund_watchlist = is_in_watchlist(
@@ -17525,8 +17679,8 @@ def render_fund_hot_stocks_tab():
                         st.rerun()
                     except Exception as add_watchlist_exc:
                         st.error(f"加入自选基金失败：{add_watchlist_exc}")
-                fund_watchlist_cols[1].caption(
-                    f"当前用户：{current_username}｜加入后可在“基金 / 自选基金”独立页面统一管理"
+                fund_watchlist_cols[2].caption(
+                    f"当前用户：{current_username}｜可在这里加入，也可前往“自选基金”页面继续添加和统一管理"
                 )
             else:
                 fund_watchlist_cols[0].button(
@@ -17534,7 +17688,7 @@ def render_fund_hot_stocks_tab():
                     key=f"btn_add_fund_watchlist_disabled_{st.session_state.get('fh_fund_code', '')}",
                     disabled=True,
                 )
-                fund_watchlist_cols[1].info(
+                fund_watchlist_cols[2].info(
                     "请先登录用户名，再把该基金加入个人自选基金。"
                 )
 
