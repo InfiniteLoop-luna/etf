@@ -1313,7 +1313,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     --fw-red:#ff3f55;
     --fw-green:#20dfb8;
     --fw-text:#f5f9ff;
-    --fw-muted:#93a9ca;
+    --fw-muted:#c6d6eb;
     box-sizing:border-box;
     position:relative;
     overflow:hidden;
@@ -1390,7 +1390,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__metric span {
     display:block;
     margin-top:.24rem;
-    color:#6f8fbd;
+    color:#afc3df;
     font-size:.66rem;
 }
 .ws-fund-watchboard__metric.is-accent strong { color:var(--fw-cyan); }
@@ -1519,7 +1519,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     gap:.5rem;
     margin-top:.62rem;
     padding-top:.52rem;
-    color:#7895bf;
+    color:#b8cae2;
     border-top:1px solid rgba(70,126,255,.13);
     font-size:.63rem;
 }
@@ -1643,7 +1643,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 }
 .ws-fund-watchboard__holdings th {
     padding:.56rem .6rem;
-    color:#8fa9d0;
+    color:#c7d8ef;
     background:rgba(47,123,255,.1);
     font-weight:700;
     text-align:left;
@@ -1722,6 +1722,10 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     font-size:.76rem;
     font-weight:700;
 }
+.st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] [data-testid="stCheckbox"] label * {
+    color:#dce8ff !important;
+    -webkit-text-fill-color:#dce8ff !important;
+}
 .st-key-fund_watchlist_table_wrap {
     padding:.72rem;
     border:1px solid rgba(70,126,255,.35);
@@ -1743,7 +1747,98 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     color:#f5f9ff;
 }
 .st-key-fund_watchlist_add_panel p {
-    color:#93a9ca;
+    color:#c6d6eb !important;
+}
+.st-key-fund_watchlist_add_panel label,
+.st-key-fund_watchlist_add_panel [data-testid="stCaptionContainer"],
+.st-key-fund_watchlist_add_panel [data-testid="stCaptionContainer"] p {
+    color:#dbe8f8 !important;
+    -webkit-text-fill-color:#dbe8f8 !important;
+}
+.st-key-fund_watchlist_add_panel .stTextInput input,
+.st-key-fund_watchlist_add_panel [data-baseweb="select"] > div {
+    border-color:rgba(151,188,255,.72) !important;
+    background:#f7faff !important;
+    color:#13213b !important;
+    -webkit-text-fill-color:#13213b !important;
+}
+.st-key-fund_watchlist_add_panel .stTextInput input::placeholder {
+    color:#6c7c93 !important;
+    -webkit-text-fill-color:#6c7c93 !important;
+    opacity:1 !important;
+}
+.st-key-fund_watchlist_add_panel [data-baseweb="select"] > div *,
+.st-key-fund_watchlist_add_panel [data-baseweb="select"] span {
+    color:#13213b !important;
+    -webkit-text-fill-color:#13213b !important;
+}
+.st-key-fund_watchlist_add_panel [data-testid="stButton"] > button,
+.st-key-fund_watchlist_add_panel [data-testid="stFormSubmitButton"] > button {
+    border-color:rgba(116,179,255,.85) !important;
+    background:linear-gradient(135deg,#2f7bff 0%,#1657c8 100%) !important;
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    text-shadow:0 1px 1px rgba(0,0,0,.18) !important;
+}
+.st-key-fund_watchlist_add_panel [data-testid="stButton"] > button *,
+.st-key-fund_watchlist_add_panel [data-testid="stFormSubmitButton"] > button * {
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+}
+.st-key-fund_watchlist_add_panel [data-testid="stButton"] > button:disabled,
+.st-key-fund_watchlist_add_panel [data-testid="stFormSubmitButton"] > button:disabled {
+    border-color:rgba(151,177,214,.35) !important;
+    background:#314460 !important;
+    color:#d7e3f2 !important;
+    -webkit-text-fill-color:#d7e3f2 !important;
+    opacity:.88 !important;
+}
+.st-key-fund_watchlist_toolbar,
+.st-key-fund_watchlist_table_batch_controls,
+.st-key-fund_watchlist_table_focus_controls {
+    margin:.35rem 0 .65rem;
+    padding:.72rem .82rem;
+    border:1px solid rgba(70,126,255,.32);
+    border-radius:10px;
+    background:linear-gradient(145deg,rgba(8,26,57,.94),rgba(3,12,30,.96));
+}
+.st-key-fund_watchlist_toolbar label,
+.st-key-fund_watchlist_toolbar label p,
+.st-key-fund_watchlist_toolbar label *,
+.st-key-fund_watchlist_toolbar [data-testid="stCaptionContainer"],
+.st-key-fund_watchlist_toolbar [data-testid="stCaptionContainer"] p,
+.st-key-fund_watchlist_table_batch_controls label,
+.st-key-fund_watchlist_table_batch_controls label p,
+.st-key-fund_watchlist_table_batch_controls label *,
+.st-key-fund_watchlist_table_focus_controls label,
+.st-key-fund_watchlist_table_focus_controls label p,
+.st-key-fund_watchlist_table_focus_controls label * {
+    color:#e6effa !important;
+    -webkit-text-fill-color:#e6effa !important;
+}
+.st-key-fund_watchlist_toolbar [data-testid="stButton"] > button {
+    border-color:rgba(116,179,255,.85) !important;
+    background:linear-gradient(135deg,#2f7bff 0%,#1657c8 100%) !important;
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+}
+.st-key-fund_watchlist_toolbar [data-testid="stButton"] > button * {
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+}
+.st-key-fund_watchlist_toolbar [data-baseweb="select"] > div,
+.st-key-fund_watchlist_table_batch_controls [data-baseweb="select"] > div,
+.st-key-fund_watchlist_table_focus_controls [data-baseweb="select"] > div {
+    border-color:rgba(151,188,255,.72) !important;
+    background:#f7faff !important;
+    color:#13213b !important;
+    -webkit-text-fill-color:#13213b !important;
+}
+.st-key-fund_watchlist_toolbar [data-baseweb="select"] > div *,
+.st-key-fund_watchlist_table_batch_controls [data-baseweb="select"] > div *,
+.st-key-fund_watchlist_table_focus_controls [data-baseweb="select"] > div * {
+    color:#13213b !important;
+    -webkit-text-fill-color:#13213b !important;
 }
 @media (max-width:900px) {
     .ws-fund-watchboard__summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -16643,21 +16738,22 @@ def render_fund_watchlist_table(items: list[dict], *, focus_code: str) -> str:
     st.session_state["fund_watchlist_batch_last_view"] = "表格"
 
     if is_batch_mode:
-        current_selected_codes = [item["fund_code"] for item in _selected_fund_watchlist_items(items)]
-        if previous_view != "表格":
-            st.session_state["fund_watchlist_table_batch_selection"] = current_selected_codes
-        st.multiselect(
-            "选择要批量管理的基金",
-            options=[item["fund_code"] for item in items],
-            format_func=lambda code: next(
-                (f"{item['fund_name']}（{item['fund_code']}）" for item in items if item["fund_code"] == code),
-                code,
-            ),
-            key="fund_watchlist_table_batch_selection",
-            on_change=_sync_fund_watchlist_table_batch_selection,
-            args=(items,),
-            placeholder="勾选要删除的基金",
-        )
+        with st.container(key="fund_watchlist_table_batch_controls"):
+            current_selected_codes = [item["fund_code"] for item in _selected_fund_watchlist_items(items)]
+            if previous_view != "表格":
+                st.session_state["fund_watchlist_table_batch_selection"] = current_selected_codes
+            st.multiselect(
+                "选择要批量管理的基金",
+                options=[item["fund_code"] for item in items],
+                format_func=lambda code: next(
+                    (f"{item['fund_name']}（{item['fund_code']}）" for item in items if item["fund_code"] == code),
+                    code,
+                ),
+                key="fund_watchlist_table_batch_selection",
+                on_change=_sync_fund_watchlist_table_batch_selection,
+                args=(items,),
+                placeholder="勾选要删除的基金",
+            )
 
     with st.container(key="fund_watchlist_table_wrap"):
         st.dataframe(
@@ -16682,7 +16778,8 @@ def render_fund_watchlist_table(items: list[dict], *, focus_code: str) -> str:
     )
     if st.session_state.get("fund_watchlist_table_focus") not in valid_labels:
         st.session_state["fund_watchlist_table_focus"] = current_label
-    selected_label = st.selectbox("报告 / 操作焦点", valid_labels, key="fund_watchlist_table_focus")
+    with st.container(key="fund_watchlist_table_focus_controls"):
+        selected_label = st.selectbox("报告 / 操作焦点", valid_labels, key="fund_watchlist_table_focus")
     selected_code = focus_labels[selected_label]
     st.session_state["fund_watchlist_focus_code"] = selected_code
     return selected_code
@@ -16927,28 +17024,29 @@ def render_fund_watchlist_tab() -> None:
 
     render_fund_watchlist_summary(build_fund_watchlist_summary(items))
 
-    control_cols = st.columns([1.1, 1.4, 1.2])
-    with control_cols[0]:
-        view_mode = st.radio("视图模式", ["看板", "表格"], horizontal=True, key="fund_watchlist_view_mode")
-    with control_cols[1]:
-        sort_label = st.selectbox(
-            "排序方式",
-            ["Top10 集中度", "基金规模", "持仓市值", "披露日期"],
-            key="fund_watchlist_sort_label",
+    with st.container(key="fund_watchlist_toolbar"):
+        control_cols = st.columns([1.1, 1.4, 1.2])
+        with control_cols[0]:
+            view_mode = st.radio("视图模式", ["看板", "表格"], horizontal=True, key="fund_watchlist_view_mode")
+        with control_cols[1]:
+            sort_label = st.selectbox(
+                "排序方式",
+                ["Top10 集中度", "基金规模", "持仓市值", "披露日期"],
+                key="fund_watchlist_sort_label",
+            )
+
+        sorted_items = sort_fund_watchlist_items(items, sort_label)
+        valid_codes = [item["fund_code"] for item in sorted_items]
+        focus_code = str(st.session_state.get("fund_watchlist_focus_code") or "").strip().upper()
+        if focus_code not in valid_codes:
+            focus_code = valid_codes[0]
+            st.session_state["fund_watchlist_focus_code"] = focus_code
+
+        render_fund_watchlist_batch_actions(
+            sorted_items,
+            current_username,
+            toggle_container=control_cols[2],
         )
-
-    sorted_items = sort_fund_watchlist_items(items, sort_label)
-    valid_codes = [item["fund_code"] for item in sorted_items]
-    focus_code = str(st.session_state.get("fund_watchlist_focus_code") or "").strip().upper()
-    if focus_code not in valid_codes:
-        focus_code = valid_codes[0]
-        st.session_state["fund_watchlist_focus_code"] = focus_code
-
-    render_fund_watchlist_batch_actions(
-        sorted_items,
-        current_username,
-        toggle_container=control_cols[2],
-    )
 
     if view_mode == "看板":
         render_fund_watchlist_cards(sorted_items, focus_code=focus_code)

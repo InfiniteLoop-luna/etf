@@ -57,6 +57,15 @@ def test_hot_stock_fund_query_keeps_a_direct_watchlist_shortcut():
     assert "btn_open_fund_watchlist" in body
 
 
+def test_fund_watchlist_dark_surfaces_use_high_contrast_widget_colors():
+    assert ".st-key-fund_watchlist_add_panel .stTextInput input" in APP_SOURCE
+    assert "background:#f7faff !important" in APP_SOURCE
+    assert "color:#13213b !important" in APP_SOURCE
+    assert ".st-key-fund_watchlist_toolbar" in APP_SOURCE
+    assert "color:#ffffff !important" in APP_SOURCE
+    assert ".st-key-fund_watchlist_table_focus_controls" in APP_SOURCE
+
+
 def test_fund_watchlist_copy_and_fields_are_chinese_fund_semantics():
     for text in [
         "请先登录用户名，再查看和管理你的自选基金。",
