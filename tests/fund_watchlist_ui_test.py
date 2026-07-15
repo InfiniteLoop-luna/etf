@@ -86,6 +86,16 @@ def test_fund_watchlist_intraday_estimate_is_visible_and_auto_refreshes():
     assert "结果仅为盘中估算，不等同于基金公司公布的净值" in APP_SOURCE
 
 
+def test_fund_watchlist_intraday_colors_follow_cn_market_convention():
+    assert 'return " is-up" if float(number) > 0 else " is-down"' in APP_SOURCE
+    assert ".ws-fund-watchboard__live.is-up strong" in APP_SOURCE
+    assert ".ws-fund-watchboard__live.is-down strong" in APP_SOURCE
+    assert ".ws-fund-watchboard__holdings td.is-up" in APP_SOURCE
+    assert ".ws-fund-watchboard__holdings td.is-down" in APP_SOURCE
+    assert "_fund_watchlist_cn_market_cell_style" in APP_SOURCE
+    assert 'subset=["盘中估算(%)"]' in APP_SOURCE
+
+
 def test_fund_watchlist_copy_and_fields_are_chinese_fund_semantics():
     for text in [
         "请先登录用户名，再查看和管理你的自选基金。",

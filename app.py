@@ -1547,13 +1547,13 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     font-size:1.12rem;
     line-height:1.08;
 }
-.ws-fund-watchboard__live.is-positive strong {
+.ws-fund-watchboard__live.is-up strong {
+    color:#ff6b7d !important;
+    -webkit-text-fill-color:#ff6b7d !important;
+}
+.ws-fund-watchboard__live.is-down strong {
     color:var(--fw-green) !important;
     -webkit-text-fill-color:var(--fw-green) !important;
-}
-.ws-fund-watchboard__live.is-negative strong {
-    color:#ff8392 !important;
-    -webkit-text-fill-color:#ff8392 !important;
 }
 .ws-fund-watchboard__live > span {
     color:#c9d9ee !important;
@@ -1756,13 +1756,13 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     font-size:.7rem;
     text-align:right;
 }
-.ws-fund-watchboard__fact strong.is-positive {
+.ws-fund-watchboard__fact strong.is-up {
+    color:#ff6b7d !important;
+    -webkit-text-fill-color:#ff6b7d !important;
+}
+.ws-fund-watchboard__fact strong.is-down {
     color:var(--fw-green) !important;
     -webkit-text-fill-color:var(--fw-green) !important;
-}
-.ws-fund-watchboard__fact strong.is-negative {
-    color:#ff8392 !important;
-    -webkit-text-fill-color:#ff8392 !important;
 }
 .ws-fund-watchboard__holdings {
     min-width:0;
@@ -1819,6 +1819,14 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__holdings td.is-negative {
     color:#ff6b7d !important;
     -webkit-text-fill-color:#ff6b7d !important;
+}
+.ws-fund-watchboard__holdings td.is-up {
+    color:#ff6b7d !important;
+    -webkit-text-fill-color:#ff6b7d !important;
+}
+.ws-fund-watchboard__holdings td.is-down {
+    color:var(--fw-green) !important;
+    -webkit-text-fill-color:var(--fw-green) !important;
 }
 .ws-fund-watchboard__empty {
     display:grid;
@@ -16685,7 +16693,16 @@ def _fund_watchlist_intraday_tone(value) -> str:
     number = pd.to_numeric(value, errors="coerce")
     if pd.isna(number) or abs(float(number)) < 0.00005:
         return ""
-    return " is-positive" if float(number) > 0 else " is-negative"
+    return " is-up" if float(number) > 0 else " is-down"
+
+
+def _fund_watchlist_cn_market_cell_style(value) -> str:
+    number = pd.to_numeric(value, errors="coerce")
+    if pd.isna(number) or abs(float(number)) < 0.00005:
+        return "color:#dce8ff;font-weight:700"
+    if float(number) > 0:
+        return "color:#ff6b7d;font-weight:800"
+    return "color:#20dfb8;font-weight:800"
 
 
 def _fund_watchlist_intraday_time_label(value) -> str:
@@ -17044,8 +17061,13 @@ def render_fund_watchlist_table(items: list[dict], *, focus_code: str) -> str:
             )
 
     with st.container(key="fund_watchlist_table_wrap"):
+        table_df = build_fund_watchlist_table(items)
+        table_view = table_df.style.map(
+            _fund_watchlist_cn_market_cell_style,
+            subset=["盘中估算(%)"],
+        )
         st.dataframe(
-            build_fund_watchlist_table(items),
+            table_view,
             use_container_width=True,
             hide_index=True,
             column_config={
