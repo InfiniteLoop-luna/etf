@@ -149,6 +149,13 @@ from src.fund_watchlist_dashboard import (
     build_fund_watchlist_table,
     sort_fund_watchlist_items,
 )
+from src.fund_intraday_estimator import (
+    TENCENT_QUOTE_SOURCE,
+    collect_fund_holding_symbols,
+    enrich_fund_items_with_intraday_estimates,
+    fetch_tencent_realtime_quotes,
+    get_fund_intraday_market_state,
+)
 from src.page_filter_utils import (
     build_metric_categories,
     build_quick_metric_groups,
@@ -1417,6 +1424,40 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     color:var(--fw-green) !important;
     -webkit-text-fill-color:var(--fw-green) !important;
 }
+.ws-fund-watchboard__live-status {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:1rem;
+    margin:.4rem 0 .75rem;
+    padding:.72rem .88rem;
+    color:#f5f9ff;
+    border:1px solid rgba(34,215,255,.34);
+    border-radius:10px;
+    background:linear-gradient(135deg,rgba(5,37,67,.96),rgba(3,15,35,.98));
+    box-shadow:inset 0 0 22px rgba(34,215,255,.08);
+}
+.ws-fund-watchboard__live-status strong {
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-size:.84rem;
+}
+.ws-fund-watchboard__live-status span {
+    color:#c8d9ee !important;
+    -webkit-text-fill-color:#c8d9ee !important;
+    font-size:.69rem;
+}
+.ws-fund-watchboard__live-status b {
+    color:#55e6ff !important;
+    -webkit-text-fill-color:#55e6ff !important;
+}
+.ws-fund-watchboard__live-status.is-idle {
+    border-color:rgba(125,158,203,.3);
+    background:linear-gradient(135deg,rgba(16,34,60,.94),rgba(5,15,32,.98));
+}
+.ws-fund-watchboard__live-status.is-error {
+    border-color:rgba(255,107,125,.42);
+}
 .ws-fund-watchboard__cards {
     display:grid;
     grid-template-columns:repeat(3,minmax(0,1fr));
@@ -1479,6 +1520,51 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     font-size:.64rem;
     text-overflow:ellipsis;
     white-space:nowrap;
+}
+.ws-fund-watchboard__live {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:.75rem;
+    margin:.72rem 0 .55rem;
+    padding:.58rem .65rem;
+    border:1px solid rgba(34,215,255,.24);
+    border-radius:8px;
+    background:linear-gradient(135deg,rgba(10,48,78,.72),rgba(4,19,42,.82));
+}
+.ws-fund-watchboard__live small {
+    display:block;
+    color:#c6d6eb !important;
+    -webkit-text-fill-color:#c6d6eb !important;
+    font-size:.61rem;
+    font-weight:700;
+}
+.ws-fund-watchboard__live strong {
+    display:block;
+    margin-top:.08rem;
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+    font-size:1.12rem;
+    line-height:1.08;
+}
+.ws-fund-watchboard__live.is-positive strong {
+    color:var(--fw-green) !important;
+    -webkit-text-fill-color:var(--fw-green) !important;
+}
+.ws-fund-watchboard__live.is-negative strong {
+    color:#ff8392 !important;
+    -webkit-text-fill-color:#ff8392 !important;
+}
+.ws-fund-watchboard__live > span {
+    color:#c9d9ee !important;
+    -webkit-text-fill-color:#c9d9ee !important;
+    font-size:.61rem;
+    line-height:1.45;
+    text-align:right;
+}
+.ws-fund-watchboard__live.is-idle {
+    border-color:rgba(125,158,203,.2);
+    background:rgba(3,12,30,.58);
 }
 .ws-fund-watchboard__ratio {
     margin:.82rem 0 .7rem;
@@ -1670,6 +1756,14 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     font-size:.7rem;
     text-align:right;
 }
+.ws-fund-watchboard__fact strong.is-positive {
+    color:var(--fw-green) !important;
+    -webkit-text-fill-color:var(--fw-green) !important;
+}
+.ws-fund-watchboard__fact strong.is-negative {
+    color:#ff8392 !important;
+    -webkit-text-fill-color:#ff8392 !important;
+}
 .ws-fund-watchboard__holdings {
     min-width:0;
     padding:.2rem 0 .1rem;
@@ -1698,7 +1792,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 }
 .ws-fund-watchboard__holdings table {
     width:100%;
-    min-width:560px;
+    min-width:760px;
     border-collapse:collapse;
     font-size:.68rem;
 }
@@ -1892,6 +1986,18 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     -webkit-text-fill-color:#ffffff !important;
 }
 .st-key-fund_watchlist_toolbar [data-testid="stButton"] > button * {
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+}
+.st-key-fund_watchlist_intraday_status [data-testid="stButton"] > button {
+    min-height:2.5rem;
+    margin-top:.45rem;
+    border-color:rgba(116,179,255,.85) !important;
+    background:linear-gradient(135deg,#2f7bff 0%,#1657c8 100%) !important;
+    color:#ffffff !important;
+    -webkit-text-fill-color:#ffffff !important;
+}
+.st-key-fund_watchlist_intraday_status [data-testid="stButton"] > button * {
     color:#ffffff !important;
     -webkit-text-fill-color:#ffffff !important;
 }
@@ -16453,6 +16559,12 @@ def render_fund_monitor_tab():
 
 
 FUND_WATCHLIST_SESSION_CACHE_TTL_SECONDS = 900
+FUND_WATCHLIST_INTRADAY_CACHE_TTL_SECONDS = 55
+
+
+@st.cache_data(ttl=FUND_WATCHLIST_INTRADAY_CACHE_TTL_SECONDS, show_spinner=False)
+def load_fund_watchlist_realtime_quotes_cached(symbols: tuple[str, ...]) -> dict:
+    return fetch_tencent_realtime_quotes(symbols)
 
 
 def _clear_fund_watchlist_session_cache() -> None:
@@ -16555,6 +16667,32 @@ def _fund_watchlist_number_label(value, suffix: str, digits: int = 2) -> str:
     return f"{float(number):,.{digits}f} {suffix}".strip()
 
 
+def _fund_watchlist_signed_pct_label(value, *, fallback: str = "--") -> str:
+    number = pd.to_numeric(value, errors="coerce")
+    if pd.isna(number):
+        return fallback
+    return f"{float(number):+.2f}%"
+
+
+def _fund_watchlist_signed_number_label(value, *, fallback: str = "--") -> str:
+    number = pd.to_numeric(value, errors="coerce")
+    if pd.isna(number):
+        return fallback
+    return f"{float(number):+.3f}"
+
+
+def _fund_watchlist_intraday_tone(value) -> str:
+    number = pd.to_numeric(value, errors="coerce")
+    if pd.isna(number) or abs(float(number)) < 0.00005:
+        return ""
+    return " is-positive" if float(number) > 0 else " is-negative"
+
+
+def _fund_watchlist_intraday_time_label(value) -> str:
+    timestamp = pd.to_datetime(value, errors="coerce")
+    return timestamp.strftime("%H:%M:%S") if not pd.isna(timestamp) else "--:--:--"
+
+
 def _fund_watchlist_ratio_class(value) -> str:
     if value is None:
         return ""
@@ -16605,6 +16743,63 @@ def render_fund_watchlist_summary(summary: dict) -> None:
     )
 
 
+def render_fund_watchlist_intraday_status(
+    items: list[dict],
+    market_state: dict,
+    *,
+    load_error: str = "",
+) -> None:
+    available_items = [
+        item for item in items if item.get("intraday_estimate_pct") is not None
+    ]
+    quote_times = [
+        item.get("intraday_updated_at")
+        for item in available_items
+        if item.get("intraday_updated_at") is not None
+    ]
+    latest_time = max(quote_times) if quote_times else None
+
+    if not market_state.get("is_active"):
+        tone_class = " is-idle"
+        title = "盘中估值将在交易时段自动开启"
+        detail = "工作日 09:30–15:00 查看时获取实时股票涨跌；其他时段不请求行情。"
+    elif load_error:
+        tone_class = " is-error"
+        title = "盘中行情暂时不可用"
+        detail = f"{load_error}；页面会在 60 秒后自动重试。"
+    elif not available_items:
+        tone_class = " is-error"
+        title = "暂未取得今日有效行情"
+        detail = "可能处于休市日或行情源短暂不可用；页面会在 60 秒后自动重试。"
+    else:
+        tone_class = ""
+        title = "盘中估值已更新"
+        detail = (
+            f"{TENCENT_QUOTE_SOURCE} · 已覆盖 <b>{len(available_items)}/{len(items)}</b> 只基金"
+            f" · 行情时间 {_fund_watchlist_intraday_time_label(latest_time)} · 每 60 秒自动刷新"
+        )
+
+    with st.container(key="fund_watchlist_intraday_status"):
+        status_cols = st.columns([5.5, 1])
+        with status_cols[0]:
+            st.html(
+                f"""
+                <section class="ws-fund-watchboard__live-status{tone_class}" aria-label="基金盘中估值状态">
+                    <strong>{_fund_watchlist_text(title)}</strong>
+                    <span>{detail if "<b>" in detail else _fund_watchlist_text(detail)}</span>
+                </section>
+                """
+            )
+        with status_cols[1]:
+            if market_state.get("is_active") and st.button(
+                "刷新盘中估值",
+                key="fund_watchlist_intraday_refresh",
+                use_container_width=True,
+            ):
+                load_fund_watchlist_realtime_quotes_cached.clear()
+                st.rerun()
+
+
 def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
     active_class = " is-active" if item["fund_code"] == focus_code else ""
     ratio_class = _fund_watchlist_ratio_class(item.get("top10_ratio"))
@@ -16612,6 +16807,26 @@ def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
     issue_label = _fund_watchlist_number_label(item.get("issue_amount"), "亿份")
     holding_value_label = _fund_watchlist_number_label(item.get("holding_market_value"), "亿元")
     latest_label = _fund_watchlist_date_label(item.get("latest_end_date"))
+    estimate = item.get("intraday_estimate_pct")
+    market_active = bool(item.get("intraday_market_active"))
+    live_tone = _fund_watchlist_intraday_tone(estimate)
+    if estimate is not None:
+        live_value = _fund_watchlist_signed_pct_label(estimate)
+        covered_weight = float(item.get("intraday_covered_weight_pct") or 0.0)
+        quote_count = int(item.get("intraday_quote_count") or 0)
+        holding_count = int(item.get("intraday_holding_count") or item.get("holding_count") or 0)
+        live_detail = (
+            f"覆盖 {covered_weight:.2f}% 权重<br>"
+            f"{quote_count}/{holding_count} 只 · {_fund_watchlist_intraday_time_label(item.get('intraday_updated_at'))}"
+        )
+    elif market_active:
+        live_value = "等待行情"
+        live_detail = "暂未取得今日有效行情<br>60 秒后自动重试"
+        live_tone = " is-idle"
+    else:
+        live_value = "非估值时段"
+        live_detail = "工作日 09:30–15:00<br>盘中自动更新"
+        live_tone = " is-idle"
     status_html = (
         '<span class="is-error">数据加载不完整</span>'
         if item.get("load_error")
@@ -16625,6 +16840,10 @@ def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
                 <span>{_fund_watchlist_text(item.get("fund_code"))}</span>
             </div>
             <span class="ws-fund-watchboard__badge">{_fund_watchlist_text(item.get("fund_type"))}</span>
+        </div>
+        <div class="ws-fund-watchboard__live{live_tone}">
+            <div><small>盘中估算</small><strong>{live_value}</strong></div>
+            <span>{live_detail}</span>
         </div>
         <div class="ws-fund-watchboard__ratio{ratio_class}">
             <small>Top10 集中度</small>
@@ -16830,6 +17049,12 @@ def render_fund_watchlist_table(items: list[dict], *, focus_code: str) -> str:
             use_container_width=True,
             hide_index=True,
             column_config={
+                "盘中估算(%)": st.column_config.NumberColumn(format="%+.2f%%"),
+                "实时覆盖权重(%)": st.column_config.ProgressColumn(
+                    min_value=0,
+                    max_value=100,
+                    format="%.2f%%",
+                ),
                 "基金规模(亿份)": st.column_config.NumberColumn(format="%.2f"),
                 "持仓市值(亿元)": st.column_config.NumberColumn(format="%.2f"),
                 "Top10 集中度(%)": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.2f%%"),
@@ -16860,21 +17085,35 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
     ratio_label = "-" if ratio is None else f"{float(ratio):.2f}%"
     latest_label = _fund_watchlist_date_label(item.get("latest_end_date"))
     added_label = _fund_watchlist_date_label(item.get("added_at"))
+    estimate = item.get("intraday_estimate_pct")
+    estimate_label = _fund_watchlist_signed_pct_label(estimate)
+    estimate_tone = _fund_watchlist_intraday_tone(estimate).strip()
+    estimate_class = f' class="{estimate_tone}"' if estimate_tone else ""
+    covered_weight = float(item.get("intraday_covered_weight_pct") or 0.0)
+    quote_count = int(item.get("intraday_quote_count") or 0)
+    holding_count = int(item.get("intraday_holding_count") or item.get("holding_count") or 0)
+    coverage_label = f"{covered_weight:.2f}% · {quote_count}/{holding_count} 只"
 
     holding_rows = []
     for holding in item.get("holdings", []):
-        tone_class = ""
+        change_tone_class = ""
         if holding.get("change_flag") in {"new", "increase"}:
-            tone_class = ' class="is-positive"'
+            change_tone_class = ' class="is-positive"'
         elif holding.get("change_flag") == "decrease":
-            tone_class = ' class="is-negative"'
+            change_tone_class = ' class="is-negative"'
+        realtime_pct = holding.get("realtime_pct_change")
+        contribution = holding.get("estimate_contribution_pct")
+        realtime_tone = _fund_watchlist_intraday_tone(realtime_pct).strip()
+        realtime_class = f' class="{realtime_tone}"' if realtime_tone else ""
         holding_rows.append(
             "<tr>"
             f"<td>{_fund_watchlist_text(holding.get('stock_name'))}</td>"
             f"<td>{_fund_watchlist_text(holding.get('symbol'))}</td>"
             f"<td>{_fund_watchlist_number_label(holding.get('market_value_yi'), '亿')}</td>"
             f"<td>{_fund_watchlist_number_label(holding.get('weight'), '%')}</td>"
-            f"<td{tone_class}>{_fund_watchlist_text(holding.get('change_label'))}</td>"
+            f"<td{realtime_class}>{_fund_watchlist_signed_pct_label(realtime_pct)}</td>"
+            f"<td{realtime_class}>{_fund_watchlist_signed_number_label(contribution)}</td>"
+            f"<td{change_tone_class}>{_fund_watchlist_text(holding.get('change_label'))}</td>"
             "</tr>"
         )
 
@@ -16888,6 +17127,8 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
                         <th>股票代码</th>
                         <th>持仓市值</th>
                         <th>持仓权重</th>
+                        <th>实时涨跌</th>
+                        <th>估值贡献</th>
                         <th>持仓变化</th>
                     </tr>
                 </thead>
@@ -16924,6 +17165,8 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
                         <div class="ws-fund-watchboard__fact"><span>基金类型</span><strong>{_fund_watchlist_text(item.get("fund_type"))}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>最新披露日期</span><strong>{latest_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>持仓数量</span><strong>{int(item.get("holding_count", 0))} 只</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>盘中估算</span><strong{estimate_class}>{estimate_label}</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>实时覆盖</span><strong>{coverage_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>加入自选日期</span><strong>{added_label}</strong></div>
                     </div>
                 </div>
@@ -16932,7 +17175,7 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
             <div class="ws-fund-watchboard__holdings">
                 <div class="ws-fund-watchboard__holdings-head">
                     <strong>前十大持仓明细</strong>
-                    <span>持仓市值单位：亿元</span>
+                    <span>实时涨跌 × 披露权重 = 估值贡献（百分点）</span>
                 </div>
                 {holdings_html}
             </div>
@@ -17053,11 +17296,89 @@ def render_fund_watchlist_add_panel(
         )
 
 
+def _fund_watchlist_fragment_passthrough(func):
+    return func
+
+
+_fund_watchlist_live_fragment = (
+    st.fragment(run_every="60s")
+    if hasattr(st, "fragment")
+    else _fund_watchlist_fragment_passthrough
+)
+
+
+@_fund_watchlist_live_fragment
+def render_fund_watchlist_live_dashboard(items: list[dict], current_username: str) -> None:
+    market_state = get_fund_intraday_market_state()
+    quotes = {}
+    quote_error = ""
+    if market_state["is_active"]:
+        symbols = collect_fund_holding_symbols(items)
+        if symbols:
+            try:
+                quotes = load_fund_watchlist_realtime_quotes_cached(symbols)
+            except Exception as exc:
+                logger.warning("fund watchlist intraday quote load failed: %s", exc)
+                quote_error = "实时行情连接失败"
+
+    live_items = enrich_fund_items_with_intraday_estimates(
+        items,
+        quotes,
+        market_date=market_state["market_date"],
+    )
+    for item in live_items:
+        item["intraday_market_active"] = bool(market_state["is_active"])
+
+    render_fund_watchlist_intraday_status(
+        live_items,
+        market_state,
+        load_error=quote_error,
+    )
+    st.caption(
+        "估值口径：最新披露持仓权重 × 股票实时涨跌幅；未披露或无实时行情的持仓按 0 计，"
+        "结果仅为盘中估算，不等同于基金公司公布的净值。"
+    )
+    render_fund_watchlist_summary(build_fund_watchlist_summary(live_items))
+
+    with st.container(key="fund_watchlist_toolbar"):
+        control_cols = st.columns([1.1, 1.4, 1.2])
+        with control_cols[0]:
+            view_mode = st.radio("视图模式", ["看板", "表格"], horizontal=True, key="fund_watchlist_view_mode")
+        with control_cols[1]:
+            sort_label = st.selectbox(
+                "排序方式",
+                ["盘中估算", "Top10 集中度", "基金规模", "持仓市值", "披露日期"],
+                key="fund_watchlist_sort_label",
+            )
+
+        sorted_items = sort_fund_watchlist_items(live_items, sort_label)
+        valid_codes = [item["fund_code"] for item in sorted_items]
+        focus_code = str(st.session_state.get("fund_watchlist_focus_code") or "").strip().upper()
+        if focus_code not in valid_codes:
+            focus_code = valid_codes[0]
+            st.session_state["fund_watchlist_focus_code"] = focus_code
+
+        render_fund_watchlist_batch_actions(
+            sorted_items,
+            current_username,
+            toggle_container=control_cols[2],
+        )
+
+    if view_mode == "看板":
+        render_fund_watchlist_cards(sorted_items, focus_code=focus_code)
+        focus_code = str(st.session_state.get("fund_watchlist_focus_code") or focus_code)
+    else:
+        focus_code = render_fund_watchlist_table(sorted_items, focus_code=focus_code)
+
+    focus_item = next(item for item in sorted_items if item["fund_code"] == focus_code)
+    render_fund_watchlist_focus_detail(focus_item)
+
+
 def render_fund_watchlist_tab() -> None:
     from src.fund_hot_stocks import get_engine as get_fund_hot_engine
 
     st.subheader("⭐ 自选基金")
-    st.caption("追踪自选基金的持仓结构、披露进度与集中度变化")
+    st.caption("追踪自选基金的盘中估值、持仓结构、披露进度与集中度变化")
     st.markdown(FUND_WATCHLIST_DASHBOARD_CSS, unsafe_allow_html=True)
     _show_fund_watchlist_flash()
 
@@ -17091,40 +17412,7 @@ def render_fund_watchlist_tab() -> None:
         st.info("当前没有可展示的自选基金，请稍后重试。")
         return
 
-    render_fund_watchlist_summary(build_fund_watchlist_summary(items))
-
-    with st.container(key="fund_watchlist_toolbar"):
-        control_cols = st.columns([1.1, 1.4, 1.2])
-        with control_cols[0]:
-            view_mode = st.radio("视图模式", ["看板", "表格"], horizontal=True, key="fund_watchlist_view_mode")
-        with control_cols[1]:
-            sort_label = st.selectbox(
-                "排序方式",
-                ["Top10 集中度", "基金规模", "持仓市值", "披露日期"],
-                key="fund_watchlist_sort_label",
-            )
-
-        sorted_items = sort_fund_watchlist_items(items, sort_label)
-        valid_codes = [item["fund_code"] for item in sorted_items]
-        focus_code = str(st.session_state.get("fund_watchlist_focus_code") or "").strip().upper()
-        if focus_code not in valid_codes:
-            focus_code = valid_codes[0]
-            st.session_state["fund_watchlist_focus_code"] = focus_code
-
-        render_fund_watchlist_batch_actions(
-            sorted_items,
-            current_username,
-            toggle_container=control_cols[2],
-        )
-
-    if view_mode == "看板":
-        render_fund_watchlist_cards(sorted_items, focus_code=focus_code)
-        focus_code = str(st.session_state.get("fund_watchlist_focus_code") or focus_code)
-    else:
-        focus_code = render_fund_watchlist_table(sorted_items, focus_code=focus_code)
-
-    focus_item = next(item for item in sorted_items if item["fund_code"] == focus_code)
-    render_fund_watchlist_focus_detail(focus_item)
+    render_fund_watchlist_live_dashboard(items, current_username)
 
 
 def render_fund_hot_stocks_tab():

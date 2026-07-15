@@ -13,6 +13,7 @@ CHANGE_LABELS = {
 }
 
 SORT_FIELDS = {
+    "盘中估算": "intraday_estimate_pct",
     "Top10 集中度": "top10_ratio",
     "基金规模": "issue_amount",
     "持仓市值": "holding_market_value",
@@ -192,6 +193,11 @@ def build_fund_watchlist_table(items: Iterable[dict]) -> pd.DataFrame:
                 "基金名称": item["fund_name"],
                 "基金代码": item["fund_code"],
                 "基金类型": item["fund_type"],
+                "盘中估算(%)": item.get("intraday_estimate_pct"),
+                "实时覆盖权重(%)": item.get("intraday_covered_weight_pct"),
+                "实时行情": (
+                    f'{int(item.get("intraday_quote_count", 0))}/{int(item.get("intraday_holding_count", item.get("holding_count", 0)))}'
+                ),
                 "基金规模(亿份)": item["issue_amount"],
                 "持仓市值(亿元)": item["holding_market_value"],
                 "Top10 集中度(%)": item["top10_ratio"],

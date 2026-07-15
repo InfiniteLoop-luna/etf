@@ -143,3 +143,30 @@ def test_sort_and_table_use_the_same_normalized_models():
     assert [item["fund_code"] for item in sorted_items] == ["005827.OF", "001938.OF"]
     assert table.iloc[0]["基金代码"] == "005827.OF"
     assert table.iloc[0]["Top10 集中度(%)"] == 62.4
+
+
+def test_table_and_sort_expose_intraday_estimate_fields():
+    base = build_fund_watchlist_item(_watchlist_row(), _meta_df(), _holding_df())
+    first = {
+        **base,
+        "intraday_estimate_pct": 0.62,
+        "intraday_covered_weight_pct": 18.9,
+        "intraday_quote_count": 3,
+        "intraday_holding_count": 3,
+    }
+    second = {
+        **base,
+        "fund_code": "005827.OF",
+        "intraday_estimate_pct": -0.31,
+        "intraday_covered_weight_pct": 12.5,
+        "intraday_quote_count": 2,
+        "intraday_holding_count": 3,
+    }
+
+    sorted_items = sort_fund_watchlist_items([second, first], "盘中估算")
+    table = build_fund_watchlist_table(sorted_items)
+
+    assert [item["fund_code"] for item in sorted_items] == ["001938.OF", "005827.OF"]
+    assert table.iloc[0]["盘中估算(%)"] == 0.62
+    assert table.iloc[0]["实时覆盖权重(%)"] == 18.9
+    assert table.iloc[0]["实时行情"] == "3/3"

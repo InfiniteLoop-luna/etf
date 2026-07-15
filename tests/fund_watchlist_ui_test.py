@@ -35,7 +35,7 @@ def test_fund_watchlist_dashboard_exposes_view_sort_focus_and_batch_controls():
     assert "sort_fund_watchlist_items" in APP_SOURCE
     assert "build_fund_watchlist_table" in APP_SOURCE
     assert '["看板", "表格"]' in APP_SOURCE
-    assert '["Top10 集中度", "基金规模", "持仓市值", "披露日期"]' in APP_SOURCE
+    assert '["盘中估算", "Top10 集中度", "基金规模", "持仓市值", "披露日期"]' in APP_SOURCE
     assert "render_fund_watchlist_focus_detail" in APP_SOURCE
     assert "fund_watchlist_batch_mode" in APP_SOURCE
     assert "remove_watchlist_items_batch(current_username, pending_items)" in APP_SOURCE
@@ -75,11 +75,22 @@ def test_fund_watchlist_card_and_percentage_colors_are_self_contained():
     assert ".ws-fund-watchboard__fact > span" in APP_SOURCE
 
 
+def test_fund_watchlist_intraday_estimate_is_visible_and_auto_refreshes():
+    assert "load_fund_watchlist_realtime_quotes_cached" in APP_SOURCE
+    assert 'st.fragment(run_every="60s")' in APP_SOURCE
+    assert "render_fund_watchlist_intraday_status" in APP_SOURCE
+    assert "盘中估算" in APP_SOURCE
+    assert "实时覆盖权重(%)" in APP_SOURCE
+    assert "实时涨跌 × 披露权重 = 估值贡献（百分点）" in APP_SOURCE
+    assert "刷新盘中估值" in APP_SOURCE
+    assert "结果仅为盘中估算，不等同于基金公司公布的净值" in APP_SOURCE
+
+
 def test_fund_watchlist_copy_and_fields_are_chinese_fund_semantics():
     for text in [
         "请先登录用户名，再查看和管理你的自选基金。",
         "你的自选基金还是空的",
-        "追踪自选基金的持仓结构、披露进度与集中度变化",
+        "追踪自选基金的盘中估值、持仓结构、披露进度与集中度变化",
         "平均 Top10 集中度",
         "持仓变动",
         "基金管理人",
