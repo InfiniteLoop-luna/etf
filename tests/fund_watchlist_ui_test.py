@@ -66,6 +66,15 @@ def test_fund_watchlist_dark_surfaces_use_high_contrast_widget_colors():
     assert ".st-key-fund_watchlist_table_focus_controls" in APP_SOURCE
 
 
+def test_fund_watchlist_card_and_percentage_colors_are_self_contained():
+    assert ".ws-fund-watchboard__card,\n.ws-fund-watchboard__focus" in APP_SOURCE
+    assert ".ws-fund-watchboard__ratio {" in APP_SOURCE
+    assert "color:var(--fw-cyan) !important" in APP_SOURCE
+    assert ".ws-fund-watchboard__ring strong" in APP_SOURCE
+    assert "color:#ffffff !important" in APP_SOURCE
+    assert ".ws-fund-watchboard__fact > span" in APP_SOURCE
+
+
 def test_fund_watchlist_copy_and_fields_are_chinese_fund_semantics():
     for text in [
         "请先登录用户名，再查看和管理你的自选基金。",
