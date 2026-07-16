@@ -1,5 +1,13 @@
-import pandas as pd
+from datetime import date
 
+import pandas as pd
+import pytest
+
+from src.fund_nav import (
+    build_latest_fund_nav_snapshot,
+    fetch_latest_fund_nav_snapshot,
+    normalize_fund_code_for_nav,
+)
 from src.fund_watchlist_dashboard import (
     build_fund_watchlist_item,
     build_fund_watchlist_summary,
@@ -71,8 +79,17 @@ def _holding_df():
 
 
 def test_build_item_normalizes_existing_fund_and_holding_data():
-    item = build_fund_watchlist_item(_watchlist_row(), _meta_df(), _holding_df())
-
+    item = build_fund_watchlist_item(
+        _watchlist_row(),
+        _meta_df(),
+        _holding_df(),
+        nav_snapshot={
+            "nav_date": "2026-07-15",
+            "unit_nav": 2.1604,
+            "daily_change_pct": -0.53,
+            "source": "东方财富 / AkShare",
+        },
+    )
     assert item["fund_code"] == "001938.OF"
     assert item["fund_name"] == "中欧时代先锋"
     assert item["management"] == "中欧基金"
@@ -86,7 +103,72 @@ def test_build_item_normalizes_existing_fund_and_holding_data():
     assert item["decrease_count"] == 1
     assert item["latest_end_date"] == pd.Timestamp("2026-03-31")
     assert item["added_at"] == pd.Timestamp("2026-06-20")
+    assert item["nav_date"] == pd.Timestamp("2026-07-15")
+    assert item["unit_nav"] == 2.1604
+    assert item["daily_change_pct"] == -0.53
     assert item["holdings"][0]["stock_name"] == "宁德时代"
+
+
+def test_build_latest_snapshot_uses_latest_confirmed_row_and_source_change():
+    snapshot = build_latest_fund_nav_snapshot(
+        pd.DataFrame(
+            [
+                {"净值日期": "2026-07-14", "单位净值": 2.1720, "日增长率": 3.13},
+                {"净值日期": "2026-07-15", "单位净值": 2.1604, "日增长率": -0.53},
+            ]
+        )
+    )
+
+    assert snapshot["nav_date"] == pd.Timestamp("2026-07-15")
+    assert snapshot["unit_nav"] == 2.1604
+    assert snapshot["daily_change_pct"] == -0.53
+    assert snapshot["previous_unit_nav"] == 2.1720
+
+
+def test_build_latest_snapshot_calculates_change_when_source_value_is_missing():
+    snapshot = build_latest_fund_nav_snapshot(
+        pd.DataFrame(
+            [
+                {"nav_date": "2026-07-14", "unit_nav": 1.0},
+                {"nav_date": "2026-07-15", "unit_nav": 1.025},
+            ]
+        )
+    )
+
+    assert snapshot["daily_change_pct"] == pytest.approx(2.5)
+
+
+def test_fetch_latest_snapshot_strips_market_suffix_and_stops_before_today():
+    class FakeAkClient:
+        def __init__(self):
+            self.kwargs = None
+
+        def fund_etf_fund_info_em(self, **kwargs):
+            self.kwargs = kwargs
+            return pd.DataFrame(
+                [{"净值日期": "2026-07-15", "单位净值": 1.2345, "日增长率": 0.42}]
+            )
+
+    client = FakeAkClient()
+    snapshot = fetch_latest_fund_nav_snapshot(
+        "001938.OF",
+        as_of_date=date(2026, 7, 16),
+        lookback_days=30,
+        ak_client=client,
+    )
+
+    assert client.kwargs == {
+        "fund": "001938",
+        "start_date": "20260615",
+        "end_date": "20260715",
+    }
+    assert snapshot["unit_nav"] == 1.2345
+
+
+def test_normalize_fund_code_for_nav_rejects_invalid_codes():
+    assert normalize_fund_code_for_nav("510300.SH") == "510300"
+    with pytest.raises(ValueError):
+        normalize_fund_code_for_nav("not-a-fund")
 
 
 def test_build_item_preserves_fund_when_one_query_failed():
@@ -170,3 +252,30 @@ def test_table_and_sort_expose_intraday_estimate_fields():
     assert table.iloc[0]["盘中估算(%)"] == 0.62
     assert table.iloc[0]["实时覆盖权重(%)"] == 18.9
     assert table.iloc[0]["实时行情"] == "3/3"
+
+
+def test_table_and_sort_expose_confirmed_nav_fields():
+    base = build_fund_watchlist_item(
+        _watchlist_row(),
+        _meta_df(),
+        _holding_df(),
+        nav_snapshot={
+            "nav_date": "2026-07-15",
+            "unit_nav": 2.1604,
+            "daily_change_pct": -0.53,
+        },
+    )
+    other = {
+        **base,
+        "fund_code": "005827.OF",
+        "unit_nav": 1.5378,
+        "daily_change_pct": 0.75,
+    }
+
+    sorted_items = sort_fund_watchlist_items([base, other], "日涨跌幅")
+    table = build_fund_watchlist_table(sorted_items)
+
+    assert [item["fund_code"] for item in sorted_items] == ["005827.OF", "001938.OF"]
+    assert table.iloc[0]["净值日期"] == "2026-07-15"
+    assert table.iloc[0]["前一日净值"] == 1.5378
+    assert table.iloc[0]["日涨跌幅(%)"] == 0.75

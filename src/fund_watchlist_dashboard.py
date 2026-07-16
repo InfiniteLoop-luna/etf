@@ -14,6 +14,7 @@ CHANGE_LABELS = {
 
 SORT_FIELDS = {
     "盘中估算": "intraday_estimate_pct",
+    "日涨跌幅": "daily_change_pct",
     "Top10 集中度": "top10_ratio",
     "基金规模": "issue_amount",
     "持仓市值": "holding_market_value",
@@ -48,6 +49,7 @@ def build_fund_watchlist_item(
     meta_df: pd.DataFrame,
     holding_df: pd.DataFrame,
     *,
+    nav_snapshot: dict | None = None,
     load_error: str = "",
 ) -> dict:
     """Normalize one saved fund and its latest holding snapshot for the UI."""
@@ -94,6 +96,7 @@ def build_fund_watchlist_item(
         else (meta_row.get("latest_end_date") if meta_row is not None else None)
     )
     added_at = _optional_timestamp(watchlist_row.get("created_at"))
+    nav_snapshot = nav_snapshot or {}
 
     holdings = []
     if holding_df is not None and not holding_df.empty:
@@ -131,6 +134,12 @@ def build_fund_watchlist_item(
         "issue_amount": issue_amount,
         "latest_end_date": latest_end_date,
         "added_at": added_at,
+        "nav_date": _optional_timestamp(nav_snapshot.get("nav_date")),
+        "unit_nav": _optional_float(nav_snapshot.get("unit_nav")),
+        "daily_change_pct": _optional_float(
+            nav_snapshot.get("daily_change_pct")
+        ),
+        "nav_source": str(nav_snapshot.get("source") or ""),
         "holding_count": len(holdings),
         "holding_market_value": (
             round(sum(valid_market_values), 2) if valid_market_values else None
@@ -193,6 +202,13 @@ def build_fund_watchlist_table(items: Iterable[dict]) -> pd.DataFrame:
                 "基金名称": item["fund_name"],
                 "基金代码": item["fund_code"],
                 "基金类型": item["fund_type"],
+                "净值日期": (
+                    item["nav_date"].strftime("%Y-%m-%d")
+                    if not pd.isna(item.get("nav_date"))
+                    else "-"
+                ),
+                "前一日净值": item.get("unit_nav"),
+                "日涨跌幅(%)": item.get("daily_change_pct"),
                 "盘中估算(%)": item.get("intraday_estimate_pct"),
                 "实时覆盖权重(%)": item.get("intraday_covered_weight_pct"),
                 "实时行情": (
