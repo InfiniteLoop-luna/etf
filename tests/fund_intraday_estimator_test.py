@@ -1,6 +1,10 @@
 from datetime import date, datetime
 from unittest.mock import Mock
 
+import pandas as pd
+from sqlalchemy import create_engine
+
+from src.fund_estimate_capture import capture_fund_watchlist_closing_estimates
 from src.fund_intraday_estimator import (
     collect_fund_holding_symbols,
     enrich_fund_items_with_intraday_estimates,
@@ -140,3 +144,62 @@ def test_estimate_rejects_stale_quotes_on_a_weekday_holiday():
     assert result["intraday_estimate_pct"] is None
     assert result["intraday_quote_count"] == 0
     assert result["intraday_covered_weight_pct"] == 0.0
+
+
+def test_closing_capture_saves_only_current_day_1500_estimate():
+    engine = create_engine("sqlite:///:memory:")
+    saved = []
+
+    def holding_loader(**_kwargs):
+        return pd.DataFrame(
+            [
+                {
+                    "end_date": "2026-03-31",
+                    "symbol": "600036.SH",
+                    "stock_name": "招商银行",
+                    "stk_mkv_ratio": 10.0,
+                    "mkv": 1_000_000,
+                }
+            ]
+        )
+
+    def quote_fetcher(_symbols):
+        return {
+            "600036.SH": {
+                "status": "ok",
+                "source": "腾讯证券行情",
+                "price": 10.2,
+                "pct_change": 2.0,
+                "quote_time": datetime.fromisoformat("2026-07-15T15:00:00+08:00"),
+            }
+        }
+
+    def snapshot_writer(_engine, snapshot, **_kwargs):
+        saved.append(snapshot)
+
+    summary = capture_fund_watchlist_closing_estimates(
+        engine,
+        now=datetime(2026, 7, 15, 15, 5),
+        fund_codes=["001938.OF"],
+        holding_loader=holding_loader,
+        quote_fetcher=quote_fetcher,
+        snapshot_writer=snapshot_writer,
+    )
+
+    assert summary["captured_count"] == 1
+    assert summary["estimate_date"] == "2026-07-15"
+    assert saved[0]["estimate_date"] == date(2026, 7, 15)
+    assert saved[0]["estimate_pct"] == 0.2
+    assert saved[0]["quote_time"].strftime("%H:%M:%S") == "15:00:00"
+
+
+def test_closing_capture_refuses_to_save_before_close():
+    engine = create_engine("sqlite:///:memory:")
+    summary = capture_fund_watchlist_closing_estimates(
+        engine,
+        now=datetime(2026, 7, 15, 14, 59),
+        fund_codes=["001938.OF"],
+    )
+
+    assert summary["status"] == "skipped_before_close"
+    assert summary["captured_count"] == 0

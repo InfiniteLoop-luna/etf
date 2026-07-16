@@ -12,6 +12,8 @@ This directory contains repo-managed systemd/runtime assets for the ETF VPS.
 - `etf-stock-business-daily.service`
 - `etf-stock-business-daily.timer`
 - `etf-stock-business-daily.sh`
+- `etf-fund-estimate-snapshot.service`
+- `etf-fund-estimate-snapshot.timer`
 
 ## Current production mapping
 
@@ -63,6 +65,30 @@ systemctl enable --now etf-stock-business-daily.timer
 systemctl list-timers etf-stock-business-daily.timer --no-pager
 ```
 
+## Fund watchlist 15:00 estimate snapshots
+
+The fund estimate timer runs at 15:05 Asia/Shanghai on weekdays. It saves the
+15:00 Tencent quote-based estimate for the union of all users' watchlist funds.
+The watchlist page only compares a saved estimate with an actual NAV return when
+their dates are identical.
+The existing 20:00 data update also runs the same command as a fallback; an
+already saved quote closer to 15:00 is retained instead of being overwritten.
+
+```bash
+install -m 644 systemd/etf-fund-estimate-snapshot.service /etc/systemd/system/etf-fund-estimate-snapshot.service
+install -m 644 systemd/etf-fund-estimate-snapshot.timer /etc/systemd/system/etf-fund-estimate-snapshot.timer
+systemctl daemon-reload
+systemctl enable --now etf-fund-estimate-snapshot.timer
+systemctl list-timers etf-fund-estimate-snapshot.timer --no-pager
+```
+
+Manual one-shot validation after 15:00 Asia/Shanghai:
+
+```bash
+systemctl start etf-fund-estimate-snapshot.service
+journalctl -u etf-fund-estimate-snapshot.service -n 80 --no-pager
+```
+
 Manual one-shot validation:
 
 ```bash
@@ -77,4 +103,5 @@ git -C /opt/etf-stock-business-backup log --oneline -5
 - `etf-daily-8pm.sh` must not mutate tracked repo files at runtime.
 - Nightly behavior overrides should flow through environment variables consumed by `scripts/etf-data-update.sh`.
 - `etf-stock-business-daily.sh` reads `/opt/etf-app/.env` and uses `/opt/etf-app/.venv/bin/python`.
+- `etf-fund-estimate-snapshot.service` reads `/opt/etf-app/.env` and uses the project virtualenv directly.
 - GitHub backup should use a private backup repository unless the exported business data is intended to be public.

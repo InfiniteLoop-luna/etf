@@ -15,6 +15,7 @@ CHANGE_LABELS = {
 SORT_FIELDS = {
     "盘中估算": "intraday_estimate_pct",
     "日涨跌幅": "daily_change_pct",
+    "估值偏差": "estimate_deviation_pct",
     "Top10 集中度": "top10_ratio",
     "基金规模": "issue_amount",
     "持仓市值": "holding_market_value",
@@ -50,6 +51,7 @@ def build_fund_watchlist_item(
     holding_df: pd.DataFrame,
     *,
     nav_snapshot: dict | None = None,
+    estimate_snapshot: dict | None = None,
     load_error: str = "",
 ) -> dict:
     """Normalize one saved fund and its latest holding snapshot for the UI."""
@@ -97,6 +99,26 @@ def build_fund_watchlist_item(
     )
     added_at = _optional_timestamp(watchlist_row.get("created_at"))
     nav_snapshot = nav_snapshot or {}
+    estimate_snapshot = estimate_snapshot or {}
+    nav_date = _optional_timestamp(nav_snapshot.get("nav_date"))
+    estimate_date = _optional_timestamp(estimate_snapshot.get("estimate_date"))
+    dates_match = (
+        not pd.isna(nav_date)
+        and not pd.isna(estimate_date)
+        and nav_date.date() == estimate_date.date()
+    )
+    unit_nav = _optional_float(nav_snapshot.get("unit_nav"))
+    daily_change_pct = _optional_float(nav_snapshot.get("daily_change_pct"))
+    closing_estimate_pct = (
+        _optional_float(estimate_snapshot.get("estimate_pct"))
+        if dates_match
+        else None
+    )
+    estimate_deviation_pct = (
+        closing_estimate_pct - daily_change_pct
+        if closing_estimate_pct is not None and daily_change_pct is not None
+        else None
+    )
 
     holdings = []
     if holding_df is not None and not holding_df.empty:
@@ -134,12 +156,23 @@ def build_fund_watchlist_item(
         "issue_amount": issue_amount,
         "latest_end_date": latest_end_date,
         "added_at": added_at,
-        "nav_date": _optional_timestamp(nav_snapshot.get("nav_date")),
-        "unit_nav": _optional_float(nav_snapshot.get("unit_nav")),
-        "daily_change_pct": _optional_float(
-            nav_snapshot.get("daily_change_pct")
-        ),
+        "nav_date": nav_date,
+        "unit_nav": unit_nav,
+        "daily_change_pct": daily_change_pct,
         "nav_source": str(nav_snapshot.get("source") or ""),
+        "closing_estimate_date": estimate_date if dates_match else pd.NaT,
+        "closing_estimate_pct": closing_estimate_pct,
+        "estimate_deviation_pct": estimate_deviation_pct,
+        "closing_estimate_covered_weight_pct": (
+            _optional_float(estimate_snapshot.get("covered_weight_pct"))
+            if dates_match
+            else None
+        ),
+        "closing_estimate_quote_time": (
+            _optional_timestamp(estimate_snapshot.get("quote_time"))
+            if dates_match
+            else pd.NaT
+        ),
         "holding_count": len(holdings),
         "holding_market_value": (
             round(sum(valid_market_values), 2) if valid_market_values else None
@@ -180,6 +213,28 @@ def build_fund_watchlist_summary(items: Iterable[dict]) -> dict:
     }
 
 
+def attach_latest_closing_estimate(item: dict, snapshot: dict | None) -> dict:
+    enriched = dict(item)
+    snapshot = snapshot or {}
+    enriched.update(
+        {
+            "latest_closing_estimate_date": _optional_timestamp(
+                snapshot.get("estimate_date")
+            ),
+            "latest_closing_estimate_pct": _optional_float(
+                snapshot.get("estimate_pct")
+            ),
+            "latest_closing_estimate_quote_time": _optional_timestamp(
+                snapshot.get("quote_time")
+            ),
+            "latest_closing_estimate_covered_weight_pct": _optional_float(
+                snapshot.get("covered_weight_pct")
+            ),
+        }
+    )
+    return enriched
+
+
 def sort_fund_watchlist_items(items: Iterable[dict], sort_label: str) -> list[dict]:
     field = SORT_FIELDS.get(sort_label, "top10_ratio")
 
@@ -209,6 +264,8 @@ def build_fund_watchlist_table(items: Iterable[dict]) -> pd.DataFrame:
                 ),
                 "前一日净值": item.get("unit_nav"),
                 "日涨跌幅(%)": item.get("daily_change_pct"),
+                "15:00估值(%)": item.get("closing_estimate_pct"),
+                "估值偏差(百分点)": item.get("estimate_deviation_pct"),
                 "盘中估算(%)": item.get("intraday_estimate_pct"),
                 "实时覆盖权重(%)": item.get("intraday_covered_weight_pct"),
                 "实时行情": (

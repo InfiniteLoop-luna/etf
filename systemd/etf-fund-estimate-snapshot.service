@@ -1,0 +1,13 @@
+[Unit]
+Description=Capture ETF app fund watchlist 15:00 estimate snapshots
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/etf-app
+Environment=TZ=Asia/Shanghai
+Environment=PYTHONPATH=/opt/etf-app
+EnvironmentFile=-/opt/etf-app/.env
+ExecStart=/opt/etf-app/.venv/bin/python /opt/etf-app/scripts/capture_fund_watchlist_estimates.py

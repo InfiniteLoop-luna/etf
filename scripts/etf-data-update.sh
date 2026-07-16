@@ -20,6 +20,11 @@ fi
 
 source "$APP_DIR/.venv/bin/activate"
 
+echo "[$(date -Is)] etf-data-update: capture fund watchlist 15:00 estimate snapshots (fallback)"
+if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/capture_fund_watchlist_estimates.py; then
+  echo "[$(date -Is)] etf-data-update: warning - fund estimate snapshot capture failed, skip and continue"
+fi
+
 if [[ -z "${TUSHARE_TOKEN:-}" ]]; then
   echo "[$(date -Is)] etf-data-update: TUSHARE_TOKEN is missing in $APP_DIR/.env, skip DB aggregation update"
   exit 0

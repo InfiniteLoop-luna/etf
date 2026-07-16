@@ -2,7 +2,13 @@ from datetime import date
 
 import pandas as pd
 import pytest
+from sqlalchemy import create_engine
 
+from src.fund_estimate_snapshot_store import (
+    get_fund_estimate_snapshot,
+    get_latest_fund_estimate_snapshot,
+    upsert_fund_estimate_snapshot,
+)
 from src.fund_nav import (
     build_latest_fund_nav_snapshot,
     fetch_latest_fund_nav_snapshot,
@@ -279,3 +285,96 @@ def test_table_and_sort_expose_confirmed_nav_fields():
     assert table.iloc[0]["净值日期"] == "2026-07-15"
     assert table.iloc[0]["前一日净值"] == 1.5378
     assert table.iloc[0]["日涨跌幅(%)"] == 0.75
+
+
+def test_closing_estimate_deviation_only_uses_the_same_nav_date():
+    matched = build_fund_watchlist_item(
+        _watchlist_row(),
+        _meta_df(),
+        _holding_df(),
+        nav_snapshot={
+            "nav_date": "2026-07-15",
+            "unit_nav": 2.1604,
+            "daily_change_pct": -0.53,
+        },
+        estimate_snapshot={
+            "estimate_date": "2026-07-15",
+            "estimate_pct": -0.40,
+            "covered_weight_pct": 18.9,
+            "quote_time": "2026-07-15T15:00:00+08:00",
+        },
+    )
+    mismatched = build_fund_watchlist_item(
+        _watchlist_row(),
+        _meta_df(),
+        _holding_df(),
+        nav_snapshot={
+            "nav_date": "2026-07-15",
+            "unit_nav": 2.1604,
+            "daily_change_pct": -0.53,
+        },
+        estimate_snapshot={
+            "estimate_date": "2026-07-16",
+            "estimate_pct": 0.80,
+        },
+    )
+
+    assert matched["closing_estimate_date"] == pd.Timestamp("2026-07-15")
+    assert matched["closing_estimate_pct"] == -0.40
+    assert matched["estimate_deviation_pct"] == pytest.approx(0.13)
+    assert matched["closing_estimate_covered_weight_pct"] == 18.9
+    assert mismatched["closing_estimate_pct"] is None
+    assert mismatched["estimate_deviation_pct"] is None
+
+    table = build_fund_watchlist_table([matched])
+    assert table.iloc[0]["15:00估值(%)"] == -0.40
+    assert table.iloc[0]["估值偏差(百分点)"] == pytest.approx(0.13)
+
+
+def test_estimate_snapshot_store_round_trips_one_fund_date():
+    engine = create_engine("sqlite:///:memory:")
+    upsert_fund_estimate_snapshot(
+        engine,
+        {
+            "fund_code": "001938.OF",
+            "estimate_date": "2026-07-15",
+            "estimate_pct": -0.40,
+            "covered_weight_pct": 18.9,
+            "top10_coverage_pct": 100.0,
+            "quote_count": 3,
+            "holding_count": 3,
+            "quote_time": "2026-07-15T15:00:00+08:00",
+            "holding_end_date": "2026-03-31",
+            "source": "腾讯证券行情",
+        },
+    )
+
+    snapshot = get_fund_estimate_snapshot(
+        engine,
+        "001938.OF",
+        "2026-07-15",
+    )
+
+    assert snapshot["estimate_date"] == pd.Timestamp("2026-07-15")
+    assert snapshot["estimate_pct"] == -0.40
+    assert snapshot["covered_weight_pct"] == 18.9
+    assert snapshot["quote_count"] == 3
+
+    upsert_fund_estimate_snapshot(
+        engine,
+        {
+            "fund_code": "001938.OF",
+            "estimate_date": "2026-07-15",
+            "estimate_pct": 9.99,
+            "quote_time": "2026-07-15T16:00:00+08:00",
+        },
+    )
+    retained_snapshot = get_fund_estimate_snapshot(
+        engine,
+        "001938.OF",
+        "2026-07-15",
+    )
+    assert retained_snapshot["estimate_pct"] == -0.40
+
+    latest_snapshot = get_latest_fund_estimate_snapshot(engine, "001938.OF")
+    assert latest_snapshot["estimate_date"] == pd.Timestamp("2026-07-15")

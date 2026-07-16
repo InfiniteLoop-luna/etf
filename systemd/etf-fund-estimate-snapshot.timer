@@ -1,0 +1,10 @@
+[Unit]
+Description=Capture fund watchlist estimates at 15:05 Asia/Shanghai on weekdays
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 07:05:00 UTC
+Persistent=true
+Unit=etf-fund-estimate-snapshot.service
+
+[Install]
+WantedBy=timers.target
