@@ -92,7 +92,7 @@ def _build_recent_summary(event_df: pd.DataFrame, days: int = 7) -> tuple[pd.Dat
         return pd.DataFrame(), {}
 
     work = event_df.copy()
-    work["排序时间"] = pd.to_datetime(work["日期"], errors="coerce")
+    work["排序时间"] = pd.to_datetime(work["日期"], errors="coerce", format="mixed")
     cutoff = pd.Timestamp.now().normalize() - pd.Timedelta(days=max(1, int(days)) - 1)
     recent = work[work["排序时间"].notna() & (work["排序时间"] >= cutoff)].copy()
     counts = recent["类型"].value_counts().to_dict() if "类型" in recent.columns else {}
@@ -104,7 +104,7 @@ def _pick_important_events(event_df: pd.DataFrame, limit: int = 8) -> pd.DataFra
         return pd.DataFrame()
 
     work = event_df.copy()
-    work["排序时间"] = pd.to_datetime(work["日期"], errors="coerce")
+    work["排序时间"] = pd.to_datetime(work["日期"], errors="coerce", format="mixed")
     work["标题"] = work.get("标题", "").astype("string").fillna("").astype(str)
     work["子类型"] = work.get("子类型", "").astype("string").fillna("").astype(str)
     work["类型"] = work.get("类型", "").astype("string").fillna("").astype(str)

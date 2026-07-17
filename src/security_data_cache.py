@@ -380,7 +380,7 @@ def load_stock_event_stream(ts_code: str, *, stock_name: str = "", industry: str
         return pd.DataFrame(columns=["日期", "类型", "子类型", "标题", "来源", "机构", "评级", "链接"])
 
     out = pd.DataFrame(rows)
-    out["排序时间"] = pd.to_datetime(out["日期"], errors="coerce")
+    out["排序时间"] = pd.to_datetime(out["日期"], errors="coerce", format="mixed")
     out = out.sort_values("排序时间", ascending=False, na_position="last").drop(columns=["排序时间"])
     out["日期"] = out["日期"].astype("string").fillna("").astype(str).str.slice(0, 19)
     return out.reset_index(drop=True)
