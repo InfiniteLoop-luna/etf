@@ -78,23 +78,41 @@ def _change_frame(holdings: list[dict], change_flag: str) -> pd.DataFrame:
     return _holdings_frame(filtered)
 
 
-def _build_industry_exposure_frame(holdings: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _join_stock_names(values: pd.Series, limit: int = 3) -> str:
+    names = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in names:
+            names.append(text)
+        if len(names) >= limit:
+            break
+    return "、".join(names) if names else "-"
+
+
+def _enrich_holdings_with_industry(holdings: list[dict]) -> pd.DataFrame:
     holdings_df = pd.DataFrame(holdings or [])
     if holdings_df.empty:
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame()
 
     if "symbol" not in holdings_df.columns:
         holdings_df["symbol"] = ""
     if "stock_name" not in holdings_df.columns:
         holdings_df["stock_name"] = ""
+    if "change_flag" not in holdings_df.columns:
+        holdings_df["change_flag"] = "stable"
+    if "change_label" not in holdings_df.columns:
+        holdings_df["change_label"] = "稳定"
     holdings_df["symbol"] = holdings_df["symbol"].astype("string").fillna("").astype(str).str.strip().str.upper()
     holdings_df["weight"] = pd.to_numeric(holdings_df.get("weight"), errors="coerce")
     holdings_df["market_value_yi"] = pd.to_numeric(holdings_df.get("market_value_yi"), errors="coerce")
+    holdings_df["change_flag"] = (
+        holdings_df["change_flag"].astype("string").fillna("stable").astype(str).str.strip().str.lower()
+    )
+    holdings_df["change_label"] = holdings_df["change_label"].astype("string").fillna("稳定").astype(str).str.strip()
 
     basic_df = load_stock_basic_summary_export()
     if basic_df is None or basic_df.empty or "股票代码" not in basic_df.columns:
-        detailed = holdings_df.copy()
-        detailed["industry"] = "未识别"
+        industry_lookup = {}
     else:
         industry_lookup = (
             basic_df[["股票代码", "所属行业"]]
@@ -107,8 +125,15 @@ def _build_industry_exposure_frame(holdings: list[dict]) -> tuple[pd.DataFrame, 
             .set_index("股票代码")["所属行业"]
             .to_dict()
         )
-        detailed = holdings_df.copy()
-        detailed["industry"] = detailed["symbol"].map(industry_lookup).fillna("未识别")
+    detailed = holdings_df.copy()
+    detailed["industry"] = detailed["symbol"].map(industry_lookup).fillna("未识别")
+    return detailed
+
+
+def _build_industry_exposure_frame(holdings: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    detailed = _enrich_holdings_with_industry(holdings)
+    if detailed.empty:
+        return pd.DataFrame(), pd.DataFrame()
 
     exposure = (
         detailed.groupby("industry", dropna=False)
@@ -135,6 +160,79 @@ def _build_industry_exposure_frame(holdings: list[dict]) -> tuple[pd.DataFrame, 
         columns={"change_label": "变动"}
     )
     return exposure, detailed
+
+
+def _build_change_summary_frames(holdings: list[dict]) -> tuple[pd.DataFrame, dict[str, pd.DataFrame], list[str]]:
+    detailed = _enrich_holdings_with_industry(holdings)
+    if detailed.empty:
+        return pd.DataFrame(), {}, []
+
+    changed = detailed[detailed["change_flag"].isin(["new", "increase", "decrease"])].copy()
+    if changed.empty:
+        return pd.DataFrame(), {}, []
+
+    changed["signed_weight"] = changed["weight"].fillna(0.0)
+    changed.loc[changed["change_flag"] == "decrease", "signed_weight"] *= -1
+
+    industry_summary = (
+        changed.groupby("industry", dropna=False)
+        .apply(
+            lambda df: pd.Series(
+                {
+                    "涉及股票数": int(df["symbol"].nunique()),
+                    "新进权重(%)": float(df.loc[df["change_flag"] == "new", "weight"].fillna(0).sum()),
+                    "增持权重(%)": float(df.loc[df["change_flag"] == "increase", "weight"].fillna(0).sum()),
+                    "减持权重(%)": float(df.loc[df["change_flag"] == "decrease", "weight"].fillna(0).sum()),
+                    "净变化(%)": float(df["signed_weight"].sum()),
+                    "代表个股": _join_stock_names(df["stock_name"]),
+                }
+            )
+        )
+        .reset_index()
+        .rename(columns={"industry": "所属行业"})
+    )
+    industry_summary["变化方向"] = industry_summary["净变化(%)"].apply(
+        lambda value: "增配" if value > 0 else ("减配" if value < 0 else "平衡")
+    )
+    industry_summary = industry_summary.sort_values(
+        ["净变化(%)", "新进权重(%)", "增持权重(%)", "减持权重(%)"],
+        ascending=[False, False, False, False],
+        na_position="last",
+    ).reset_index(drop=True)
+
+    category_frames: dict[str, pd.DataFrame] = {}
+    labels = {"new": "新进", "increase": "增持", "decrease": "减持"}
+    for flag, label in labels.items():
+        flag_df = changed[changed["change_flag"] == flag].copy()
+        if flag_df.empty:
+            category_frames[flag] = pd.DataFrame()
+            continue
+        category_frames[flag] = (
+            flag_df.groupby("industry", dropna=False)
+            .agg(
+                涉及股票数=("symbol", "count"),
+                权重合计=("weight", "sum"),
+                代表个股=("stock_name", _join_stock_names),
+            )
+            .reset_index()
+            .rename(columns={"industry": "所属行业"})
+            .sort_values(["权重合计", "涉及股票数"], ascending=[False, False], na_position="last")
+            .reset_index(drop=True)
+        )
+
+    summary_lines = []
+    for flag, label in labels.items():
+        frame = category_frames.get(flag)
+        if frame is None or frame.empty:
+            summary_lines.append(f"本期暂无{label}行业。")
+            continue
+        top_rows = []
+        for _, row in frame.head(2).iterrows():
+            top_rows.append(
+                f"{row['所属行业']}（{int(row['涉及股票数'])}只，权重{_format_pct(row['权重合计'])}，代表股：{row['代表个股']}）"
+            )
+        summary_lines.append(f"{label}主要集中在：" + "；".join(top_rows))
+    return industry_summary, category_frames, summary_lines
 
 
 def _render_watchlist_action(username: str, fund_code: str, fund_name: str, *, key_prefix: str) -> None:
@@ -477,6 +575,74 @@ def render_fund_object_page() -> None:
         change_cols[2].metric("减持", f"{int(item.get('decrease_count', 0))}")
         change_cols[3].metric("稳定", f"{int(item.get('stable_count', 0))}")
 
+        industry_change_df, category_frames, summary_lines = _build_change_summary_frames(holdings)
+        if industry_change_df.empty:
+            st.info("当前披露期暂无可归因到行业的持仓变化摘要。")
+        else:
+            st.markdown("##### 最近披露变化摘要")
+            st.markdown("\n".join([f"- {line}" for line in summary_lines]))
+
+            overview_cols = st.columns(4)
+            overview_cols[0].metric("涉及行业数", f"{len(industry_change_df):,}")
+            overview_cols[1].metric(
+                "净增配行业",
+                f"{int((industry_change_df['净变化(%)'] > 0).sum())}",
+            )
+            overview_cols[2].metric(
+                "净减配行业",
+                f"{int((industry_change_df['净变化(%)'] < 0).sum())}",
+            )
+            overview_cols[3].metric(
+                "变动权重合计",
+                _format_pct(
+                    industry_change_df["新进权重(%)"].sum()
+                    + industry_change_df["增持权重(%)"].sum()
+                    + industry_change_df["减持权重(%)"].sum()
+                ),
+            )
+
+            chart_df = industry_change_df.copy()
+            chart_df["绝对净变化"] = chart_df["净变化(%)"].abs()
+            chart_df = chart_df[chart_df["绝对净变化"] > 0].sort_values(
+                ["绝对净变化", "净变化(%)"],
+                ascending=[False, False],
+                na_position="last",
+            ).head(8)
+            if not chart_df.empty:
+                fig = px.bar(
+                    chart_df,
+                    x="所属行业",
+                    y="净变化(%)",
+                    color="变化方向",
+                    text="净变化(%)",
+                    title="行业净变化（新进 + 增持 - 减持）",
+                    color_discrete_map={"增配": "#d14b64", "减配": "#2b7de9", "平衡": "#9aa0a6"},
+                )
+                fig.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+                fig.update_layout(height=360, yaxis_title="净变化(%)", xaxis_title="")
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("##### 行业增减配分解")
+            st.dataframe(
+                industry_change_df,
+                use_container_width=True,
+                hide_index=True,
+                height=320,
+            )
+
+            column_specs = [("新进行业", "new"), ("增持行业", "increase"), ("减持行业", "decrease")]
+            for container, (title, flag) in zip(st.columns(3), column_specs):
+                with container:
+                    st.markdown(f"##### {title}")
+                    frame = category_frames.get(flag)
+                    if frame is None:
+                        frame = pd.DataFrame()
+                    if frame.empty:
+                        st.info(f"当前披露期暂无{title}。")
+                    else:
+                        st.dataframe(frame.head(8), use_container_width=True, hide_index=True, height=240)
+
+        st.markdown("##### 变动个股明细")
         for label, flag in [("新进", "new"), ("增持", "increase"), ("减持", "decrease")]:
             st.markdown(f"##### {label}")
             frame = _change_frame(holdings, flag)
