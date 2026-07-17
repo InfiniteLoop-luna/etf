@@ -11,7 +11,12 @@ from src.moneyflow_fetcher import (
     get_moneyflow_latest_date,
     query_moneyflow_stock_history,
 )
-from src.security_data_cache import load_fund_hot_stock_periods, load_security_profile, load_security_search
+from src.security_data_cache import (
+    load_fund_hot_stock_periods,
+    load_security_profile,
+    load_security_search,
+    load_stock_news_and_reports,
+)
 from src.user_watchlist_store import add_watchlist_item, is_in_watchlist, normalize_username
 
 logger = logging.getLogger(__name__)
@@ -134,8 +139,8 @@ def render_stock_object_page() -> None:
     metric_cols[4].metric("PB", _format_number(profile.get("pb"), digits=2))
     metric_cols[5].metric("总市值(亿元)", _format_number(profile.get("total_mv"), digits=2, scale=10000.0))
 
-    tab_overview, tab_moneyflow, tab_lhb, tab_fund = st.tabs(
-        ["📌 概览", "💹 资金流", "🐉 龙虎榜", "🏦 公募基金持仓"]
+    tab_overview, tab_news, tab_reports, tab_moneyflow, tab_lhb, tab_fund = st.tabs(
+        ["📌 概览", "📰 新闻", "📄 研报", "💹 资金流", "🐉 龙虎榜", "🏦 公募基金持仓"]
     )
 
     with tab_overview:
@@ -175,6 +180,52 @@ def render_stock_object_page() -> None:
         st.markdown("##### 📜 主营与产品")
         st.info(f"**主要业务**：{profile.get('main_business') or '-'}")
         st.info(f"**产品及业务范围**：{profile.get('business_scope') or '-'}")
+
+    supplemental = {}
+    with tab_news:
+        st.caption("数据来源：AkShare（东方财富）。")
+        try:
+            supplemental = load_stock_news_and_reports(ts_code, stock_name=title, industry=str(profile.get("industry") or ""))
+        except Exception as exc:
+            st.warning(f"加载新闻失败：{exc}")
+            supplemental = {}
+
+        news_block = supplemental.get("news") if isinstance(supplemental, dict) else None
+        if not isinstance(news_block, dict):
+            st.info("暂无新闻数据。")
+        else:
+            status = str(news_block.get("status") or "")
+            if status in {"failed"}:
+                st.warning(f"新闻抓取失败：{news_block.get('error') or '-'}")
+            items = news_block.get("items") or []
+            if not items:
+                st.info("暂无新闻数据。")
+            else:
+                df = pd.DataFrame(items)
+                st.dataframe(df, use_container_width=True, hide_index=True, height=520)
+
+    with tab_reports:
+        st.caption("数据来源：AkShare（东方财富）。")
+        if not supplemental:
+            try:
+                supplemental = load_stock_news_and_reports(ts_code, stock_name=title, industry=str(profile.get("industry") or ""))
+            except Exception as exc:
+                st.warning(f"加载研报失败：{exc}")
+                supplemental = {}
+
+        report_block = supplemental.get("research_reports") if isinstance(supplemental, dict) else None
+        if not isinstance(report_block, dict):
+            st.info("暂无研报数据。")
+        else:
+            status = str(report_block.get("status") or "")
+            if status in {"failed"}:
+                st.warning(f"研报抓取失败：{report_block.get('error') or '-'}")
+            items = report_block.get("items") or []
+            if not items:
+                st.info("暂无研报数据。")
+            else:
+                df = pd.DataFrame(items)
+                st.dataframe(df, use_container_width=True, hide_index=True, height=520)
 
     with tab_moneyflow:
         try:

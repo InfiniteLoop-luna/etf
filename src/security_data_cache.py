@@ -13,6 +13,11 @@ from src.etf_stats import (
     get_stock_holder_number_timeseries,
     search_security,
 )
+from src.stock_research_akshare_enrichment import (
+    StockResearchAkshareConfig,
+    build_stock_research_supplemental,
+    load_stock_research_akshare_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,4 +84,25 @@ def load_fund_hot_stock_periods() -> List[str]:
     except Exception as exc:
         logger.warning(f"load_fund_hot_stock_periods failed: {exc}")
         return []
+
+
+@st.cache_data(ttl=1200)
+def load_stock_news_and_reports(ts_code: str, *, stock_name: str = "", industry: str = "") -> dict[str, dict]:
+    cfg = load_stock_research_akshare_config()
+    forced_cfg = StockResearchAkshareConfig(
+        enabled=True,
+        business_limit=0,
+        news_limit=cfg.news_limit,
+        research_report_limit=cfg.research_report_limit,
+        money_flow_limit=0,
+        lhb_limit=0,
+        industry_peer_limit=0,
+    )
+    return build_stock_research_supplemental(
+        ts_code,
+        stock_name=stock_name,
+        industry=industry,
+        enabled=True,
+        config=forced_cfg,
+    )
 
