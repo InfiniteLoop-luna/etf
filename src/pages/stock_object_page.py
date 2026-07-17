@@ -12,6 +12,7 @@ from src.moneyflow_fetcher import (
     query_moneyflow_stock_history,
 )
 from src.security_data_cache import (
+    load_stock_announcements,
     load_fund_hot_stock_periods,
     load_security_profile,
     load_security_search,
@@ -139,8 +140,8 @@ def render_stock_object_page() -> None:
     metric_cols[4].metric("PB", _format_number(profile.get("pb"), digits=2))
     metric_cols[5].metric("总市值(亿元)", _format_number(profile.get("total_mv"), digits=2, scale=10000.0))
 
-    tab_overview, tab_news, tab_reports, tab_moneyflow, tab_lhb, tab_fund = st.tabs(
-        ["📌 概览", "📰 新闻", "📄 研报", "💹 资金流", "🐉 龙虎榜", "🏦 公募基金持仓"]
+    tab_overview, tab_notice, tab_news, tab_reports, tab_moneyflow, tab_lhb, tab_fund = st.tabs(
+        ["📌 概览", "📢 公告", "📰 新闻", "📄 研报", "💹 资金流", "🐉 龙虎榜", "🏦 公募基金持仓"]
     )
 
     with tab_overview:
@@ -182,6 +183,34 @@ def render_stock_object_page() -> None:
         st.info(f"**产品及业务范围**：{profile.get('business_scope') or '-'}")
 
     supplemental = {}
+    with tab_notice:
+        st.caption("数据来源：AkShare（东方财富公告大全）。")
+        notice_type = st.selectbox(
+            "公告类型",
+            ["全部", "重大事项", "财务报告", "融资公告", "风险提示", "资产重组", "信息变更", "持股变动"],
+            index=0,
+            key=f"stock_object_notice_type_{ts_code}",
+        )
+        notice_days = st.selectbox(
+            "时间范围",
+            options=[90, 180, 365],
+            index=1,
+            format_func=lambda value: f"近 {value} 天",
+            key=f"stock_object_notice_days_{ts_code}",
+        )
+        try:
+            notice_df = load_stock_announcements(ts_code, notice_type=notice_type, days=int(notice_days))
+        except Exception as exc:
+            st.warning(f"加载公告失败：{exc}")
+            notice_df = pd.DataFrame()
+
+        if notice_df is None or notice_df.empty:
+            st.info("当前条件下暂无公告数据。")
+        else:
+            st.caption(f"公告条数：{len(notice_df):,}")
+            show_cols = [c for c in ["公告日期", "公告类型", "公告标题", "网址"] if c in notice_df.columns]
+            st.dataframe(notice_df[show_cols], use_container_width=True, hide_index=True, height=520)
+
     with tab_news:
         st.caption("数据来源：AkShare（东方财富）。")
         try:
