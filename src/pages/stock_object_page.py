@@ -42,6 +42,150 @@ def _resolve_logged_in_username() -> str:
     return normalize_username(st.session_state.get("logged_in_username", ""))
 
 
+IMPORTANT_EVENT_KEYWORDS = (
+    "涨停",
+    "跌停",
+    "回购",
+    "增持",
+    "减持",
+    "并购",
+    "重组",
+    "签署",
+    "合同",
+    "订单",
+    "中标",
+    "诉讼",
+    "仲裁",
+    "分红",
+    "派息",
+    "质押",
+    "解除质押",
+    "停牌",
+    "复牌",
+    "解禁",
+    "问询",
+    "处罚",
+    "立案",
+    "业绩预告",
+    "快报",
+    "亏损",
+    "扭亏",
+    "激励",
+    "归属",
+    "辞职",
+    "变更",
+)
+
+IMPORTANT_NOTICE_TYPES = {
+    "重大事项",
+    "财务报告",
+    "融资公告",
+    "风险提示",
+    "资产重组",
+    "信息变更",
+    "持股变动",
+}
+
+
+def _build_recent_summary(event_df: pd.DataFrame, days: int = 7) -> tuple[pd.DataFrame, dict[str, int]]:
+    if event_df is None or event_df.empty or "日期" not in event_df.columns:
+        return pd.DataFrame(), {}
+
+    work = event_df.copy()
+    work["排序时间"] = pd.to_datetime(work["日期"], errors="coerce")
+    cutoff = pd.Timestamp.now().normalize() - pd.Timedelta(days=max(1, int(days)) - 1)
+    recent = work[work["排序时间"].notna() & (work["排序时间"] >= cutoff)].copy()
+    counts = recent["类型"].value_counts().to_dict() if "类型" in recent.columns else {}
+    return recent, counts
+
+
+def _pick_important_events(event_df: pd.DataFrame, limit: int = 8) -> pd.DataFrame:
+    if event_df is None or event_df.empty:
+        return pd.DataFrame()
+
+    work = event_df.copy()
+    work["排序时间"] = pd.to_datetime(work["日期"], errors="coerce")
+    work["标题"] = work.get("标题", "").astype("string").fillna("").astype(str)
+    work["子类型"] = work.get("子类型", "").astype("string").fillna("").astype(str)
+    work["类型"] = work.get("类型", "").astype("string").fillna("").astype(str)
+    work["机构"] = work.get("机构", "").astype("string").fillna("").astype(str)
+    work["评级"] = work.get("评级", "").astype("string").fillna("").astype(str)
+
+    def _score(row) -> int:
+        score = 0
+        event_type = str(row.get("类型") or "")
+        subtype = str(row.get("子类型") or "")
+        title = str(row.get("标题") or "")
+        rating = str(row.get("评级") or "")
+        text = f"{subtype} {title}"
+        if event_type == "公告":
+            score += 3
+        elif event_type == "研报":
+            score += 2
+        else:
+            score += 1
+        if subtype in IMPORTANT_NOTICE_TYPES:
+            score += 4
+        if any(keyword in text for keyword in IMPORTANT_EVENT_KEYWORDS):
+            score += 4
+        if rating and rating not in {"", "-", "中性"}:
+            score += 1
+        if "首次" in title or "最新" in title:
+            score += 1
+        return score
+
+    work["重要度"] = work.apply(_score, axis=1)
+    work = work.sort_values(["重要度", "排序时间"], ascending=[False, False], na_position="last")
+    work = work[work["重要度"] >= 4]
+    return work.head(limit).drop(columns=["重要度", "排序时间"], errors="ignore")
+
+
+def _render_recent_summary(event_df: pd.DataFrame) -> None:
+    recent_df, counts = _build_recent_summary(event_df, days=7)
+    cols = st.columns(4)
+    cols[0].metric("近7天事件", f"{len(recent_df):,}")
+    cols[1].metric("公告", f"{counts.get('公告', 0):,}")
+    cols[2].metric("新闻", f"{counts.get('新闻', 0):,}")
+    cols[3].metric("研报", f"{counts.get('研报', 0):,}")
+
+    if recent_df.empty:
+        st.info("近 7 天暂无事件。")
+        return
+
+    recent_titles = []
+    for _, row in recent_df.head(5).iterrows():
+        label = f"{row.get('日期', '')[:10]} [{row.get('类型', '-')}] {row.get('标题', '-')}"
+        recent_titles.append(f"- {label}")
+    st.markdown("##### 最近 7 天摘要")
+    st.markdown("\n".join(recent_titles))
+
+
+def _render_important_events(event_df: pd.DataFrame) -> None:
+    important_df = _pick_important_events(event_df, limit=8)
+    st.markdown("##### 重要事件")
+    if important_df.empty:
+        st.info("当前未识别到需要特别高亮的事件。")
+        return
+
+    for _, row in important_df.iterrows():
+        event_type = str(row.get("类型") or "-")
+        subtype = str(row.get("子类型") or "")
+        title = str(row.get("标题") or "-")
+        event_date = str(row.get("日期") or "")[:10]
+        source = str(row.get("来源") or "")
+        institution = str(row.get("机构") or "")
+        rating = str(row.get("评级") or "")
+        link = str(row.get("链接") or "").strip()
+        extra_parts = [part for part in [subtype, source, institution, rating] if part]
+        detail = " · ".join(extra_parts)
+        if link:
+            st.markdown(f"- `{event_date}` [{event_type}] [{title}]({link})")
+        else:
+            st.markdown(f"- `{event_date}` [{event_type}] {title}")
+        if detail:
+            st.caption(detail)
+
+
 def _render_event_table(df: pd.DataFrame, *, height: int = 520) -> None:
     if df is None or df.empty:
         st.info("暂无可展示数据。")
@@ -232,6 +376,9 @@ def render_stock_object_page() -> None:
                 f"新闻 {counts.get('新闻', 0):,} · "
                 f"研报 {counts.get('研报', 0):,}"
             )
+            _render_recent_summary(event_df)
+            _render_important_events(event_df)
+            st.markdown("##### 全部事件")
             show_cols = [c for c in ["日期", "类型", "子类型", "标题", "来源", "机构", "评级", "链接"] if c in event_df.columns]
             _render_event_table(event_df[show_cols], height=560)
 
