@@ -13,6 +13,7 @@ from src.moneyflow_fetcher import (
 )
 from src.security_data_cache import (
     load_stock_announcements,
+    load_stock_event_stream,
     load_fund_hot_stock_periods,
     load_security_profile,
     load_security_search,
@@ -39,6 +40,25 @@ def _format_date(value) -> str:
 
 def _resolve_logged_in_username() -> str:
     return normalize_username(st.session_state.get("logged_in_username", ""))
+
+
+def _render_event_table(df: pd.DataFrame, *, height: int = 520) -> None:
+    if df is None or df.empty:
+        st.info("暂无可展示数据。")
+        return
+
+    display_df = df.copy()
+    if "链接" in display_df.columns:
+        display_df["链接"] = display_df["链接"].astype("string").fillna("").astype(str)
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        height=height,
+        column_config={
+            "链接": st.column_config.LinkColumn("链接", display_text="打开"),
+        } if "链接" in display_df.columns else None,
+    )
 
 
 def render_stock_object_page() -> None:
@@ -140,8 +160,8 @@ def render_stock_object_page() -> None:
     metric_cols[4].metric("PB", _format_number(profile.get("pb"), digits=2))
     metric_cols[5].metric("总市值(亿元)", _format_number(profile.get("total_mv"), digits=2, scale=10000.0))
 
-    tab_overview, tab_notice, tab_news, tab_reports, tab_moneyflow, tab_lhb, tab_fund = st.tabs(
-        ["📌 概览", "📢 公告", "📰 新闻", "📄 研报", "💹 资金流", "🐉 龙虎榜", "🏦 公募基金持仓"]
+    tab_overview, tab_events, tab_notice, tab_news, tab_reports, tab_moneyflow, tab_lhb, tab_fund = st.tabs(
+        ["📌 概览", "🧭 事件流", "📢 公告", "📰 新闻", "📄 研报", "💹 资金流", "🐉 龙虎榜", "🏦 公募基金持仓"]
     )
 
     with tab_overview:
@@ -183,6 +203,38 @@ def render_stock_object_page() -> None:
         st.info(f"**产品及业务范围**：{profile.get('business_scope') or '-'}")
 
     supplemental = {}
+    with tab_events:
+        event_days = st.selectbox(
+            "事件流范围",
+            options=[30, 90, 180, 365],
+            index=2,
+            format_func=lambda value: f"近 {value} 天",
+            key=f"stock_object_event_days_{ts_code}",
+        )
+        try:
+            event_df = load_stock_event_stream(
+                ts_code,
+                stock_name=title,
+                industry=str(profile.get("industry") or ""),
+                days=int(event_days),
+            )
+        except Exception as exc:
+            st.warning(f"加载事件流失败：{exc}")
+            event_df = pd.DataFrame()
+
+        if event_df is None or event_df.empty:
+            st.info("当前时间范围内暂无事件流数据。")
+        else:
+            counts = event_df["类型"].value_counts().to_dict() if "类型" in event_df.columns else {}
+            st.caption(
+                f"事件总数：{len(event_df):,} · "
+                f"公告 {counts.get('公告', 0):,} · "
+                f"新闻 {counts.get('新闻', 0):,} · "
+                f"研报 {counts.get('研报', 0):,}"
+            )
+            show_cols = [c for c in ["日期", "类型", "子类型", "标题", "来源", "机构", "评级", "链接"] if c in event_df.columns]
+            _render_event_table(event_df[show_cols], height=560)
+
     with tab_notice:
         st.caption("数据来源：AkShare（东方财富公告大全）。")
         notice_type = st.selectbox(
@@ -208,8 +260,9 @@ def render_stock_object_page() -> None:
             st.info("当前条件下暂无公告数据。")
         else:
             st.caption(f"公告条数：{len(notice_df):,}")
-            show_cols = [c for c in ["公告日期", "公告类型", "公告标题", "网址"] if c in notice_df.columns]
-            st.dataframe(notice_df[show_cols], use_container_width=True, hide_index=True, height=520)
+            show_df = notice_df.rename(columns={"网址": "链接"})
+            show_cols = [c for c in ["公告日期", "公告类型", "公告标题", "链接"] if c in show_df.columns]
+            _render_event_table(show_df[show_cols], height=520)
 
     with tab_news:
         st.caption("数据来源：AkShare（东方财富）。")
@@ -230,8 +283,9 @@ def render_stock_object_page() -> None:
             if not items:
                 st.info("暂无新闻数据。")
             else:
-                df = pd.DataFrame(items)
-                st.dataframe(df, use_container_width=True, hide_index=True, height=520)
+                df = pd.DataFrame(items).rename(columns={"新闻链接": "链接"})
+                show_cols = [c for c in ["发布时间", "文章来源", "新闻标题", "链接", "新闻内容"] if c in df.columns]
+                _render_event_table(df[show_cols], height=520)
 
     with tab_reports:
         st.caption("数据来源：AkShare（东方财富）。")
@@ -253,8 +307,9 @@ def render_stock_object_page() -> None:
             if not items:
                 st.info("暂无研报数据。")
             else:
-                df = pd.DataFrame(items)
-                st.dataframe(df, use_container_width=True, hide_index=True, height=520)
+                df = pd.DataFrame(items).rename(columns={"报告PDF链接": "链接"})
+                show_cols = [c for c in ["日期", "机构", "东财评级", "报告名称", "链接"] if c in df.columns]
+                _render_event_table(df[show_cols], height=520)
 
     with tab_moneyflow:
         try:
