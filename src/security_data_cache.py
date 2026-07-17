@@ -175,6 +175,139 @@ def load_fund_hot_stock_periods() -> List[str]:
         return []
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_fund_search(keyword: str, limit: int = 20) -> pd.DataFrame:
+    from src.fund_hot_stocks import get_engine as get_fund_hot_engine
+    from src.fund_hot_stocks import search_funds
+
+    engine = get_fund_hot_engine()
+    return search_funds(keyword=keyword, limit=int(limit), engine=engine)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_fund_object_model(fund_code: str, period: str = "", top_n: int = 10) -> dict[str, Any]:
+    from src.fund_estimate_snapshot_store import (
+        ensure_fund_estimate_snapshot_table,
+        get_fund_estimate_snapshot,
+        get_latest_fund_estimate_snapshot,
+    )
+    from src.fund_hot_stocks import get_engine as get_fund_hot_engine
+    from src.fund_hot_stocks import query_fund_preference_snapshot, search_funds
+    from src.fund_nav import fetch_latest_fund_nav_snapshot
+    from src.fund_watchlist_dashboard import (
+        attach_latest_closing_estimate,
+        build_fund_watchlist_item,
+    )
+
+    normalized_code = str(fund_code or "").strip().upper()
+    if not normalized_code:
+        return {
+            "item": {},
+            "meta": {},
+            "holdings": pd.DataFrame(),
+            "errors": ["基金代码不能为空"],
+            "nav_snapshot": {},
+            "estimate_snapshot": {},
+            "latest_estimate_snapshot": {},
+        }
+
+    engine = get_fund_hot_engine()
+    target_period = str(period or "").strip()
+    meta_df = pd.DataFrame()
+    holding_df = pd.DataFrame()
+    nav_snapshot: dict[str, Any] = {}
+    estimate_snapshot: dict[str, Any] = {}
+    latest_estimate_snapshot: dict[str, Any] = {}
+    errors: list[str] = []
+    estimate_store_ready = False
+
+    try:
+        ensure_fund_estimate_snapshot_table(engine)
+        estimate_store_ready = True
+    except Exception as exc:
+        logger.warning("fund object estimate snapshot store unavailable: %s", exc)
+        errors.append("15:00估值快照暂不可用")
+
+    try:
+        meta_df = search_funds(normalized_code, limit=5, engine=engine)
+    except Exception as exc:
+        logger.warning("fund object metadata load failed for %s: %s", normalized_code, exc)
+        errors.append(f"基础信息读取失败：{exc}")
+
+    try:
+        holding_df = query_fund_preference_snapshot(
+            fund_code=normalized_code,
+            period=target_period or None,
+            top_n=int(top_n),
+            engine=engine,
+        )
+    except Exception as exc:
+        logger.warning("fund object holdings load failed for %s: %s", normalized_code, exc)
+        errors.append(f"持仓读取失败：{exc}")
+
+    try:
+        nav_snapshot = fetch_latest_fund_nav_snapshot(normalized_code)
+    except Exception as exc:
+        logger.warning("fund object nav load failed for %s: %s", normalized_code, exc)
+        errors.append(f"净值读取失败：{exc}")
+
+    nav_date = pd.to_datetime(nav_snapshot.get("nav_date"), errors="coerce")
+    if estimate_store_ready and not pd.isna(nav_date):
+        try:
+            estimate_snapshot = get_fund_estimate_snapshot(
+                engine,
+                normalized_code,
+                nav_date,
+                ensure_table=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "fund object estimate snapshot load failed for %s / %s: %s",
+                normalized_code,
+                nav_date.date(),
+                exc,
+            )
+            errors.append("15:00估值快照读取失败")
+
+    if estimate_store_ready:
+        try:
+            latest_estimate_snapshot = get_latest_fund_estimate_snapshot(
+                engine,
+                normalized_code,
+                ensure_table=False,
+            )
+        except Exception as exc:
+            logger.warning("fund object latest estimate snapshot load failed for %s: %s", normalized_code, exc)
+            errors.append("最近估值快照读取失败")
+
+    meta_row = meta_df.iloc[0].to_dict() if meta_df is not None and not meta_df.empty else {}
+    watchlist_row = pd.Series(
+        {
+            "ts_code": normalized_code,
+            "security_name": meta_row.get("name") or normalized_code,
+            "created_at": pd.NaT,
+        }
+    )
+    item = build_fund_watchlist_item(
+        watchlist_row,
+        meta_df,
+        holding_df,
+        nav_snapshot=nav_snapshot,
+        estimate_snapshot=estimate_snapshot,
+        load_error="；".join(errors),
+    )
+    item = attach_latest_closing_estimate(item, latest_estimate_snapshot)
+    return {
+        "item": item,
+        "meta": meta_row,
+        "holdings": holding_df,
+        "errors": errors,
+        "nav_snapshot": nav_snapshot,
+        "estimate_snapshot": estimate_snapshot,
+        "latest_estimate_snapshot": latest_estimate_snapshot,
+    }
+
+
 @st.cache_data(ttl=1200)
 def load_stock_news_and_reports(ts_code: str, *, stock_name: str = "", industry: str = "") -> dict[str, dict]:
     cfg = load_stock_research_akshare_config()

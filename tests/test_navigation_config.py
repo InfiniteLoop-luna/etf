@@ -125,7 +125,7 @@ class NavigationConfigTests(unittest.TestCase):
     def test_navigation_option_labels_remain_stable(self):
         self.assertEqual(
             ETF_PAGE_OPTIONS,
-            ["📈 主要宽基ETF份额", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "📈 基金监测", "⭐ 自选基金"],
+            ["📈 主要宽基ETF份额", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "📈 基金监测", "⭐ 自选基金", "🧩 基金对象页"],
         )
         self.assertEqual(
             STOCK_PAGE_OPTIONS,

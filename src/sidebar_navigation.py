@@ -77,6 +77,12 @@ SIDEBAR_MODULES = (
                 "管理个人自选基金与持仓结构",
                 "standard",
             ),
+            SidebarPage(
+                "fund_object",
+                "🧩 基金对象页",
+                "围绕单只基金聚合画像与持仓",
+                "heavy",
+            ),
         ),
     ),
     SidebarModule(

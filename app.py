@@ -96,6 +96,7 @@ from src.navigation_config import (
     DECISION_RECO_EVAL_PAGE_LABEL,
     DECISION_TODAY_PAGE_LABEL,
     ETF_FUND_MONITOR_PAGE_LABEL,
+    ETF_FUND_OBJECT_PAGE_LABEL,
     ETF_FUND_WATCHLIST_PAGE_LABEL,
     ETF_MAIN_PAGE_LABEL,
     ETF_PAGE_OPTIONS,
@@ -219,6 +220,7 @@ from src.user_stock_pool_store import (
     upsert_stock_pool_item,
 )
 from src.pages.stock_object_page import render_stock_object_page
+from src.pages.fund_object_page import render_fund_object_page
 from src.security_data_cache import (
     load_fund_hot_stock_periods,
     load_security_financial_timeseries,
@@ -7245,6 +7247,8 @@ def main():
                 render_fund_monitor_tab()
             elif mobile_page == ETF_FUND_WATCHLIST_PAGE_LABEL:
                 render_fund_watchlist_tab()
+            elif mobile_page == ETF_FUND_OBJECT_PAGE_LABEL:
+                render_fund_object_page()
             else:
                 render_etf_tab()
         elif mobile_group == "股票":
@@ -7347,6 +7351,8 @@ def main():
             render_wide_index_tab()
         elif selected_page == ETF_FUND_WATCHLIST_PAGE_LABEL:
             render_fund_watchlist_tab()
+        elif selected_page == ETF_FUND_OBJECT_PAGE_LABEL:
+            render_fund_object_page()
         else:
             render_etf_tab()
 
