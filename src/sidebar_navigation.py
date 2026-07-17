@@ -91,6 +91,12 @@ SIDEBAR_MODULES = (
                 "heavy",
             ),
             SidebarPage(
+                "stock_object",
+                "🧩 股票对象页",
+                "围绕单只股票聚合信息",
+                "heavy",
+            ),
+            SidebarPage(
                 "lhb_monitor",
                 "🐉 龙虎榜",
                 "每日榜单与机构席位",

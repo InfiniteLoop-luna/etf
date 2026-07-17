@@ -135,6 +135,7 @@ class SidebarNavigationTests(unittest.TestCase):
             get_page_labels("股票"),
             [
                 "🔎 个股/指数查询",
+                "🧩 股票对象页",
                 "🐉 龙虎榜",
                 "⭐ 自选管理",
                 "🗂 自选池",

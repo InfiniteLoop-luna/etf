@@ -21,6 +21,10 @@ def _build_reply_session(session: requests.Session | None = None) -> requests.Se
     return http_client
 
 
+def build_eastmoney_session(session: requests.Session | None = None) -> requests.Session:
+    return _build_reply_session(session)
+
+
 def build_userdynamiclist_params(author_uid: str, page_num: int, page_size: int = 20, post_type: int = 0) -> dict[str, Any]:
     return {
         "uid": str(author_uid).strip(),
@@ -60,13 +64,30 @@ def _iter_nested_replies(reply: dict[str, Any]) -> list[dict[str, Any]]:
 def _normalize_reply_item(reply: dict[str, Any], *, author_uid: str | None = None) -> dict[str, Any]:
     normalized = dict(reply)
     normalized["child_replys"] = [dict(item) for item in reply.get("child_replys") or [] if isinstance(item, dict)]
+    reply_user = normalized.get("reply_user")
+    if isinstance(reply_user, dict):
+        normalized.setdefault("user_id", reply_user.get("user_id"))
     reply_author_uid = str(normalized.get("user_id") or "").strip()
-    normalized["reply_is_author"] = bool(author_uid) and reply_author_uid == str(author_uid).strip()
+    normalized["reply_text"] = (
+        normalized.get("reply_text")
+        or normalized.get("reply_content")
+        or normalized.get("reply_full_text")
+        or normalized.get("content")
+        or ""
+    )
+    normalized["reply_is_author"] = bool(normalized.get("reply_is_author")) or (
+        bool(author_uid) and reply_author_uid == str(author_uid).strip()
+    )
     return normalized
 
 
 def parse_article_reply_payload(payload: dict[str, Any], *, author_uid: str | None = None) -> list[dict[str, Any]]:
-    reply_rows = payload.get("re") if isinstance(payload, dict) else None
+    reply_root = payload.get("re") if isinstance(payload, dict) else None
+    reply_rows = None
+    if isinstance(reply_root, list):
+        reply_rows = reply_root
+    elif isinstance(reply_root, dict):
+        reply_rows = reply_root.get("list")
     if not isinstance(reply_rows, list):
         return []
 

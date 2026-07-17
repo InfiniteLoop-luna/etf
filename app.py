@@ -114,6 +114,7 @@ from src.navigation_config import (
     MONEY_VOLUME_PAGE_LABEL,
     STOCK_COMPANY_SCREENER_LABEL,
     STOCK_LHB_PAGE_LABEL,
+    STOCK_OBJECT_PAGE_LABEL,
     STOCK_PAGE_OPTIONS,
     STOCK_POOL_PAGE_LABEL,
     STOCK_SECURITY_SEARCH_LABEL,
@@ -216,6 +217,17 @@ from src.user_stock_pool_store import (
     split_tags as split_stock_pool_tags,
     update_stock_pool_item_metadata,
     upsert_stock_pool_item,
+)
+from src.pages.stock_object_page import render_stock_object_page
+from src.security_data_cache import (
+    load_fund_hot_stock_periods,
+    load_security_financial_timeseries,
+    load_security_kline_timeseries,
+    load_security_profile,
+    load_security_search,
+    load_security_timeseries,
+    load_stock_basic_summary_export,
+    load_stock_holder_number_timeseries,
 )
 
 try:
@@ -2495,41 +2507,6 @@ def load_data(file_path: str) -> pd.DataFrame:
         st.stop()
 
 
-@st.cache_data(ttl=300)
-def load_security_search(keyword: str, security_type: str, limit: int = 20) -> pd.DataFrame:
-    return search_security(keyword=keyword, security_type=security_type, limit=limit)
-
-
-@st.cache_data(ttl=300)
-def load_security_profile(ts_code: str, security_type: str) -> pd.DataFrame:
-    return get_security_profile(ts_code=ts_code, security_type=security_type)
-
-
-@st.cache_data(ttl=300)
-def load_security_timeseries(ts_code: str, security_type: str) -> pd.DataFrame:
-    return get_security_timeseries(ts_code=ts_code, security_type=security_type)
-
-
-@st.cache_data(ttl=300)
-def load_security_financial_timeseries(ts_code: str, security_type: str) -> pd.DataFrame:
-    return get_security_financial_timeseries(ts_code=ts_code, security_type=security_type)
-
-
-@st.cache_data(ttl=300)
-def load_security_kline_timeseries(ts_code: str, security_type: str) -> pd.DataFrame:
-    return get_security_kline_timeseries(ts_code=ts_code, security_type=security_type)
-
-
-@st.cache_data(ttl=300)
-def load_stock_holder_number_timeseries(ts_code: str) -> pd.DataFrame:
-    return get_stock_holder_number_timeseries(ts_code=ts_code)
-
-
-@st.cache_data(ttl=300)
-def load_stock_basic_summary_export() -> pd.DataFrame:
-    return get_stock_basic_summary()
-
-
 @st.cache_data(ttl=600, show_spinner=False)
 def load_factor_workbench_trade_dates_cached() -> list[pd.Timestamp]:
     return get_factor_workbench_trade_dates()
@@ -2553,35 +2530,6 @@ def load_macro_date_bounds() -> tuple[str | None, str | None]:
 @st.cache_data(ttl=300)
 def load_macro_dataset(dataset_name: str, start_date: str, end_date: str) -> pd.DataFrame:
     return get_macro_dataset_timeseries(dataset_name=dataset_name, start_date=start_date, end_date=end_date)
-
-
-@st.cache_data(ttl=300)
-def load_fund_hot_stock_periods() -> List[str]:
-    try:
-        from src.fund_hot_stocks import get_engine as get_fund_hot_engine
-
-        engine = get_fund_hot_engine()
-        df = pd.read_sql(
-            """
-            SELECT DISTINCT end_date
-            FROM agg_fund_holding_stock_quarterly
-            ORDER BY end_date DESC
-            LIMIT 12
-            """,
-            engine,
-        )
-        if df is None or df.empty:
-            return []
-
-        periods: List[str] = []
-        for raw in df["end_date"].tolist():
-            if pd.isna(raw):
-                continue
-            periods.append(pd.to_datetime(raw).strftime("%Y-%m-%d"))
-        return periods
-    except Exception as exc:
-        logger.warning(f"load_fund_hot_stock_periods failed: {exc}")
-        return []
 
 
 @st.cache_data(ttl=300)
@@ -7306,7 +7254,9 @@ def main():
                 key="iphone_page_stock",
             )
             st.caption(f"当前位置：股票 / {mobile_page}")
-            if mobile_page == STOCK_SECURITY_SEARCH_LABEL:
+            if mobile_page == STOCK_OBJECT_PAGE_LABEL:
+                render_stock_object_page()
+            elif mobile_page == STOCK_SECURITY_SEARCH_LABEL:
                 render_security_search_tab()
             elif mobile_page == STOCK_LHB_PAGE_LABEL:
                 render_lhb_monitor_tab()
@@ -7401,7 +7351,9 @@ def main():
             render_etf_tab()
 
     elif selected_module == stock_module_label:
-        if selected_page == STOCK_SECURITY_SEARCH_LABEL:
+        if selected_page == STOCK_OBJECT_PAGE_LABEL:
+            render_stock_object_page()
+        elif selected_page == STOCK_SECURITY_SEARCH_LABEL:
             render_security_search_tab()
         elif selected_page == STOCK_LHB_PAGE_LABEL:
             render_lhb_monitor_tab()
