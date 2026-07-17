@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
 import pandas as pd
 import plotly.express as px
@@ -578,9 +579,22 @@ def render_stock_object_page() -> None:
             st.info("该报告期暂无基金持仓披露数据。")
         else:
             st.caption(f"基金持仓记录：{len(holding_df):,}（季度披露，非实时）")
+            display_df = holding_df.copy()
+            if "fund_code" in display_df.columns:
+                display_df["基金详情"] = display_df["fund_code"].astype("string").fillna("").astype(str).map(
+                    lambda code: (
+                        f"?security_query={quote(code)}"
+                        f"&security_type=fund"
+                        f"&open_tab=fund_object"
+                        f"&jump_nonce=stock-object-fund-{quote(code)}"
+                    )
+                    if code and code != "-"
+                    else ""
+                )
             show_cols = [
                 c
                 for c in [
+                    "基金详情",
                     "fund_code",
                     "fund_name",
                     "management",
@@ -590,9 +604,17 @@ def render_stock_object_page() -> None:
                     "stk_float_ratio",
                     "holding_change_flag",
                 ]
-                if c in holding_df.columns
+                if c in display_df.columns
             ]
-            st.dataframe(holding_df[show_cols], use_container_width=True, hide_index=True, height=420)
+            st.dataframe(
+                display_df[show_cols],
+                use_container_width=True,
+                hide_index=True,
+                height=420,
+                column_config={
+                    "基金详情": st.column_config.LinkColumn("基金详情", display_text="查看基金"),
+                },
+            )
 
         try:
             trend_df = query_stock_holding_trend(ts_code, periods=8, engine=engine)

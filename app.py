@@ -3689,6 +3689,14 @@ def hydrate_security_jump_from_query_params() -> None:
         st.session_state["stock_subpage"] = STOCK_OBJECT_PAGE_LABEL
         st.session_state["stock_object_prefill_query"] = security_query
 
+    if open_tab == "fund_object":
+        st.session_state["sidebar_nav_group"] = "基金"
+        st.session_state["sidebar_expanded_module_id"] = "fund"
+        st.session_state["etf_subpage"] = ETF_FUND_OBJECT_PAGE_LABEL
+        st.session_state["iphone_group_radio"] = "基金"
+        st.session_state["iphone_page_etf"] = ETF_FUND_OBJECT_PAGE_LABEL
+        st.session_state["fund_object_prefill_query"] = security_query
+
     if jump_nonce:
         st.session_state["last_consumed_jump_nonce"] = jump_nonce
 

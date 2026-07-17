@@ -123,11 +123,15 @@ def render_fund_object_page() -> None:
     st.subheader("🧩 基金对象页")
     st.caption("围绕单只基金聚合：画像、净值、15:00估值、前十大持仓。")
 
+    default_query = str(st.session_state.get("fund_object_prefill_query") or "").strip()
     query = st.text_input(
         "搜索基金",
         placeholder="输入基金代码、名称或管理人，例如 512480、国联安中证全指半导体ETF、易方达",
+        value=default_query,
         key="fund_object_query",
     ).strip()
+    if default_query:
+        st.session_state["fund_object_prefill_query"] = ""
     if not query:
         st.info("请输入关键字开始检索基金。")
         return
