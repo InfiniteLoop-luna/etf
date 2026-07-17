@@ -1,4 +1,5 @@
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 from urllib.parse import quote
 
@@ -7,6 +8,7 @@ from src.security_data_cache import (
     load_fund_object_model,
     load_fund_peer_comparison,
     load_fund_search,
+    load_stock_basic_summary_export,
 )
 from src.user_watchlist_store import (
     add_watchlist_item,
@@ -74,6 +76,65 @@ def _holdings_frame(holdings: list[dict]) -> pd.DataFrame:
 def _change_frame(holdings: list[dict], change_flag: str) -> pd.DataFrame:
     filtered = [row for row in holdings or [] if str(row.get("change_flag") or "") == change_flag]
     return _holdings_frame(filtered)
+
+
+def _build_industry_exposure_frame(holdings: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    holdings_df = pd.DataFrame(holdings or [])
+    if holdings_df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    if "symbol" not in holdings_df.columns:
+        holdings_df["symbol"] = ""
+    if "stock_name" not in holdings_df.columns:
+        holdings_df["stock_name"] = ""
+    holdings_df["symbol"] = holdings_df["symbol"].astype("string").fillna("").astype(str).str.strip().str.upper()
+    holdings_df["weight"] = pd.to_numeric(holdings_df.get("weight"), errors="coerce")
+    holdings_df["market_value_yi"] = pd.to_numeric(holdings_df.get("market_value_yi"), errors="coerce")
+
+    basic_df = load_stock_basic_summary_export()
+    if basic_df is None or basic_df.empty or "股票代码" not in basic_df.columns:
+        detailed = holdings_df.copy()
+        detailed["industry"] = "未识别"
+    else:
+        industry_lookup = (
+            basic_df[["股票代码", "所属行业"]]
+            .dropna(subset=["股票代码"])
+            .assign(
+                股票代码=lambda df: df["股票代码"].astype("string").fillna("").astype(str).str.strip().str.upper(),
+                所属行业=lambda df: df["所属行业"].astype("string").fillna("").astype(str).str.strip(),
+            )
+            .drop_duplicates(subset=["股票代码"], keep="first")
+            .set_index("股票代码")["所属行业"]
+            .to_dict()
+        )
+        detailed = holdings_df.copy()
+        detailed["industry"] = detailed["symbol"].map(industry_lookup).fillna("未识别")
+
+    exposure = (
+        detailed.groupby("industry", dropna=False)
+        .agg(
+            持仓股票数=("symbol", "count"),
+            权重合计=("weight", "sum"),
+            持仓市值合计=("market_value_yi", "sum"),
+        )
+        .reset_index()
+        .rename(columns={"industry": "所属行业"})
+        .sort_values(["权重合计", "持仓市值合计"], ascending=[False, False], na_position="last")
+        .reset_index(drop=True)
+    )
+    detailed = detailed.rename(
+        columns={
+            "stock_name": "股票名称",
+            "symbol": "股票代码",
+            "weight": "权重(%)",
+            "market_value_yi": "持仓市值(亿元)",
+            "industry": "所属行业",
+        }
+    )
+    detailed = detailed[["股票名称", "股票代码", "所属行业", "权重(%)", "持仓市值(亿元)", "change_label"]].rename(
+        columns={"change_label": "变动"}
+    )
+    return exposure, detailed
 
 
 def _render_watchlist_action(username: str, fund_code: str, fund_name: str, *, key_prefix: str) -> None:
@@ -226,8 +287,8 @@ def render_fund_object_page() -> None:
         )
     )
 
-    tab_overview, tab_nav, tab_holdings, tab_compare, tab_changes, tab_watch = st.tabs(
-        ["📌 概览", "📈 净值与估值", "🏦 持仓", "⚖️ 同类对比", "🔍 持仓变化", "⭐ 自选与跟踪"]
+    tab_overview, tab_nav, tab_holdings, tab_style, tab_compare, tab_changes, tab_watch = st.tabs(
+        ["📌 概览", "📈 净值与估值", "🏦 持仓", "🧭 风格/行业", "⚖️ 同类对比", "🔍 持仓变化", "⭐ 自选与跟踪"]
     )
 
     with tab_overview:
@@ -330,6 +391,44 @@ def render_fund_object_page() -> None:
                     "股票详情": st.column_config.LinkColumn("股票详情", display_text="查看股票"),
                 },
             )
+
+    with tab_style:
+        st.markdown("##### 风格与行业摘要")
+        exposure_df, detailed_exposure_df = _build_industry_exposure_frame(holdings)
+        valid_weights = [
+            float(row.get("weight"))
+            for row in holdings
+            if pd.notna(pd.to_numeric(row.get("weight"), errors="coerce"))
+        ]
+        valid_weights = sorted(valid_weights, reverse=True)
+        style_cols = st.columns(4)
+        style_cols[0].metric("覆盖行业数", f"{len(exposure_df):,}")
+        style_cols[1].metric("Top1 权重", _format_pct(sum(valid_weights[:1])))
+        style_cols[2].metric("Top3 权重", _format_pct(sum(valid_weights[:3])))
+        style_cols[3].metric("Top5 权重", _format_pct(sum(valid_weights[:5])))
+
+        if exposure_df.empty:
+            st.info("当前披露期暂无可计算的行业暴露。")
+        else:
+            chart_df = exposure_df.head(8).copy()
+            fig = px.bar(
+                chart_df,
+                x="所属行业",
+                y="权重合计",
+                text="权重合计",
+                title="前十大持仓行业权重分布",
+            )
+            fig.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+            fig.update_layout(height=360, yaxis_title="权重合计(%)", xaxis_title="")
+            st.plotly_chart(fig, use_container_width=True)
+
+            left, right = st.columns([1.0, 1.0])
+            with left:
+                st.markdown("##### 行业暴露汇总")
+                st.dataframe(exposure_df, use_container_width=True, hide_index=True, height=320)
+            with right:
+                st.markdown("##### 持仓行业明细")
+                st.dataframe(detailed_exposure_df, use_container_width=True, hide_index=True, height=320)
 
     with tab_compare:
         st.markdown("##### 同类基金对比")
