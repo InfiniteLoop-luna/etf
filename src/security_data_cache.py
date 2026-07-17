@@ -1,9 +1,11 @@
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Any
 from typing import List
 
 import pandas as pd
+import requests
 import streamlit as st
 
 from src.etf_stats import (
@@ -205,21 +207,114 @@ def load_stock_news_and_reports(ts_code: str, *, stock_name: str = "", industry:
 
 @st.cache_data(ttl=1200)
 def load_stock_announcements(ts_code: str, notice_type: str = "全部", days: int = 180) -> pd.DataFrame:
-    try:
-        import akshare as ak  # type: ignore
-    except Exception as exc:
-        raise RuntimeError(f"akshare import failed: {exc}") from exc
-
     symbol = str(ts_code or "").strip().upper().split(".", 1)[0]
     lookback_days = max(30, min(720, int(days or 180)))
     end_date = datetime.now().strftime("%Y%m%d")
     begin_date = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y%m%d")
-    df = ak.stock_individual_notice_report(
-        security=symbol,
-        symbol=str(notice_type or "全部").strip() or "全部",
-        begin_date=begin_date,
-        end_date=end_date,
-    )
+    begin_text = f"{begin_date[:4]}-{begin_date[4:6]}-{begin_date[6:]}"
+    end_text = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:]}"
+
+    def _fetch_with_builtin_akshare() -> pd.DataFrame:
+        import akshare as ak  # type: ignore
+
+        if hasattr(ak, "stock_individual_notice_report"):
+            return ak.stock_individual_notice_report(
+                security=symbol,
+                symbol=str(notice_type or "全部").strip() or "全部",
+                begin_date=begin_text,
+                end_date=end_text,
+            )
+
+        report_map = {
+            "全部": "0",
+            "财务报告": "1",
+            "融资公告": "2",
+            "风险提示": "3",
+            "信息变更": "4",
+            "重大事项": "5",
+            "资产重组": "6",
+            "持股变动": "7",
+        }
+        params = {
+            "sr": "-1",
+            "page_size": "100",
+            "page_index": "1",
+            "ann_type": "A",
+            "client_source": "web",
+            "f_node": report_map.get(str(notice_type or "全部").strip() or "全部", "0"),
+            "s_node": "0",
+            "stock_list": symbol,
+            "begin_time": begin_text,
+            "end_time": end_text,
+        }
+        url = "https://np-anotice-stock.eastmoney.com/api/security/ann"
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        payload = response.json() or {}
+        data = payload.get("data") or {}
+        total_hits = int(data.get("total_hits") or 0)
+        total_page = max(1, math.ceil(total_hits / 100)) if total_hits else 1
+        frames: list[pd.DataFrame] = []
+        for page in range(1, total_page + 1):
+            params["page_index"] = str(page)
+            page_response = requests.get(url, params=params, timeout=15)
+            page_response.raise_for_status()
+            page_payload = page_response.json() or {}
+            page_list = ((page_payload.get("data") or {}).get("list") or [])
+            if not page_list:
+                continue
+
+            row_frame = pd.DataFrame(page_list)
+            code_rows = []
+            column_rows = []
+            for item in page_list:
+                codes = item.get("codes") or []
+                matched_code = None
+                for code_item in codes:
+                    if str(code_item.get("stock_code") or "") == symbol:
+                        matched_code = code_item
+                        break
+                if matched_code is None and codes:
+                    matched_code = codes[0]
+                code_rows.append(matched_code or {})
+
+                columns = item.get("columns") or []
+                column_rows.append(columns[0] if columns else {})
+
+            code_frame = pd.DataFrame(code_rows)
+            column_frame = pd.DataFrame(column_rows)
+            for col in ("codes", "columns"):
+                if col in row_frame.columns:
+                    del row_frame[col]
+            merged = pd.concat([row_frame, column_frame, code_frame], axis=1)
+            frames.append(merged)
+
+        if not frames:
+            return pd.DataFrame()
+
+        out = pd.concat(frames, ignore_index=True)
+        out.rename(
+            columns={
+                "art_code": "编码",
+                "notice_date": "公告日期",
+                "title": "公告标题",
+                "column_name": "公告类型",
+                "short_name": "名称",
+                "stock_code": "代码",
+            },
+            inplace=True,
+        )
+        if "编码" in out.columns and "代码" in out.columns:
+            out["网址"] = "https://data.eastmoney.com/notices/detail/" + out["代码"].astype(str) + "/" + out["编码"].astype(str) + ".html"
+        keep_cols = [c for c in ["代码", "名称", "公告标题", "公告类型", "公告日期", "网址"] if c in out.columns]
+        return out[keep_cols]
+
+    try:
+        df = _fetch_with_builtin_akshare()
+    except Exception as exc:
+        logger.warning("load_stock_announcements fallback fetch failed: %s", exc, exc_info=True)
+        raise RuntimeError(f"stock announcement fetch failed: {exc}") from exc
+
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return pd.DataFrame()
     out = df.copy()
