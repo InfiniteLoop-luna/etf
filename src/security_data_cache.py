@@ -3,6 +3,7 @@ import math
 from datetime import datetime, timedelta
 from typing import Any
 from typing import List
+from urllib.parse import quote
 
 import pandas as pd
 import requests
@@ -306,6 +307,159 @@ def load_fund_object_model(fund_code: str, period: str = "", top_n: int = 10) ->
         "estimate_snapshot": estimate_snapshot,
         "latest_estimate_snapshot": latest_estimate_snapshot,
     }
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def load_fund_peer_comparison(
+    fund_code: str,
+    *,
+    fund_type: str = "",
+    management: str = "",
+    limit: int = 6,
+) -> pd.DataFrame:
+    from src.fund_hot_stocks import get_engine as get_fund_hot_engine
+
+    normalized_code = str(fund_code or "").strip().upper()
+    normalized_type = str(fund_type or "").strip()
+    normalized_management = str(management or "").strip()
+    if not normalized_code:
+        return pd.DataFrame()
+
+    engine = get_fund_hot_engine()
+    peer_slots = max(1, int(limit or 6) - 1)
+    candidate_df = pd.read_sql(
+        """
+        WITH peers AS (
+            SELECT
+                fund_code,
+                COALESCE(NULLIF(name, ''), fund_code) AS name,
+                COALESCE(NULLIF(management, ''), '持仓表补全') AS management,
+                COALESCE(NULLIF(fund_type, ''), NULLIF(invest_type, ''), '未知类型') AS fund_type,
+                issue_amount,
+                latest_end_date,
+                CASE
+                    WHEN :management <> ''
+                     AND COALESCE(NULLIF(management, ''), '') = :management
+                     AND :fund_type <> ''
+                     AND COALESCE(NULLIF(fund_type, ''), NULLIF(invest_type, ''), '') = :fund_type
+                    THEN 0
+                    WHEN :management <> ''
+                     AND COALESCE(NULLIF(management, ''), '') = :management
+                    THEN 1
+                    WHEN :fund_type <> ''
+                     AND COALESCE(NULLIF(fund_type, ''), NULLIF(invest_type, ''), '') = :fund_type
+                    THEN 2
+                    ELSE 9
+                END AS compare_rank,
+                CASE
+                    WHEN :management <> ''
+                     AND COALESCE(NULLIF(management, ''), '') = :management
+                     AND :fund_type <> ''
+                     AND COALESCE(NULLIF(fund_type, ''), NULLIF(invest_type, ''), '') = :fund_type
+                    THEN '同管理人 + 同类型'
+                    WHEN :management <> ''
+                     AND COALESCE(NULLIF(management, ''), '') = :management
+                    THEN '同管理人'
+                    WHEN :fund_type <> ''
+                     AND COALESCE(NULLIF(fund_type, ''), NULLIF(invest_type, ''), '') = :fund_type
+                    THEN '同类型'
+                    ELSE '候选基金'
+                END AS compare_reason
+            FROM vw_fund_basic
+            WHERE UPPER(TRIM(fund_code)) <> :fund_code
+              AND (
+                    (:management <> '' AND COALESCE(NULLIF(management, ''), '') = :management)
+                 OR (:fund_type <> '' AND COALESCE(NULLIF(fund_type, ''), NULLIF(invest_type, ''), '') = :fund_type)
+              )
+        )
+        SELECT fund_code, name, management, fund_type, issue_amount, latest_end_date, compare_reason
+        FROM peers
+        WHERE compare_rank < 9
+        ORDER BY compare_rank, issue_amount DESC NULLS LAST, latest_end_date DESC NULLS LAST, fund_code
+        LIMIT :peer_slots
+        """,
+        engine,
+        params={
+            "fund_code": normalized_code,
+            "fund_type": normalized_type,
+            "management": normalized_management,
+            "peer_slots": peer_slots,
+        },
+    )
+
+    rows: list[dict[str, Any]] = []
+    self_payload = load_fund_object_model(normalized_code, top_n=10)
+    self_item = self_payload.get("item") or {}
+    self_latest_estimate = self_item.get("closing_estimate_pct")
+    if self_latest_estimate is None:
+        self_latest_estimate = self_item.get("latest_closing_estimate_pct")
+    rows.append(
+        {
+            "标记": "当前基金",
+            "基金名称": self_item.get("fund_name") or normalized_code,
+            "基金代码": normalized_code,
+            "比较来源": "当前基金",
+            "管理人": self_item.get("management") or "-",
+            "基金类型": self_item.get("fund_type") or "-",
+            "基金规模(亿份)": self_item.get("issue_amount"),
+            "净值日期": _format_timestamp_like(self_item.get("nav_date")),
+            "单位净值": self_item.get("unit_nav"),
+            "日涨跌幅(%)": self_item.get("daily_change_pct"),
+            "15:00估值(%)": self_latest_estimate,
+            "估值偏差(百分点)": self_item.get("estimate_deviation_pct"),
+            "Top10 集中度(%)": self_item.get("top10_ratio"),
+            "最近披露期": _format_timestamp_like(self_item.get("latest_end_date")),
+            "基金详情": (
+                f"?security_query={quote(normalized_code)}"
+                f"&security_type=fund"
+                f"&open_tab=fund_object"
+                f"&jump_nonce=fund-peer-{quote(normalized_code)}"
+            ),
+        }
+    )
+
+    for candidate in candidate_df.to_dict(orient="records"):
+        code = str(candidate.get("fund_code") or "").strip().upper()
+        if not code:
+            continue
+        payload = load_fund_object_model(code, top_n=10)
+        item = payload.get("item") or {}
+        latest_estimate = item.get("closing_estimate_pct")
+        if latest_estimate is None:
+            latest_estimate = item.get("latest_closing_estimate_pct")
+        rows.append(
+            {
+                "标记": "对比基金",
+                "基金名称": item.get("fund_name") or candidate.get("name") or code,
+                "基金代码": code,
+                "比较来源": candidate.get("compare_reason") or "同类型",
+                "管理人": item.get("management") or candidate.get("management") or "-",
+                "基金类型": item.get("fund_type") or candidate.get("fund_type") or "-",
+                "基金规模(亿份)": item.get("issue_amount"),
+                "净值日期": _format_timestamp_like(item.get("nav_date")),
+                "单位净值": item.get("unit_nav"),
+                "日涨跌幅(%)": item.get("daily_change_pct"),
+                "15:00估值(%)": latest_estimate,
+                "估值偏差(百分点)": item.get("estimate_deviation_pct"),
+                "Top10 集中度(%)": item.get("top10_ratio"),
+                "最近披露期": _format_timestamp_like(item.get("latest_end_date")),
+                "基金详情": (
+                    f"?security_query={quote(code)}"
+                    f"&security_type=fund"
+                    f"&open_tab=fund_object"
+                    f"&jump_nonce=fund-peer-{quote(code)}"
+                ),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def _format_timestamp_like(value) -> str:
+    raw = pd.to_datetime(value, errors="coerce")
+    if pd.isna(raw):
+        return "-"
+    return pd.Timestamp(raw).strftime("%Y-%m-%d")
 
 
 @st.cache_data(ttl=1200)

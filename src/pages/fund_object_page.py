@@ -5,6 +5,7 @@ from urllib.parse import quote
 from src.security_data_cache import (
     load_fund_hot_stock_periods,
     load_fund_object_model,
+    load_fund_peer_comparison,
     load_fund_search,
 )
 from src.user_watchlist_store import (
@@ -225,8 +226,8 @@ def render_fund_object_page() -> None:
         )
     )
 
-    tab_overview, tab_nav, tab_holdings, tab_changes, tab_watch = st.tabs(
-        ["📌 概览", "📈 净值与估值", "🏦 持仓", "🔍 持仓变化", "⭐ 自选与跟踪"]
+    tab_overview, tab_nav, tab_holdings, tab_compare, tab_changes, tab_watch = st.tabs(
+        ["📌 概览", "📈 净值与估值", "🏦 持仓", "⚖️ 同类对比", "🔍 持仓变化", "⭐ 自选与跟踪"]
     )
 
     with tab_overview:
@@ -327,6 +328,45 @@ def render_fund_object_page() -> None:
                 height=420,
                 column_config={
                     "股票详情": st.column_config.LinkColumn("股票详情", display_text="查看股票"),
+                },
+            )
+
+    with tab_compare:
+        st.markdown("##### 同类基金对比")
+        st.caption("优先展示同管理人且同基金类型的基金，不足时补充同类型基金。")
+        compare_limit = st.selectbox(
+            "对比样本数",
+            options=[4, 6, 8],
+            index=1,
+            key=f"fund_object_compare_limit_{fund_code}",
+        )
+        try:
+            compare_df = load_fund_peer_comparison(
+                fund_code,
+                fund_type=str(item.get("fund_type") or meta.get("fund_type") or ""),
+                management=str(item.get("management") or meta.get("management") or ""),
+                limit=int(compare_limit),
+            )
+        except Exception as exc:
+            st.warning(f"加载同类基金对比失败：{exc}")
+            compare_df = pd.DataFrame()
+
+        if compare_df is None or compare_df.empty:
+            st.info("暂无可用的同类基金对比样本。")
+        else:
+            same_manager_count = int((compare_df["比较来源"] == "同管理人").sum() + (compare_df["比较来源"] == "同管理人 + 同类型").sum())
+            same_type_count = int((compare_df["比较来源"] == "同类型").sum() + (compare_df["比较来源"] == "同管理人 + 同类型").sum())
+            peer_cols = st.columns(3)
+            peer_cols[0].metric("对比基金数", f"{len(compare_df):,}")
+            peer_cols[1].metric("同管理人", f"{same_manager_count:,}")
+            peer_cols[2].metric("同类型", f"{same_type_count:,}")
+            st.dataframe(
+                compare_df,
+                use_container_width=True,
+                hide_index=True,
+                height=420,
+                column_config={
+                    "基金详情": st.column_config.LinkColumn("基金详情", display_text="查看基金"),
                 },
             )
 
