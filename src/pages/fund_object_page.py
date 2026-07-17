@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+from urllib.parse import quote
 
 from src.security_data_cache import (
     load_fund_hot_stock_periods,
@@ -46,10 +47,21 @@ def _resolve_logged_in_username() -> str:
 def _holdings_frame(holdings: list[dict]) -> pd.DataFrame:
     rows = []
     for row in holdings or []:
+        symbol = str(row.get("symbol") or "-").strip().upper()
+        stock_name = str(row.get("stock_name") or symbol or "-").strip()
+        link = ""
+        if symbol and symbol != "-":
+            link = (
+                f"?security_query={quote(symbol)}"
+                f"&security_type=stock"
+                f"&open_tab=stock_object"
+                f"&jump_nonce=fund-object-{quote(symbol)}"
+            )
         rows.append(
             {
                 "股票名称": row.get("stock_name") or "-",
                 "股票代码": row.get("symbol") or "-",
+                "股票详情": link,
                 "持仓市值(亿元)": row.get("market_value_yi"),
                 "权重(%)": row.get("weight"),
                 "变动": row.get("change_label") or "-",
@@ -253,7 +265,15 @@ def render_fund_object_page() -> None:
         if holdings_preview.empty:
             st.info("当前披露期暂无持仓数据。")
         else:
-            st.dataframe(holdings_preview, use_container_width=True, hide_index=True, height=360)
+            st.dataframe(
+                holdings_preview,
+                use_container_width=True,
+                hide_index=True,
+                height=360,
+                column_config={
+                    "股票详情": st.column_config.LinkColumn("股票详情", display_text="查看股票"),
+                },
+            )
 
     with tab_nav:
         st.markdown("##### 净值快照")
@@ -296,7 +316,15 @@ def render_fund_object_page() -> None:
         if holdings_df.empty:
             st.info("当前披露期暂无持仓数据。")
         else:
-            st.dataframe(holdings_df, use_container_width=True, hide_index=True, height=420)
+            st.dataframe(
+                holdings_df,
+                use_container_width=True,
+                hide_index=True,
+                height=420,
+                column_config={
+                    "股票详情": st.column_config.LinkColumn("股票详情", display_text="查看股票"),
+                },
+            )
 
     with tab_changes:
         st.markdown("##### 持仓变化摘要")
@@ -312,7 +340,15 @@ def render_fund_object_page() -> None:
             if frame.empty:
                 st.info(f"当前披露期暂无{label}持仓。")
             else:
-                st.dataframe(frame, use_container_width=True, hide_index=True, height=240)
+                st.dataframe(
+                    frame,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=240,
+                    column_config={
+                        "股票详情": st.column_config.LinkColumn("股票详情", display_text="查看股票"),
+                    },
+                )
 
     with tab_watch:
         st.markdown("##### 跟踪建议")

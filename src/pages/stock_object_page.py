@@ -209,11 +209,15 @@ def render_stock_object_page() -> None:
     st.subheader("🧩 股票对象页")
     st.caption("围绕单只股票聚合：概览、资金流、龙虎榜、公募基金持仓。")
 
+    default_query = str(st.session_state.get("stock_object_prefill_query") or "").strip()
     query = st.text_input(
         "搜索股票",
         placeholder="输入代码、简称或拼音，例如 600519、贵州茅台、000001.SZ",
+        value=default_query,
         key="stock_object_query",
     ).strip()
+    if default_query:
+        st.session_state["stock_object_prefill_query"] = ""
     if not query:
         st.info("请输入关键字开始检索股票。")
         return

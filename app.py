@@ -3683,6 +3683,12 @@ def hydrate_security_jump_from_query_params() -> None:
         st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
         st.session_state["jump_to_security_tab"] = True
 
+    if open_tab == "stock_object":
+        st.session_state["sidebar_nav_group"] = "股票"
+        st.session_state["sidebar_expanded_module_id"] = "stock"
+        st.session_state["stock_subpage"] = STOCK_OBJECT_PAGE_LABEL
+        st.session_state["stock_object_prefill_query"] = security_query
+
     if jump_nonce:
         st.session_state["last_consumed_jump_nonce"] = jump_nonce
 
