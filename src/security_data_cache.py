@@ -8,6 +8,7 @@ from urllib.parse import quote
 import pandas as pd
 import requests
 import streamlit as st
+from sqlalchemy import text
 
 from src.etf_stats import (
     get_security_financial_timeseries,
@@ -328,7 +329,8 @@ def load_fund_peer_comparison(
     engine = get_fund_hot_engine()
     peer_slots = max(1, int(limit or 6) - 1)
     candidate_df = pd.read_sql(
-        """
+        text(
+            """
         WITH peers AS (
             SELECT
                 fund_code,
@@ -377,7 +379,8 @@ def load_fund_peer_comparison(
         WHERE compare_rank < 9
         ORDER BY compare_rank, issue_amount DESC NULLS LAST, latest_end_date DESC NULLS LAST, fund_code
         LIMIT :peer_slots
-        """,
+        """
+        ),
         engine,
         params={
             "fund_code": normalized_code,
