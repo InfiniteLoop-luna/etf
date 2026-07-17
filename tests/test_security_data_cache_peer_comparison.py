@@ -63,6 +63,9 @@ def test_load_fund_peer_comparison_uses_text_clause_for_named_params(monkeypatch
     )
 
     assert isinstance(captured["sql"], TextClause)
+    assert "FROM vw_fund_portfolio" in str(captured["sql"])
+    assert "MAX(end_date) AS latest_end_date" in str(captured["sql"])
+    assert "LEFT JOIN latest_portfolio lp ON lp.fund_code = fb.fund_code" in str(captured["sql"])
     assert captured["params"]["fund_code"] == "018993.OF"
     assert captured["params"]["peer_slots"] == 5
     assert result.iloc[0]["标记"] == "当前基金"

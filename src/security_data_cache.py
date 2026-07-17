@@ -331,47 +331,55 @@ def load_fund_peer_comparison(
     candidate_df = pd.read_sql(
         text(
             """
-        WITH peers AS (
+        WITH latest_portfolio AS (
             SELECT
                 fund_code,
-                COALESCE(NULLIF(name, ''), fund_code) AS name,
-                COALESCE(NULLIF(management, ''), '持仓表补全') AS management,
-                COALESCE(NULLIF(fund_type, ''), NULLIF(invest_type, ''), '未知类型') AS fund_type,
-                issue_amount,
-                latest_end_date,
+                MAX(end_date) AS latest_end_date
+            FROM vw_fund_portfolio
+            GROUP BY fund_code
+        ),
+        peers AS (
+            SELECT
+                fb.fund_code,
+                COALESCE(NULLIF(fb.name, ''), fb.fund_code) AS name,
+                COALESCE(NULLIF(fb.management, ''), '持仓表补全') AS management,
+                COALESCE(NULLIF(fb.fund_type, ''), NULLIF(fb.invest_type, ''), '未知类型') AS fund_type,
+                fb.issue_amount,
+                lp.latest_end_date,
                 CASE
                     WHEN :management <> ''
-                     AND COALESCE(NULLIF(management, ''), '') = :management
+                     AND COALESCE(NULLIF(fb.management, ''), '') = :management
                      AND :fund_type <> ''
-                     AND COALESCE(NULLIF(fund_type, ''), NULLIF(invest_type, ''), '') = :fund_type
+                     AND COALESCE(NULLIF(fb.fund_type, ''), NULLIF(fb.invest_type, ''), '') = :fund_type
                     THEN 0
                     WHEN :management <> ''
-                     AND COALESCE(NULLIF(management, ''), '') = :management
+                     AND COALESCE(NULLIF(fb.management, ''), '') = :management
                     THEN 1
                     WHEN :fund_type <> ''
-                     AND COALESCE(NULLIF(fund_type, ''), NULLIF(invest_type, ''), '') = :fund_type
+                     AND COALESCE(NULLIF(fb.fund_type, ''), NULLIF(fb.invest_type, ''), '') = :fund_type
                     THEN 2
                     ELSE 9
                 END AS compare_rank,
                 CASE
                     WHEN :management <> ''
-                     AND COALESCE(NULLIF(management, ''), '') = :management
+                     AND COALESCE(NULLIF(fb.management, ''), '') = :management
                      AND :fund_type <> ''
-                     AND COALESCE(NULLIF(fund_type, ''), NULLIF(invest_type, ''), '') = :fund_type
+                     AND COALESCE(NULLIF(fb.fund_type, ''), NULLIF(fb.invest_type, ''), '') = :fund_type
                     THEN '同管理人 + 同类型'
                     WHEN :management <> ''
-                     AND COALESCE(NULLIF(management, ''), '') = :management
+                     AND COALESCE(NULLIF(fb.management, ''), '') = :management
                     THEN '同管理人'
                     WHEN :fund_type <> ''
-                     AND COALESCE(NULLIF(fund_type, ''), NULLIF(invest_type, ''), '') = :fund_type
+                     AND COALESCE(NULLIF(fb.fund_type, ''), NULLIF(fb.invest_type, ''), '') = :fund_type
                     THEN '同类型'
                     ELSE '候选基金'
                 END AS compare_reason
-            FROM vw_fund_basic
-            WHERE UPPER(TRIM(fund_code)) <> :fund_code
+            FROM vw_fund_basic fb
+            LEFT JOIN latest_portfolio lp ON lp.fund_code = fb.fund_code
+            WHERE UPPER(TRIM(fb.fund_code)) <> :fund_code
               AND (
-                    (:management <> '' AND COALESCE(NULLIF(management, ''), '') = :management)
-                 OR (:fund_type <> '' AND COALESCE(NULLIF(fund_type, ''), NULLIF(invest_type, ''), '') = :fund_type)
+                    (:management <> '' AND COALESCE(NULLIF(fb.management, ''), '') = :management)
+                 OR (:fund_type <> '' AND COALESCE(NULLIF(fb.fund_type, ''), NULLIF(fb.invest_type, ''), '') = :fund_type)
               )
         )
         SELECT fund_code, name, management, fund_type, issue_amount, latest_end_date, compare_reason
