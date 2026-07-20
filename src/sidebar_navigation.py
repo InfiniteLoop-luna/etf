@@ -66,6 +66,12 @@ SIDEBAR_MODULES = (
                 "standard",
             ),
             SidebarPage(
+                "industry_etf",
+                "🏭 行业ETF",
+                "行业主题指数ETF聚合",
+                "standard",
+            ),
+            SidebarPage(
                 "fund_monitor",
                 "📈 基金监测",
                 "基金监测看板",

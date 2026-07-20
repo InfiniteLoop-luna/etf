@@ -275,6 +275,7 @@ def get_available_dates(
 
 AGG_TABLE = 'etf_category_daily_agg'
 WIDE_INDEX_TABLE = 'etf_wide_index_daily_agg'
+INDUSTRY_INDEX_TABLE = 'etf_industry_index_daily_agg'
 STOCK_BASIC_VIEW = 'vw_ts_stock_basic'
 STOCK_COMPANY_VIEW = 'vw_ts_stock_company'
 STOCK_HOLDERNUMBER_VIEW = 'vw_ts_stock_holdernumber'
@@ -606,6 +607,111 @@ def get_wide_index_timeseries(
         engine = _get_engine()
 
     return pd.read_sql(text(sql), engine, params=params)
+
+
+def get_industry_index_available_dates(limit: int = 1000, engine=None) -> list[str]:
+    sql = f"""
+        SELECT DISTINCT trade_date
+        FROM {INDUSTRY_INDEX_TABLE}
+        ORDER BY trade_date DESC
+        LIMIT :limit
+    """
+    if engine is None:
+        engine = _get_engine()
+
+    df = pd.read_sql(text(sql), engine, params={"limit": limit})
+    return [str(d) for d in df['trade_date'].tolist()]
+
+
+def get_industry_index_timeseries(
+    start_date: str = None,
+    end_date: str = None,
+    benchmark_codes: list[str] | None = None,
+    engine=None
+) -> pd.DataFrame:
+    conditions = ["1=1"]
+    params = {}
+
+    if start_date:
+        conditions.append("trade_date >= :start_date")
+        params["start_date"] = start_date
+    if end_date:
+        conditions.append("trade_date <= :end_date")
+        params["end_date"] = end_date
+    if benchmark_codes:
+        code_params = []
+        for idx, code in enumerate(benchmark_codes):
+            key = f"code_{idx}"
+            code_params.append(f":{key}")
+            params[key] = code
+        conditions.append(f"benchmark_index_code IN ({', '.join(code_params)})")
+
+    sql = f"""
+        SELECT
+            trade_date,
+            benchmark_index_code,
+            benchmark_index_name,
+            primary_category,
+            secondary_category,
+            etf_count,
+            ROUND(total_share / 10000, 2) AS total_share_yi,
+            ROUND(total_size / 10000, 2) AS total_size_yi,
+            ROUND(share_change / 10000, 2) AS share_change_yi,
+            ROUND(share_change_pct * 100, 2) AS share_change_pct,
+            ROUND(size_change / 10000, 2) AS size_change_yi,
+            ROUND(size_change_pct * 100, 2) AS size_change_pct
+        FROM {INDUSTRY_INDEX_TABLE}
+        WHERE {' AND '.join(conditions)}
+        ORDER BY trade_date, benchmark_index_code
+    """
+
+    if engine is None:
+        engine = _get_engine()
+
+    return pd.read_sql(text(sql), engine, params=params)
+
+
+def get_industry_index_constituent_detail(
+    trade_date: str,
+    benchmark_index_code: str,
+    engine=None
+) -> pd.DataFrame:
+    if len(trade_date) == 8 and '-' not in trade_date:
+        trade_date = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
+
+    sql = """
+        SELECT
+            v.ts_code,
+            v.etf_name,
+            e.benchmark_index_code,
+            COALESCE(NULLIF(e.index_name, ''), NULLIF(e.benchmark_index_name_cn, ''), e.benchmark_index_code) AS benchmark_index_name,
+            e.primary_category,
+            e.secondary_category,
+            v.exchange,
+            ROUND(v.total_share / 10000, 2) AS total_share_yi,
+            ROUND(v.total_size / 10000, 2) AS total_size_yi,
+            v.nav,
+            v.close
+        FROM v_etf_category_daily v
+        JOIN etf_summary e
+          ON v.ts_code = e.fund_trade_code
+        WHERE v.trade_date = :trade_date
+          AND e.benchmark_index_code = :benchmark_index_code
+          AND e.secondary_category = '行业&其他'
+        ORDER BY v.total_size DESC NULLS LAST, v.ts_code
+    """
+
+    if engine is None:
+        engine = _get_engine()
+
+    return pd.read_sql(
+        text(sql),
+        engine,
+        params={
+            "trade_date": trade_date,
+            "benchmark_index_code": benchmark_index_code,
+        },
+    )
 
 
 MACRO_DATASET_VIEWS = {

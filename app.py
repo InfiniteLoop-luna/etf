@@ -30,6 +30,8 @@ from src.etf_stats import (
     get_available_dates, get_category_daily_summary,
     get_category_tree, get_category_timeseries, get_agg_summary,
     get_wide_index_available_dates, get_wide_index_timeseries,
+    get_industry_index_available_dates, get_industry_index_timeseries,
+    get_industry_index_constituent_detail,
     get_macro_date_bounds, get_macro_dataset_timeseries,
     search_security, get_security_profile, get_security_timeseries,
     get_security_financial_timeseries, get_security_kline_timeseries, get_stock_basic_summary,
@@ -98,6 +100,7 @@ from src.navigation_config import (
     ETF_FUND_MONITOR_PAGE_LABEL,
     ETF_FUND_OBJECT_PAGE_LABEL,
     ETF_FUND_WATCHLIST_PAGE_LABEL,
+    ETF_INDUSTRY_PAGE_LABEL,
     ETF_MAIN_PAGE_LABEL,
     ETF_PAGE_OPTIONS,
     ETF_RATIO_PAGE_LABEL,
@@ -7266,6 +7269,8 @@ def main():
                 render_etf_trend_tab()
             elif mobile_page == ETF_WIDE_INDEX_PAGE_LABEL:
                 render_wide_index_tab()
+            elif mobile_page == ETF_INDUSTRY_PAGE_LABEL:
+                render_industry_etf_tab()
             elif mobile_page == ETF_FUND_MONITOR_PAGE_LABEL:
                 render_fund_monitor_tab()
             elif mobile_page == ETF_FUND_WATCHLIST_PAGE_LABEL:
@@ -7376,6 +7381,8 @@ def main():
             render_fund_monitor_tab()
         elif selected_page == ETF_WIDE_INDEX_PAGE_LABEL:
             render_wide_index_tab()
+        elif selected_page == ETF_INDUSTRY_PAGE_LABEL:
+            render_industry_etf_tab()
         elif selected_page == ETF_FUND_WATCHLIST_PAGE_LABEL:
             render_fund_watchlist_tab()
         elif selected_page == ETF_FUND_OBJECT_PAGE_LABEL:
@@ -15247,6 +15254,354 @@ def render_wide_index_tab():
     st.dataframe(
         display_df[
             ['日期', '宽基指数', 'benchmark_index_code', 'ETF只数',
+             '总份额(亿份)', '份额变动(亿份)', '份额变动比例(%)',
+             '总规模(亿元)', '规模变动(亿元)', '规模变动比例(%)']
+        ].rename(columns={'benchmark_index_code': '基准指数代码'}).style.format({
+            '总份额(亿份)': '{:,.2f}',
+            '份额变动(亿份)': '{:,.2f}',
+            '份额变动比例(%)': '{:,.2f}',
+            '总规模(亿元)': '{:,.2f}',
+            '规模变动(亿元)': '{:,.2f}',
+            '规模变动比例(%)': '{:,.2f}'
+        }, na_rep='-'),
+        use_container_width=True,
+        hide_index=True,
+        height=560
+    )
+
+
+def render_industry_etf_tab():
+    st.subheader("🏭 行业ETF总览")
+    st.caption("展示按具体行业/主题指数聚合后的 ETF 总份额、总规模及较前一日变动，不影响现有宽基指数ETF页面")
+
+    try:
+        available = get_industry_index_available_dates(limit=2000)
+    except Exception as e:
+        st.error(f"获取行业ETF聚合日期失败: {e}")
+        return
+
+    if not available:
+        st.warning("暂无行业ETF聚合数据，请先运行聚合脚本")
+        return
+
+    all_dates = sorted(list(pd.to_datetime(available).date))
+    min_d, max_d = all_dates[0], all_dates[-1]
+    default_start = max(min_d, max_d - timedelta(days=180))
+
+    control_cols = st.columns([1.25, 1.15, 1.4, 1.0])
+    with control_cols[0]:
+        date_range = st.slider(
+            "时间范围",
+            min_value=min_d,
+            max_value=max_d,
+            value=(default_start, max_d),
+            format="YYYY-MM-DD",
+            key="industry_etf_date_range"
+        )
+
+    try:
+        base_df = get_industry_index_timeseries(
+            start_date=str(date_range[0]),
+            end_date=str(date_range[1])
+        )
+    except Exception as e:
+        st.error(f"查询行业ETF聚合数据失败: {e}")
+        return
+
+    if base_df is None or len(base_df) == 0:
+        st.warning("所选时间范围内暂无行业ETF数据")
+        return
+
+    base_df = base_df.copy()
+    base_df["trade_date"] = pd.to_datetime(base_df["trade_date"])
+    latest_snapshot_date = base_df["trade_date"].max()
+    latest_snapshot = (
+        base_df[base_df["trade_date"] == latest_snapshot_date]
+        .sort_values(["total_size_yi", "benchmark_index_name"], ascending=[False, True])
+        .copy()
+    )
+
+    with control_cols[1]:
+        keyword = st.text_input(
+            "指数筛选",
+            value="",
+            placeholder="如：影视、证券、人工智能",
+            key="industry_etf_keyword"
+        ).strip()
+
+    options_df = latest_snapshot.copy()
+    if keyword:
+        keyword_mask = (
+            options_df["benchmark_index_name"].fillna("").astype(str).str.contains(keyword, case=False, na=False)
+            | options_df["benchmark_index_code"].fillna("").astype(str).str.contains(keyword, case=False, na=False)
+        )
+        options_df = options_df[keyword_mask].copy()
+
+    if options_df.empty:
+        st.warning("当前筛选条件下暂无行业指数可选")
+        return
+
+    code_name_df = (
+        options_df[["benchmark_index_code", "benchmark_index_name"]]
+        .drop_duplicates()
+        .sort_values(["benchmark_index_name", "benchmark_index_code"])
+    )
+    name_to_code = dict(zip(code_name_df["benchmark_index_name"], code_name_df["benchmark_index_code"]))
+    name_options = code_name_df["benchmark_index_name"].tolist()
+    default_names = name_options[: min(6, len(name_options))]
+
+    with control_cols[2]:
+        selected_names = st.multiselect(
+            "行业主题指数",
+            options=name_options,
+            default=default_names,
+            key="industry_etf_names"
+        )
+    with control_cols[3]:
+        metric = st.radio(
+            "查看指标",
+            options=["总份额(亿份)", "总规模(亿元)"],
+            index=0,
+            key="industry_etf_metric"
+        )
+
+    if not selected_names:
+        st.info("请至少选择一个行业主题指数")
+        return
+
+    selected_codes = [name_to_code[name] for name in selected_names if name in name_to_code]
+    ts_df = base_df[base_df["benchmark_index_code"].isin(selected_codes)].copy()
+    if ts_df.empty:
+        st.warning("当前筛选条件下暂无数据")
+        return
+
+    metric_col = 'total_share_yi' if '份额' in metric else 'total_size_yi'
+    metric_title = "总份额(亿份)" if '份额' in metric else "总规模(亿元)"
+
+    latest_date, latest_df = get_latest_metric_date(ts_df, metric_col)
+    if latest_date is None:
+        st.warning(f"当前筛选条件下暂无{metric}数据")
+        return
+
+    share_total = latest_df['total_share_yi'].sum(min_count=1)
+    share_delta = latest_df['share_change_yi'].sum(min_count=1)
+    share_base = (
+        float(share_total) - float(share_delta)
+        if pd.notna(share_total) and pd.notna(share_delta)
+        else None
+    )
+    share_delta_pct = (
+        float(share_delta) / share_base * 100
+        if share_base not in (None, 0)
+        else None
+    )
+    size_total = latest_df['total_size_yi'].sum(min_count=1)
+    size_delta = latest_df['size_change_yi'].sum(min_count=1)
+    size_base = (
+        float(size_total) - float(size_delta)
+        if pd.notna(size_total) and pd.notna(size_delta)
+        else None
+    )
+    size_delta_pct = (
+        float(size_delta) / size_base * 100
+        if size_base not in (None, 0)
+        else None
+    )
+
+    kpi_cols = st.columns(4)
+    with kpi_cols[0]:
+        st.metric("最新交易日", latest_date.strftime('%Y-%m-%d'))
+    with kpi_cols[1]:
+        st.metric("选中指数数", f"{latest_df['benchmark_index_code'].nunique()}")
+    with kpi_cols[2]:
+        st.metric(
+            "总份额(亿份)",
+            f"{float(share_total):,.2f}" if pd.notna(share_total) else "-",
+            format_metric_delta(share_delta, share_delta_pct)
+        )
+    with kpi_cols[3]:
+        st.metric(
+            "总规模(亿元)",
+            f"{float(size_total):,.2f}" if pd.notna(size_total) else "-",
+            format_metric_delta(size_delta, size_delta_pct)
+        )
+
+    chart_df = ts_df.sort_values(['benchmark_index_name', 'trade_date']).copy()
+    color_palette = [
+        THEME_NAVY, THEME_PURPLE, "#C28C4E", "#5B8E7D", "#B86A84",
+        THEME_PRIMARY, "#6FA3B8", THEME_UP, "#8AA05A", "#4F6785",
+        THEME_DOWN, THEME_WARN
+    ]
+    fig = go.Figure()
+    for idx, name in enumerate(selected_names):
+        line_df = chart_df[chart_df['benchmark_index_name'] == name]
+        if line_df.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=line_df['trade_date'],
+            y=line_df[metric_col],
+            mode='lines',
+            name=name,
+            line=dict(width=2.4 if idx < 4 else 1.8, color=color_palette[idx % len(color_palette)], shape='spline'),
+            hovertemplate=f"<b>{name}</b><br>%{{x|%Y-%m-%d}}<br>{metric_title}: %{{y:,.2f}}<extra></extra>"
+        ))
+
+    fig.update_layout(
+        title=dict(
+            text=f'行业ETF {metric_title} 趋势',
+            font=dict(size=20, weight=700, color=THEME_TEXT),
+            x=0.02
+        ),
+        xaxis_title='日期',
+        yaxis_title=metric_title,
+        hovermode='x unified',
+        height=520,
+        template='plotly_white',
+        plot_bgcolor=CHART_BG,
+        paper_bgcolor=CHART_PAPER_BG,
+        font=dict(family='Inter, PingFang SC, sans-serif'),
+        legend=dict(
+            orientation='h', yanchor='bottom', y=-0.28,
+            xanchor='center', x=0.5,
+            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+        ),
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+    apply_time_series_hover_affordance(fig, chart_df['trade_date'], chart_df[metric_col])
+    fig.update_xaxes(
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR
+    )
+    fig.update_yaxes(
+        showgrid=True, gridwidth=1, gridcolor=CHART_GRID_COLOR,
+        showline=True, linewidth=1, linecolor=CHART_AXIS_COLOR,
+        fixedrange=True
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    size_change_chart_df = chart_df.dropna(subset=['size_change_yi']).copy()
+    if not size_change_chart_df.empty:
+        st.caption("纵轴展示按当日收盘价 × 份额变化数计算的规模变动金额，hover 可查看变动比例")
+        industry_change_view = st.radio(
+            "规模变动展示方式",
+            options=["曲线", "红绿柱状"],
+            key="industry_etf_size_change_view",
+            horizontal=True
+        )
+        size_change_fig = create_change_curve_chart(
+            df=size_change_chart_df,
+            value_col='size_change_yi',
+            title='行业ETF 规模变动(亿元)趋势',
+            yaxis_title='规模变动(亿元)',
+            pct_col='size_change_pct',
+            series_col='benchmark_index_name',
+            series_names=selected_names,
+            color_palette=color_palette
+        )
+        size_change_bar_fig = create_change_bar_chart(
+            df=size_change_chart_df,
+            value_col='size_change_yi',
+            title='行业ETF 规模变动(亿元)红绿柱状图',
+            yaxis_title='规模变动(亿元)',
+            pct_col='size_change_pct',
+            series_col='benchmark_index_name',
+            series_names=selected_names
+        )
+        if industry_change_view == "曲线":
+            st.plotly_chart(size_change_fig, use_container_width=True)
+        else:
+            st.plotly_chart(size_change_bar_fig, use_container_width=True)
+
+    st.subheader("📋 最新行业指数排名")
+    latest_rank_df = (
+        latest_df.sort_values(['total_size_yi', 'benchmark_index_name'], ascending=[False, True]).copy()
+    )
+    latest_rank_df['ETF只数'] = latest_rank_df['etf_count'].fillna(0).astype(int)
+    st.dataframe(
+        latest_rank_df[
+            ['benchmark_index_name', 'benchmark_index_code', 'ETF只数',
+             'total_share_yi', 'share_change_yi', 'share_change_pct',
+             'total_size_yi', 'size_change_yi', 'size_change_pct']
+        ].rename(columns={
+            'benchmark_index_name': '行业主题指数',
+            'benchmark_index_code': '基准指数代码',
+            'total_share_yi': '总份额(亿份)',
+            'share_change_yi': '份额变动(亿份)',
+            'share_change_pct': '份额变动比例(%)',
+            'total_size_yi': '总规模(亿元)',
+            'size_change_yi': '规模变动(亿元)',
+            'size_change_pct': '规模变动比例(%)',
+        }).style.format({
+            '总份额(亿份)': '{:,.2f}',
+            '份额变动(亿份)': '{:,.2f}',
+            '份额变动比例(%)': '{:,.2f}',
+            '总规模(亿元)': '{:,.2f}',
+            '规模变动(亿元)': '{:,.2f}',
+            '规模变动比例(%)': '{:,.2f}',
+        }, na_rep='-'),
+        use_container_width=True,
+        hide_index=True,
+        height=360
+    )
+
+    st.subheader("🧩 指数下ETF明细")
+    focus_name = st.selectbox(
+        "查看某个行业指数对应的ETF",
+        options=selected_names,
+        key="industry_etf_focus_name"
+    )
+    focus_code = name_to_code.get(focus_name)
+    if focus_code:
+        try:
+            detail_df = get_industry_index_constituent_detail(
+                trade_date=latest_date.strftime('%Y-%m-%d'),
+                benchmark_index_code=focus_code
+            )
+        except Exception as e:
+            st.error(f"查询行业ETF明细失败: {e}")
+            detail_df = pd.DataFrame()
+
+        if detail_df.empty:
+            st.info("该指数在最新交易日暂无ETF明细")
+        else:
+            detail_df = detail_df.copy()
+            detail_df['总份额(亿份)'] = pd.to_numeric(detail_df['total_share_yi'], errors='coerce')
+            detail_df['总规模(亿元)'] = pd.to_numeric(detail_df['total_size_yi'], errors='coerce')
+            detail_df['净值'] = pd.to_numeric(detail_df['nav'], errors='coerce')
+            detail_df['收盘价'] = pd.to_numeric(detail_df['close'], errors='coerce')
+            st.caption(f"{latest_date.strftime('%Y-%m-%d')} | {focus_name} | 共 {len(detail_df)} 只ETF")
+            st.dataframe(
+                detail_df[
+                    ['ts_code', 'etf_name', 'exchange', '总份额(亿份)', '总规模(亿元)', '净值', '收盘价']
+                ].rename(columns={
+                    'ts_code': 'ETF代码',
+                    'etf_name': 'ETF名称',
+                    'exchange': '交易所',
+                }).style.format({
+                    '总份额(亿份)': '{:,.2f}',
+                    '总规模(亿元)': '{:,.2f}',
+                    '净值': '{:,.4f}',
+                    '收盘价': '{:,.4f}',
+                }, na_rep='-'),
+                use_container_width=True,
+                hide_index=True,
+                height=320
+            )
+
+    st.subheader("📚 每日聚合明细")
+    display_df = ts_df.sort_values(['trade_date', 'benchmark_index_code'], ascending=[False, True]).copy()
+    display_df['日期'] = display_df['trade_date'].dt.strftime('%Y-%m-%d')
+    display_df['行业主题指数'] = display_df['benchmark_index_name']
+    display_df['ETF只数'] = display_df['etf_count'].fillna(0).astype(int)
+    display_df['总份额(亿份)'] = pd.to_numeric(display_df['total_share_yi'], errors='coerce')
+    display_df['份额变动(亿份)'] = pd.to_numeric(display_df['share_change_yi'], errors='coerce')
+    display_df['份额变动比例(%)'] = pd.to_numeric(display_df['share_change_pct'], errors='coerce')
+    display_df['总规模(亿元)'] = pd.to_numeric(display_df['total_size_yi'], errors='coerce')
+    display_df['规模变动(亿元)'] = pd.to_numeric(display_df['size_change_yi'], errors='coerce')
+    display_df['规模变动比例(%)'] = pd.to_numeric(display_df['size_change_pct'], errors='coerce')
+    st.dataframe(
+        display_df[
+            ['日期', '行业主题指数', 'benchmark_index_code', 'ETF只数',
              '总份额(亿份)', '份额变动(亿份)', '份额变动比例(%)',
              '总规模(亿元)', '规模变动(亿元)', '规模变动比例(%)']
         ].rename(columns={'benchmark_index_code': '基准指数代码'}).style.format({

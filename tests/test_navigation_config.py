@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 
 from src.navigation_config import (
+    ETF_INDUSTRY_PAGE_LABEL,
     ETF_FUND_WATCHLIST_PAGE_LABEL,
     ETF_PAGE_OPTIONS,
     MONEY_MARGIN_PAGE_LABEL,
@@ -124,6 +125,10 @@ class NavigationConfigTests(unittest.TestCase):
         self.assertEqual(ETF_FUND_WATCHLIST_PAGE_LABEL, "⭐ 自选基金")
         self.assertIn("⭐ 自选基金", ETF_PAGE_OPTIONS)
 
+    def test_fund_page_options_include_industry_etf(self):
+        self.assertEqual(ETF_INDUSTRY_PAGE_LABEL, "🏭 行业ETF")
+        self.assertIn("🏭 行业ETF", ETF_PAGE_OPTIONS)
+
     def test_money_page_options_include_margin_page(self):
         self.assertEqual(MONEY_MARGIN_PAGE_LABEL, "🏦 两融数据")
         self.assertIn("🏦 两融数据", MONEY_PAGE_OPTIONS)
@@ -131,7 +136,7 @@ class NavigationConfigTests(unittest.TestCase):
     def test_navigation_option_labels_remain_stable(self):
         self.assertEqual(
             ETF_PAGE_OPTIONS,
-            ["📈 主要宽基ETF份额", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "📈 基金监测", "⭐ 自选基金", "🧩 基金对象页"],
+            ["📈 主要宽基ETF份额", "🥧 ETF分类占比", "📈 ETF分类趋势", "📊 宽基指数ETF", "🏭 行业ETF", "📈 基金监测", "⭐ 自选基金", "🧩 基金对象页"],
         )
         self.assertEqual(
             STOCK_PAGE_OPTIONS,

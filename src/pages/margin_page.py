@@ -120,7 +120,7 @@ def _build_market_latest_leaderboard(snapshot_df: pd.DataFrame) -> pd.DataFrame:
         / pd.to_numeric(prepared["rqyl_wan"], errors="coerce").replace(0, pd.NA)
     )
 
-    def _build_tag(row: pd.Series) -> str:
+    def _build_tags(row: pd.Series) -> list[str]:
         tags: list[str] = []
         rz_net_buy_yi = pd.to_numeric(pd.Series([row.get("rz_net_buy_yi")]), errors="coerce").iloc[0]
         rq_net_sell_wan = pd.to_numeric(pd.Series([row.get("rq_net_sell_wan")]), errors="coerce").iloc[0]
@@ -131,9 +131,10 @@ def _build_market_latest_leaderboard(snapshot_df: pd.DataFrame) -> pd.DataFrame:
             tags.append("融券压力抬升")
         if pd.notna(rzrqye_yi) and rzrqye_yi >= 30:
             tags.append("高余额标的")
-        return " / ".join(tags) if tags else "常规观察"
+        return tags
 
-    prepared["观察标签"] = prepared.apply(_build_tag, axis=1)
+    prepared["观察标签列表"] = prepared.apply(_build_tags, axis=1)
+    prepared["观察标签"] = prepared["观察标签列表"].apply(lambda tags: " / ".join(tags) if tags else "常规观察")
     return prepared
 
 
@@ -267,8 +268,59 @@ def _render_market_overview_section(margin_engine) -> None:
         "两融余额(亿)": "rzrqye_yi",
     }
     sort_col = sort_column_map[sort_label]
-    sorted_df = leaderboard_df.sort_values(by=sort_col, ascending=False, na_position="last").head(30)
+    available_tags = ["融资净买入强", "融券压力抬升", "高余额标的"]
+    filter_cols = st.columns([2.4, 1.4, 1.2])
+    selected_tags = filter_cols[0].multiselect(
+        "异动标签筛选",
+        options=available_tags,
+        default=[],
+        placeholder="不过滤则显示全部",
+        key="market_margin_leaderboard_tags",
+    )
+    labeled_only = filter_cols[1].checkbox(
+        "仅看明确异动",
+        value=False,
+        key="market_margin_leaderboard_labeled_only",
+    )
+    top_n = int(
+        filter_cols[2].selectbox(
+            "显示数量",
+            options=[10, 20, 30, 50],
+            index=2,
+            key="market_margin_leaderboard_top_n",
+        )
+    )
+
+    filtered_df = leaderboard_df.copy()
+    if selected_tags:
+        selected_tag_set = set(selected_tags)
+        filtered_df = filtered_df[
+            filtered_df["观察标签列表"].apply(
+                lambda tags: bool(selected_tag_set.intersection(set(tags or [])))
+            )
+        ]
+    if labeled_only:
+        filtered_df = filtered_df[filtered_df["观察标签列表"].apply(lambda tags: len(tags or []) > 0)]
+
+    tag_counts = {
+        tag: int(leaderboard_df["观察标签列表"].apply(lambda tags: tag in (tags or [])).sum())
+        for tag in available_tags
+    }
+    st.caption(
+        " | ".join(
+            [
+                f"`融资净买入强 {tag_counts['融资净买入强']} 只`",
+                f"`融券压力抬升 {tag_counts['融券压力抬升']} 只`",
+                f"`高余额标的 {tag_counts['高余额标的']} 只`",
+            ]
+        )
+    )
+
+    sorted_df = filtered_df.sort_values(by=sort_col, ascending=False, na_position="last").head(top_n)
     st.caption("口径说明：异动榜基于最新交易日两融明细快照，适合先筛候选，再点进个股页看连续性。")
+    if sorted_df.empty:
+        st.info("当前筛选条件下暂无候选标的，请放宽筛选条件。")
+        return
     st.dataframe(
         sorted_df[
             [

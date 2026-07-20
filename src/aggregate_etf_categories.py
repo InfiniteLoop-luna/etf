@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 TARGET_TABLE = 'etf_category_daily_agg'
 WIDE_INDEX_TABLE = 'etf_wide_index_daily_agg'
+INDUSTRY_INDEX_TABLE = 'etf_industry_index_daily_agg'
 WIDE_INDEX_NAME_MAP = {
     '000300.SH': '沪深300指数ETF',
     '000905.SH': '中证500指数ETF',
@@ -104,6 +105,31 @@ def ensure_wide_index_table(engine):
     with engine.begin() as conn:
         conn.execute(text(ddl))
     logger.info(f"表 {WIDE_INDEX_TABLE} 已就绪")
+
+
+def ensure_industry_index_table(engine):
+    ddl = f"""
+    CREATE TABLE IF NOT EXISTS {INDUSTRY_INDEX_TABLE} (
+        trade_date             DATE           NOT NULL,
+        benchmark_index_code   VARCHAR(20)    NOT NULL,
+        benchmark_index_name   VARCHAR(100)   NOT NULL,
+        primary_category       VARCHAR(50)    NOT NULL,
+        secondary_category     VARCHAR(50)    NOT NULL,
+        etf_count              INT,
+        total_share            NUMERIC(20,4),
+        total_size             NUMERIC(20,4),
+        share_change           NUMERIC(20,4),
+        share_change_pct       NUMERIC(20,6),
+        size_change            NUMERIC(20,4),
+        size_change_pct        NUMERIC(20,6),
+        PRIMARY KEY (trade_date, benchmark_index_code)
+    );
+    CREATE INDEX IF NOT EXISTS idx_industry_index_code_date
+        ON {INDUSTRY_INDEX_TABLE} (benchmark_index_code, trade_date);
+    """
+    with engine.begin() as conn:
+        conn.execute(text(ddl))
+    logger.info(f"表 {INDUSTRY_INDEX_TABLE} 已就绪")
 
 
 def aggregate_dates(engine, start_date: str = None, end_date: str = None):
@@ -444,6 +470,166 @@ def aggregate_wide_index_dates(engine, start_date: str = None, end_date: str = N
     return result.rowcount
 
 
+def aggregate_industry_index_dates(engine, start_date: str = None, end_date: str = None):
+    history_filter = ""
+    output_filter = ""
+    delete_filter = ""
+    params = {}
+
+    if end_date:
+        history_filter += " AND s.trade_date <= :end_date"
+        output_filter += " AND trade_date <= :end_date"
+        delete_filter += " AND trade_date <= :end_date"
+        params['end_date'] = end_date
+    if start_date:
+        output_filter += " AND trade_date >= :start_date"
+        delete_filter += " AND trade_date >= :start_date"
+        params['start_date'] = start_date
+
+    delete_sql = text(f"DELETE FROM {INDUSTRY_INDEX_TABLE} WHERE 1=1 {delete_filter}")
+    insert_sql = text(f"""
+        INSERT INTO {INDUSTRY_INDEX_TABLE} (
+            trade_date,
+            benchmark_index_code,
+            benchmark_index_name,
+            primary_category,
+            secondary_category,
+            etf_count,
+            total_share,
+            total_size,
+            share_change,
+            share_change_pct,
+            size_change,
+            size_change_pct
+        )
+        WITH etf_base AS (
+            SELECT
+                s.trade_date,
+                s.ts_code,
+                e.benchmark_index_code,
+                COALESCE(NULLIF(e.index_name, ''), NULLIF(e.benchmark_index_name_cn, ''), e.benchmark_index_code) AS benchmark_index_name,
+                e.primary_category,
+                e.secondary_category,
+                s.total_share,
+                s.total_size,
+                s.close,
+                LAG(s.total_share) OVER (
+                    PARTITION BY s.ts_code
+                    ORDER BY s.trade_date
+                ) AS prev_etf_total_share
+            FROM etf_share_size s
+            JOIN etf_summary e
+              ON s.ts_code = e.fund_trade_code
+            WHERE e.secondary_category = '行业&其他'
+              AND COALESCE(e.benchmark_index_code, '') <> ''
+              {history_filter}
+        ),
+        daily_base AS (
+            SELECT
+                trade_date,
+                benchmark_index_code,
+                benchmark_index_name,
+                primary_category,
+                secondary_category,
+                COUNT(DISTINCT ts_code) AS etf_count,
+                SUM(total_share) AS total_share,
+                SUM(total_size) AS total_size,
+                SUM(
+                    close * (
+                        total_share - COALESCE(prev_etf_total_share, 0)
+                    )
+                ) AS size_change_by_share
+            FROM etf_base
+            GROUP BY
+                trade_date,
+                benchmark_index_code,
+                benchmark_index_name,
+                primary_category,
+                secondary_category
+        ),
+        lag_base AS (
+            SELECT
+                trade_date,
+                benchmark_index_code,
+                benchmark_index_name,
+                primary_category,
+                secondary_category,
+                etf_count,
+                total_share,
+                total_size,
+                size_change_by_share,
+                LAG(total_share) OVER (
+                    PARTITION BY benchmark_index_code
+                    ORDER BY trade_date
+                ) AS prev_total_share,
+                LAG(total_size) OVER (
+                    PARTITION BY benchmark_index_code
+                    ORDER BY trade_date
+                ) AS prev_total_size
+            FROM daily_base
+        ),
+        calc AS (
+            SELECT
+                trade_date,
+                benchmark_index_code,
+                benchmark_index_name,
+                primary_category,
+                secondary_category,
+                etf_count,
+                total_share,
+                total_size,
+                total_share - prev_total_share AS share_change,
+                CASE
+                    WHEN prev_total_share IS NULL OR prev_total_share = 0 THEN NULL
+                    ELSE (total_share - prev_total_share) / prev_total_share
+                END AS share_change_pct,
+                CASE
+                    WHEN prev_total_size IS NULL THEN NULL
+                    ELSE size_change_by_share
+                END AS size_change,
+                CASE
+                    WHEN prev_total_size IS NULL OR prev_total_size = 0 THEN NULL
+                    ELSE size_change_by_share / prev_total_size
+                END AS size_change_pct
+            FROM lag_base
+        )
+        SELECT
+            trade_date,
+            benchmark_index_code,
+            benchmark_index_name,
+            primary_category,
+            secondary_category,
+            etf_count,
+            total_share,
+            total_size,
+            share_change,
+            share_change_pct,
+            size_change,
+            size_change_pct
+        FROM calc
+        WHERE 1=1
+          {output_filter}
+        ORDER BY trade_date, benchmark_index_code
+        ON CONFLICT (trade_date, benchmark_index_code) DO UPDATE SET
+            benchmark_index_name = EXCLUDED.benchmark_index_name,
+            primary_category = EXCLUDED.primary_category,
+            secondary_category = EXCLUDED.secondary_category,
+            etf_count = EXCLUDED.etf_count,
+            total_share = EXCLUDED.total_share,
+            total_size = EXCLUDED.total_size,
+            share_change = EXCLUDED.share_change,
+            share_change_pct = EXCLUDED.share_change_pct,
+            size_change = EXCLUDED.size_change,
+            size_change_pct = EXCLUDED.size_change_pct
+    """)
+
+    with engine.begin() as conn:
+        conn.execute(delete_sql, params)
+        result = conn.execute(insert_sql, params)
+        logger.info(f"行业ETF指数聚合完成，影响 {result.rowcount} 行")
+    return result.rowcount
+
+
 def get_latest_agg_date(engine) -> str | None:
     """查询聚合表中最大日期"""
     with engine.connect() as conn:
@@ -456,6 +642,14 @@ def get_latest_agg_date(engine) -> str | None:
 def get_latest_wide_index_agg_date(engine) -> str | None:
     with engine.connect() as conn:
         row = conn.execute(text(f"SELECT MAX(trade_date) FROM {WIDE_INDEX_TABLE}")).fetchone()
+    if row and row[0]:
+        return row[0].strftime('%Y-%m-%d')
+    return None
+
+
+def get_latest_industry_index_agg_date(engine) -> str | None:
+    with engine.connect() as conn:
+        row = conn.execute(text(f"SELECT MAX(trade_date) FROM {INDUSTRY_INDEX_TABLE}")).fetchone()
     if row and row[0]:
         return row[0].strftime('%Y-%m-%d')
     return None
@@ -486,6 +680,7 @@ def run(full: bool = False, start_date: str | None = None, end_date: str | None 
     engine = get_engine()
     ensure_table(engine)
     ensure_wide_index_table(engine)
+    ensure_industry_index_table(engine)
     start_date = normalize_date(start_date)
     end_date = normalize_date(end_date)
 
@@ -497,13 +692,16 @@ def run(full: bool = False, start_date: str | None = None, end_date: str | None 
         logger.info(f"指定区间模式：聚合 {start_date} ~ {end_date}")
         aggregate_dates(engine, start_date=start_date, end_date=end_date)
         aggregate_wide_index_dates(engine, start_date=start_date, end_date=end_date)
+        aggregate_industry_index_dates(engine, start_date=start_date, end_date=end_date)
     elif full:
         logger.info("全量回填模式")
         aggregate_dates(engine)
         aggregate_wide_index_dates(engine)
+        aggregate_industry_index_dates(engine)
     else:
         latest_agg = get_latest_agg_date(engine)
         latest_wide_index_agg = get_latest_wide_index_agg_date(engine)
+        latest_industry_index_agg = get_latest_industry_index_agg_date(engine)
         latest_share = get_latest_share_date(engine)
         if not latest_share:
             logger.info("etf_share_size 无数据，跳过")
@@ -511,18 +709,20 @@ def run(full: bool = False, start_date: str | None = None, end_date: str | None 
         if (
             latest_agg and latest_agg >= latest_share
             and latest_wide_index_agg and latest_wide_index_agg >= latest_share
+            and latest_industry_index_agg and latest_industry_index_agg >= latest_share
         ):
             logger.info(
-                f"聚合已是最新 (agg={latest_agg}, wide={latest_wide_index_agg}, share={latest_share})，跳过"
+                f"聚合已是最新 (agg={latest_agg}, wide={latest_wide_index_agg}, industry={latest_industry_index_agg}, share={latest_share})，跳过"
             )
             return
-        if not latest_agg or not latest_wide_index_agg:
+        if not latest_agg or not latest_wide_index_agg or not latest_industry_index_agg:
             start = '2023-01-01'
         else:
-            start = min(latest_agg, latest_wide_index_agg)
+            start = min(latest_agg, latest_wide_index_agg, latest_industry_index_agg)
         logger.info(f"增量模式：聚合 {start} ~ {latest_share}")
         aggregate_dates(engine, start_date=start, end_date=latest_share)
         aggregate_wide_index_dates(engine, start_date=start, end_date=latest_share)
+        aggregate_industry_index_dates(engine, start_date=start, end_date=latest_share)
 
     # 验证
     with engine.connect() as conn:
@@ -534,8 +734,13 @@ def run(full: bool = False, start_date: str | None = None, end_date: str | None 
             SELECT COUNT(*) as cnt, MIN(trade_date) as min_d, MAX(trade_date) as max_d
             FROM {WIDE_INDEX_TABLE}
         """)).fetchone()
+        industry_row = conn.execute(text(f"""
+            SELECT COUNT(*) as cnt, MIN(trade_date) as min_d, MAX(trade_date) as max_d
+            FROM {INDUSTRY_INDEX_TABLE}
+        """)).fetchone()
     logger.info(f"分类聚合表现状: {row[0]} 行, {row[1]} ~ {row[2]}")
     logger.info(f"宽基指数聚合表现状: {wide_row[0]} 行, {wide_row[1]} ~ {wide_row[2]}")
+    logger.info(f"行业ETF指数聚合表现状: {industry_row[0]} 行, {industry_row[1]} ~ {industry_row[2]}")
 
 
 if __name__ == '__main__':
