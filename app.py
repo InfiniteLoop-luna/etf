@@ -12565,16 +12565,47 @@ def render_watchlist_cyber_dashboard(
 
 
 def preload_watchlist_reports_bg(username: str, engine) -> None:
-    """在后台静默触发当前登录用户自选股深度出货缓存增量刷新。"""
+    """在后台静默触发当前登录用户自选股报告缓存增量刷新。"""
     import threading
+
+    normalized_username = normalize_username(username)
+    if not normalized_username or engine is None:
+        return
 
     def _worker():
         try:
-            logger.info(f"Started global watchlist distribution refresh after login for {username}")
-            refresh_watchlist_distribution_reports(engine)
-            logger.info(f"Finished global watchlist distribution refresh after login for {username}")
-        except Exception as e:
-            logger.error(f"Background preload crashed: {e}")
+            logger.info("Started watchlist distribution preload after login for %s", normalized_username)
+            dist_summary = refresh_watchlist_distribution_reports(engine, username=normalized_username)
+            logger.info(
+                "Finished watchlist distribution preload after login for %s: %s",
+                normalized_username,
+                dist_summary,
+            )
+        except Exception as dist_exc:
+            logger.error(
+                "Watchlist distribution preload after login crashed for %s: %s",
+                normalized_username,
+                dist_exc,
+            )
+
+        try:
+            logger.info("Started stock research preload after login for %s", normalized_username)
+            research_summary = refresh_watchlist_stock_research_reports(
+                engine,
+                username=normalized_username,
+                force=False,
+            )
+            logger.info(
+                "Finished stock research preload after login for %s: %s",
+                normalized_username,
+                research_summary,
+            )
+        except Exception as research_exc:
+            logger.error(
+                "Stock research preload after login crashed for %s: %s",
+                normalized_username,
+                research_exc,
+            )
 
     # 启动守护线程，不阻塞主程序
     t = threading.Thread(target=_worker, daemon=True)
