@@ -205,6 +205,13 @@ from src.stock_research_report_store import (
 from src.stock_analysis_template_report import generate_stock_analysis_template_report_bundle
 from src.watchlist_distribution_refresh import refresh_watchlist_distribution_reports
 from src.watchlist_stock_research_refresh import refresh_watchlist_stock_research_reports
+from src.margin_fetcher import (
+    _get_engine_cached as get_margin_engine_cached,
+    build_margin_price_divergence_summary,
+    build_margin_signal_summary,
+    query_margin_detail_history,
+    query_stock_price_history,
+)
 from src.watchlist_excel_importer import (
     import_watchlist_rows,
     parse_watchlist_import_workbook,
@@ -11828,6 +11835,94 @@ def load_watchlist_alert_text_map_session_cached(ts_codes: tuple) -> dict[str, s
     return alerts_dict
 
 
+def load_watchlist_margin_signal_map_session_cached(stock_codes: tuple) -> dict[str, dict]:
+    normalized_codes = tuple(
+        str(code or "").strip().upper() for code in stock_codes if str(code or "").strip()
+    )
+    cache_payload = st.session_state.get("watchlist_margin_signal_session_cache")
+    now = time.monotonic()
+
+    if (
+        isinstance(cache_payload, dict)
+        and cache_payload.get("key") == normalized_codes
+        and now - float(cache_payload.get("saved_at", 0.0)) < WATCHLIST_STATUS_SESSION_CACHE_TTL_SECONDS
+    ):
+        return dict(cache_payload.get("signals", {}))
+
+    signal_map: dict[str, dict] = {}
+    if normalized_codes:
+        try:
+            margin_engine = get_margin_engine_cached()
+        except Exception as exc:
+            logger.warning("Failed to init margin engine for watchlist scan: %s", exc)
+            margin_engine = None
+
+        if margin_engine is not None:
+            for code in normalized_codes:
+                try:
+                    margin_df = query_margin_detail_history(code, engine=margin_engine)
+                    if margin_df is None or margin_df.empty:
+                        continue
+                    price_df = query_stock_price_history(code, engine=margin_engine)
+                    signal_summary = build_margin_signal_summary(margin_df, lookback_days=20)
+                    divergence_summary = build_margin_price_divergence_summary(
+                        margin_df,
+                        price_df,
+                        lookback_days=20,
+                    )
+                except Exception as exc:
+                    logger.warning("Watchlist margin scan failed for %s: %s", code, exc)
+                    continue
+
+                signal_alert_titles = [
+                    str(item.get("title") or "").strip()
+                    for item in signal_summary.get("alerts", [])
+                    if str(item.get("title") or "").strip()
+                ]
+                divergence_alert_titles = [
+                    str(item.get("title") or "").strip()
+                    for item in divergence_summary.get("alerts", [])
+                    if str(item.get("title") or "").strip()
+                ]
+                observations = [
+                    str(item or "").strip()
+                    for item in divergence_summary.get("observations", [])
+                    if str(item or "").strip()
+                ]
+
+                signal_text = " / ".join(signal_alert_titles[:2]).strip()
+                if not signal_text:
+                    signal_text = str(signal_summary.get("financing_signal") or "").strip()
+                if not signal_text:
+                    signal_text = str(signal_summary.get("rank_comment") or "").strip()
+
+                divergence_text = " / ".join(divergence_alert_titles[:2]).strip()
+                if not divergence_text and observations:
+                    divergence_text = observations[0]
+
+                attention_score = min(
+                    100,
+                    int(
+                        len(signal_alert_titles) * 20
+                        + len(divergence_alert_titles) * 25
+                        + min(float(signal_summary.get("rzrqye_rank_pct") or 0.0) / 5.0, 20.0)
+                    ),
+                )
+
+                signal_map[code] = {
+                    "两融信号": signal_text or "-",
+                    "价格背离": divergence_text or "-",
+                    "两融关注度": attention_score,
+                }
+
+    st.session_state["watchlist_margin_signal_session_cache"] = {
+        "key": normalized_codes,
+        "saved_at": now,
+        "signals": dict(signal_map),
+    }
+    return signal_map
+
+
 def generate_sparkline_svg(prices, is_up=True):
     if not prices or len(prices) < 2:
         return ""
@@ -12081,6 +12176,9 @@ def render_watchlist_focus_detail_card(
     signal_text = _watchlist_html_text(focus_row.get("操作信号"))
     risk_level = _watchlist_html_text(focus_row.get("风险等级"))
     alert_text = _watchlist_html_text(focus_row.get("主力异动") or "主力异动暂无明显预警")
+    margin_signal_text = _watchlist_html_text(focus_row.get("两融信号") or "两融信号暂无明显异动")
+    price_divergence_text = _watchlist_html_text(focus_row.get("价格背离") or "价格联动暂无明显背离")
+    margin_attention_text = _watchlist_value_text(focus_row.get("两融关注度"), digits=0)
     summary_raw = str(focus_row.get("趋势摘要") or "").strip()
     if not summary_raw:
         summary_raw = f"当前趋势信号为 {focus_row.get('操作信号') or '-'}，结合趋势得分、短线涨跌与风险项进行跟踪。"
@@ -12159,7 +12257,7 @@ def render_watchlist_focus_detail_card(
                     <div class="ws-watchboard-foot"><label>自选广度</label><strong>{total_count}只 · {up_count}涨 / {down_count}跌</strong></div>
                     <div class="ws-watchboard-foot"><label>量比</label><strong>{volume_ratio_text}</strong></div>
                     <div class="ws-watchboard-foot"><label>支撑 / 压力</label><strong>{support_text} / {resistance_text}</strong></div>
-                    <div class="ws-watchboard-foot"><label>平均趋势</label><strong>{avg_trend_text}</strong></div>
+                    <div class="ws-watchboard-foot"><label>两融关注度</label><strong>{margin_attention_text}</strong></div>
                 </div>
             </div>
             <div class="ws-watchboard-side">
@@ -12174,6 +12272,8 @@ def render_watchlist_focus_detail_card(
                     <p>今日表现 <span style="color:{accent_color};font-weight:800;">{ret_text}</span> · 风险 {risk_score} · {risk_level}</p>
                     <div class="ws-beat">打败了 <strong>{beat_pct:.2f}%</strong> 的自选标的</div>
                     <p>{alert_text}</p>
+                    <p>两融扫描：{margin_signal_text}</p>
+                    <p>价格联动：{price_divergence_text}</p>
                     <p>{summary_text}</p>
                     <p>当前信号：<span style="color:{accent_color};font-weight:800;">{signal_text}</span></p>
                 </div>
@@ -12242,6 +12342,8 @@ def render_watchlist_cyber_dashboard(
         signal_text = _watchlist_html_text(stock_row.get("操作信号"))
         trend_status = _watchlist_html_text(stock_row.get("趋势状态"))
         risk_level = _watchlist_html_text(stock_row.get("风险等级"))
+        margin_signal_text = _watchlist_html_text(stock_row.get("两融信号") or "两融中性")
+        margin_attention = _watchlist_value_text(stock_row.get("两融关注度"), digits=0)
         active_class = " is-active" if card_code == focus_code else ""
         safe_code = "".join(ch if ch.isalnum() else "_" for ch in card_code)
         card_html = f"""
@@ -12263,6 +12365,10 @@ def render_watchlist_cyber_dashboard(
             <div class="ws-watchboard-stock-foot">
                 <span>{trend_score}分 · {trend_status}</span>
                 <span class="ws-watchboard-stock-signal">{signal_text} · {risk_level}</span>
+            </div>
+            <div class="ws-watchboard-stock-foot">
+                <span>两融 {margin_attention}</span>
+                <span class="ws-watchboard-stock-signal">{margin_signal_text}</span>
             </div>
         </div>
         """
@@ -12792,11 +12898,37 @@ def render_user_watchlist_tab() -> None:
     # 获取并合并预警数据
     alerts_dict = load_watchlist_alert_text_map_session_cached(ts_codes)
     enriched_df['主力异动'] = enriched_df['ts_code'].map(lambda x: alerts_dict.get(str(x).strip().upper(), ""))
+    margin_signal_map = load_watchlist_margin_signal_map_session_cached(stock_report_codes)
+    enriched_df["两融信号"] = enriched_df.apply(
+        lambda row: (
+            (margin_signal_map.get(str(row.get("ts_code") or "").strip().upper(), {}) or {}).get("两融信号", "-")
+            if str(row.get("security_type") or "").strip().lower() == "stock"
+            else "-"
+        ),
+        axis=1,
+    )
+    enriched_df["价格背离"] = enriched_df.apply(
+        lambda row: (
+            (margin_signal_map.get(str(row.get("ts_code") or "").strip().upper(), {}) or {}).get("价格背离", "-")
+            if str(row.get("security_type") or "").strip().lower() == "stock"
+            else "-"
+        ),
+        axis=1,
+    )
+    enriched_df["两融关注度"] = enriched_df.apply(
+        lambda row: (
+            (margin_signal_map.get(str(row.get("ts_code") or "").strip().upper(), {}) or {}).get("两融关注度", 0)
+            if str(row.get("security_type") or "").strip().lower() == "stock"
+            else 0
+        ),
+        axis=1,
+    )
 
     # Metrics Overview
     up_count = len(enriched_df[enriched_df['涨跌幅(%)'] > 0])
     down_count = len(enriched_df[enriched_df['涨跌幅(%)'] < 0])
     avg_trend = enriched_df['趋势得分'].mean()
+    margin_focus_count = int((pd.to_numeric(enriched_df["两融关注度"], errors="coerce").fillna(0) >= 40).sum())
     
     # 找最大涨跌幅
     valid_ret = enriched_df.dropna(subset=['涨跌幅(%)'])
@@ -12814,6 +12946,7 @@ def render_user_watchlist_tab() -> None:
         col4.metric("最大领涨", f"{max_up['名称']}", f"{max_up['涨跌幅(%)']:.2f}%", delta_color="inverse")
     elif max_down is not None:
         col4.metric("最大领跌", f"{max_down['名称']}", f"{max_down['涨跌幅(%)']:.2f}%", delta_color="inverse")
+    st.caption(f"两融重点观察：`{margin_focus_count}` 只标的出现较明显的两融或价格背离信号。")
         
     st.divider()
 
@@ -12822,7 +12955,7 @@ def render_user_watchlist_tab() -> None:
     with ctrl1:
         view_mode = st.radio("视图模式", ["表格", "看板"], index=1, horizontal=True)
     with ctrl2:
-        sort_by = st.selectbox("排序方式", ["趋势得分", "涨跌幅(%)", "总市值(亿)"], index=0)
+        sort_by = st.selectbox("排序方式", ["趋势得分", "两融关注度", "涨跌幅(%)", "总市值(亿)"], index=0)
     with ctrl3:
         filter_signal = st.radio("信号筛选", ["全部", "🔥 强势", "🔻 弱势"], horizontal=True)
 
@@ -12885,6 +13018,9 @@ def render_user_watchlist_tab() -> None:
                 "数据日期": st.column_config.TextColumn("数据日期", width="small"),
                 "操作信号": st.column_config.TextColumn("操作信号", width="medium"),
                 "主力异动": st.column_config.TextColumn("主力出货预警", width="large"),
+                "两融关注度": st.column_config.ProgressColumn("两融关注度", min_value=0, max_value=100, format="%d"),
+                "两融信号": st.column_config.TextColumn("两融信号", width="large"),
+                "价格背离": st.column_config.TextColumn("价格背离", width="large"),
                 "个股研究": st.column_config.TextColumn("个股深度研究", width="large"),
             },
             use_container_width=True,
