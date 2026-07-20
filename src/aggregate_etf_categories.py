@@ -507,7 +507,11 @@ def aggregate_industry_index_dates(engine, start_date: str = None, end_date: str
                 s.trade_date,
                 s.ts_code,
                 e.benchmark_index_code,
-                COALESCE(NULLIF(e.index_name, ''), NULLIF(e.benchmark_index_name_cn, ''), e.benchmark_index_code) AS benchmark_index_name,
+                COALESCE(
+                    NULLIF(TRIM(CAST(e.index_name AS TEXT)), ''),
+                    NULLIF(TRIM(CAST(e.benchmark_index_name_cn AS TEXT)), ''),
+                    e.benchmark_index_code
+                ) AS benchmark_index_name,
                 e.primary_category,
                 e.secondary_category,
                 s.total_share,
