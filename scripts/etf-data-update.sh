@@ -40,6 +40,9 @@ if [[ "${ETF_SHARE_SIZE_SKIP_VERIFY:-0}" == "1" ]]; then
 fi
 python src/fetch_etf_share_size.py "${ETF_SHARE_SIZE_ARGS[@]}"
 
+echo "[$(date -Is)] etf-data-update: run aggregate_etf_categories.py"
+python src/aggregate_etf_categories.py
+
 echo "[$(date -Is)] etf-data-update: run update_moneyflow.py (incremental)"
 python update_moneyflow.py --datasets moneyflow,moneyflow_hsgt,moneyflow_ind_ths,moneyflow_dc_ind --lookback-days 1
 
