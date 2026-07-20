@@ -512,7 +512,7 @@ def aggregate_industry_index_dates(engine, start_date: str = None, end_date: str
                 e.secondary_category,
                 s.total_share,
                 s.total_size,
-                s.close,
+                NULLIF(TRIM(CAST(s.close AS TEXT)), '')::numeric AS close,
                 LAG(s.total_share) OVER (
                     PARTITION BY s.ts_code
                     ORDER BY s.trade_date
