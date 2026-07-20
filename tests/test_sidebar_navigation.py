@@ -31,6 +31,20 @@ class SidebarNavigationTests(unittest.TestCase):
         self.assertEqual(results[0].page_id, "fund_watchlist")
         self.assertEqual(results[0].module_id, "fund")
 
+    def test_margin_page_belongs_to_money_module_and_is_searchable(self):
+        page = get_page_by_id("margin")
+
+        self.assertEqual(page.label, "🏦 两融数据")
+        self.assertEqual(page.description, "融资融券与价格联动观察")
+        self.assertEqual(page.toolbar_variant, "standard")
+        self.assertEqual(get_module_id_for_page_id("margin"), "money")
+        self.assertIn("🏦 两融数据", get_page_labels("资金"))
+
+        results = search_sidebar_pages("两融")
+        self.assertGreater(len(results), 0)
+        self.assertEqual(results[0].page_id, "margin")
+        self.assertEqual(results[0].module_id, "money")
+
     def test_lookup_helpers_return_expected_stock_page_metadata(self):
         module = get_module_by_id("stock")
         page = get_page_by_id("security_search")
@@ -131,6 +145,7 @@ class SidebarNavigationTests(unittest.TestCase):
             ["💼 今日机会清单", "🔎 个股/指数查询", "💹 资金流向"],
         )
         self.assertEqual(get_module_label_for_page("💹 资金流向"), "资金")
+        self.assertEqual(get_module_label_for_page("🏦 两融数据"), "资金")
         self.assertEqual(
             get_page_labels("股票"),
             [
@@ -144,6 +159,10 @@ class SidebarNavigationTests(unittest.TestCase):
                 "🧠 因子选股工作台",
                 "🧭 观点跟踪",
             ],
+        )
+        self.assertEqual(
+            get_page_labels("资金"),
+            ["💹 资金流向", "🏦 两融数据", "📊 每日成交量", "🏦 公募持仓热股", "🔥 打板情绪", "🧾 游资名录"],
         )
 
     def test_resolve_expanded_module_id_falls_back_to_active_page_module(self):

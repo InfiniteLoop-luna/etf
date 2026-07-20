@@ -368,6 +368,77 @@ def query_margin_exchange_snapshot(
         return pd.read_sql(text(sql), conn, params=params or None)
 
 
+def query_margin_exchange_history(
+    start_date: str = DEFAULT_START_DATE,
+    end_date: Optional[str] = None,
+    engine: Optional[Engine] = None,
+) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine_cached()
+
+    params = {
+        "start_date": datetime.strptime(str(start_date).replace("-", ""), "%Y%m%d").date(),
+    }
+    conditions = ["trade_date >= :start_date"]
+    if end_date:
+        params["end_date"] = datetime.strptime(str(end_date).replace("-", ""), "%Y%m%d").date()
+        conditions.append("trade_date <= :end_date")
+
+    sql = f"""
+    SELECT
+        trade_date,
+        NULLIF(payload->>'exchange_id', '') AS exchange_id,
+        (payload->>'rzye')::numeric AS rzye,
+        (payload->>'rzmre')::numeric AS rzmre,
+        (payload->>'rzche')::numeric AS rzche,
+        (payload->>'rqye')::numeric AS rqye,
+        (payload->>'rqmcl')::numeric AS rqmcl,
+        (payload->>'rzrqye')::numeric AS rzrqye,
+        (payload->>'rqyl')::numeric AS rqyl
+    FROM ts_margin
+    WHERE {' AND '.join(conditions)}
+    ORDER BY trade_date ASC, exchange_id ASC
+    """
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params=params)
+
+
+def query_margin_market_latest(
+    limit: int = 200,
+    engine: Optional[Engine] = None,
+) -> pd.DataFrame:
+    if engine is None:
+        engine = _get_engine_cached()
+
+    sql = """
+    WITH latest_trade AS (
+        SELECT MAX(trade_date) AS trade_date FROM ts_margin_detail
+    ),
+    latest_rows AS (
+        SELECT
+            trade_date,
+            ts_code,
+            NULLIF(payload->>'name', '') AS name,
+            (payload->>'rzye')::numeric AS rzye,
+            (payload->>'rqye')::numeric AS rqye,
+            (payload->>'rzmre')::numeric AS rzmre,
+            (payload->>'rqyl')::numeric AS rqyl,
+            (payload->>'rzche')::numeric AS rzche,
+            (payload->>'rqchl')::numeric AS rqchl,
+            (payload->>'rqmcl')::numeric AS rqmcl,
+            (payload->>'rzrqye')::numeric AS rzrqye
+        FROM ts_margin_detail
+        WHERE trade_date = (SELECT trade_date FROM latest_trade)
+    )
+    SELECT *
+    FROM latest_rows
+    ORDER BY rzrqye DESC NULLS LAST, rzmre DESC NULLS LAST
+    LIMIT :limit
+    """
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params={"limit": int(limit)})
+
+
 def query_stock_price_history(
     ts_code: str,
     start_date: str = DEFAULT_START_DATE,

@@ -158,6 +158,12 @@ SIDEBAR_MODULES = (
                 "standard",
             ),
             SidebarPage(
+                "margin",
+                "🏦 两融数据",
+                "融资融券与价格联动观察",
+                "standard",
+            ),
+            SidebarPage(
                 "volume",
                 "📊 每日成交量",
                 "A股成交量时间序列",

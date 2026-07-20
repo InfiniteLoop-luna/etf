@@ -42,6 +42,7 @@ STOCK_COMPANY_SCREENER_LABEL = _page_label("股票", "company_screener")
 STOCK_TECH_PICKER_LABEL = _page_label("股票", "tech_picker")
 
 MONEY_FLOW_PAGE_LABEL = _page_label("资金", "moneyflow")
+MONEY_MARGIN_PAGE_LABEL = _page_label("资金", "margin")
 MONEY_VOLUME_PAGE_LABEL = _page_label("资金", "volume")
 MONEY_FUND_HOT_PAGE_LABEL = _page_label("资金", "fund_hot_stocks")
 MONEY_LIMITUP_PAGE_LABEL = _page_label("资金", "limitup")

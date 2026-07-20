@@ -108,6 +108,7 @@ from src.navigation_config import (
     MACRO_MAIN_PAGE_LABEL,
     MACRO_PAGE_OPTIONS,
     MONEY_FLOW_PAGE_LABEL,
+    MONEY_MARGIN_PAGE_LABEL,
     MONEY_FUND_HOT_PAGE_LABEL,
     MONEY_HOTMONEY_PAGE_LABEL,
     MONEY_LIMITUP_PAGE_LABEL,
@@ -228,6 +229,7 @@ from src.user_stock_pool_store import (
 )
 from src.pages.stock_object_page import render_stock_object_page
 from src.pages.fund_object_page import render_fund_object_page
+from src.pages.margin_page import render_margin_page
 from src.security_data_cache import (
     load_fund_hot_stock_periods,
     load_security_financial_timeseries,
@@ -7307,16 +7309,20 @@ def main():
                 key="iphone_page_money",
             )
             st.caption(f"当前位置：资金 / {mobile_page}")
-            if mobile_page == "💹 资金流向":
+            if mobile_page == MONEY_FLOW_PAGE_LABEL:
                 render_moneyflow_tab()
-            elif mobile_page == "📊 每日成交量":
+            elif mobile_page == MONEY_MARGIN_PAGE_LABEL:
+                render_margin_page()
+            elif mobile_page == MONEY_VOLUME_PAGE_LABEL:
                 render_volume_tab()
-            elif mobile_page == "🏦 公募持仓热股":
+            elif mobile_page == MONEY_FUND_HOT_PAGE_LABEL:
                 render_fund_hot_stocks_tab()
-            elif mobile_page == "🔥 打板情绪":
+            elif mobile_page == MONEY_LIMITUP_PAGE_LABEL:
                 render_limitup_monitor_tab()
-            else:
+            elif mobile_page == MONEY_HOTMONEY_PAGE_LABEL:
                 render_hotmoney_tab()
+            else:
+                render_moneyflow_tab()
 
         else:
             mobile_page = st.selectbox(
@@ -7402,6 +7408,8 @@ def main():
     elif selected_module == money_module_label:
         if selected_page == MONEY_FLOW_PAGE_LABEL:
             render_moneyflow_tab()
+        elif selected_page == MONEY_MARGIN_PAGE_LABEL:
+            render_margin_page()
         elif selected_page == MONEY_VOLUME_PAGE_LABEL:
             render_volume_tab()
         elif selected_page == MONEY_FUND_HOT_PAGE_LABEL:
