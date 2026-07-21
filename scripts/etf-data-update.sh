@@ -43,6 +43,9 @@ python src/fetch_etf_share_size.py "${ETF_SHARE_SIZE_ARGS[@]}"
 echo "[$(date -Is)] etf-data-update: run aggregate_etf_categories.py"
 python src/aggregate_etf_categories.py
 
+echo "[$(date -Is)] etf-data-update: ensure recent ETF share data"
+bash "$APP_DIR/scripts/ensure_recent_etf_share_data.sh"
+
 echo "[$(date -Is)] etf-data-update: run update_moneyflow.py (incremental)"
 python update_moneyflow.py --datasets moneyflow,moneyflow_hsgt,moneyflow_ind_ths,moneyflow_dc_ind --lookback-days 1
 
