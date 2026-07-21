@@ -46,6 +46,21 @@ python src/aggregate_etf_categories.py
 echo "[$(date -Is)] etf-data-update: ensure recent ETF share data"
 bash "$APP_DIR/scripts/ensure_recent_etf_share_data.sh"
 
+echo "[$(date -Is)] etf-data-update: run update_fund_hot_stocks.py (fund holdings)"
+FUND_HOT_STOCKS_ARGS=(--sync-portfolio-dynamic --rebuild-agg)
+if [[ "${ETF_FUND_HOLDING_REFRESH_BASIC:-0}" != "1" ]]; then
+  FUND_HOT_STOCKS_ARGS+=(--no-refresh-basic)
+fi
+if [[ -n "${ETF_FUND_HOLDING_FUND_LIMIT:-}" ]]; then
+  FUND_HOT_STOCKS_ARGS+=(--fund-limit "${ETF_FUND_HOLDING_FUND_LIMIT}")
+fi
+if [[ -n "${ETF_FUND_HOLDING_PERIOD:-}" ]]; then
+  FUND_HOT_STOCKS_ARGS+=(--period "${ETF_FUND_HOLDING_PERIOD}")
+fi
+if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" update_fund_hot_stocks.py "${FUND_HOT_STOCKS_ARGS[@]}"; then
+  echo "[$(date -Is)] etf-data-update: warning - update_fund_hot_stocks.py failed, skip and continue"
+fi
+
 echo "[$(date -Is)] etf-data-update: run update_moneyflow.py (incremental)"
 python update_moneyflow.py --datasets moneyflow,moneyflow_hsgt,moneyflow_ind_ths,moneyflow_dc_ind --lookback-days 1
 
@@ -65,7 +80,6 @@ echo "[$(date -Is)] etf-data-update: run update_hotmoney.py (safe incremental)"
 python update_hotmoney.py --datasets hm_list
 HOTMONEY_DETAIL_BATCH_DAYS="${ETF_HM_DETAIL_BATCH_DAYS:-1}"
 python update_hotmoney.py --datasets hm_detail --detail-batch-days "$HOTMONEY_DETAIL_BATCH_DAYS" --detail-sleep 35 --detail-lookback-days 0
-
 
 echo "[$(date -Is)] etf-data-update: run generate_daily_trend_reco_from_pyc.py"
 TREND_RECO_CALIBRATION_ANCHORS="${ETF_TREND_RECO_CALIBRATION_ANCHORS:-0}"
