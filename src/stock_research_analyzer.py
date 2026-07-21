@@ -107,6 +107,36 @@ def render_stock_research_markdown(
     return "\n".join(md)
 
 
+def render_stock_research_markdown_without_llm(
+    fact_pack: dict[str, Any],
+    *,
+    reason: str = "LLM 不可用",
+) -> str:
+    md: list[str] = [
+        f"# {fact_pack.get('stock_name') or fact_pack.get('ts_code')}（{fact_pack.get('ts_code')}）个股深度研究（基础版）",
+        "",
+        "> 本报告由本地行情/财务数据底稿自动生成。当前 LLM 结构化分析暂不可用，因此先展示基础版研究底稿，供自选跟踪使用。",
+        "",
+        f"> 降级原因：{reason}",
+        "",
+    ]
+    _append_fact_pack_overview(md, fact_pack)
+    _append_supplemental_overview(md, fact_pack)
+    md.extend(
+        [
+            "",
+            "## 降级说明",
+            "",
+            "- 当前未生成 LLM 的综合判断、风险等级、置信度与 Step 0-8 分析。",
+            "- 但底层行情、估值、财务与补充证据仍已按最新交易日刷新。",
+            "- 待 LLM 服务恢复后，可再补生成完整版个股深度研究报告。",
+            "",
+            "> 本报告仅供研究跟踪使用，不构成投资建议。",
+        ]
+    )
+    return "\n".join(md)
+
+
 def generate_stock_research_report_bundle(
     ts_code: str,
     stock_name: str,
@@ -124,7 +154,18 @@ def generate_stock_research_report_bundle(
     )
     llm_result = analyze_stock_research_payload(fact_pack)
     if not llm_result:
-        raise RuntimeError("个股深度研究 LLM 未配置或未返回有效结构化结果")
+        fallback_reason = "个股深度研究 LLM 未配置或未返回有效结构化结果"
+        report_md = render_stock_research_markdown_without_llm(
+            fact_pack,
+            reason=fallback_reason,
+        )
+        report_html = render_stock_research_html(fact_pack, {}, report_md=report_md)
+        return {
+            "report_md": report_md,
+            "report_html": report_html,
+            "fact_pack": fact_pack,
+            "llm_result": {},
+        }
     report_md = render_stock_research_markdown(fact_pack, llm_result)
     report_html = render_stock_research_html(fact_pack, llm_result, report_md=report_md)
     return {

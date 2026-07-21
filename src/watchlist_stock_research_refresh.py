@@ -108,11 +108,24 @@ def refresh_watchlist_stock_research_reports(
     scope_username = str(username or "").strip() or None
     owner_id = f"stock-research-refresh-{uuid.uuid4().hex[:12]}"
     lock_name = WATCHLIST_STOCK_RESEARCH_LOCK_NAME if scope_username is None else f"{WATCHLIST_STOCK_RESEARCH_LOCK_NAME}:{scope_username}"
+    requested_code = _normalize_requested_ts_code(only_code)
     if not try_acquire_refresh_lock(engine, lock_name, owner_id=owner_id, timeout_seconds=7200):
+        if requested_code:
+            current_status = get_report_status(engine, requested_code) or {}
+            if current_status.get("status") == "running":
+                upsert_report_status(
+                    engine,
+                    requested_code,
+                    status="failed",
+                    target_trade_date=current_status.get("target_trade_date"),
+                    latest_ready_trade_date=current_status.get("latest_ready_trade_date"),
+                    last_attempt_at=datetime.now(),
+                    duration_ms=current_status.get("duration_ms"),
+                    error_message="stale running status encountered while refresh lock is held",
+                )
         return {"processed": 0, "generated": 0, "skipped": 0, "failed": 0, "locked": 1}
 
     symbols = load_watchlist_stock_symbols(engine, username=scope_username)
-    requested_code = _normalize_requested_ts_code(only_code)
     if requested_code:
         symbols = [symbol for symbol in symbols if symbol == requested_code]
     if limit is not None:
