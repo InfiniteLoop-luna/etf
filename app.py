@@ -9557,11 +9557,11 @@ def build_company_screener_result_action_df(
     return action_df
 
 
-COMPANY_SCREENER_TIME_FILTER_OPTIONS = ("全部", "指定时间段", "最近1个月", "最近2个月", "最近3个月")
+COMPANY_SCREENER_TIME_FILTER_OPTIONS = ("全部", "指定时间段", "最近1个月", "最近2个月", "最近4个月")
 COMPANY_SCREENER_RELATIVE_MONTHS = {
     "最近1个月": 1,
     "最近2个月": 2,
-    "最近3个月": 3,
+    "最近4个月": 4,
 }
 
 
