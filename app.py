@@ -17158,6 +17158,81 @@ FUND_WATCHLIST_SESSION_CACHE_TTL_SECONDS = 900
 FUND_WATCHLIST_INTRADAY_CACHE_TTL_SECONDS = 55
 
 
+@st.cache_resource(show_spinner=False)
+def get_fund_hot_engine_cached():
+    from src.fund_hot_stocks import get_engine as get_fund_hot_engine
+
+    return get_fund_hot_engine()
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def load_fund_watchlist_nav_snapshot_cached(fund_code: str) -> dict:
+    from src.fund_nav import fetch_latest_fund_nav_snapshot
+
+    return fetch_latest_fund_nav_snapshot(fund_code)
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def load_fund_watchlist_meta_cached(fund_codes: tuple[str, ...]) -> pd.DataFrame:
+    from src.fund_hot_stocks import query_fund_meta_by_codes
+
+    engine = get_fund_hot_engine_cached()
+    return query_fund_meta_by_codes(fund_codes, engine=engine)
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def load_fund_watchlist_latest_portfolio_periods_cached(
+    fund_codes: tuple[str, ...],
+) -> dict[str, str]:
+    from src.fund_hot_stocks import query_latest_fund_portfolio_periods
+
+    engine = get_fund_hot_engine_cached()
+    df = query_latest_fund_portfolio_periods(fund_codes, engine=engine)
+    if df is None or df.empty:
+        return {}
+    df = df.copy()
+    df["fund_code"] = df["fund_code"].astype(str).str.strip().str.upper()
+    df["latest_end_date"] = df["latest_end_date"].astype(str)
+    return dict(zip(df["fund_code"], df["latest_end_date"]))
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def load_fund_watchlist_holdings_cached(
+    fund_code: str,
+    period: str | None,
+    top_n: int,
+) -> pd.DataFrame:
+    from src.fund_hot_stocks import query_fund_preference_snapshot
+
+    engine = get_fund_hot_engine_cached()
+    return query_fund_preference_snapshot(
+        fund_code=fund_code,
+        period=period,
+        top_n=top_n,
+        engine=engine,
+    )
+
+
+@st.cache_data(ttl=FUND_WATCHLIST_INTRADAY_CACHE_TTL_SECONDS, show_spinner=False)
+def load_fund_watchlist_estimate_snapshots_for_date_cached(
+    fund_codes: tuple[str, ...],
+    estimate_date: str,
+) -> dict[str, dict]:
+    from src.fund_estimate_snapshot_store import (
+        ensure_fund_estimate_snapshot_table,
+        list_fund_estimate_snapshots_for_date,
+    )
+
+    engine = get_fund_hot_engine_cached()
+    ensure_fund_estimate_snapshot_table(engine)
+    return list_fund_estimate_snapshots_for_date(
+        engine,
+        fund_codes,
+        estimate_date,
+        ensure_table=False,
+    )
+
+
 @st.cache_data(ttl=FUND_WATCHLIST_INTRADAY_CACHE_TTL_SECONDS, show_spinner=False)
 def load_fund_watchlist_realtime_quotes_cached(symbols: tuple[str, ...]) -> dict:
     return fetch_tencent_realtime_quotes(symbols)
@@ -17171,9 +17246,8 @@ def load_fund_watchlist_latest_closing_estimates_cached(
         ensure_fund_estimate_snapshot_table,
         list_latest_fund_estimate_snapshots,
     )
-    from src.fund_hot_stocks import get_engine as get_fund_hot_engine
 
-    engine = get_fund_hot_engine()
+    engine = get_fund_hot_engine_cached()
     ensure_fund_estimate_snapshot_table(engine)
     return list_latest_fund_estimate_snapshots(
         engine,
@@ -17200,12 +17274,12 @@ def load_fund_watchlist_dashboard_data(
     watchlist_df: pd.DataFrame,
     fund_engine,
 ) -> list[dict]:
-    from src.fund_hot_stocks import query_fund_preference_snapshot, search_funds
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     from src.fund_estimate_snapshot_store import (
         ensure_fund_estimate_snapshot_table,
         get_fund_estimate_snapshot,
     )
-    from src.fund_nav import fetch_latest_fund_nav_snapshot
 
     items = []
     estimate_store_error = ""
@@ -17215,6 +17289,60 @@ def load_fund_watchlist_dashboard_data(
         estimate_store_error = str(exc)
         logger.warning("fund watchlist estimate snapshot store unavailable: %s", exc)
 
+    fund_codes = (
+        watchlist_df["ts_code"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .tolist()
+    )
+    fund_codes = tuple(code for code in fund_codes if code)
+    meta_df_all = pd.DataFrame()
+    try:
+        meta_df_all = load_fund_watchlist_meta_cached(fund_codes)
+    except Exception as exc:
+        logger.warning("fund watchlist metadata batch load failed: %s", exc)
+
+    latest_period_map = {}
+    try:
+        latest_period_map = load_fund_watchlist_latest_portfolio_periods_cached(fund_codes)
+    except Exception as exc:
+        logger.warning("fund watchlist holding period batch load failed: %s", exc)
+
+    nav_snapshots: dict[str, dict] = {}
+    if fund_codes:
+        max_workers = min(8, len(fund_codes))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(load_fund_watchlist_nav_snapshot_cached, fund_code): fund_code
+                for fund_code in fund_codes
+            }
+            for future in as_completed(futures):
+                fund_code = futures[future]
+                try:
+                    nav_snapshots[fund_code] = future.result() or {}
+                except Exception as exc:
+                    logger.warning("fund watchlist nav load failed for %s: %s", fund_code, exc)
+                    nav_snapshots[fund_code] = {"error": str(exc)}
+
+    estimate_snapshot_map: dict[tuple[str, str], dict] = {}
+    nav_date_groups: dict[str, list[str]] = {}
+    for fund_code, snapshot in nav_snapshots.items():
+        nav_date = pd.to_datetime(snapshot.get("nav_date"), errors="coerce")
+        if pd.isna(nav_date):
+            continue
+        date_key = nav_date.strftime("%Y-%m-%d")
+        nav_date_groups.setdefault(date_key, []).append(fund_code)
+
+    for date_key, codes in nav_date_groups.items():
+        try:
+            snapshots = load_fund_watchlist_estimate_snapshots_for_date_cached(tuple(sorted(set(codes))), date_key)
+        except Exception as exc:
+            logger.warning("fund watchlist estimate snapshot batch load failed for %s: %s", date_key, exc)
+            continue
+        for code, snapshot in (snapshots or {}).items():
+            estimate_snapshot_map[(code, date_key)] = snapshot
+
     for _, watchlist_row in watchlist_df.iterrows():
         fund_code = str(watchlist_row.get("ts_code") or "").strip().upper()
         meta_df = pd.DataFrame()
@@ -17223,22 +17351,18 @@ def load_fund_watchlist_dashboard_data(
         estimate_snapshot = {}
         errors = []
 
-        try:
-            nav_snapshot = fetch_latest_fund_nav_snapshot(fund_code)
-        except Exception as exc:
-            logger.warning("fund watchlist nav load failed for %s: %s", fund_code, exc)
-            errors.append(f"前一日净值读取失败：{exc}")
+        nav_snapshot = nav_snapshots.get(fund_code, {})
+        if nav_snapshot.get("error"):
+            errors.append(f"前一日净值读取失败：{nav_snapshot.get('error')}")
 
         nav_date = pd.to_datetime(nav_snapshot.get("nav_date"), errors="coerce")
         if estimate_store_error:
             errors.append("15:00估值快照暂不可用")
         elif not pd.isna(nav_date):
             try:
-                estimate_snapshot = get_fund_estimate_snapshot(
-                    fund_engine,
-                    fund_code,
-                    nav_date,
-                    ensure_table=False,
+                estimate_snapshot = estimate_snapshot_map.get(
+                    (fund_code, nav_date.strftime("%Y-%m-%d")),
+                    {},
                 )
             except Exception as exc:
                 logger.warning(
@@ -17250,16 +17374,16 @@ def load_fund_watchlist_dashboard_data(
                 errors.append("15:00估值快照读取失败")
 
         try:
-            meta_df = search_funds(fund_code, limit=5, engine=fund_engine)
+            meta_df = meta_df_all
         except Exception as exc:
             logger.warning("fund watchlist metadata load failed for %s: %s", fund_code, exc)
             errors.append(f"基础信息读取失败：{exc}")
 
         try:
-            holding_df = query_fund_preference_snapshot(
-                fund_code=fund_code,
-                top_n=10,
-                engine=fund_engine,
+            holding_df = load_fund_watchlist_holdings_cached(
+                fund_code,
+                latest_period_map.get(fund_code),
+                10,
             )
         except Exception as exc:
             logger.warning("fund watchlist holdings load failed for %s: %s", fund_code, exc)
@@ -18168,8 +18292,6 @@ def render_fund_watchlist_live_dashboard(items: list[dict], current_username: st
 
 
 def render_fund_watchlist_tab() -> None:
-    from src.fund_hot_stocks import get_engine as get_fund_hot_engine
-
     st.subheader("⭐ 自选基金")
     st.caption("追踪自选基金的前一日净值、15:00估值、每日估值偏差、盘中估值与持仓结构")
     st.markdown(FUND_WATCHLIST_DASHBOARD_CSS, unsafe_allow_html=True)
@@ -18187,7 +18309,7 @@ def render_fund_watchlist_tab() -> None:
         return
 
     try:
-        fund_engine = get_fund_hot_engine()
+        fund_engine = get_fund_hot_engine_cached()
     except Exception as exc:
         st.error(f"连接基金持仓数据库失败：{exc}")
         return

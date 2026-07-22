@@ -4,7 +4,7 @@ from datetime import date
 from typing import Mapping
 
 import pandas as pd
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Engine
 
 from src.user_watchlist_store import ensure_user_watchlist_table
@@ -251,6 +251,48 @@ def list_latest_fund_estimate_snapshots(
     """
     with engine.connect() as conn:
         rows = conn.execute(text(sql), params).mappings().all()
+    return {
+        str(row["fund_code"]).strip().upper(): _normalize_snapshot_row(row)
+        for row in rows
+    }
+
+
+def list_fund_estimate_snapshots_for_date(
+    engine: Engine,
+    fund_codes,
+    estimate_date,
+    *,
+    ensure_table: bool = True,
+) -> dict[str, dict]:
+    if ensure_table:
+        ensure_fund_estimate_snapshot_table(engine)
+
+    normalized_date = _required_date(estimate_date)
+    codes = sorted(
+        {
+            str(code or "").strip().upper()
+            for code in fund_codes
+            if str(code or "").strip()
+        }
+    )
+    if not codes:
+        return {}
+
+    stmt = text(
+        f"""
+        SELECT {SNAPSHOT_COLUMNS}
+        FROM {TABLE_NAME}
+        WHERE estimate_date = :estimate_date
+          AND fund_code IN :codes
+        """
+    ).bindparams(bindparam("codes", expanding=True))
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            stmt,
+            {"estimate_date": normalized_date, "codes": codes},
+        ).mappings().all()
+
     return {
         str(row["fund_code"]).strip().upper(): _normalize_snapshot_row(row)
         for row in rows

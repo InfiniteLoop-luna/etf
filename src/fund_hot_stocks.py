@@ -22,7 +22,7 @@ from datetime import date, datetime
 from typing import Iterable, Optional
 
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.engine import Engine, URL
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -69,7 +69,11 @@ def build_db_url():
 
 
 def get_engine() -> Engine:
-    return create_engine(build_db_url(), pool_pre_ping=True)
+    return create_engine(
+        build_db_url(),
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": int(os.getenv("ETF_PG_CONNECT_TIMEOUT", "8"))},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1574,6 +1578,92 @@ def search_funds(
                 'limit': int(limit),
             },
         )
+
+
+def query_fund_meta_by_codes(
+    fund_codes: Iterable[str],
+    engine: Optional[Engine] = None,
+) -> pd.DataFrame:
+    engine = engine or get_engine()
+    codes = _dedupe_normalized_fund_codes(fund_codes)
+    if not codes:
+        return pd.DataFrame()
+
+    sql = """
+    WITH basic AS (
+        SELECT
+            fund_code,
+            name,
+            management,
+            fund_type,
+            invest_type,
+            status,
+            issue_amount,
+            1 AS source_priority,
+            NULL::date AS latest_end_date
+        FROM vw_fund_basic
+        WHERE fund_code IN :codes
+    ),
+    portfolio_only AS (
+        SELECT
+            p.fund_code,
+            NULL::text AS name,
+            NULL::text AS management,
+            NULL::text AS fund_type,
+            NULL::text AS invest_type,
+            NULL::text AS status,
+            NULL::numeric AS issue_amount,
+            2 AS source_priority,
+            MAX(p.end_date) AS latest_end_date
+        FROM vw_fund_portfolio p
+        LEFT JOIN vw_fund_basic b ON b.fund_code = p.fund_code
+        WHERE p.fund_code IN :codes AND b.fund_code IS NULL
+        GROUP BY p.fund_code
+    ),
+    merged AS (
+        SELECT * FROM basic
+        UNION ALL
+        SELECT * FROM portfolio_only
+    )
+    SELECT
+        fund_code,
+        COALESCE(name, fund_code) AS name,
+        COALESCE(management, '持仓表补全') AS management,
+        COALESCE(fund_type, invest_type, CASE WHEN fund_code LIKE '%.SH' OR fund_code LIKE '%.SZ' THEN '场内基金/ETF' ELSE '未知类型' END) AS fund_type,
+        invest_type,
+        status,
+        issue_amount,
+        latest_end_date,
+        source_priority
+    FROM merged
+    ORDER BY source_priority, fund_code
+    """
+
+    stmt = text(sql).bindparams(bindparam("codes", expanding=True))
+    with engine.connect() as conn:
+        return pd.read_sql(stmt, conn, params={"codes": codes})
+
+
+def query_latest_fund_portfolio_periods(
+    fund_codes: Iterable[str],
+    engine: Optional[Engine] = None,
+) -> pd.DataFrame:
+    engine = engine or get_engine()
+    codes = _dedupe_normalized_fund_codes(fund_codes)
+    if not codes:
+        return pd.DataFrame(columns=["fund_code", "latest_end_date"])
+
+    stmt = text(
+        """
+        SELECT fund_code, MAX(end_date) AS latest_end_date
+        FROM vw_fund_portfolio
+        WHERE fund_code IN :codes
+        GROUP BY fund_code
+        """
+    ).bindparams(bindparam("codes", expanding=True))
+    with engine.connect() as conn:
+        return pd.read_sql(stmt, conn, params={"codes": codes})
+
 
 def query_fund_preference_snapshot(
     fund_code: str,
