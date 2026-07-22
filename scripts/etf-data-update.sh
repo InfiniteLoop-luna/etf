@@ -123,6 +123,13 @@ if ! timeout "${WATCHLIST_STOCK_RESEARCH_TIMEOUT_SECONDS}s" env TZ=Asia/Shanghai
   echo "[$(date -Is)] etf-data-update: warning - update_watchlist_stock_research_reports.py failed or timed out, skip and continue"
 fi
 
+if [[ -f "$APP_DIR/主要ETF基金份额变动情况.xlsx" ]]; then
+  echo "[$(date -Is)] etf-data-update: build ETF share cache"
+  if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/build_etf_share_cache.py --skip-if-fresh; then
+    echo "[$(date -Is)] etf-data-update: warning - build_etf_share_cache.py failed, skip and continue"
+  fi
+fi
+
 echo "[$(date -Is)] etf-data-update: restart streamlit"
 systemctl restart etf-streamlit
 

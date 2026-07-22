@@ -2496,18 +2496,54 @@ MACRO_DATASET_META = {
 }
 
 
-@st.cache_data(ttl=300)
-def load_data(file_path: str) -> pd.DataFrame:
-    """
-    加载ETF数据，缓存5分钟
+@st.cache_data(show_spinner=False)
+def _sha256_file_cached(file_path: str, file_mtime: float, file_size: int) -> str:
+    import hashlib
 
-    Args:
-        file_path: Excel文件路径
+    sha = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            sha.update(chunk)
+    return sha.hexdigest()
 
-    Returns:
-        DataFrame with columns: code, name, date, metric_type, value, is_aggregate
-    """
+
+@st.cache_data(show_spinner=False)
+def _load_etf_share_cache(cache_path: str, meta_path: str, expected_sha256: str) -> pd.DataFrame | None:
+    import gzip
+    import json
+    import os
+    import pickle
+
+    if not os.path.exists(cache_path) or not os.path.exists(meta_path):
+        return None
+
     try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        if meta.get("excel_sha256") != expected_sha256:
+            return None
+        with gzip.open(cache_path, "rb") as f:
+            df = pickle.load(f)
+        if df is None or len(df) == 0:
+            return None
+        return df
+    except Exception:
+        return None
+
+
+def load_data(file_path: str) -> pd.DataFrame:
+    try:
+        import os
+
+        file_stat = os.stat(file_path)
+        file_sha256 = _sha256_file_cached(file_path, file_stat.st_mtime, file_stat.st_size)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        cache_path = os.path.join(base_dir, "data", "etf_share_cache.pkl.gz")
+        meta_path = os.path.join(base_dir, "data", "etf_share_cache.meta.json")
+        cached_df = _load_etf_share_cache(cache_path, meta_path, file_sha256)
+        if cached_df is not None:
+            return cached_df
+
         logger.info(f"Loading data from {file_path}")
         df = load_etf_data(file_path)
         logger.info(f"Data loaded successfully: {len(df)} rows")
@@ -3741,8 +3777,10 @@ def _resolve_desktop_sidebar_selection():
     module_labels = get_module_labels()
     selected_module_label = st.session_state.get("sidebar_nav_group")
     if selected_module_label not in module_labels:
-        selected_module_label = module_labels[0]
+        selected_module_label = "股票" if "股票" in module_labels else module_labels[0]
         st.session_state["sidebar_nav_group"] = selected_module_label
+        if selected_module_label == "股票":
+            st.session_state["sidebar_expanded_module_id"] = "stock"
 
     selected_module = get_module_by_label(selected_module_label)
     page_labels = get_page_labels(selected_module.label)
