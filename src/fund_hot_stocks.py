@@ -1586,7 +1586,21 @@ def query_fund_preference_snapshot(
     if not fund_code:
         return pd.DataFrame()
 
-    target_period = period or get_latest_agg_period(engine)
+    target_period = period
+    if not target_period:
+        with engine.connect() as conn:
+            target_period = conn.execute(
+                text(
+                    """
+                    SELECT MAX(end_date)
+                    FROM vw_fund_portfolio
+                    WHERE fund_code = :fund_code
+                    """
+                ),
+                {"fund_code": fund_code},
+            ).scalar()
+        if not target_period:
+            target_period = get_latest_agg_period(engine)
     if not target_period:
         return pd.DataFrame()
     target_period = str(target_period).replace("-", "")

@@ -17338,6 +17338,39 @@ def _fund_watchlist_ratio_class(value) -> str:
     return ""
 
 
+def _fund_watchlist_holding_freshness(latest_end_date) -> dict:
+    timestamp = pd.to_datetime(latest_end_date, errors="coerce")
+    if pd.isna(timestamp):
+        return {
+            "days": None,
+            "label": "披露日期未知",
+            "detail": "暂无可用持仓披露日期，盘中估值仅供参考。",
+            "tone": "is-error",
+        }
+
+    days = max(0, (pd.Timestamp(datetime.now().date()) - timestamp.normalize()).days)
+    if days <= 45:
+        return {
+            "days": days,
+            "label": f"持仓较新（{days}天）",
+            "detail": f"基于 {timestamp.strftime('%Y-%m-%d')} 披露持仓，估值参考性较高。",
+            "tone": "is-ok",
+        }
+    if days <= 90:
+        return {
+            "days": days,
+            "label": f"持仓偏旧（{days}天）",
+            "detail": f"基于 {timestamp.strftime('%Y-%m-%d')} 披露持仓，近期可能已有调仓。",
+            "tone": "is-warn",
+        }
+    return {
+        "days": days,
+        "label": f"持仓较旧（{days}天）",
+        "detail": f"基于 {timestamp.strftime('%Y-%m-%d')} 披露持仓，盘中估值误差可能较大。",
+        "tone": "is-error",
+    }
+
+
 def render_fund_watchlist_summary(summary: dict) -> None:
     latest_label = _fund_watchlist_date_label(summary.get("latest_end_date"))
     average_ratio = summary.get("average_top10_ratio")
@@ -17458,6 +17491,10 @@ def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
     latest_closing_date_label = _fund_watchlist_date_label(
         item.get("latest_closing_estimate_date")
     )
+    freshness = _fund_watchlist_holding_freshness(item.get("latest_end_date"))
+    freshness_label = _fund_watchlist_text(freshness.get("label"))
+    freshness_detail = _fund_watchlist_text(freshness.get("detail"))
+    freshness_tone = str(freshness.get("tone") or "is-idle").strip()
     market_active = bool(item.get("intraday_market_active"))
     live_tone = _fund_watchlist_intraday_tone(estimate)
     live_label = "盘中估算"
@@ -17500,6 +17537,10 @@ def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
         <div class="ws-fund-watchboard__live{live_tone}">
             <div><small>{live_label}</small><strong>{live_value}</strong></div>
             <span>{live_detail}</span>
+        </div>
+        <div class="ws-fund-watchboard__live is-freshness {freshness_tone}">
+            <div><small>持仓时效</small><strong>{freshness_label}</strong></div>
+            <span>{freshness_detail}</span>
         </div>
         <div class="ws-fund-watchboard__confirmed-nav">
             <div><small>前一日净值</small><strong>{nav_label}</strong></div>
@@ -17756,6 +17797,9 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
     ratio_value = 0.0 if ratio is None else max(0.0, min(float(ratio), 100.0))
     ratio_label = "-" if ratio is None else f"{float(ratio):.2f}%"
     latest_label = _fund_watchlist_date_label(item.get("latest_end_date"))
+    freshness = _fund_watchlist_holding_freshness(item.get("latest_end_date"))
+    freshness_label = _fund_watchlist_text(freshness.get("label"))
+    freshness_detail = _fund_watchlist_text(freshness.get("detail"))
     added_label = _fund_watchlist_date_label(item.get("added_at"))
     estimate = item.get("intraday_estimate_pct")
     estimate_label = _fund_watchlist_signed_pct_label(estimate)
@@ -17850,6 +17894,7 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
                         <div class="ws-fund-watchboard__fact"><span>基金管理人</span><strong>{_fund_watchlist_text(item.get("management"))}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>基金类型</span><strong>{_fund_watchlist_text(item.get("fund_type"))}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>最新披露日期</span><strong>{latest_label}</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>持仓时效</span><strong>{freshness_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>持仓数量</span><strong>{int(item.get("holding_count", 0))} 只</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>前一日净值</span><strong>{nav_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>实际涨跌幅</span><strong{daily_change_class}>{daily_change_label}</strong></div>
@@ -17861,6 +17906,7 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
                         <div class="ws-fund-watchboard__fact"><span>加入自选日期</span><strong>{added_label}</strong></div>
                     </div>
                 </div>
+                <div class="ws-fund-watchboard__focus-note">{freshness_detail}</div>
                 {error_html}
             </div>
             <div class="ws-fund-watchboard__holdings">
