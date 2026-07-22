@@ -17276,6 +17276,7 @@ def load_fund_watchlist_dashboard_data(
 ) -> list[dict]:
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    from src.fund_estimate_capture import backfill_single_fund_closing_estimate
     from src.fund_estimate_snapshot_store import (
         ensure_fund_estimate_snapshot_table,
         get_fund_estimate_snapshot,
@@ -17309,6 +17310,8 @@ def load_fund_watchlist_dashboard_data(
     except Exception as exc:
         logger.warning("fund watchlist holding period batch load failed: %s", exc)
 
+    market_state = get_fund_intraday_market_state()
+
     nav_snapshots: dict[str, dict] = {}
     if fund_codes:
         max_workers = min(8, len(fund_codes))
@@ -17335,13 +17338,43 @@ def load_fund_watchlist_dashboard_data(
         nav_date_groups.setdefault(date_key, []).append(fund_code)
 
     for date_key, codes in nav_date_groups.items():
+        unique_codes = tuple(sorted(set(codes)))
         try:
-            snapshots = load_fund_watchlist_estimate_snapshots_for_date_cached(tuple(sorted(set(codes))), date_key)
+            snapshots = load_fund_watchlist_estimate_snapshots_for_date_cached(unique_codes, date_key)
         except Exception as exc:
             logger.warning("fund watchlist estimate snapshot batch load failed for %s: %s", date_key, exc)
             continue
         for code, snapshot in (snapshots or {}).items():
             estimate_snapshot_map[(code, date_key)] = snapshot
+
+        can_backfill_same_day = (
+            date_key == pd.Timestamp(datetime.now().date()).strftime("%Y-%m-%d")
+            and not market_state.get("is_active")
+            and pd.Timestamp(datetime.now()).time() >= time(15, 0)
+        )
+        if can_backfill_same_day:
+            missing_codes = [code for code in unique_codes if (code, date_key) not in estimate_snapshot_map]
+            for missing_code in missing_codes:
+                try:
+                    backfill_summary = backfill_single_fund_closing_estimate(
+                        fund_engine,
+                        missing_code,
+                    )
+                    if backfill_summary.get("captured"):
+                        refreshed = load_fund_watchlist_estimate_snapshots_for_date_cached(
+                            tuple([missing_code]),
+                            date_key,
+                        )
+                        snapshot = (refreshed or {}).get(missing_code)
+                        if snapshot:
+                            estimate_snapshot_map[(missing_code, date_key)] = snapshot
+                except Exception as exc:
+                    logger.warning(
+                        "fund watchlist closing estimate backfill failed for %s / %s: %s",
+                        missing_code,
+                        date_key,
+                        exc,
+                    )
 
     for _, watchlist_row in watchlist_df.iterrows():
         fund_code = str(watchlist_row.get("ts_code") or "").strip().upper()
