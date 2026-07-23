@@ -153,6 +153,19 @@ SIDEBAR_MODULES = (
         ),
     ),
     SidebarModule(
+        id="favorite",
+        label="Favorite",
+        session_key="favorite_subpage",
+        pages=(
+            SidebarPage(
+                "my_favorite",
+                "⭐ My Favorite",
+                "登录后查看个人股票与基金自选",
+                "standard",
+            ),
+        ),
+    ),
+    SidebarModule(
         id="money",
         label="资金",
         session_key="money_subpage",

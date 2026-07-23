@@ -17,6 +17,20 @@ from src.sidebar_navigation import (
 
 
 class SidebarNavigationTests(unittest.TestCase):
+    def test_my_favorite_page_belongs_to_favorite_module_and_is_searchable(self):
+        page = get_page_by_id("my_favorite")
+
+        self.assertEqual(page.label, "⭐ My Favorite")
+        self.assertEqual(page.description, "登录后查看个人股票与基金自选")
+        self.assertEqual(page.toolbar_variant, "standard")
+        self.assertEqual(get_module_id_for_page_id("my_favorite"), "favorite")
+        self.assertIn("⭐ My Favorite", get_page_labels("Favorite"))
+
+        results = search_sidebar_pages("favorite")
+        self.assertGreater(len(results), 0)
+        self.assertEqual(results[0].page_id, "my_favorite")
+        self.assertEqual(results[0].module_id, "favorite")
+
     def test_fund_watchlist_page_belongs_to_fund_module_and_is_searchable(self):
         page = get_page_by_id("fund_watchlist")
 
@@ -139,13 +153,14 @@ class SidebarNavigationTests(unittest.TestCase):
         self.assertEqual(session_state["sidebar_recent_pages"], visits)
 
     def test_public_label_apis_remain_navigation_compatible(self):
-        self.assertEqual(get_module_labels(), ["基金", "股票", "资金", "宏观", "决策"])
+        self.assertEqual(get_module_labels(), ["基金", "股票", "Favorite", "资金", "宏观", "决策"])
         self.assertEqual(
             get_default_shortcuts(),
             ["💼 今日机会清单", "🔎 个股/指数查询", "💹 资金流向"],
         )
         self.assertEqual(get_module_label_for_page("💹 资金流向"), "资金")
         self.assertEqual(get_module_label_for_page("🏦 两融数据"), "资金")
+        self.assertEqual(get_module_label_for_page("⭐ My Favorite"), "Favorite")
         self.assertEqual(
             get_page_labels("股票"),
             [
@@ -159,6 +174,10 @@ class SidebarNavigationTests(unittest.TestCase):
                 "🧠 因子选股工作台",
                 "🧭 观点跟踪",
             ],
+        )
+        self.assertEqual(
+            get_page_labels("Favorite"),
+            ["⭐ My Favorite"],
         )
         self.assertEqual(
             get_page_labels("资金"),

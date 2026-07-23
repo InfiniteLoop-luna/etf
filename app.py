@@ -97,6 +97,8 @@ from src.navigation_config import (
     DECISION_PAGE_OPTIONS,
     DECISION_RECO_EVAL_PAGE_LABEL,
     DECISION_TODAY_PAGE_LABEL,
+    FAVORITE_MY_FAVORITE_PAGE_LABEL,
+    FAVORITE_PAGE_OPTIONS,
     ETF_FUND_MONITOR_PAGE_LABEL,
     ETF_FUND_OBJECT_PAGE_LABEL,
     ETF_FUND_WATCHLIST_PAGE_LABEL,
@@ -7271,7 +7273,7 @@ def main():
 
         mobile_group = st.radio(
             "模块",
-            ["决策", "基金", "股票", "资金", "宏观"],
+            ["决策", "基金", "股票", "Favorite", "资金", "宏观"],
             horizontal=True,
             key="iphone_group_radio",
         )
@@ -7345,6 +7347,18 @@ def main():
             else:
                 render_security_search_tab()
 
+        elif mobile_group == "Favorite":
+            mobile_page = st.selectbox(
+                "页面",
+                FAVORITE_PAGE_OPTIONS,
+                key="iphone_page_favorite",
+            )
+            st.caption(f"当前位置：Favorite / {mobile_page}")
+            if mobile_page == FAVORITE_MY_FAVORITE_PAGE_LABEL:
+                render_my_favorite_tab()
+            else:
+                render_my_favorite_tab()
+
         elif mobile_group == "资金":
             mobile_page = st.selectbox(
                 "页面",
@@ -7393,6 +7407,7 @@ def main():
     decision_module_label = get_module_label_for_page(DECISION_TODAY_PAGE_LABEL)
     fund_module_label = get_module_label_for_page(ETF_MAIN_PAGE_LABEL)
     stock_module_label = get_module_label_for_page(STOCK_SECURITY_SEARCH_LABEL)
+    favorite_module_label = get_module_label_for_page(FAVORITE_MY_FAVORITE_PAGE_LABEL)
     money_module_label = get_module_label_for_page(MONEY_FLOW_PAGE_LABEL)
     macro_module_label = get_module_label_for_page(MACRO_MAIN_PAGE_LABEL)
 
@@ -7449,6 +7464,12 @@ def main():
             render_tech_picker_tab()
         else:
             render_security_search_tab()
+
+    elif selected_module == favorite_module_label:
+        if selected_page == FAVORITE_MY_FAVORITE_PAGE_LABEL:
+            render_my_favorite_tab()
+        else:
+            render_my_favorite_tab()
 
     elif selected_module == money_module_label:
         if selected_page == MONEY_FLOW_PAGE_LABEL:
@@ -18379,6 +18400,46 @@ def render_fund_watchlist_tab() -> None:
         return
 
     render_fund_watchlist_live_dashboard(items, current_username)
+
+
+def render_my_favorite_tab() -> None:
+    st.subheader("⭐ My Favorite")
+    st.caption("登录后查看自己的全部自选，并分别进入综合自选与基金自选视图。")
+
+    current_username = get_logged_in_username()
+    if not current_username:
+        st.info("请先登录用户名，再查看你的 My Favorite。")
+        return
+
+    try:
+        watchlist_df = list_watchlist_items(current_username)
+    except Exception as exc:
+        st.error(f"加载 My Favorite 失败：{exc}")
+        return
+
+    if watchlist_df is None or watchlist_df.empty:
+        st.info("你的 My Favorite 还是空的，先去个股查询页或基金对象页加入自选吧。")
+        return
+
+    if "security_type" in watchlist_df.columns:
+        security_types = watchlist_df["security_type"].astype(str).str.strip().str.lower()
+        fund_count = int(security_types.eq("fund").sum())
+    else:
+        fund_count = 0
+    total_count = int(len(watchlist_df))
+    stock_count = max(total_count - fund_count, 0)
+
+    metric_cols = st.columns(3)
+    metric_cols[0].metric("全部自选", total_count)
+    metric_cols[1].metric("股票自选", stock_count)
+    metric_cols[2].metric("基金自选", fund_count)
+    st.caption(f"当前登录用户：`{current_username}`")
+
+    all_tab, fund_tab = st.tabs(["📊 全部自选", "🏦 基金自选"])
+    with all_tab:
+        render_user_watchlist_tab()
+    with fund_tab:
+        render_fund_watchlist_tab()
 
 
 def render_fund_hot_stocks_tab():

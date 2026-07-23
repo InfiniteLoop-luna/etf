@@ -5,6 +5,7 @@ from src.sidebar_navigation import get_page_labels
 DECISION_PAGE_OPTIONS = get_page_labels("决策")
 ETF_PAGE_OPTIONS = get_page_labels("基金")
 STOCK_PAGE_OPTIONS = get_page_labels("股票")
+FAVORITE_PAGE_OPTIONS = get_page_labels("Favorite")
 MONEY_PAGE_OPTIONS = get_page_labels("资金")
 MACRO_PAGE_OPTIONS = get_page_labels("宏观")
 
@@ -41,6 +42,8 @@ STOCK_USER_WATCHLIST_LABEL = _page_label("股票", "user_watchlist")
 STOCK_POOL_PAGE_LABEL = _page_label("股票", "stock_pool")
 STOCK_COMPANY_SCREENER_LABEL = _page_label("股票", "company_screener")
 STOCK_TECH_PICKER_LABEL = _page_label("股票", "tech_picker")
+
+FAVORITE_MY_FAVORITE_PAGE_LABEL = _page_label("Favorite", "my_favorite")
 
 MONEY_FLOW_PAGE_LABEL = _page_label("资金", "moneyflow")
 MONEY_MARGIN_PAGE_LABEL = _page_label("资金", "margin")

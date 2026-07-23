@@ -8,6 +8,8 @@ from src.navigation_config import (
     ETF_INDUSTRY_PAGE_LABEL,
     ETF_FUND_WATCHLIST_PAGE_LABEL,
     ETF_PAGE_OPTIONS,
+    FAVORITE_MY_FAVORITE_PAGE_LABEL,
+    FAVORITE_PAGE_OPTIONS,
     MONEY_MARGIN_PAGE_LABEL,
     MONEY_PAGE_OPTIONS,
     STOCK_PAGE_OPTIONS,
@@ -129,6 +131,10 @@ class NavigationConfigTests(unittest.TestCase):
         self.assertEqual(ETF_INDUSTRY_PAGE_LABEL, "🏭 行业ETF")
         self.assertIn("🏭 行业ETF", ETF_PAGE_OPTIONS)
 
+    def test_favorite_page_options_include_my_favorite(self):
+        self.assertEqual(FAVORITE_MY_FAVORITE_PAGE_LABEL, "⭐ My Favorite")
+        self.assertIn("⭐ My Favorite", FAVORITE_PAGE_OPTIONS)
+
     def test_money_page_options_include_margin_page(self):
         self.assertEqual(MONEY_MARGIN_PAGE_LABEL, "🏦 两融数据")
         self.assertIn("🏦 两融数据", MONEY_PAGE_OPTIONS)
@@ -141,6 +147,10 @@ class NavigationConfigTests(unittest.TestCase):
         self.assertEqual(
             STOCK_PAGE_OPTIONS,
             ["🔎 个股/指数查询", "🧩 股票对象页", "🐉 龙虎榜", "⭐ 自选管理", "🗂 自选池", "🏢 公司筛选", "🎯 技术选股", "🧠 因子选股工作台", "🧭 观点跟踪"],
+        )
+        self.assertEqual(
+            FAVORITE_PAGE_OPTIONS,
+            ["⭐ My Favorite"],
         )
         self.assertEqual(
             MONEY_PAGE_OPTIONS,
