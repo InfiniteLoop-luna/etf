@@ -17350,7 +17350,7 @@ def load_fund_watchlist_dashboard_data(
         can_backfill_same_day = (
             date_key == pd.Timestamp(datetime.now().date()).strftime("%Y-%m-%d")
             and not market_state.get("is_active")
-            and pd.Timestamp(datetime.now()).time() >= time(15, 0)
+            and pd.Timestamp(datetime.now()).time() >= datetime.strptime("15:00", "%H:%M").time()
         )
         if can_backfill_same_day:
             missing_codes = [code for code in unique_codes if (code, date_key) not in estimate_snapshot_map]
