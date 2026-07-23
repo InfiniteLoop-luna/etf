@@ -11,8 +11,16 @@ YESTERDAY_SH=$(TZ=Asia/Shanghai date -d 'yesterday' +%Y%m%d)
 
 echo "[$(date -Is)] ensure_recent_etf_share_data: share_latest=${LATEST_SHARE_DATE:-none} agg_latest=${LATEST_AGG_DATE:-none} yesterday=$YESTERDAY_SH today=$TODAY_SH"
 
-if [[ -n "$LATEST_SHARE_DATE" && "$LATEST_SHARE_DATE" -lt "$YESTERDAY_SH" ]]; then
-  echo "[$(date -Is)] ensure_recent_etf_share_data: share latest behind yesterday, run targeted backfill"
+SHOULD_BACKFILL=0
+if [[ -z "$LATEST_SHARE_DATE" || "$LATEST_SHARE_DATE" -lt "$TODAY_SH" ]]; then
+  SHOULD_BACKFILL=1
+fi
+if [[ -z "$LATEST_AGG_DATE" || "$LATEST_AGG_DATE" -lt "$TODAY_SH" ]]; then
+  SHOULD_BACKFILL=1
+fi
+
+if [[ "$SHOULD_BACKFILL" == "1" ]]; then
+  echo "[$(date -Is)] ensure_recent_etf_share_data: ETF data not caught up to today, run targeted backfill"
   python src/fetch_etf_share_size.py --start-date "$YESTERDAY_SH" --end-date "$TODAY_SH" --skip-verify || \
     echo "[$(date -Is)] ensure_recent_etf_share_data: warning - targeted ETF share backfill failed, continue"
   python src/aggregate_etf_categories.py --start-date "$YESTERDAY_SH" --end-date "$TODAY_SH" || \
