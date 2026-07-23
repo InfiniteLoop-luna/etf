@@ -63,12 +63,15 @@ fi
 
 echo "[$(date -Is)] etf-data-update: run update_moneyflow.py (incremental)"
 python update_moneyflow.py --datasets moneyflow,moneyflow_hsgt,moneyflow_ind_ths,moneyflow_dc_ind --lookback-days 1
+echo "[$(date -Is)] etf-data-update: update_moneyflow.py done"
 
 echo "[$(date -Is)] etf-data-update: run update_margin.py (incremental)"
 python update_margin.py --datasets margin,margin_detail --lookback-days 2
+echo "[$(date -Is)] etf-data-update: update_margin.py done"
 
 echo "[$(date -Is)] etf-data-update: run update_limitup_monitor.py (incremental)"
 python update_limitup_monitor.py --datasets limit_list_d,limit_step,limit_cpt_list,kpl_list,limit_list_ths
+echo "[$(date -Is)] etf-data-update: update_limitup_monitor.py done"
 
 echo "[$(date -Is)] etf-data-update: run update_lhb_monitor.py (safe incremental)"
 LHB_BATCH_DAYS="${ETF_LHB_BATCH_DAYS:-3}"
