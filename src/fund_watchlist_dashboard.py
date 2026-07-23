@@ -109,8 +109,11 @@ def build_fund_watchlist_item(
     )
     unit_nav = _optional_float(nav_snapshot.get("unit_nav"))
     daily_change_pct = _optional_float(nav_snapshot.get("daily_change_pct"))
+    latest_closing_estimate_pct = _optional_float(
+        estimate_snapshot.get("estimate_pct")
+    )
     closing_estimate_pct = (
-        _optional_float(estimate_snapshot.get("estimate_pct"))
+        latest_closing_estimate_pct
         if dates_match
         else None
     )
@@ -162,6 +165,8 @@ def build_fund_watchlist_item(
         "nav_source": str(nav_snapshot.get("source") or ""),
         "closing_estimate_date": estimate_date if dates_match else pd.NaT,
         "closing_estimate_pct": closing_estimate_pct,
+        "latest_closing_estimate_date": estimate_date,
+        "latest_closing_estimate_pct": latest_closing_estimate_pct,
         "estimate_deviation_pct": estimate_deviation_pct,
         "closing_estimate_covered_weight_pct": (
             _optional_float(estimate_snapshot.get("covered_weight_pct"))

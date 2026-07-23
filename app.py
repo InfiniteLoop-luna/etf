@@ -17361,6 +17361,8 @@ def load_fund_watchlist_dashboard_data(
                         missing_code,
                     )
                     if backfill_summary.get("captured"):
+                        load_fund_watchlist_estimate_snapshots_for_date_cached.clear()
+                        load_fund_watchlist_latest_closing_estimates_cached.clear()
                         refreshed = load_fund_watchlist_estimate_snapshots_for_date_cached(
                             tuple([missing_code]),
                             date_key,
@@ -17683,8 +17685,15 @@ def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
     estimate_deviation_tone = _fund_watchlist_intraday_tone(estimate_deviation)
     estimate = item.get("intraday_estimate_pct")
     latest_closing_estimate = item.get("latest_closing_estimate_pct")
+    latest_closing_estimate_date = pd.to_datetime(
+        item.get("latest_closing_estimate_date"), errors="coerce"
+    )
     latest_closing_date_label = _fund_watchlist_date_label(
         item.get("latest_closing_estimate_date")
+    )
+    latest_closing_is_today = (
+        not pd.isna(latest_closing_estimate_date)
+        and latest_closing_estimate_date.date() == datetime.now().date()
     )
     freshness = _fund_watchlist_holding_freshness(item.get("latest_end_date"))
     freshness_label = _fund_watchlist_text(freshness.get("label"))
@@ -17707,13 +17716,17 @@ def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
         live_detail = "暂未取得今日有效行情<br>60 秒后自动重试"
         live_tone = " is-idle"
     elif latest_closing_estimate is not None:
-        live_label = "最近15:00估值"
+        live_label = "当天15:00估值" if latest_closing_is_today else "最近15:00估值"
         live_value = _fund_watchlist_signed_pct_label(latest_closing_estimate)
-        live_detail = f"{latest_closing_date_label} 已保存<br>等待同日净值核对"
+        if latest_closing_is_today:
+            live_detail = f"{latest_closing_date_label} 收盘快照已保存<br>新增自选基金也会自动补算"
+        else:
+            live_detail = f"{latest_closing_date_label} 已保存<br>等待同日净值核对"
         live_tone = _fund_watchlist_intraday_tone(latest_closing_estimate)
     else:
-        live_value = "非估值时段"
-        live_detail = "工作日 09:30–15:00<br>盘中自动更新"
+        live_label = "当天15:00估值"
+        live_value = "--"
+        live_detail = "今日收盘估值暂不可用<br>若刚新增自选，系统会尝试自动补算"
         live_tone = " is-idle"
     status_html = (
         '<span class="is-error">数据加载不完整</span>'
@@ -17740,9 +17753,9 @@ def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
         <div class="ws-fund-watchboard__confirmed-nav">
             <div><small>前一日净值</small><strong>{nav_label}</strong></div>
             <div class="{daily_change_tone.strip()}"><small>实际涨跌幅</small><strong>{daily_change_label}</strong></div>
-            <div class="{closing_estimate_tone.strip()}"><small>15:00估值</small><strong>{closing_estimate_label}</strong></div>
-            <div class="{estimate_deviation_tone.strip()}"><small>估值偏差</small><strong>{estimate_deviation_label}</strong></div>
-            <span>{nav_date_label} · 15:00估值与实际净值同日对比</span>
+            <div class="{closing_estimate_tone.strip()}"><small>同日对比15:00估值</small><strong>{closing_estimate_label}</strong></div>
+            <div class="{estimate_deviation_tone.strip()}"><small>同日估值偏差</small><strong>{estimate_deviation_label}</strong></div>
+            <span>{nav_date_label} · 仅当净值日期与15:00快照同日时才参与对比</span>
         </div>
         <div class="ws-fund-watchboard__ratio{ratio_class}">
             <small>Top10 集中度</small>
@@ -18000,6 +18013,10 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
     estimate_label = _fund_watchlist_signed_pct_label(estimate)
     estimate_tone = _fund_watchlist_intraday_tone(estimate).strip()
     estimate_class = f' class="{estimate_tone}"' if estimate_tone else ""
+    latest_closing_estimate = item.get("latest_closing_estimate_pct")
+    latest_closing_estimate_label = _fund_watchlist_signed_pct_label(latest_closing_estimate)
+    latest_closing_estimate_tone = _fund_watchlist_intraday_tone(latest_closing_estimate).strip()
+    latest_closing_estimate_class = f' class="{latest_closing_estimate_tone}"' if latest_closing_estimate_tone else ""
     covered_weight = float(item.get("intraday_covered_weight_pct") or 0.0)
     quote_count = int(item.get("intraday_quote_count") or 0)
     holding_count = int(item.get("intraday_holding_count") or item.get("holding_count") or 0)
@@ -18093,10 +18110,10 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
                         <div class="ws-fund-watchboard__fact"><span>持仓数量</span><strong>{int(item.get("holding_count", 0))} 只</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>前一日净值</span><strong>{nav_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>实际涨跌幅</span><strong{daily_change_class}>{daily_change_label}</strong></div>
-                        <div class="ws-fund-watchboard__fact"><span>15:00估值</span><strong{closing_estimate_class}>{closing_estimate_label}</strong></div>
-                        <div class="ws-fund-watchboard__fact"><span>估值偏差（估值－实际）</span><strong{estimate_deviation_class}>{estimate_deviation_label}</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>当天15:00估值</span><strong{latest_closing_estimate_class}>{latest_closing_estimate_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>净值日期</span><strong>{nav_date_label}</strong></div>
-                        <div class="ws-fund-watchboard__fact"><span>盘中估算</span><strong{estimate_class}>{estimate_label}</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>同日对比15:00估值</span><strong{closing_estimate_class}>{closing_estimate_label}</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>同日估值偏差</span><strong{estimate_deviation_class}>{estimate_deviation_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>实时覆盖</span><strong>{coverage_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>加入自选日期</span><strong>{added_label}</strong></div>
                     </div>
@@ -18287,7 +18304,8 @@ def render_fund_watchlist_live_dashboard(items: list[dict], current_username: st
         "结果仅为盘中估算，不等同于基金公司公布的净值。"
     )
     st.caption("确认净值显示最近已公布的单位净值与日涨跌幅，具体日期以卡片和表格中的净值日期为准。")
-    st.caption("卡片顶部保留最近一次 15:00 收盘估值；每日估值偏差 = 同一净值日期的 15:00 估值涨跌幅－实际涨跌幅，未同日匹配时显示 --。")
+    st.caption("卡片顶部优先显示当天 15:00 收盘估值；若当天缺快照且已过 15:00，系统会尝试自动补算。")
+    st.caption("下方“同日对比15:00估值 / 同日估值偏差”仅在净值日期与 15:00 快照同日时显示，未同日匹配时显示 --。")
     render_fund_watchlist_summary(build_fund_watchlist_summary(live_items))
 
     with st.container(key="fund_watchlist_toolbar"):
