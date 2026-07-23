@@ -201,6 +201,11 @@ from src.user_watchlist_store import (
     remove_watchlist_item,
     remove_watchlist_items_batch,
 )
+from src.user_favorite_store import (
+    add_favorite_page,
+    list_favorite_pages,
+    remove_favorite_page,
+)
 from src.distribution_alert_store import get_latest_alerts_for_stocks
 from src.distribution_report_store import get_daily_report, get_report_status, get_report_statuses
 from src.stock_research_report_store import (
@@ -3815,6 +3820,25 @@ def _navigate_desktop_sidebar_to(
         st.session_state["sidebar_search_query_pending_reset"] = True
 
 
+def _navigate_any_mode_to(module_id: str, page_id: str) -> None:
+    module = get_module_by_id(module_id)
+    page = get_page_by_id(page_id)
+    _navigate_desktop_sidebar_to(module.id, page.id, clear_search=True)
+
+    iphone_group_map = {
+        "decision": ("决策", "iphone_page_decision"),
+        "fund": ("基金", "iphone_page_etf"),
+        "stock": ("股票", "iphone_page_stock"),
+        "favorite": ("Favorite", "iphone_page_favorite"),
+        "money": ("资金", "iphone_page_money"),
+        "macro": ("宏观", "iphone_page_macro"),
+    }
+    group_value, page_key = iphone_group_map.get(module.id, (None, None))
+    if group_value and page_key:
+        st.session_state["iphone_group_radio"] = group_value
+        st.session_state[page_key] = page.label
+
+
 def queue_fund_watchlist_navigation() -> None:
     """Queue a safe cross-module jump before navigation widgets are created."""
     st.session_state["pending_fund_watchlist_navigation"] = True
@@ -3852,6 +3876,33 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
 
     with st.sidebar:
         _consume_pending_sidebar_search_reset()
+        current_username = get_logged_in_username()
+        if current_username:
+            favorite_df = pd.DataFrame()
+            try:
+                favorite_df = list_favorite_pages(current_username)
+            except Exception:
+                favorite_df = pd.DataFrame()
+            if favorite_df is not None and not favorite_df.empty:
+                st.markdown(
+                    """
+                    <div class="ws-sidebar-block">
+                        <div class="ws-sidebar-block-title">⭐ My Favorite</div>
+                        <p class="ws-sidebar-block-copy">你收藏的页面快捷入口。</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                for fav_index, fav in enumerate(favorite_df.head(6).to_dict("records")):
+                    label = str(fav.get("page_label") or "").strip() or str(fav.get("page_id") or "")
+                    if st.button(
+                        label,
+                        key=f"ws-sidebar-favorite-{fav.get('module_id')}-{fav.get('page_id')}-{fav_index}",
+                        use_container_width=True,
+                    ):
+                        _navigate_any_mode_to(str(fav.get("module_id") or ""), str(fav.get("page_id") or ""))
+                        st.rerun()
+
         st.markdown(
             """
             <div class="ws-sidebar-block">
@@ -18404,7 +18455,7 @@ def render_fund_watchlist_tab() -> None:
 
 def render_my_favorite_tab() -> None:
     st.subheader("⭐ My Favorite")
-    st.caption("登录后查看自己的全部自选，并分别进入综合自选与基金自选视图。")
+    st.caption("登录后把常用页面加入收藏，在侧边栏顶部固定显示，方便一键跳转。")
 
     current_username = get_logged_in_username()
     if not current_username:
@@ -18412,34 +18463,53 @@ def render_my_favorite_tab() -> None:
         return
 
     try:
-        watchlist_df = list_watchlist_items(current_username)
+        favorite_df = list_favorite_pages(current_username)
     except Exception as exc:
         st.error(f"加载 My Favorite 失败：{exc}")
         return
 
-    if watchlist_df is None or watchlist_df.empty:
-        st.info("你的 My Favorite 还是空的，先去个股查询页或基金对象页加入自选吧。")
+    all_pages: list[tuple[str, str, str]] = []
+    for module in SIDEBAR_MODULES:
+        for page in module.pages:
+            all_pages.append((module.id, page.id, f"{module.label} / {page.label}"))
+    options = [label for _, _, label in all_pages]
+    label_to_target = {label: (module_id, page_id) for module_id, page_id, label in all_pages}
+
+    with st.expander("➕ 添加收藏板块", expanded=True):
+        selected_label = st.selectbox("选择要收藏的页面", options=options, key="favorite_add_page_select")
+        module_id, page_id = label_to_target.get(selected_label, ("", ""))
+        page_label = selected_label.split("/", 1)[-1].strip() if "/" in selected_label else selected_label
+        if st.button("加入 My Favorite", type="primary", disabled=not (module_id and page_id)):
+            ok = add_favorite_page(current_username, module_id, page_id, page_label)
+            if ok:
+                st.success("已加入 My Favorite")
+                st.rerun()
+            st.warning("加入失败：请检查登录状态与选择项。")
+
+    if favorite_df is None or favorite_df.empty:
+        st.info("你的 My Favorite 还是空的：从上方选择页面加入收藏。")
         return
 
-    if "security_type" in watchlist_df.columns:
-        security_types = watchlist_df["security_type"].astype(str).str.strip().str.lower()
-        fund_count = int(security_types.eq("fund").sum())
-    else:
-        fund_count = 0
-    total_count = int(len(watchlist_df))
-    stock_count = max(total_count - fund_count, 0)
-
-    metric_cols = st.columns(3)
-    metric_cols[0].metric("全部自选", total_count)
-    metric_cols[1].metric("股票自选", stock_count)
-    metric_cols[2].metric("基金自选", fund_count)
-    st.caption(f"当前登录用户：`{current_username}`")
-
-    all_tab, fund_tab = st.tabs(["📊 全部自选", "🏦 基金自选"])
-    with all_tab:
-        render_user_watchlist_tab()
-    with fund_tab:
-        render_fund_watchlist_tab()
+    st.markdown("### 📌 我的收藏板块")
+    for fav_index, fav in enumerate(favorite_df.to_dict("records")):
+        cols = st.columns([4, 1, 1])
+        page_label = str(fav.get("page_label") or "").strip() or str(fav.get("page_id") or "")
+        module_id = str(fav.get("module_id") or "")
+        page_id = str(fav.get("page_id") or "")
+        with cols[0]:
+            st.write(page_label)
+        with cols[1]:
+            if st.button("打开", key=f"btn_favorite_open_{fav_index}_{module_id}_{page_id}", use_container_width=True):
+                _navigate_any_mode_to(module_id, page_id)
+                st.rerun()
+        with cols[2]:
+            if st.button("移除", key=f"btn_favorite_remove_{fav_index}_{module_id}_{page_id}", use_container_width=True):
+                removed = remove_favorite_page(current_username, module_id, page_id)
+                if removed > 0:
+                    st.success("已移除")
+                else:
+                    st.warning("未移除任何记录")
+                st.rerun()
 
 
 def render_fund_hot_stocks_tab():
