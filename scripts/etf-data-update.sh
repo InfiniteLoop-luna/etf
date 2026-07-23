@@ -20,9 +20,19 @@ fi
 
 source "$APP_DIR/.venv/bin/activate"
 
+step_log() {
+  local level="$1"
+  local step="$2"
+  echo "STEP|${level}|${step}|$(date -Is)"
+}
+
 echo "[$(date -Is)] etf-data-update: capture fund watchlist 15:00 estimate snapshots (fallback)"
+step_log START capture_fund_watchlist_estimates
 if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/capture_fund_watchlist_estimates.py; then
   echo "[$(date -Is)] etf-data-update: warning - fund estimate snapshot capture failed, skip and continue"
+  step_log WARN capture_fund_watchlist_estimates
+else
+  step_log OK capture_fund_watchlist_estimates
 fi
 
 if [[ -z "${TUSHARE_TOKEN:-}" ]]; then
@@ -31,17 +41,22 @@ if [[ -z "${TUSHARE_TOKEN:-}" ]]; then
 fi
 
 echo "[$(date -Is)] etf-data-update: run sync_tushare_security_data.py"
+step_log START sync_tushare_security_data
 python src/sync_tushare_security_data.py --datasets stock_basic stock_company stock_holdernumber namechange daily daily_basic index_dailybasic stk_week_month_adj
+step_log OK sync_tushare_security_data
 
 echo "[$(date -Is)] etf-data-update: run fetch_etf_share_size.py"
+step_log START fetch_etf_share_size
 ETF_SHARE_SIZE_ARGS=()
 if [[ "${ETF_SHARE_SIZE_SKIP_VERIFY:-0}" == "1" ]]; then
   ETF_SHARE_SIZE_ARGS+=(--skip-verify)
 fi
 if ! python src/fetch_etf_share_size.py "${ETF_SHARE_SIZE_ARGS[@]}"; then
   echo "[$(date -Is)] etf-data-update: warning - fetch_etf_share_size.py failed, skip and continue"
+  step_log WARN fetch_etf_share_size
 else
   echo "[$(date -Is)] etf-data-update: fetch_etf_share_size.py done"
+  step_log OK fetch_etf_share_size
 fi
 
 echo "[$(date -Is)] etf-data-update: run aggregate_etf_categories.py"
@@ -74,17 +89,23 @@ if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" update_f
 fi
 
 echo "[$(date -Is)] etf-data-update: run update_moneyflow.py (incremental)"
+step_log START update_moneyflow
 if ! python update_moneyflow.py --datasets moneyflow,moneyflow_hsgt,moneyflow_ind_ths,moneyflow_dc_ind --lookback-days 1; then
   echo "[$(date -Is)] etf-data-update: warning - update_moneyflow.py failed, skip and continue"
+  step_log WARN update_moneyflow
 else
   echo "[$(date -Is)] etf-data-update: update_moneyflow.py done"
+  step_log OK update_moneyflow
 fi
 
 echo "[$(date -Is)] etf-data-update: run update_margin.py (incremental)"
+step_log START update_margin
 if ! python update_margin.py --datasets margin,margin_detail --lookback-days 2; then
   echo "[$(date -Is)] etf-data-update: warning - update_margin.py failed, skip and continue"
+  step_log WARN update_margin
 else
   echo "[$(date -Is)] etf-data-update: update_margin.py done"
+  step_log OK update_margin
 fi
 
 echo "[$(date -Is)] etf-data-update: run update_limitup_monitor.py (incremental)"
@@ -173,4 +194,5 @@ fi
 echo "[$(date -Is)] etf-data-update: restart streamlit"
 systemctl restart etf-streamlit
 
+step_log OK etf_data_update_completed
 echo "[$(date -Is)] etf-data-update: completed"
