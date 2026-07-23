@@ -7324,12 +7324,24 @@ def main():
 
         mobile_group = st.radio(
             "模块",
-            ["决策", "基金", "股票", "Favorite", "资金", "宏观"],
+            ["Favorite", "决策", "基金", "股票", "资金", "宏观"],
             horizontal=True,
             key="iphone_group_radio",
         )
 
-        if mobile_group == "决策":
+        if mobile_group == "Favorite":
+            mobile_page = st.selectbox(
+                "页面",
+                FAVORITE_PAGE_OPTIONS,
+                key="iphone_page_favorite",
+            )
+            st.caption(f"当前位置：Favorite / {mobile_page}")
+            if mobile_page == FAVORITE_MY_FAVORITE_PAGE_LABEL:
+                render_my_favorite_tab()
+            else:
+                render_my_favorite_tab()
+
+        elif mobile_group == "决策":
             mobile_page = st.selectbox(
                 "页面",
                 DECISION_PAGE_OPTIONS,
@@ -7397,18 +7409,6 @@ def main():
                 render_tech_picker_tab()
             else:
                 render_security_search_tab()
-
-        elif mobile_group == "Favorite":
-            mobile_page = st.selectbox(
-                "页面",
-                FAVORITE_PAGE_OPTIONS,
-                key="iphone_page_favorite",
-            )
-            st.caption(f"当前位置：Favorite / {mobile_page}")
-            if mobile_page == FAVORITE_MY_FAVORITE_PAGE_LABEL:
-                render_my_favorite_tab()
-            else:
-                render_my_favorite_tab()
 
         elif mobile_group == "资金":
             mobile_page = st.selectbox(

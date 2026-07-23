@@ -37,6 +37,19 @@ class SidebarSearchResult:
 
 SIDEBAR_MODULES = (
     SidebarModule(
+        id="favorite",
+        label="Favorite",
+        session_key="favorite_subpage",
+        pages=(
+            SidebarPage(
+                "my_favorite",
+                "⭐ My Favorite",
+                "登录后查看个人股票与基金自选",
+                "standard",
+            ),
+        ),
+    ),
+    SidebarModule(
         id="fund",
         label="基金",
         session_key="etf_subpage",
@@ -149,19 +162,6 @@ SIDEBAR_MODULES = (
                 "🧭 观点跟踪",
                 "作者观点研究台",
                 "heavy",
-            ),
-        ),
-    ),
-    SidebarModule(
-        id="favorite",
-        label="Favorite",
-        session_key="favorite_subpage",
-        pages=(
-            SidebarPage(
-                "my_favorite",
-                "⭐ My Favorite",
-                "登录后查看个人股票与基金自选",
-                "standard",
             ),
         ),
     ),
