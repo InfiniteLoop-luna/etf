@@ -38,13 +38,25 @@ ETF_SHARE_SIZE_ARGS=()
 if [[ "${ETF_SHARE_SIZE_SKIP_VERIFY:-0}" == "1" ]]; then
   ETF_SHARE_SIZE_ARGS+=(--skip-verify)
 fi
-python src/fetch_etf_share_size.py "${ETF_SHARE_SIZE_ARGS[@]}"
+if ! python src/fetch_etf_share_size.py "${ETF_SHARE_SIZE_ARGS[@]}"; then
+  echo "[$(date -Is)] etf-data-update: warning - fetch_etf_share_size.py failed, skip and continue"
+else
+  echo "[$(date -Is)] etf-data-update: fetch_etf_share_size.py done"
+fi
 
 echo "[$(date -Is)] etf-data-update: run aggregate_etf_categories.py"
-python src/aggregate_etf_categories.py
+if ! python src/aggregate_etf_categories.py; then
+  echo "[$(date -Is)] etf-data-update: warning - aggregate_etf_categories.py failed, skip and continue"
+else
+  echo "[$(date -Is)] etf-data-update: aggregate_etf_categories.py done"
+fi
 
 echo "[$(date -Is)] etf-data-update: ensure recent ETF share data"
-bash "$APP_DIR/scripts/ensure_recent_etf_share_data.sh"
+if ! bash "$APP_DIR/scripts/ensure_recent_etf_share_data.sh"; then
+  echo "[$(date -Is)] etf-data-update: warning - ensure_recent_etf_share_data.sh failed, skip and continue"
+else
+  echo "[$(date -Is)] etf-data-update: ensure_recent_etf_share_data.sh done"
+fi
 
 echo "[$(date -Is)] etf-data-update: run update_fund_hot_stocks.py (fund holdings)"
 FUND_HOT_STOCKS_ARGS=(--sync-portfolio-dynamic --rebuild-agg)
@@ -62,31 +74,56 @@ if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" update_f
 fi
 
 echo "[$(date -Is)] etf-data-update: run update_moneyflow.py (incremental)"
-python update_moneyflow.py --datasets moneyflow,moneyflow_hsgt,moneyflow_ind_ths,moneyflow_dc_ind --lookback-days 1
-echo "[$(date -Is)] etf-data-update: update_moneyflow.py done"
+if ! python update_moneyflow.py --datasets moneyflow,moneyflow_hsgt,moneyflow_ind_ths,moneyflow_dc_ind --lookback-days 1; then
+  echo "[$(date -Is)] etf-data-update: warning - update_moneyflow.py failed, skip and continue"
+else
+  echo "[$(date -Is)] etf-data-update: update_moneyflow.py done"
+fi
 
 echo "[$(date -Is)] etf-data-update: run update_margin.py (incremental)"
-python update_margin.py --datasets margin,margin_detail --lookback-days 2
-echo "[$(date -Is)] etf-data-update: update_margin.py done"
+if ! python update_margin.py --datasets margin,margin_detail --lookback-days 2; then
+  echo "[$(date -Is)] etf-data-update: warning - update_margin.py failed, skip and continue"
+else
+  echo "[$(date -Is)] etf-data-update: update_margin.py done"
+fi
 
 echo "[$(date -Is)] etf-data-update: run update_limitup_monitor.py (incremental)"
-python update_limitup_monitor.py --datasets limit_list_d,limit_step,limit_cpt_list,kpl_list,limit_list_ths
-echo "[$(date -Is)] etf-data-update: update_limitup_monitor.py done"
+if ! python update_limitup_monitor.py --datasets limit_list_d,limit_step,limit_cpt_list,kpl_list,limit_list_ths; then
+  echo "[$(date -Is)] etf-data-update: warning - update_limitup_monitor.py failed, skip and continue"
+else
+  echo "[$(date -Is)] etf-data-update: update_limitup_monitor.py done"
+fi
 
 echo "[$(date -Is)] etf-data-update: run update_lhb_monitor.py (safe incremental)"
 LHB_BATCH_DAYS="${ETF_LHB_BATCH_DAYS:-3}"
 LHB_SLEEP_SECONDS="${ETF_LHB_SLEEP_SECONDS:-0.35}"
 LHB_LOOKBACK_DAYS="${ETF_LHB_LOOKBACK_DAYS:-2}"
-python update_lhb_monitor.py --datasets top_list,top_inst --batch-days "$LHB_BATCH_DAYS" --sleep "$LHB_SLEEP_SECONDS" --lookback-days "$LHB_LOOKBACK_DAYS"
+if ! python update_lhb_monitor.py --datasets top_list,top_inst --batch-days "$LHB_BATCH_DAYS" --sleep "$LHB_SLEEP_SECONDS" --lookback-days "$LHB_LOOKBACK_DAYS"; then
+  echo "[$(date -Is)] etf-data-update: warning - update_lhb_monitor.py failed, skip and continue"
+else
+  echo "[$(date -Is)] etf-data-update: update_lhb_monitor.py done"
+fi
 
 echo "[$(date -Is)] etf-data-update: run update_hotmoney.py (safe incremental)"
-python update_hotmoney.py --datasets hm_list
+if ! python update_hotmoney.py --datasets hm_list; then
+  echo "[$(date -Is)] etf-data-update: warning - update_hotmoney.py hm_list failed, skip and continue"
+else
+  echo "[$(date -Is)] etf-data-update: update_hotmoney.py hm_list done"
+fi
 HOTMONEY_DETAIL_BATCH_DAYS="${ETF_HM_DETAIL_BATCH_DAYS:-1}"
-python update_hotmoney.py --datasets hm_detail --detail-batch-days "$HOTMONEY_DETAIL_BATCH_DAYS" --detail-sleep 35 --detail-lookback-days 0
+if ! python update_hotmoney.py --datasets hm_detail --detail-batch-days "$HOTMONEY_DETAIL_BATCH_DAYS" --detail-sleep 35 --detail-lookback-days 0; then
+  echo "[$(date -Is)] etf-data-update: warning - update_hotmoney.py hm_detail failed, skip and continue"
+else
+  echo "[$(date -Is)] etf-data-update: update_hotmoney.py hm_detail done"
+fi
 
 echo "[$(date -Is)] etf-data-update: run generate_daily_trend_reco_from_pyc.py"
 TREND_RECO_CALIBRATION_ANCHORS="${ETF_TREND_RECO_CALIBRATION_ANCHORS:-0}"
-TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/generate_daily_trend_reco_from_pyc.py --probability-calibration-anchors "$TREND_RECO_CALIBRATION_ANCHORS"
+if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/generate_daily_trend_reco_from_pyc.py --probability-calibration-anchors "$TREND_RECO_CALIBRATION_ANCHORS"; then
+  echo "[$(date -Is)] etf-data-update: warning - generate_daily_trend_reco_from_pyc.py failed, skip and continue"
+else
+  echo "[$(date -Is)] etf-data-update: generate_daily_trend_reco_from_pyc.py done"
+fi
 
 echo "[$(date -Is)] etf-data-update: run write_reco_candidate_score_snapshot.py"
 if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/write_reco_candidate_score_snapshot.py --lookback-days 60 --min-train-rows 2000 --max-candidates 30 --recent-train-rows 6000; then
