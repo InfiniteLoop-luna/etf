@@ -181,8 +181,36 @@ def fetch_fund_nav_history_akshare(
     if ak_client is None:
         import akshare as ak_client
 
+    symbol = normalize_fund_code_for_nav(fund_code)
+    try:
+        df = ak_client.fund_open_fund_info_em(
+            symbol=symbol,
+            indicator="单位净值走势",
+            period="成立来",
+        )
+        if df is not None and not df.empty:
+            normalized = df.copy()
+            if "净值日期" in normalized.columns:
+                normalized["净值日期"] = pd.to_datetime(normalized["净值日期"], errors="coerce")
+            if "单位净值" in normalized.columns:
+                normalized["单位净值"] = pd.to_numeric(normalized["单位净值"], errors="coerce")
+            if "日增长率" in normalized.columns:
+                normalized["日增长率"] = pd.to_numeric(normalized["日增长率"], errors="coerce")
+            mask = (
+                normalized["净值日期"].notna()
+                if "净值日期" in normalized.columns
+                else pd.Series([True] * len(normalized))
+            )
+            if "净值日期" in normalized.columns:
+                mask &= normalized["净值日期"].dt.date.between(start_date, end_date)
+            normalized = normalized.loc[mask].copy()
+            if not normalized.empty:
+                return normalized
+    except Exception:
+        pass
+
     return ak_client.fund_etf_fund_info_em(
-        fund=normalize_fund_code_for_nav(fund_code),
+        fund=symbol,
         start_date=start_date.strftime("%Y%m%d"),
         end_date=end_date.strftime("%Y%m%d"),
     )
