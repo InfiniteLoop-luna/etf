@@ -252,7 +252,7 @@ def load_fund_object_model(fund_code: str, period: str = "", top_n: int = 10) ->
         nav_snapshot = fetch_latest_fund_nav_snapshot(normalized_code)
     except Exception as exc:
         logger.warning("fund object nav load failed for %s: %s", normalized_code, exc)
-        nav_error = f"净值读取失败：{exc}"
+        nav_error = "前一日净值暂不可用，已优先展示基金估值与持仓数据。"
 
     nav_date = pd.to_datetime(nav_snapshot.get("nav_date"), errors="coerce")
     if estimate_store_ready and not pd.isna(nav_date):

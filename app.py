@@ -17461,7 +17461,7 @@ def load_fund_watchlist_dashboard_data(
         nav_snapshot = nav_snapshots.get(fund_code, {})
         nav_error = ""
         if nav_snapshot.get("error"):
-            nav_error = f"前一日净值读取失败：{nav_snapshot.get('error')}"
+            nav_error = "前一日净值暂不可用，已优先展示基金估值与持仓数据。"
 
         nav_date = pd.to_datetime(nav_snapshot.get("nav_date"), errors="coerce")
         if estimate_store_error:
