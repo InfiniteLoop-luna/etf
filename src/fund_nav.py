@@ -109,6 +109,7 @@ def fetch_fund_nav_history_eastmoney(
     end_date: date,
     session: requests.sessions.Session | None = None,
     timeout: int = 15,
+    empty_retry_attempts: int = 2,
 ) -> pd.DataFrame:
     fund = normalize_fund_code_for_nav(fund_code)
     http = session or requests
@@ -119,17 +120,22 @@ def fetch_fund_nav_history_eastmoney(
         "startDate": start_date.strftime("%Y-%m-%d"),
         "endDate": end_date.strftime("%Y-%m-%d"),
     }
-    first = http.get(EASTMONEY_NAV_URL, params=params, headers=EASTMONEY_HEADERS, timeout=timeout)
-    first.raise_for_status()
-    payload = first.json()
-    total_count = int((payload.get("TotalCount") or 0))
-    page_size = int(params["pageSize"])
-    total_pages = max(1, (total_count + page_size - 1) // page_size)
 
+    payload = None
     rows: list[dict] = []
-    data = (((payload or {}).get("Data") or {}).get("LSJZList") or [])
-    if isinstance(data, list):
-        rows.extend(item for item in data if isinstance(item, dict))
+    total_count = 0
+    for _ in range(max(1, int(empty_retry_attempts) + 1)):
+        first = http.get(EASTMONEY_NAV_URL, params=params, headers=EASTMONEY_HEADERS, timeout=timeout)
+        first.raise_for_status()
+        payload = first.json()
+        total_count = int((payload.get("TotalCount") or 0)) if isinstance(payload, dict) else 0
+        data = (((payload or {}).get("Data") or {}).get("LSJZList") or []) if isinstance(payload, dict) else []
+        rows = [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+        if rows or total_count == 0:
+            break
+
+    page_size = int(params["pageSize"])
+    total_pages = max(1, (total_count + page_size - 1) // page_size) if total_count else 1
 
     for page in range(2, total_pages + 1):
         params["pageIndex"] = str(page)
