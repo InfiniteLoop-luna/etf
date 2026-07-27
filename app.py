@@ -17459,8 +17459,9 @@ def load_fund_watchlist_dashboard_data(
         errors = []
 
         nav_snapshot = nav_snapshots.get(fund_code, {})
+        nav_error = ""
         if nav_snapshot.get("error"):
-            errors.append(f"前一日净值读取失败：{nav_snapshot.get('error')}")
+            nav_error = f"前一日净值读取失败：{nav_snapshot.get('error')}"
 
         nav_date = pd.to_datetime(nav_snapshot.get("nav_date"), errors="coerce")
         if estimate_store_error:
@@ -17496,16 +17497,16 @@ def load_fund_watchlist_dashboard_data(
             logger.warning("fund watchlist holdings load failed for %s: %s", fund_code, exc)
             errors.append(f"持仓读取失败：{exc}")
 
-        items.append(
-            build_fund_watchlist_item(
-                watchlist_row,
-                meta_df,
-                holding_df,
-                nav_snapshot=nav_snapshot,
-                estimate_snapshot=estimate_snapshot,
-                load_error="；".join(errors),
-            )
+        item = build_fund_watchlist_item(
+            watchlist_row,
+            meta_df,
+            holding_df,
+            nav_snapshot=nav_snapshot,
+            estimate_snapshot=estimate_snapshot,
+            load_error="；".join(errors),
         )
+        item["nav_error"] = nav_error
+        items.append(item)
     return items
 
 
@@ -17800,10 +17801,16 @@ def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
         live_value = "--"
         live_detail = "今日收盘估值暂不可用<br>若刚新增自选，系统会尝试自动补算"
         live_tone = " is-idle"
+    blocking_error = str(item.get("load_error") or "").strip()
+    nav_only_error = str(item.get("nav_error") or "").strip()
     status_html = (
         '<span class="is-error">数据加载不完整</span>'
-        if item.get("load_error")
-        else f"<span>披露 {latest_label}</span>"
+        if blocking_error
+        else (
+            '<span class="is-warn">净值核对暂不可用</span>'
+            if nav_only_error
+            else f"<span>披露 {latest_label}</span>"
+        )
     )
     return f"""
     <article class="ws-fund-watchboard__card{active_class}">
@@ -18157,9 +18164,12 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
         </div>
         """
 
+    blocking_error = str(item.get("load_error") or "").strip()
+    nav_only_error = str(item.get("nav_error") or "").strip()
+    effective_error = blocking_error or nav_only_error
     error_html = (
-        f'<div class="ws-fund-watchboard__error">{_fund_watchlist_text(item.get("load_error"))}</div>'
-        if item.get("load_error")
+        f'<div class="ws-fund-watchboard__error">{_fund_watchlist_text(effective_error)}</div>'
+        if effective_error
         else ""
     )
 
