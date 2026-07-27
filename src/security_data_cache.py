@@ -221,6 +221,7 @@ def load_fund_object_model(fund_code: str, period: str = "", top_n: int = 10) ->
     estimate_snapshot: dict[str, Any] = {}
     latest_estimate_snapshot: dict[str, Any] = {}
     errors: list[str] = []
+    nav_error = ""
     estimate_store_ready = False
 
     try:
@@ -251,7 +252,7 @@ def load_fund_object_model(fund_code: str, period: str = "", top_n: int = 10) ->
         nav_snapshot = fetch_latest_fund_nav_snapshot(normalized_code)
     except Exception as exc:
         logger.warning("fund object nav load failed for %s: %s", normalized_code, exc)
-        errors.append(f"净值读取失败：{exc}")
+        nav_error = f"净值读取失败：{exc}"
 
     nav_date = pd.to_datetime(nav_snapshot.get("nav_date"), errors="coerce")
     if estimate_store_ready and not pd.isna(nav_date):
@@ -298,6 +299,7 @@ def load_fund_object_model(fund_code: str, period: str = "", top_n: int = 10) ->
         estimate_snapshot=estimate_snapshot,
         load_error="；".join(errors),
     )
+    item["nav_error"] = nav_error
     item = attach_latest_closing_estimate(item, latest_estimate_snapshot)
     return {
         "item": item,

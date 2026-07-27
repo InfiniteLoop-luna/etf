@@ -672,5 +672,9 @@ def render_fund_object_page() -> None:
         )
         st.markdown("##### 自选操作")
         _render_watchlist_action(_resolve_logged_in_username(), fund_code, fund_name, key_prefix="track")
-        if item.get("load_error"):
-            st.info(f"数据备注：{item.get('load_error')}")
+        blocking_error = str(item.get("load_error") or "").strip()
+        nav_only_error = str(item.get("nav_error") or "").strip()
+        if blocking_error:
+            st.info(f"数据备注：{blocking_error}")
+        elif nav_only_error:
+            st.info(f"净值核对暂不可用：{nav_only_error}")
