@@ -163,8 +163,11 @@ def main(target_date: str = None) -> int:
                 logger.exception(f"✗ {code} 更新时发生异常")
                 continue
 
-        # 6. 保存Excel并关闭
+        # 6. 先重算派生指标，再保存Excel并关闭
         logger.info("正在保存Excel文件...")
+        if hasattr(excel_manager, "recalculate_formulas"):
+            logger.info("正在重算ETF派生指标...")
+            excel_manager.recalculate_formulas(date)
         excel_manager.save()
         excel_manager.close()
         logger.info("✓ Excel文件保存成功")
