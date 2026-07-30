@@ -116,6 +116,7 @@ from src.navigation_config import (
     MONEY_MARGIN_PAGE_LABEL,
     MONEY_FUND_HOT_PAGE_LABEL,
     MONEY_HOTMONEY_PAGE_LABEL,
+    MONEY_FRESHNESS_PAGE_LABEL,
     MONEY_LIMITUP_PAGE_LABEL,
     MONEY_PAGE_OPTIONS,
     MONEY_VOLUME_PAGE_LABEL,
@@ -7454,6 +7455,8 @@ def main():
                 render_limitup_monitor_tab()
             elif mobile_page == MONEY_HOTMONEY_PAGE_LABEL:
                 render_hotmoney_tab()
+            elif mobile_page == MONEY_FRESHNESS_PAGE_LABEL:
+                render_funding_freshness_page()
             else:
                 render_moneyflow_tab()
 
@@ -7560,6 +7563,8 @@ def main():
             render_limitup_monitor_tab()
         elif selected_page == MONEY_HOTMONEY_PAGE_LABEL:
             render_hotmoney_tab()
+        elif selected_page == MONEY_FRESHNESS_PAGE_LABEL:
+            render_funding_freshness_page()
         else:
             render_moneyflow_tab()
 
@@ -8466,6 +8471,43 @@ def render_daily_trend_reco_tab():
                 )
             }
         )
+
+
+def render_funding_freshness_page():
+    st.subheader("🩺 资金链健康度")
+    st.caption("按北京时间检查资金相关核心数据源的最新交易日，快速发现静默滞后。")
+
+    summary = load_funding_freshness_summary_cached()
+    items = summary.get("items") or []
+    target_date = summary.get("target_date") or "-"
+    generated_at = summary.get("generated_at") or "-"
+    all_ok = bool(summary.get("all_ok"))
+
+    top_cols = st.columns(3)
+    top_cols[0].metric("目标日期", target_date)
+    top_cols[1].metric("检查项数", f"{len(items)}")
+    top_cols[2].metric("整体状态", "正常" if all_ok else "滞后")
+
+    status_text = "✅ 所有资金链都已达到目标日期。" if all_ok else "⚠️ 存在资金链落后于目标日期，请优先处理状态为“滞后”的数据源。"
+    if all_ok:
+        st.success(status_text)
+    else:
+        st.warning(status_text)
+
+    funding_df = pd.DataFrame(
+        [
+            {
+                "资金链": item.get("key") or "-",
+                "最新日期": item.get("latest_date") or "-",
+                "目标日期": item.get("target_date") or "-",
+                "状态": "正常" if item.get("ok") else "滞后",
+                "备注": item.get("note") or "-",
+            }
+            for item in items
+        ]
+    )
+    st.dataframe(funding_df, use_container_width=True, hide_index=True)
+    st.caption(f"生成时间：{generated_at} ｜ 目标日期按北京时间昨天计算")
 
 
 def render_hotmoney_tab():
@@ -9565,23 +9607,7 @@ def render_factor_workbench_tab():
         )
         st.dataframe(freshness_df, use_container_width=True, hide_index=True)
 
-        funding_summary = load_funding_freshness_summary_cached()
-        funding_items = funding_summary.get("items") or []
-        funding_df = pd.DataFrame(
-            [
-                {
-                    "资金链": item.get("key") or "-",
-                    "最新日期": item.get("latest_date") or "-",
-                    "目标日期": item.get("target_date") or "-",
-                    "状态": "正常" if item.get("ok") else "滞后",
-                    "备注": item.get("note") or "-",
-                }
-                for item in funding_items
-            ]
-        )
-        st.markdown("#### 资金链新鲜度")
-        st.dataframe(funding_df, use_container_width=True, hide_index=True)
-        st.info("财务因子使用最近一期财报快照，不与交易日严格同步；页面会同时展示对应财报期。资金链新鲜度目标日期按北京时间昨天计算。")
+        st.info("财务因子使用最近一期财报快照，不与交易日严格同步；页面会同时展示对应财报期。")
 
 
 def render_tech_picker_tab():

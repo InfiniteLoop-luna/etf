@@ -206,6 +206,12 @@ SIDEBAR_MODULES = (
                 "游资活跃明细",
                 "standard",
             ),
+            SidebarPage(
+                "funding_freshness",
+                "🩺 资金链健康度",
+                "资金相关数据源最新日期与滞后检查",
+                "standard",
+            ),
         ),
     ),
     SidebarModule(
