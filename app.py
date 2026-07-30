@@ -109,6 +109,7 @@ from src.navigation_config import (
     ETF_TREND_PAGE_LABEL,
     ETF_WIDE_INDEX_PAGE_LABEL,
     DATA_HEALTH_PAGE_LABEL,
+    DATA_UPDATE_ACTIVITY_PAGE_LABEL,
     MACRO_DEPOSIT_PAGE_LABEL,
     MACRO_INDEX_MONITOR_PAGE_LABEL,
     MACRO_MAIN_PAGE_LABEL,
@@ -160,6 +161,7 @@ from src.fund_watchlist_dashboard import (
     sort_fund_watchlist_items,
 )
 from scripts.funding_freshness_summary import build_summary as build_funding_freshness_summary
+from scripts.update_activity_summary import build_update_activity_summary
 from src.fund_intraday_estimator import (
     TENCENT_QUOTE_SOURCE,
     collect_fund_holding_symbols,
@@ -2584,6 +2586,11 @@ def load_factor_workbench_data_freshness_cached() -> dict[str, str | None]:
 @st.cache_data(ttl=300, show_spinner=False)
 def load_funding_freshness_summary_cached() -> dict:
     return build_funding_freshness_summary()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_update_activity_summary_cached() -> dict:
+    return build_update_activity_summary()
 
 
 @st.cache_data(ttl=300)
@@ -7565,7 +7572,12 @@ def main():
             render_moneyflow_tab()
 
     elif selected_module == data_module_label:
-        render_funding_freshness_page()
+        if selected_page == DATA_HEALTH_PAGE_LABEL:
+            render_funding_freshness_page()
+        elif selected_page == DATA_UPDATE_ACTIVITY_PAGE_LABEL:
+            render_update_activity_page()
+        else:
+            render_funding_freshness_page()
 
     elif selected_module == macro_module_label:
         if selected_page == MACRO_MAIN_PAGE_LABEL:
@@ -8507,6 +8519,54 @@ def render_funding_freshness_page():
     )
     st.dataframe(funding_df, use_container_width=True, hide_index=True)
     st.caption(f"生成时间：{generated_at} ｜ 目标日期按北京时间昨天计算")
+
+
+def render_update_activity_page():
+    st.subheader("🕒 最近更新日志")
+    st.caption("汇总最近一次页面数据更新时间与资金链新鲜度结果。")
+
+    summary = load_update_activity_summary_cached()
+    last_update = summary.get("last_update") or {}
+    funding_freshness = summary.get("funding_freshness") or {}
+    stale_items = funding_freshness.get("stale_items") or []
+
+    top_cols = st.columns(4)
+    top_cols[0].metric("页面更新日期", str(last_update.get("update_date") or "-"))
+    top_cols[1].metric("GitHub Action时间", str(last_update.get("last_update") or "-"))
+    top_cols[2].metric("资金链目标日期", str(funding_freshness.get("target_date") or "-"))
+    top_cols[3].metric("滞后项数", f"{int(funding_freshness.get('stale_count') or 0)}")
+
+    if funding_freshness.get("all_ok") is True:
+        st.success("✅ 当前资金链新鲜度检查全部通过")
+    elif funding_freshness.get("all_ok") is False:
+        st.warning("⚠️ 当前仍有资金链落后，请查看下方明细")
+    else:
+        st.info("ℹ️ 暂无资金链新鲜度结果")
+
+    activity_rows = [
+        {"项目": "页面更新日期", "值": last_update.get("update_date") or "-", "说明": "last_update.json"},
+        {"项目": "页面更新时间戳", "值": last_update.get("last_update") or "-", "说明": "last_update.json"},
+        {"项目": "资金链目标日期", "值": funding_freshness.get("target_date") or "-", "说明": "北京时间昨天"},
+        {"项目": "资金链整体状态", "值": "正常" if funding_freshness.get("all_ok") else "滞后", "说明": "funding_freshness_summary.json"},
+    ]
+    st.dataframe(pd.DataFrame(activity_rows), use_container_width=True, hide_index=True)
+
+    stale_df = pd.DataFrame(
+        [
+            {
+                "数据链": item.get("key") or "-",
+                "最新日期": item.get("latest_date") or "-",
+                "目标日期": item.get("target_date") or "-",
+                "备注": item.get("note") or "-",
+            }
+            for item in stale_items
+        ]
+    )
+    st.markdown("#### 当前滞后项")
+    if stale_df.empty:
+        st.caption("当前没有滞后项。")
+    else:
+        st.dataframe(stale_df, use_container_width=True, hide_index=True)
 
 
 def render_hotmoney_tab():

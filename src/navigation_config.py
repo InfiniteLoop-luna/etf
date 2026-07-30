@@ -54,6 +54,7 @@ MONEY_LIMITUP_PAGE_LABEL = _page_label("资金", "limitup")
 MONEY_HOTMONEY_PAGE_LABEL = _page_label("资金", "hotmoney")
 
 DATA_HEALTH_PAGE_LABEL = _page_label("数据", "data_health")
+DATA_UPDATE_ACTIVITY_PAGE_LABEL = _page_label("数据", "update_activity")
 
 MACRO_MAIN_PAGE_LABEL = _page_label("宏观", "macro")
 MACRO_DEPOSIT_PAGE_LABEL = _page_label("宏观", "deposit")

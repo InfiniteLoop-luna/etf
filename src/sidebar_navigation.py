@@ -219,6 +219,12 @@ SIDEBAR_MODULES = (
                 "全站核心数据链最新日期与滞后检查",
                 "standard",
             ),
+            SidebarPage(
+                "update_activity",
+                "🕒 最近更新日志",
+                "查看最近一次更新摘要与新鲜度结果",
+                "standard",
+            ),
         ),
     ),
     SidebarModule(
