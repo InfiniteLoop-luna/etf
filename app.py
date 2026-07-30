@@ -7500,6 +7500,7 @@ def main():
     stock_module_label = get_module_label_for_page(STOCK_SECURITY_SEARCH_LABEL)
     favorite_module_label = get_module_label_for_page(FAVORITE_MY_FAVORITE_PAGE_LABEL)
     money_module_label = get_module_label_for_page(MONEY_FLOW_PAGE_LABEL)
+    data_module_label = get_module_label_for_page(DATA_HEALTH_PAGE_LABEL)
     macro_module_label = get_module_label_for_page(MACRO_MAIN_PAGE_LABEL)
 
     if selected_module == decision_module_label:
