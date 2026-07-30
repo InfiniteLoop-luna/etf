@@ -26,6 +26,7 @@ import sys
 import time
 import logging
 from datetime import datetime, timedelta, date
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -53,6 +54,11 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+BEIJING_TZ = ZoneInfo('Asia/Shanghai')
+
+
+def beijing_now() -> datetime:
+    return datetime.now(BEIJING_TZ)
 
 
 # ── 工具函数 ─────────────────────────────────────────────────────────────────
@@ -276,7 +282,7 @@ def run_validation(engine, pro, start_date: str, end_date: str):
 
 
 def resolve_fetch_range(engine, full: bool = False, start_date: str | None = None, end_date: str | None = None) -> tuple[str | None, str | None]:
-    today = datetime.now().strftime('%Y%m%d')
+    today = beijing_now().strftime('%Y%m%d')
     start_date = normalize_date(start_date)
     end_date = normalize_date(end_date)
 
@@ -391,7 +397,7 @@ def run(
     if verify_only:
         if full:
             start_date = DEFAULT_START
-            end_date = datetime.now().strftime('%Y%m%d')
+            end_date = beijing_now().strftime('%Y%m%d')
         else:
             start_date = normalize_date(start_date)
             end_date = normalize_date(end_date)

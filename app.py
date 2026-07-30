@@ -158,6 +158,7 @@ from src.fund_watchlist_dashboard import (
     build_fund_watchlist_table,
     sort_fund_watchlist_items,
 )
+from scripts.funding_freshness_summary import build_summary as build_funding_freshness_summary
 from src.fund_intraday_estimator import (
     TENCENT_QUOTE_SOURCE,
     collect_fund_holding_symbols,
@@ -2577,6 +2578,11 @@ def load_factor_workbench_frame_cached(trade_date_text: str) -> pd.DataFrame:
 @st.cache_data(ttl=600, show_spinner=False)
 def load_factor_workbench_data_freshness_cached() -> dict[str, str | None]:
     return get_factor_workbench_data_freshness()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_funding_freshness_summary_cached() -> dict:
+    return build_funding_freshness_summary()
 
 
 @st.cache_data(ttl=300)
@@ -7265,6 +7271,25 @@ def main():
     except Exception as e:
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
+    try:
+        funding_freshness = load_funding_freshness_summary_cached()
+        freshness_items = funding_freshness.get("items") or []
+        stale_items = [item for item in freshness_items if not item.get("ok")]
+        target_date = funding_freshness.get("target_date") or "-"
+        if not stale_items:
+            if iphone_mode:
+                st.caption(f"✅ 资金链新鲜度正常（目标 {target_date}）")
+            else:
+                st.success(f"✅ 资金链新鲜度正常（目标 {target_date}）")
+        else:
+            stale_text = "、".join(f"{item.get('key')}={item.get('latest_date') or '-'}" for item in stale_items[:6])
+            if iphone_mode:
+                st.caption(f"⚠️ 资金链存在滞后（目标 {target_date}）：{stale_text}")
+            else:
+                st.warning(f"⚠️ 资金链存在滞后（目标 {target_date}）：{stale_text}")
+    except Exception:
+        pass
+
     # 处理外部跳转请求（例如从榜单点击跳到个股查询）
     trigger_security_tab_jump_if_needed()
 
@@ -9539,7 +9564,24 @@ def render_factor_workbench_tab():
             ]
         )
         st.dataframe(freshness_df, use_container_width=True, hide_index=True)
-        st.info("财务因子使用最近一期财报快照，不与交易日严格同步；页面会同时展示对应财报期。")
+
+        funding_summary = load_funding_freshness_summary_cached()
+        funding_items = funding_summary.get("items") or []
+        funding_df = pd.DataFrame(
+            [
+                {
+                    "资金链": item.get("key") or "-",
+                    "最新日期": item.get("latest_date") or "-",
+                    "目标日期": item.get("target_date") or "-",
+                    "状态": "正常" if item.get("ok") else "滞后",
+                    "备注": item.get("note") or "-",
+                }
+                for item in funding_items
+            ]
+        )
+        st.markdown("#### 资金链新鲜度")
+        st.dataframe(funding_df, use_container_width=True, hide_index=True)
+        st.info("财务因子使用最近一期财报快照，不与交易日严格同步；页面会同时展示对应财报期。资金链新鲜度目标日期按北京时间昨天计算。")
 
 
 def render_tech_picker_tab():

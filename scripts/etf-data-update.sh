@@ -131,11 +131,26 @@ if ! python update_hotmoney.py --datasets hm_list; then
 else
   echo "[$(date -Is)] etf-data-update: update_hotmoney.py hm_list done"
 fi
-HOTMONEY_DETAIL_BATCH_DAYS="${ETF_HM_DETAIL_BATCH_DAYS:-1}"
-if ! python update_hotmoney.py --datasets hm_detail --detail-batch-days "$HOTMONEY_DETAIL_BATCH_DAYS" --detail-sleep 35 --detail-lookback-days 0; then
-  echo "[$(date -Is)] etf-data-update: warning - update_hotmoney.py hm_detail failed, skip and continue"
+HOTMONEY_DETAIL_BATCH_DAYS="${ETF_HM_DETAIL_BATCH_DAYS:-10}"
+HOTMONEY_DETAIL_SLEEP_SECONDS="${ETF_HM_DETAIL_SLEEP_SECONDS:-35}"
+HOTMONEY_DETAIL_LOOKBACK_DAYS="${ETF_HM_DETAIL_LOOKBACK_DAYS:-0}"
+HOTMONEY_DETAIL_MAX_DAYS="${ETF_HM_DETAIL_MAX_DAYS:-10}"
+if ! python update_hotmoney.py --datasets hm_detail --detail-batch-days "$HOTMONEY_DETAIL_BATCH_DAYS" --detail-sleep "$HOTMONEY_DETAIL_SLEEP_SECONDS" --detail-lookback-days "$HOTMONEY_DETAIL_LOOKBACK_DAYS" --detail-max-days "$HOTMONEY_DETAIL_MAX_DAYS"; then
+  echo "[$(date -Is)] etf-data-update: warning - update_hotmoney.py hm_detail failed or rate-limited, skip and continue"
 else
   echo "[$(date -Is)] etf-data-update: update_hotmoney.py hm_detail done"
+fi
+
+echo "[$(date -Is)] etf-data-update: ensure recent hotmoney data"
+if ! bash "$APP_DIR/scripts/ensure_recent_hotmoney_data.sh"; then
+  echo "[$(date -Is)] etf-data-update: warning - ensure_recent_hotmoney_data.sh failed, skip and continue"
+else
+  echo "[$(date -Is)] etf-data-update: ensure_recent_hotmoney_data.sh done"
+fi
+
+echo "[$(date -Is)] etf-data-update: funding freshness summary"
+if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/funding_freshness_summary.py; then
+  echo "[$(date -Is)] etf-data-update: warning - funding_freshness_summary.py found stale data"
 fi
 
 echo "[$(date -Is)] etf-data-update: run generate_daily_trend_reco_from_pyc.py"

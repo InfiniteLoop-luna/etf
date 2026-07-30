@@ -66,6 +66,12 @@ def main():
         detail_stop_on_rate_limit=not args.detail_continue_on_rate_limit,
         detail_max_days=args.detail_max_days,
     )
+
+    hm_detail_result = result.get("hm_detail") if isinstance(result, dict) else None
+    if isinstance(hm_detail_result, dict) and hm_detail_result.get("rate_limited"):
+        print(f"[WARN] 游资明细同步触发限频并提前停止: {hm_detail_result}")
+        raise SystemExit(2)
+
     print(f"[OK] 游资数据同步完成: {result}")
 
 

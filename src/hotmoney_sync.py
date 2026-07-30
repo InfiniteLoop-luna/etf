@@ -17,6 +17,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -56,6 +57,11 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+BEIJING_TZ = ZoneInfo('Asia/Shanghai')
+
+
+def beijing_today_ymd() -> str:
+    return datetime.now(BEIJING_TZ).strftime('%Y%m%d')
 
 
 def build_db_url():
@@ -257,10 +263,10 @@ def sync_hm_detail(
     lookback_days: int = DEFAULT_DETAIL_LOOKBACK_DAYS,
     stop_on_rate_limit: bool = True,
     max_days: Optional[int] = None,
-) -> int:
+) -> dict:
     table = HM_TABLES["hm_detail"]
     s = resolve_start_date(engine, table, DEFAULT_DETAIL_START_DATE, start_date, lookback_days=lookback_days)
-    hard_end = end_date or datetime.now().strftime("%Y%m%d")
+    hard_end = end_date or beijing_today_ymd()
     e = _calc_batch_end(s, hard_end, batch_days)
 
     logger.info(
@@ -268,6 +274,9 @@ def sync_hm_detail(
     )
 
     total = 0
+    processed_days = 0
+    rate_limited = False
+    last_success_trade_date = None
     dt_range = list(pd.date_range(pd.to_datetime(s), pd.to_datetime(e), freq="D"))
     if max_days is not None and max_days > 0:
         dt_range = dt_range[:max_days]
@@ -276,6 +285,8 @@ def sync_hm_detail(
         trade_date = dt.strftime("%Y%m%d")
         try:
             df = pro.hm_detail(trade_date=trade_date)
+            processed_days += 1
+            last_success_trade_date = trade_date
             if df is not None and not df.empty:
                 rows = []
                 for row in df.to_dict("records"):
@@ -288,6 +299,7 @@ def sync_hm_detail(
                 logger.info(f"hm_detail[{trade_date}] 返回空")
         except Exception as exc:
             if _is_rate_limit_error(exc):
+                rate_limited = True
                 logger.warning(f"hm_detail[{trade_date}] 触发限频: {exc}")
                 if stop_on_rate_limit:
                     logger.warning("检测到限频，提前停止本轮补数，等待下次任务继续。")
@@ -300,7 +312,15 @@ def sync_hm_detail(
             time.sleep(max(0.1, request_sleep_seconds))
 
     logger.info(f"hm_detail 完成，共写入 {total} 行")
-    return total
+    return {
+        "rows_written": total,
+        "start_date": s,
+        "requested_end_date": e,
+        "hard_end_date": hard_end,
+        "processed_days": processed_days,
+        "rate_limited": rate_limited,
+        "last_success_trade_date": last_success_trade_date,
+    }
 
 
 def run_sync(
@@ -341,8 +361,16 @@ def run_sync(
             max_days=detail_max_days,
         )
 
-    total = sum(results.values()) if results else 0
+    total = 0
+    for value in results.values():
+        if isinstance(value, dict):
+            total += int(value.get("rows_written") or 0)
+        else:
+            total += int(value or 0)
     logger.info(f"=== 同步完成，共写入 {total} 行 ===")
     for ds, n in results.items():
-        logger.info(f"  {ds}: {n} 行")
+        if isinstance(n, dict):
+            logger.info(f"  {ds}: {n.get('rows_written', 0)} 行, 处理 {n.get('processed_days', 0)} 天, last_success={n.get('last_success_trade_date')}, rate_limited={n.get('rate_limited')}")
+        else:
+            logger.info(f"  {ds}: {n} 行")
     return results
