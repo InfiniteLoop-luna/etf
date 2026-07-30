@@ -206,10 +206,17 @@ SIDEBAR_MODULES = (
                 "游资活跃明细",
                 "standard",
             ),
+        ),
+    ),
+    SidebarModule(
+        id="data",
+        label="数据",
+        session_key="data_subpage",
+        pages=(
             SidebarPage(
-                "funding_freshness",
-                "🩺 资金链健康度",
-                "资金相关数据源最新日期与滞后检查",
+                "data_health",
+                "🩺 数据健康度",
+                "全站核心数据链最新日期与滞后检查",
                 "standard",
             ),
         ),

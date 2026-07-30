@@ -108,6 +108,7 @@ from src.navigation_config import (
     ETF_RATIO_PAGE_LABEL,
     ETF_TREND_PAGE_LABEL,
     ETF_WIDE_INDEX_PAGE_LABEL,
+    DATA_HEALTH_PAGE_LABEL,
     MACRO_DEPOSIT_PAGE_LABEL,
     MACRO_INDEX_MONITOR_PAGE_LABEL,
     MACRO_MAIN_PAGE_LABEL,
@@ -116,7 +117,6 @@ from src.navigation_config import (
     MONEY_MARGIN_PAGE_LABEL,
     MONEY_FUND_HOT_PAGE_LABEL,
     MONEY_HOTMONEY_PAGE_LABEL,
-    MONEY_FRESHNESS_PAGE_LABEL,
     MONEY_LIMITUP_PAGE_LABEL,
     MONEY_PAGE_OPTIONS,
     MONEY_VOLUME_PAGE_LABEL,
@@ -7455,8 +7455,6 @@ def main():
                 render_limitup_monitor_tab()
             elif mobile_page == MONEY_HOTMONEY_PAGE_LABEL:
                 render_hotmoney_tab()
-            elif mobile_page == MONEY_FRESHNESS_PAGE_LABEL:
-                render_funding_freshness_page()
             else:
                 render_moneyflow_tab()
 
@@ -7563,10 +7561,11 @@ def main():
             render_limitup_monitor_tab()
         elif selected_page == MONEY_HOTMONEY_PAGE_LABEL:
             render_hotmoney_tab()
-        elif selected_page == MONEY_FRESHNESS_PAGE_LABEL:
-            render_funding_freshness_page()
         else:
             render_moneyflow_tab()
+
+    elif selected_module == data_module_label:
+        render_funding_freshness_page()
 
     elif selected_module == macro_module_label:
         if selected_page == MACRO_MAIN_PAGE_LABEL:
@@ -8474,8 +8473,8 @@ def render_daily_trend_reco_tab():
 
 
 def render_funding_freshness_page():
-    st.subheader("🩺 资金链健康度")
-    st.caption("按北京时间检查资金相关核心数据源的最新交易日，快速发现静默滞后。")
+    st.subheader("🩺 数据健康度")
+    st.caption("按北京时间检查全站核心数据链的最新交易日，快速发现静默滞后。")
 
     summary = load_funding_freshness_summary_cached()
     items = summary.get("items") or []

@@ -7,6 +7,7 @@ ETF_PAGE_OPTIONS = get_page_labels("基金")
 STOCK_PAGE_OPTIONS = get_page_labels("股票")
 FAVORITE_PAGE_OPTIONS = get_page_labels("Favorite")
 MONEY_PAGE_OPTIONS = get_page_labels("资金")
+DATA_PAGE_OPTIONS = get_page_labels("数据")
 MACRO_PAGE_OPTIONS = get_page_labels("宏观")
 
 
@@ -51,7 +52,8 @@ MONEY_VOLUME_PAGE_LABEL = _page_label("资金", "volume")
 MONEY_FUND_HOT_PAGE_LABEL = _page_label("资金", "fund_hot_stocks")
 MONEY_LIMITUP_PAGE_LABEL = _page_label("资金", "limitup")
 MONEY_HOTMONEY_PAGE_LABEL = _page_label("资金", "hotmoney")
-MONEY_FRESHNESS_PAGE_LABEL = _page_label("资金", "funding_freshness")
+
+DATA_HEALTH_PAGE_LABEL = _page_label("数据", "data_health")
 
 MACRO_MAIN_PAGE_LABEL = _page_label("宏观", "macro")
 MACRO_DEPOSIT_PAGE_LABEL = _page_label("宏观", "deposit")
