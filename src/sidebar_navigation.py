@@ -225,6 +225,12 @@ SIDEBAR_MODULES = (
                 "查看最近一次更新摘要与新鲜度结果",
                 "standard",
             ),
+            SidebarPage(
+                "data_task_status",
+                "⚙️ 数据任务状态",
+                "查看数据摘要文件与任务结果线索",
+                "standard",
+            ),
         ),
     ),
     SidebarModule(

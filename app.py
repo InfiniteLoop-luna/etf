@@ -110,6 +110,7 @@ from src.navigation_config import (
     ETF_WIDE_INDEX_PAGE_LABEL,
     DATA_HEALTH_PAGE_LABEL,
     DATA_UPDATE_ACTIVITY_PAGE_LABEL,
+    DATA_TASK_STATUS_PAGE_LABEL,
     MACRO_DEPOSIT_PAGE_LABEL,
     MACRO_INDEX_MONITOR_PAGE_LABEL,
     MACRO_MAIN_PAGE_LABEL,
@@ -162,6 +163,7 @@ from src.fund_watchlist_dashboard import (
 )
 from scripts.funding_freshness_summary import build_summary as build_funding_freshness_summary
 from scripts.update_activity_summary import build_update_activity_summary
+from scripts.data_task_status_summary import build_data_task_status_summary
 from src.fund_intraday_estimator import (
     TENCENT_QUOTE_SOURCE,
     collect_fund_holding_symbols,
@@ -2591,6 +2593,11 @@ def load_funding_freshness_summary_cached() -> dict:
 @st.cache_data(ttl=300, show_spinner=False)
 def load_update_activity_summary_cached() -> dict:
     return build_update_activity_summary()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_data_task_status_summary_cached() -> dict:
+    return build_data_task_status_summary()
 
 
 @st.cache_data(ttl=300)
@@ -7576,6 +7583,8 @@ def main():
             render_funding_freshness_page()
         elif selected_page == DATA_UPDATE_ACTIVITY_PAGE_LABEL:
             render_update_activity_page()
+        elif selected_page == DATA_TASK_STATUS_PAGE_LABEL:
+            render_data_task_status_page()
         else:
             render_funding_freshness_page()
 
@@ -8569,6 +8578,35 @@ def render_update_activity_page():
         st.caption("当前没有滞后项。")
     else:
         st.dataframe(stale_df, use_container_width=True, hide_index=True)
+
+
+def render_data_task_status_page():
+    st.subheader("⚙️ 数据任务状态")
+    st.caption("从现有摘要文件和更新时间线索，快速判断关键数据任务是否近期正常产出。")
+
+    summary = load_data_task_status_summary_cached()
+    tasks = summary.get("tasks") or []
+
+    top_cols = st.columns(3)
+    top_cols[0].metric("检查任务数", f"{len(tasks)}")
+    top_cols[1].metric("异常/缺失", f"{sum(1 for item in tasks if item.get('status') != 'ok')}")
+    top_cols[2].metric("生成时间", str(summary.get("generated_at") or "-"))
+
+    task_df = pd.DataFrame(
+        [
+            {
+                "任务": item.get("task") or "-",
+                "来源": item.get("source") or "-",
+                "状态": item.get("status") or "-",
+                "最新": item.get("latest") or "-",
+                "细节": item.get("detail") or "-",
+                "文件更新时间": ((item.get("file") or {}).get("mtime") or "-"),
+            }
+            for item in tasks
+        ]
+    )
+    st.dataframe(task_df, use_container_width=True, hide_index=True)
+    st.info("这里是轻量状态页，优先反映摘要文件是否更新、结果是否异常；后续可继续接 systemd / 定时任务运行历史。")
 
 
 def render_hotmoney_tab():
