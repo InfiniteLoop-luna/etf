@@ -153,6 +153,11 @@ if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/
   echo "[$(date -Is)] etf-data-update: warning - funding_freshness_summary.py found stale data"
 fi
 
+echo "[$(date -Is)] etf-data-update: update activity summary"
+if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/update_activity_summary.py; then
+  echo "[$(date -Is)] etf-data-update: warning - update_activity_summary.py failed"
+fi
+
 echo "[$(date -Is)] etf-data-update: run generate_daily_trend_reco_from_pyc.py"
 TREND_RECO_CALIBRATION_ANCHORS="${ETF_TREND_RECO_CALIBRATION_ANCHORS:-0}"
 if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/generate_daily_trend_reco_from_pyc.py --probability-calibration-anchors "$TREND_RECO_CALIBRATION_ANCHORS"; then
