@@ -8531,8 +8531,8 @@ def render_update_activity_page():
     stale_items = funding_freshness.get("stale_items") or []
 
     top_cols = st.columns(4)
-    top_cols[0].metric("页面更新日期", str(last_update.get("update_date") or "-"))
-    top_cols[1].metric("GitHub Action时间", str(last_update.get("last_update") or "-"))
+    top_cols[0].metric("页面更新日期", str(last_update.get("effective_update_date") or last_update.get("update_date") or "-"))
+    top_cols[1].metric("更新时间戳", str(last_update.get("effective_last_update") or last_update.get("last_update") or "-"))
     top_cols[2].metric("资金链目标日期", str(funding_freshness.get("target_date") or "-"))
     top_cols[3].metric("滞后项数", f"{int(funding_freshness.get('stale_count') or 0)}")
 
@@ -8544,8 +8544,10 @@ def render_update_activity_page():
         st.info("ℹ️ 暂无资金链新鲜度结果")
 
     activity_rows = [
-        {"项目": "页面更新日期", "值": last_update.get("update_date") or "-", "说明": "last_update.json"},
-        {"项目": "页面更新时间戳", "值": last_update.get("last_update") or "-", "说明": "last_update.json"},
+        {"项目": "页面更新日期", "值": last_update.get("effective_update_date") or last_update.get("update_date") or "-", "说明": last_update.get("source") or "last_update.json"},
+        {"项目": "页面更新时间戳", "值": last_update.get("effective_last_update") or last_update.get("last_update") or "-", "说明": last_update.get("source") or "last_update.json"},
+        {"项目": "原始 last_update.update_date", "值": last_update.get("update_date") or "-", "说明": "last_update.json"},
+        {"项目": "原始 last_update.last_update", "值": last_update.get("last_update") or "-", "说明": "last_update.json"},
         {"项目": "资金链目标日期", "值": funding_freshness.get("target_date") or "-", "说明": "北京时间昨天"},
         {"项目": "资金链整体状态", "值": "正常" if funding_freshness.get("all_ok") else "滞后", "说明": "funding_freshness_summary.json"},
     ]

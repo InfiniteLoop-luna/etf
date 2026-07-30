@@ -33,12 +33,32 @@ def build_update_activity_summary() -> dict:
 
     stale_items = [item for item in (freshness.get("items") or []) if not item.get("ok")]
 
+    raw_update_date = last_update.get("update_date")
+    raw_last_update = last_update.get("last_update")
+    effective_update_date = raw_update_date
+    effective_last_update = raw_last_update
+    update_source = "last_update.json"
+
+    freshness_target = freshness.get("target_date")
+    freshness_generated_at = freshness.get("generated_at")
+    if freshness_generated_at and (not effective_last_update or not effective_update_date):
+        effective_last_update = effective_last_update or freshness_generated_at
+        update_source = "funding_freshness_summary.json"
+    if freshness_target and (not effective_update_date or str(effective_update_date).replace('-', '') < str(freshness_target).replace('-', '')):
+        effective_update_date = freshness_target
+        if not raw_update_date or str(raw_update_date).replace('-', '') < str(freshness_target).replace('-', ''):
+            update_source = "funding_freshness_summary.json"
+            effective_last_update = freshness_generated_at or effective_last_update
+
     summary = {
         "generated_at": now.isoformat(),
         "timezone": "Asia/Shanghai",
         "last_update": {
-            "update_date": last_update.get("update_date"),
-            "last_update": last_update.get("last_update"),
+            "update_date": raw_update_date,
+            "last_update": raw_last_update,
+            "effective_update_date": effective_update_date,
+            "effective_last_update": effective_last_update,
+            "source": update_source,
         },
         "funding_freshness": {
             "target_date": freshness.get("target_date"),
@@ -47,7 +67,7 @@ def build_update_activity_summary() -> dict:
             "stale_items": stale_items,
         },
         "notes": [
-            "页面更新信息来自 last_update.json",
+            "页面更新信息优先来自 last_update.json；若其滞后，则回退到 funding_freshness_summary.json 的结果时间",
             "资金链健康结果来自 funding_freshness_summary.json（若缺失则运行时即时生成）",
             "目标日期按北京时间昨天计算",
         ],
