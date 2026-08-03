@@ -164,6 +164,11 @@ from src.fund_watchlist_dashboard import (
 from scripts.funding_freshness_summary import build_summary as build_funding_freshness_summary
 from scripts.update_activity_summary import build_update_activity_summary
 from scripts.data_task_status_summary import build_data_task_status_summary
+from src.manual_data_refresh import (
+    get_refresh_registry,
+    load_manual_refresh_status,
+    trigger_manual_refresh_bg,
+)
 from src.fund_intraday_estimator import (
     TENCENT_QUOTE_SOURCE,
     collect_fund_holding_symbols,
@@ -2586,17 +2591,17 @@ def load_factor_workbench_data_freshness_cached() -> dict[str, str | None]:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def load_funding_freshness_summary_cached() -> dict:
+def load_funding_freshness_summary_cached(refresh_nonce: int = 0) -> dict:
     return build_funding_freshness_summary()
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def load_update_activity_summary_cached() -> dict:
+def load_update_activity_summary_cached(refresh_nonce: int = 0) -> dict:
     return build_update_activity_summary()
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def load_data_task_status_summary_cached() -> dict:
+def load_data_task_status_summary_cached(refresh_nonce: int = 0) -> dict:
     return build_data_task_status_summary()
 
 
@@ -7287,7 +7292,7 @@ def main():
         pass  # 如果文件不存在或读取失败，不显示更新时间
 
     try:
-        funding_freshness = load_funding_freshness_summary_cached()
+        funding_freshness = load_funding_freshness_summary_cached(int(st.session_state.get("data_health_refresh_nonce", 0)))
         freshness_items = funding_freshness.get("items") or []
         stale_items = [item for item in freshness_items if not item.get("ok")]
         target_date = funding_freshness.get("target_date") or "-"
@@ -8498,11 +8503,14 @@ def render_funding_freshness_page():
     st.subheader("🩺 数据健康度")
     st.caption("按北京时间检查全站核心数据链的最新交易日，快速发现静默滞后。")
 
-    summary = load_funding_freshness_summary_cached()
+    refresh_nonce = int(st.session_state.get("data_health_refresh_nonce", 0))
+    summary = load_funding_freshness_summary_cached(refresh_nonce)
     items = summary.get("items") or []
     target_date = summary.get("target_date") or "-"
     generated_at = summary.get("generated_at") or "-"
     all_ok = bool(summary.get("all_ok"))
+    stale_items = [item for item in items if not item.get("ok")]
+    refresh_registry = get_refresh_registry()
 
     top_cols = st.columns(3)
     top_cols[0].metric("目标日期", target_date)
@@ -8528,14 +8536,142 @@ def render_funding_freshness_page():
         ]
     )
     st.dataframe(funding_df, use_container_width=True, hide_index=True)
-    st.caption(f"生成时间：{generated_at} ｜ 目标日期按北京时间昨天计算")
+    st.caption(f"生成时间：{generated_at} ｜ 目标日期按最近交易日计算")
+
+    status_payload = load_manual_refresh_status()
+    with st.expander("🔄 手动刷新异常项", expanded=bool(stale_items)):
+        if not stale_items:
+            st.caption("当前没有滞后项，无需手动刷新。")
+        else:
+            stale_keys = [str(item.get("key") or "").strip() for item in stale_items if str(item.get("key") or "").strip() in refresh_registry]
+            options = {key: refresh_registry[key].get("label") or key for key in stale_keys}
+            default_selected = stale_keys
+            selected_keys = st.multiselect(
+                "选择要刷新的异常链路",
+                options=list(options.keys()),
+                default=default_selected,
+                format_func=lambda key: f"{options.get(key, key)}（{key}）",
+                key="funding_freshness_manual_refresh_keys",
+            )
+
+            if "etf_category_agg" in selected_keys and "etf_share_size" in stale_keys and "etf_share_size" not in selected_keys:
+                st.info("ETF 分类聚合依赖 ETF 份额原始数据；如果 ETF 份额数据也滞后，建议一并勾选。")
+
+            action_cols = st.columns([1.2, 1.2, 1.2, 2.4])
+            with action_cols[0]:
+                trigger_clicked = st.button("刷新所选异常项", type="primary", key="btn_manual_refresh_stale_items", use_container_width=True)
+            with action_cols[1]:
+                summary_clicked = st.button("仅重算健康摘要", key="btn_refresh_funding_summary_only", use_container_width=True)
+            with action_cols[2]:
+                status_clicked = st.button("刷新状态面板", key="btn_refresh_manual_status_panel", use_container_width=True)
+
+            if trigger_clicked:
+                if not selected_keys:
+                    st.warning("请至少选择一个异常链路。")
+                else:
+                    started = trigger_manual_refresh_bg(selected_keys)
+                    if started:
+                        st.session_state["data_health_refresh_nonce"] = int(st.session_state.get("data_health_refresh_nonce", 0)) + 1
+                        st.success("已启动后台刷新，可在下方查看运行状态。")
+                    else:
+                        st.info("已有手动刷新任务在运行，请等待当前任务完成。")
+
+            if summary_clicked:
+                build_funding_freshness_summary()
+                build_update_activity_summary()
+                build_data_task_status_summary()
+                st.session_state["data_health_refresh_nonce"] = int(st.session_state.get("data_health_refresh_nonce", 0)) + 1
+                st.success("已重算健康摘要，当前页已切到最新摘要快照。")
+
+            if status_clicked:
+                st.session_state["data_health_refresh_nonce"] = int(st.session_state.get("data_health_refresh_nonce", 0)) + 1
+                status_payload = load_manual_refresh_status()
+                st.info("状态面板已刷新。")
+
+        st.markdown("#### 最近一次手动刷新状态")
+        _render_manual_refresh_status(status_payload, refresh_registry)
+
+
+def _render_manual_refresh_status(status_payload: dict, refresh_registry: dict[str, dict]) -> None:
+    status = str((status_payload or {}).get("status") or "idle")
+    selected_keys = list((status_payload or {}).get("selected_keys") or [])
+    completed_keys = list((status_payload or {}).get("completed_keys") or [])
+    failed_keys = list((status_payload or {}).get("failed_keys") or [])
+    recovered_keys = list((status_payload or {}).get("recovered_keys") or [])
+    remaining_stale_keys = list((status_payload or {}).get("remaining_stale_keys") or [])
+    current_key = (status_payload or {}).get("current_key")
+    started_at = (status_payload or {}).get("started_at") or "-"
+    finished_at = (status_payload or {}).get("finished_at") or "-"
+    message = (status_payload or {}).get("message") or "-"
+
+    label_map = {key: (meta.get("label") or key) for key, meta in (refresh_registry or {}).items()}
+
+    top_cols = st.columns(5)
+    top_cols[0].metric("状态", status)
+    top_cols[1].metric("已选项数", f"{len(selected_keys)}")
+    top_cols[2].metric("完成项数", f"{len(completed_keys)}")
+    top_cols[3].metric("恢复项数", f"{len(recovered_keys)}")
+    top_cols[4].metric("剩余滞后项", f"{len(remaining_stale_keys)}")
+
+    if status == "running":
+        running_label = f"{label_map.get(current_key, current_key)}（{current_key}）" if current_key else "当前任务"
+        st.info(f"⏳ 手动刷新进行中：{running_label} · 开始于 {started_at}")
+    elif failed_keys:
+        st.warning("⚠️ 最近一次手动刷新已结束，但存在失败项。")
+    elif recovered_keys:
+        st.success("✅ 本次手动刷新已恢复部分异常链路。")
+    elif status == "success" and selected_keys:
+        st.info("ℹ️ 本次手动刷新已完成，但所选链路暂无恢复变化，建议结合剩余滞后项继续判断。")
+    else:
+        st.caption("暂无手动刷新结果摘要。")
+
+    summary_cols = st.columns(2)
+    with summary_cols[0]:
+        st.markdown("**时间线**")
+        timeline_rows = [
+            {"项目": "开始时间", "值": started_at},
+            {"项目": "结束时间", "值": finished_at},
+            {"项目": "当前执行", "值": f"{label_map.get(current_key, current_key)}（{current_key}）" if current_key else "-"},
+            {"项目": "状态说明", "值": message},
+        ]
+        st.dataframe(pd.DataFrame(timeline_rows), use_container_width=True, hide_index=True)
+
+    with summary_cols[1]:
+        st.markdown("**本次结果**")
+        result_rows = [
+            {"项目": "已选链路", "值": "、".join(f"{label_map.get(key, key)}（{key}）" for key in selected_keys) if selected_keys else "-"},
+            {"项目": "已完成链路", "值": "、".join(f"{label_map.get(key, key)}（{key}）" for key in completed_keys) if completed_keys else "-"},
+            {"项目": "本次恢复", "值": "、".join(f"{label_map.get(key, key)}（{key}）" for key in recovered_keys) if recovered_keys else "-"},
+            {"项目": "剩余滞后", "值": "、".join(f"{label_map.get(key, key)}（{key}）" for key in remaining_stale_keys) if remaining_stale_keys else "-"},
+        ]
+        st.dataframe(pd.DataFrame(result_rows), use_container_width=True, hide_index=True)
+
+    if failed_keys:
+        failed_rows = []
+        for item in failed_keys:
+            if isinstance(item, dict):
+                key = str(item.get("key") or "")
+                error_text = str(item.get("error") or "-")
+                failed_rows.append({
+                    "失败链路": f"{label_map.get(key, key)}（{key}）" if key else "-",
+                    "错误摘要": error_text[:120] + ("…" if len(error_text) > 120 else ""),
+                    "完整错误": error_text,
+                })
+            else:
+                key = str(item or "")
+                failed_rows.append({"失败链路": f"{label_map.get(key, key)}（{key}）", "错误摘要": "-", "完整错误": "-"})
+        st.markdown("**失败项摘要**")
+        st.dataframe(pd.DataFrame([{k: row[k] for k in ["失败链路", "错误摘要"]} for row in failed_rows]), use_container_width=True, hide_index=True)
+        with st.expander("查看完整失败信息", expanded=False):
+            st.dataframe(pd.DataFrame(failed_rows), use_container_width=True, hide_index=True)
 
 
 def render_update_activity_page():
     st.subheader("🕒 最近更新日志")
     st.caption("汇总最近一次页面数据更新时间与资金链新鲜度结果。")
 
-    summary = load_update_activity_summary_cached()
+    refresh_nonce = int(st.session_state.get("data_health_refresh_nonce", 0))
+    summary = load_update_activity_summary_cached(refresh_nonce)
     last_update = summary.get("last_update") or {}
     funding_freshness = summary.get("funding_freshness") or {}
     stale_items = funding_freshness.get("stale_items") or []
@@ -8585,7 +8721,8 @@ def render_data_task_status_page():
     st.subheader("⚙️ 数据任务状态")
     st.caption("从现有摘要文件和更新时间线索，快速判断关键数据任务是否近期正常产出。")
 
-    summary = load_data_task_status_summary_cached()
+    refresh_nonce = int(st.session_state.get("data_health_refresh_nonce", 0))
+    summary = load_data_task_status_summary_cached(refresh_nonce)
     tasks = summary.get("tasks") or []
 
     top_cols = st.columns(3)

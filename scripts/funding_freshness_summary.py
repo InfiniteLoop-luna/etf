@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import sys
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -21,6 +21,7 @@ from src.limitup_monitor import get_limitup_latest_date
 from src.lhb_sync import get_engine as get_lhb_engine
 from src.margin_fetcher import _get_engine_cached as get_margin_engine, get_margin_latest_date
 from src.moneyflow_fetcher import get_engine as get_moneyflow_engine, get_moneyflow_latest_date
+from src.volume_fetcher import _init_tushare
 from sqlalchemy import text
 
 
@@ -37,9 +38,41 @@ def beijing_today_ymd() -> str:
     return datetime.now(BEIJING_TZ).strftime("%Y%m%d")
 
 
-def beijing_yesterday_ymd() -> str:
+def get_latest_open_trade_date_ymd(lookback_days: int = 14) -> str:
     now = datetime.now(BEIJING_TZ)
-    return now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(BEIJING_TZ).strftime("%Y%m%d") if False else (now.date()).fromordinal(now.date().toordinal() - 1).strftime("%Y%m%d")
+    end_date = now.date()
+    start_date = end_date - timedelta(days=max(lookback_days, 1))
+
+    try:
+        pro = _init_tushare()
+        cal_df = pro.trade_cal(
+            exchange="SSE",
+            start_date=start_date.strftime("%Y%m%d"),
+            end_date=end_date.strftime("%Y%m%d"),
+            is_open="1",
+        )
+        if cal_df is not None and not cal_df.empty:
+            work = cal_df.copy()
+            if "is_open" in work.columns:
+                work = work[pd.to_numeric(work["is_open"], errors="coerce").fillna(0).astype(int) == 1]
+            date_col = "cal_date" if "cal_date" in work.columns else "trade_date"
+            if date_col in work.columns and not work.empty:
+                values = sorted(
+                    {
+                        str(value).replace("-", "")[:8]
+                        for value in work[date_col].tolist()
+                        if str(value).replace("-", "")[:8].isdigit()
+                    }
+                )
+                if values:
+                    return values[-1]
+    except Exception:
+        pass
+
+    current = end_date
+    while current.weekday() >= 5:
+        current -= timedelta(days=1)
+    return current.strftime("%Y%m%d")
 
 
 def _normalize_ymd(value) -> str | None:
@@ -67,7 +100,7 @@ def get_lhb_latest_date() -> str | None:
 
 
 def build_summary() -> dict:
-    target = beijing_yesterday_ymd()
+    target = get_latest_open_trade_date_ymd()
     items = [
         FreshnessItem(
             key="etf_share_size",

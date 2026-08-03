@@ -69,7 +69,7 @@ def build_update_activity_summary() -> dict:
         "notes": [
             "页面更新信息优先来自 last_update.json；若其滞后，则回退到 funding_freshness_summary.json 的结果时间",
             "资金链健康结果来自 funding_freshness_summary.json（若缺失则运行时即时生成）",
-            "目标日期按北京时间昨天计算",
+            "目标日期按最近交易日计算，避免周末/节假日误判为滞后",
         ],
     }
     return summary
