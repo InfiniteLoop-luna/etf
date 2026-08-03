@@ -38,11 +38,12 @@ def beijing_today_ymd() -> str:
     return datetime.now(BEIJING_TZ).strftime("%Y%m%d")
 
 
-def get_latest_open_trade_date_ymd(lookback_days: int = 14) -> str:
+def get_latest_open_trade_date_ymd(lookback_days: int = 14, publish_cutoff_hour: int = 21) -> str:
     now = datetime.now(BEIJING_TZ)
     end_date = now.date()
     start_date = end_date - timedelta(days=max(lookback_days, 1))
 
+    open_dates: list[str] = []
     try:
         pro = _init_tushare()
         cal_df = pro.trade_cal(
@@ -57,21 +58,31 @@ def get_latest_open_trade_date_ymd(lookback_days: int = 14) -> str:
                 work = work[pd.to_numeric(work["is_open"], errors="coerce").fillna(0).astype(int) == 1]
             date_col = "cal_date" if "cal_date" in work.columns else "trade_date"
             if date_col in work.columns and not work.empty:
-                values = sorted(
+                open_dates = sorted(
                     {
                         str(value).replace("-", "")[:8]
                         for value in work[date_col].tolist()
                         if str(value).replace("-", "")[:8].isdigit()
                     }
                 )
-                if values:
-                    return values[-1]
     except Exception:
-        pass
+        open_dates = []
+
+    if open_dates:
+        today_ymd = now.strftime("%Y%m%d")
+        if today_ymd in open_dates and now.hour < int(publish_cutoff_hour):
+            prior_dates = [value for value in open_dates if value < today_ymd]
+            if prior_dates:
+                return prior_dates[-1]
+        return open_dates[-1]
 
     current = end_date
     while current.weekday() >= 5:
         current -= timedelta(days=1)
+    if current == end_date and now.hour < int(publish_cutoff_hour):
+        current -= timedelta(days=1)
+        while current.weekday() >= 5:
+            current -= timedelta(days=1)
     return current.strftime("%Y%m%d")
 
 

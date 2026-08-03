@@ -7,7 +7,7 @@ from scripts.funding_freshness_summary import get_latest_open_trade_date_ymd
 
 
 class FundingFreshnessSummaryTests(unittest.TestCase):
-    def test_latest_open_trade_date_uses_last_open_day_in_calendar(self):
+    def test_before_21_on_trade_day_uses_previous_open_day(self):
         fake_calendar = pd.DataFrame(
             [
                 {"cal_date": "20260807", "is_open": 1},
@@ -21,7 +21,32 @@ class FundingFreshnessSummaryTests(unittest.TestCase):
             def trade_cal(self, exchange, start_date, end_date, is_open):
                 return fake_calendar
 
-        fake_now = pd.Timestamp("2026-08-10 18:00:00", tz="Asia/Shanghai").to_pydatetime()
+        fake_now = pd.Timestamp("2026-08-10 20:59:00", tz="Asia/Shanghai").to_pydatetime()
+
+        class FakeDateTime:
+            @classmethod
+            def now(cls, tz=None):
+                return fake_now
+
+        with patch("scripts.funding_freshness_summary._init_tushare", return_value=FakePro()):
+            with patch("scripts.funding_freshness_summary.datetime", FakeDateTime):
+                self.assertEqual(get_latest_open_trade_date_ymd(), "20260807")
+
+    def test_after_21_on_trade_day_uses_current_open_day(self):
+        fake_calendar = pd.DataFrame(
+            [
+                {"cal_date": "20260807", "is_open": 1},
+                {"cal_date": "20260808", "is_open": 0},
+                {"cal_date": "20260809", "is_open": 0},
+                {"cal_date": "20260810", "is_open": 1},
+            ]
+        )
+
+        class FakePro:
+            def trade_cal(self, exchange, start_date, end_date, is_open):
+                return fake_calendar
+
+        fake_now = pd.Timestamp("2026-08-10 21:01:00", tz="Asia/Shanghai").to_pydatetime()
 
         class FakeDateTime:
             @classmethod
