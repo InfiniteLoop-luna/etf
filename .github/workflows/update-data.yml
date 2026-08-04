@@ -36,7 +36,7 @@ jobs:
 
     - name: Build ETF share cache
       run: |
-        python scripts/build_etf_share_cache.py
+        PYTHONPATH=. python scripts/build_etf_share_cache.py
 
     - name: Update volume data
       env:
