@@ -7277,22 +7277,22 @@ def main():
 
     # 显示最后更新时间
     try:
-        import json
-        import os
-        if os.path.exists('last_update.json'):
-            with open('last_update.json', 'r') as f:
-                update_info = json.load(f)
-                update_date = update_info.get('update_date', '未知')
-                last_update = update_info.get('last_update', '未知')
-                if iphone_mode:
-                    st.caption(f"📅 更新: {update_date}")
-                else:
-                    st.info(f"📅 数据最后更新: {update_date} (GitHub Action 执行时间: {last_update})")
-    except Exception as e:
-        pass  # 如果文件不存在或读取失败，不显示更新时间
+        update_summary = load_update_activity_summary_cached(int(st.session_state.get("data_health_refresh_nonce", 0)))
+        update_meta = update_summary.get("last_update") or {}
+        funding_freshness = update_summary.get("funding_freshness") or {}
+        display_update_date = update_meta.get("effective_update_date") or update_meta.get("update_date") or "未知"
+        display_update_ts = update_meta.get("effective_last_update") or update_meta.get("last_update") or "未知"
+        update_source = update_meta.get("source") or "last_update.json"
+        if iphone_mode:
+            st.caption(f"📅 更新: {display_update_date}")
+        else:
+            st.info(f"📅 数据最后更新: {display_update_date} (记录时间: {display_update_ts} / 来源: {update_source})")
+    except Exception:
+        funding_freshness = {}
 
     try:
-        funding_freshness = load_funding_freshness_summary_cached(int(st.session_state.get("data_health_refresh_nonce", 0)))
+        if not funding_freshness:
+            funding_freshness = load_funding_freshness_summary_cached(int(st.session_state.get("data_health_refresh_nonce", 0)))
         freshness_items = funding_freshness.get("items") or []
         stale_items = [item for item in freshness_items if not item.get("ok")]
         target_date = funding_freshness.get("target_date") or "-"

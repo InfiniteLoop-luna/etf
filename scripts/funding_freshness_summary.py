@@ -38,7 +38,7 @@ def beijing_today_ymd() -> str:
     return datetime.now(BEIJING_TZ).strftime("%Y%m%d")
 
 
-def get_latest_open_trade_date_ymd(lookback_days: int = 14, publish_cutoff_hour: int = 21) -> str:
+def get_latest_open_trade_date_ymd(lookback_days: int = 14, publish_cutoff_hour: int = 23) -> str:
     now = datetime.now(BEIJING_TZ)
     end_date = now.date()
     start_date = end_date - timedelta(days=max(lookback_days, 1))
