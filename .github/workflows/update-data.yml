@@ -32,7 +32,7 @@ jobs:
       env:
         TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
       run: |
-        python main.py
+        CI=true GITHUB_ACTIONS=true python main.py
 
     - name: Build ETF share cache
       run: |
