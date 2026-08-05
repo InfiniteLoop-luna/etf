@@ -286,12 +286,21 @@ class FundPortfolioByFundSyncTests(unittest.TestCase):
             fhs, "_init_tushare", return_value=object()
         ) as mock_init_tushare, patch.object(
             fhs, "discover_missing_funds_from_aux_sources", return_value=1
-        ) as mock_discover:
+        ) as mock_discover, patch.object(
+            fhs, "sync_fund_portfolio_for_codes", return_value=5
+        ) as mock_sync_portfolio:
             result = fhs.search_funds("007491", limit=10, engine=engine)
 
         self.assertEqual(result.iloc[0]["fund_code"], "007491.OF")
         mock_init_tushare.assert_called_once()
         mock_discover.assert_called_once_with(engine, mock_init_tushare.return_value, fund_codes=["007491.OF"], api_sleep=0)
+        mock_sync_portfolio.assert_called_once_with(
+            engine,
+            mock_init_tushare.return_value,
+            fund_codes=["007491.OF"],
+            lookback_periods=3,
+            api_sleep=0,
+        )
         self.assertEqual(mock_read_sql.call_count, 2)
 
 

@@ -1169,6 +1169,84 @@ def sync_fund_portfolio_by_fund(
     return total
 
 
+def sync_fund_portfolio_for_codes(
+    engine: Engine,
+    pro,
+    fund_codes: Iterable[str],
+    *,
+    lookback_periods: int = 3,
+    api_sleep: Optional[float] = DEFAULT_API_SLEEP,
+) -> int:
+    explicit_codes = _dedupe_normalized_fund_codes(fund_codes)
+    if not explicit_codes:
+        return 0
+
+    with engine.connect() as conn:
+        latest_periods_df = pd.read_sql(
+            text(
+                """
+                SELECT DISTINCT end_date
+                FROM vw_fund_portfolio
+                WHERE end_date IS NOT NULL
+                ORDER BY end_date DESC
+                LIMIT :limit
+                """
+            ),
+            conn,
+            params={"limit": max(1, int(lookback_periods))},
+        )
+
+    periods = []
+    if (
+        latest_periods_df is not None
+        and not latest_periods_df.empty
+        and "end_date" in latest_periods_df.columns
+    ):
+        periods = [
+            pd.Timestamp(value).strftime("%Y%m%d")
+            for value in latest_periods_df["end_date"].tolist()
+            if pd.notna(value)
+        ]
+
+    if not periods:
+        fallback_period = normalize_period(datetime.now().strftime("%Y%m%d"))
+        if fallback_period:
+            periods = [fallback_period]
+
+    sleep_seconds = max(0.0, float(DEFAULT_API_SLEEP if api_sleep is None else api_sleep))
+    total = 0
+    for fund_code in explicit_codes:
+        for p in periods:
+            try:
+                df = pro.fund_portfolio(ts_code=fund_code, period=p)
+            except Exception as exc:
+                logger.warning(f"fund_portfolio targeted ts_code={fund_code} period={p} fetch failed: {exc}")
+                if sleep_seconds:
+                    time.sleep(sleep_seconds)
+                continue
+
+            if df is None or df.empty:
+                logger.info(f"fund_portfolio targeted ts_code={fund_code} period={p}: 0 rows")
+                if sleep_seconds:
+                    time.sleep(sleep_seconds)
+                continue
+
+            rows = []
+            for row in df.to_dict("records"):
+                normalized_row = dict(row)
+                normalized_row["ts_code"] = normalize_fund_ts_code(normalized_row.get("ts_code")) or fund_code
+                normalized_row["end_date"] = normalized_row.get("end_date") or p
+                rows.append(normalized_row)
+
+            n = _upsert_fund_portfolio_rows(engine, rows)
+            total += n
+            logger.info(f"fund_portfolio targeted ts_code={fund_code} period={p}: wrote {n} rows")
+            if sleep_seconds:
+                time.sleep(sleep_seconds)
+
+    return total
+
+
 def sync_fund_portfolio_dynamic(
     engine: Engine,
     pro,
@@ -1916,6 +1994,16 @@ def search_funds(
                 api_sleep=0,
             )
             if discovered:
+                try:
+                    sync_fund_portfolio_for_codes(
+                        engine,
+                        pro,
+                        fund_codes=[normalized_direct_code],
+                        lookback_periods=3,
+                        api_sleep=0,
+                    )
+                except Exception as exc:
+                    logger.warning(f"search_funds targeted portfolio sync failed keyword={keyword}: {exc}")
                 with engine.connect() as conn:
                     return pd.read_sql(text(sql), conn, params=params)
         except Exception as exc:
