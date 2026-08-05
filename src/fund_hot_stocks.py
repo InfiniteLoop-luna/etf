@@ -667,8 +667,11 @@ def discover_missing_funds_from_aux_sources(
 
     for fund_code in explicit_codes:
         with engine.connect() as conn:
-            existing = conn.execute(text("SELECT 1 FROM vw_fund_registry WHERE fund_code = :fund_code LIMIT 1"), {"fund_code": fund_code}).scalar()
-        if existing:
+            existing_row = conn.execute(
+                text("SELECT fund_code, name, status FROM vw_fund_registry WHERE fund_code = :fund_code LIMIT 1"),
+                {"fund_code": fund_code},
+            ).mappings().first()
+        if existing_row and not _looks_like_placeholder_fund_name(existing_row.get("name"), fund_code):
             continue
 
         aux_payload: dict[str, object] = {"fund_code": fund_code}
