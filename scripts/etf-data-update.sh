@@ -160,10 +160,15 @@ fi
 
 echo "[$(date -Is)] etf-data-update: run generate_daily_trend_reco_from_pyc.py"
 TREND_RECO_CALIBRATION_ANCHORS="${ETF_TREND_RECO_CALIBRATION_ANCHORS:-0}"
+TREND_RECO_KEEP_DAYS="${ETF_TREND_RECO_KEEP_DAYS:-30}"
 if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/generate_daily_trend_reco_from_pyc.py --probability-calibration-anchors "$TREND_RECO_CALIBRATION_ANCHORS"; then
   echo "[$(date -Is)] etf-data-update: warning - generate_daily_trend_reco_from_pyc.py failed, skip and continue"
 else
   echo "[$(date -Is)] etf-data-update: generate_daily_trend_reco_from_pyc.py done"
+  echo "[$(date -Is)] etf-data-update: cleanup old trend recommendation archives (keep ${TREND_RECO_KEEP_DAYS} days)"
+  if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/cleanup_trend_recommendation_archives.py --keep-days "$TREND_RECO_KEEP_DAYS"; then
+    echo "[$(date -Is)] etf-data-update: warning - cleanup_trend_recommendation_archives.py failed, skip and continue"
+  fi
 fi
 
 echo "[$(date -Is)] etf-data-update: run write_reco_candidate_score_snapshot.py"
