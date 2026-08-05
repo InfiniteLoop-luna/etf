@@ -481,7 +481,8 @@ button[aria-label="Close sidebar"]:hover {{
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button {{
     width: 100%;
     min-height: auto;
     justify-content: flex-start;
@@ -489,6 +490,7 @@ button[aria-label="Close sidebar"]:hover {{
     text-align: left;
     border-radius: 18px !important;
     box-shadow: none !important;
+    color: var(--ws-text-inverse) !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button {{
@@ -530,6 +532,35 @@ button[aria-label="Close sidebar"]:hover {{
     border-color: rgba(212, 175, 55, 0.3) !important;
     box-shadow: inset 3px 0 0 var(--ws-color-primary), 0 12px 24px rgba(9, 15, 25, 0.16) !important;
     color: var(--ws-text-inverse) !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] {{
+    margin: 0.2rem 0 0 0;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button {{
+    padding: 0.72rem 0.88rem !important;
+    background: linear-gradient(135deg, rgba(212, 175, 55, 0.24) 0%, rgba(255, 255, 255, 0.08) 100%) !important;
+    border: 1px solid rgba(212, 175, 55, 0.28) !important;
+    box-shadow: 0 14px 28px rgba(9, 15, 25, 0.16) !important;
+    font-weight: 650 !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button:hover,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button:focus {{
+    transform: translateY(-1px);
+    background: linear-gradient(135deg, rgba(212, 175, 55, 0.34) 0%, rgba(255, 255, 255, 0.12) 100%) !important;
+    border-color: rgba(229, 193, 88, 0.42) !important;
+    box-shadow: 0 18px 32px rgba(9, 15, 25, 0.2) !important;
+    color: var(--ws-text-inverse) !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button *,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button p,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button span,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button div[data-testid="stMarkdownContainer"] {{
+    color: var(--ws-text-inverse) !important;
+    -webkit-text-fill-color: var(--ws-text-inverse) !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] {{

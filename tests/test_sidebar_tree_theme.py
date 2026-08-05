@@ -16,6 +16,7 @@ class SidebarTreeThemeTest(unittest.TestCase):
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button',
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button',
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button',
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] > div button',
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] > div button',
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] > div button',
