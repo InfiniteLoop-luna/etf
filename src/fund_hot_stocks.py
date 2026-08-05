@@ -32,6 +32,11 @@ if PROJECT_ROOT not in sys.path:
 from src.volume_fetcher import _init_tushare
 from src.sync_tushare_security_data import build_active_stock_sql_clause
 
+try:
+    import akshare as ak
+except Exception:  # pragma: no cover - optional dependency fallback
+    ak = None
+
 DEFAULT_DB_HOST = "127.0.0.1"
 DEFAULT_DB_PORT = 5432
 DEFAULT_DB_NAME = "postgres"
@@ -128,6 +133,34 @@ def normalize_fund_ts_code(raw) -> Optional[str]:
     if len(code) == 6 and code.isdigit():
         return f"{code}.OF"
     return code
+
+
+def resolve_fund_name_from_akshare(fund_code: str) -> Optional[str]:
+    normalized_code = normalize_fund_ts_code(fund_code)
+    if not normalized_code or ak is None:
+        return None
+
+    bare_code = normalized_code.split('.', 1)[0]
+    try:
+        df = ak.fund_name_em()
+    except Exception as exc:
+        logger.warning(f"fund_registry aux akshare fund_name_em failed fund_code={normalized_code}: {exc}")
+        return None
+
+    if df is None or df.empty:
+        return None
+
+    code_col = '基金代码' if '基金代码' in df.columns else None
+    name_col = '基金简称' if '基金简称' in df.columns else None
+    if not code_col or not name_col:
+        return None
+
+    hit = df[df[code_col].astype(str).str.strip().eq(bare_code)]
+    if hit.empty:
+        return None
+
+    name = str(hit.iloc[0][name_col]).strip()
+    return name or None
 
 
 def _dedupe_normalized_fund_codes(fund_codes: Optional[Iterable[str]], limit: Optional[int] = None) -> list[str]:
@@ -677,10 +710,12 @@ def discover_missing_funds_from_aux_sources(
             logger.info(f"fund_registry aux ts_code={fund_code}: no auxiliary data discovered")
             continue
 
+        resolved_name = resolve_fund_name_from_akshare(fund_code)
+
         discovered_rows.append(
             {
                 "fund_code": fund_code,
-                "name": fund_code,
+                "name": resolved_name or fund_code,
                 "management": management_name,
                 "fund_type": None,
                 "invest_type": None,
