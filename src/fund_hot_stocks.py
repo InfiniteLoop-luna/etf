@@ -46,6 +46,7 @@ DATASET_TABLES = {
     "fund_portfolio": "ts_fund_portfolio",
 }
 
+FUND_REGISTRY_AUX_TABLE = "fund_registry_aux"
 AGG_TABLE = "agg_fund_holding_stock_quarterly"
 ACTIVE_STOCK_FILTER_SQL_SB = build_active_stock_sql_clause("sb")
 ACTIVE_STOCK_FILTER_SQL_SB_FILTER = build_active_stock_sql_clause("sb_filter")
@@ -212,6 +213,32 @@ def ensure_landing_table(engine: Engine, table_name: str):
     logger.info(f"✓ 表 {table_name} 已就绪")
 
 
+def ensure_fund_registry_aux_table(engine: Engine):
+    sql = f"""
+    CREATE TABLE IF NOT EXISTS {FUND_REGISTRY_AUX_TABLE} (
+        fund_code VARCHAR(20) PRIMARY KEY,
+        name TEXT,
+        management TEXT,
+        fund_type TEXT,
+        invest_type TEXT,
+        status TEXT,
+        market TEXT,
+        latest_nav_date DATE,
+        latest_share_date DATE,
+        latest_portfolio_period DATE,
+        discovered_sources TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+        payload JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_{FUND_REGISTRY_AUX_TABLE}_market ON {FUND_REGISTRY_AUX_TABLE}(market);
+    CREATE INDEX IF NOT EXISTS idx_{FUND_REGISTRY_AUX_TABLE}_fund_type ON {FUND_REGISTRY_AUX_TABLE}(fund_type);
+    """
+    with engine.begin() as conn:
+        for statement in [s.strip() for s in sql.split(";") if s.strip()]:
+            conn.execute(text(statement))
+    logger.info(f"✓ 表 {FUND_REGISTRY_AUX_TABLE} 已就绪")
+
+
 def ensure_aggregate_table(engine: Engine):
     sql = f"""
     CREATE TABLE IF NOT EXISTS {AGG_TABLE} (
@@ -300,15 +327,108 @@ def ensure_normalized_views(engine: Engine):
     FROM {DATASET_TABLES['fund_portfolio']}
     """
 
+    sql_fund_registry = f"""
+    CREATE OR REPLACE VIEW vw_fund_registry AS
+    WITH basic AS (
+        SELECT
+            fund_code,
+            name,
+            management,
+            fund_type,
+            invest_type,
+            status,
+            market,
+            issue_amount,
+            list_date,
+            found_date,
+            NULL::date AS latest_nav_date,
+            NULL::date AS latest_share_date,
+            NULL::date AS latest_portfolio_period,
+            ARRAY['fund_basic']::text[] AS discovered_sources,
+            1 AS source_priority
+        FROM vw_fund_basic
+    ),
+    portfolio_only AS (
+        SELECT
+            p.fund_code,
+            NULL::text AS name,
+            NULL::text AS management,
+            NULL::text AS fund_type,
+            NULL::text AS invest_type,
+            NULL::text AS status,
+            NULL::text AS market,
+            NULL::numeric AS issue_amount,
+            NULL::date AS list_date,
+            NULL::date AS found_date,
+            NULL::date AS latest_nav_date,
+            NULL::date AS latest_share_date,
+            MAX(p.end_date) AS latest_portfolio_period,
+            ARRAY['fund_portfolio']::text[] AS discovered_sources,
+            2 AS source_priority
+        FROM vw_fund_portfolio p
+        LEFT JOIN vw_fund_basic b ON b.fund_code = p.fund_code
+        WHERE p.fund_code IS NOT NULL
+          AND b.fund_code IS NULL
+        GROUP BY p.fund_code
+    ),
+    aux AS (
+        SELECT
+            fund_code,
+            name,
+            management,
+            fund_type,
+            invest_type,
+            status,
+            market,
+            NULL::numeric AS issue_amount,
+            NULL::date AS list_date,
+            NULL::date AS found_date,
+            latest_nav_date,
+            latest_share_date,
+            latest_portfolio_period,
+            discovered_sources,
+            3 AS source_priority
+        FROM {FUND_REGISTRY_AUX_TABLE}
+    ),
+    merged AS (
+        SELECT * FROM basic
+        UNION ALL
+        SELECT * FROM portfolio_only
+        UNION ALL
+        SELECT * FROM aux
+    )
+    SELECT DISTINCT ON (fund_code)
+        fund_code,
+        COALESCE(name, fund_code) AS name,
+        management,
+        fund_type,
+        invest_type,
+        status,
+        market,
+        issue_amount,
+        list_date,
+        found_date,
+        latest_nav_date,
+        latest_share_date,
+        latest_portfolio_period,
+        discovered_sources,
+        source_priority
+    FROM merged
+    WHERE fund_code IS NOT NULL
+    ORDER BY fund_code, source_priority, latest_portfolio_period DESC NULLS LAST, latest_nav_date DESC NULLS LAST, latest_share_date DESC NULLS LAST
+    """
+
     with engine.begin() as conn:
         conn.execute(text(sql_fund_basic))
         conn.execute(text(sql_fund_portfolio))
-    logger.info("✓ 视图 vw_fund_basic / vw_fund_portfolio 已更新")
+        conn.execute(text(sql_fund_registry))
+    logger.info("✓ 视图 vw_fund_basic / vw_fund_portfolio / vw_fund_registry 已更新")
 
 
 def ensure_all_tables(engine: Engine):
     for table_name in DATASET_TABLES.values():
         ensure_landing_table(engine, table_name)
+    ensure_fund_registry_aux_table(engine)
     ensure_normalized_views(engine)
     ensure_aggregate_table(engine)
 
@@ -398,6 +518,168 @@ def upsert_rows(
             logger.info(f"{dataset_name}: ????? {idx}/{total_batches}??? {written} ??")
 
     return written
+
+def upsert_fund_registry_aux(engine: Engine, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+
+    sql = text(
+        f"""
+        INSERT INTO {FUND_REGISTRY_AUX_TABLE} (
+            fund_code, name, management, fund_type, invest_type, status, market,
+            latest_nav_date, latest_share_date, latest_portfolio_period,
+            discovered_sources, payload, updated_at
+        ) VALUES (
+            :fund_code, :name, :management, :fund_type, :invest_type, :status, :market,
+            :latest_nav_date, :latest_share_date, :latest_portfolio_period,
+            :discovered_sources, CAST(:payload AS jsonb), NOW()
+        )
+        ON CONFLICT (fund_code) DO UPDATE SET
+            name = COALESCE(EXCLUDED.name, {FUND_REGISTRY_AUX_TABLE}.name),
+            management = COALESCE(EXCLUDED.management, {FUND_REGISTRY_AUX_TABLE}.management),
+            fund_type = COALESCE(EXCLUDED.fund_type, {FUND_REGISTRY_AUX_TABLE}.fund_type),
+            invest_type = COALESCE(EXCLUDED.invest_type, {FUND_REGISTRY_AUX_TABLE}.invest_type),
+            status = COALESCE(EXCLUDED.status, {FUND_REGISTRY_AUX_TABLE}.status),
+            market = COALESCE(EXCLUDED.market, {FUND_REGISTRY_AUX_TABLE}.market),
+            latest_nav_date = GREATEST(EXCLUDED.latest_nav_date, {FUND_REGISTRY_AUX_TABLE}.latest_nav_date),
+            latest_share_date = GREATEST(EXCLUDED.latest_share_date, {FUND_REGISTRY_AUX_TABLE}.latest_share_date),
+            latest_portfolio_period = GREATEST(EXCLUDED.latest_portfolio_period, {FUND_REGISTRY_AUX_TABLE}.latest_portfolio_period),
+            discovered_sources = (
+                SELECT ARRAY(
+                    SELECT DISTINCT source
+                    FROM unnest(COALESCE({FUND_REGISTRY_AUX_TABLE}.discovered_sources, ARRAY[]::text[]) || COALESCE(EXCLUDED.discovered_sources, ARRAY[]::text[])) AS source
+                    ORDER BY source
+                )
+            ),
+            payload = COALESCE(EXCLUDED.payload, {FUND_REGISTRY_AUX_TABLE}.payload),
+            updated_at = NOW()
+        """
+    )
+
+    records = []
+    for row in rows:
+        payload = normalize_payload(row.get("payload") or {})
+        records.append(
+            {
+                "fund_code": normalize_fund_ts_code(row.get("fund_code")),
+                "name": row.get("name"),
+                "management": row.get("management"),
+                "fund_type": row.get("fund_type"),
+                "invest_type": row.get("invest_type"),
+                "status": row.get("status"),
+                "market": row.get("market"),
+                "latest_nav_date": parse_yyyymmdd(row.get("latest_nav_date")),
+                "latest_share_date": parse_yyyymmdd(row.get("latest_share_date")),
+                "latest_portfolio_period": parse_yyyymmdd(row.get("latest_portfolio_period")),
+                "discovered_sources": list(dict.fromkeys([str(v).strip() for v in (row.get("discovered_sources") or []) if str(v).strip()])),
+                "payload": json.dumps(payload, ensure_ascii=False, default=str),
+            }
+        )
+
+    with engine.begin() as conn:
+        conn.execute(sql, records)
+    return len(records)
+
+
+def discover_missing_funds_from_aux_sources(
+    engine: Engine,
+    pro,
+    fund_codes: Optional[Iterable[str]] = None,
+    api_sleep: Optional[float] = DEFAULT_API_SLEEP,
+) -> int:
+    explicit_codes = _dedupe_normalized_fund_codes(fund_codes)
+    if not explicit_codes:
+        return 0
+
+    sleep_seconds = max(0.0, float(DEFAULT_API_SLEEP if api_sleep is None else api_sleep))
+    discovered_rows: list[dict] = []
+
+    for fund_code in explicit_codes:
+        with engine.connect() as conn:
+            existing = conn.execute(text("SELECT 1 FROM vw_fund_registry WHERE fund_code = :fund_code LIMIT 1"), {"fund_code": fund_code}).scalar()
+        if existing:
+            continue
+
+        aux_payload: dict[str, object] = {"fund_code": fund_code}
+        discovered_sources: list[str] = []
+        management_name = None
+        market = None
+        latest_nav_date = None
+        latest_share_date = None
+        latest_portfolio_period = None
+
+        try:
+            nav_df = pro.fund_nav(ts_code=fund_code)
+            if nav_df is not None and not nav_df.empty:
+                discovered_sources.append("fund_nav")
+                latest_nav_date = nav_df.iloc[0].get("nav_date") or nav_df.iloc[0].get("ann_date")
+                aux_payload["fund_nav_sample"] = nav_df.head(3).to_dict("records")
+        except Exception as exc:
+            logger.warning(f"fund_registry aux fund_nav ts_code={fund_code} failed: {exc}")
+        if sleep_seconds:
+            time.sleep(sleep_seconds)
+
+        try:
+            share_df = pro.fund_share(ts_code=fund_code)
+            if share_df is not None and not share_df.empty:
+                discovered_sources.append("fund_share")
+                latest_share_date = share_df.iloc[0].get("trade_date")
+                market = market or share_df.iloc[0].get("market")
+                aux_payload["fund_share_sample"] = share_df.head(3).to_dict("records")
+        except Exception as exc:
+            logger.warning(f"fund_registry aux fund_share ts_code={fund_code} failed: {exc}")
+        if sleep_seconds:
+            time.sleep(sleep_seconds)
+
+        try:
+            manager_df = pro.fund_manager(ts_code=fund_code)
+            if manager_df is not None and not manager_df.empty:
+                discovered_sources.append("fund_manager")
+                management_name = manager_df.iloc[0].get("name") or management_name
+                aux_payload["fund_manager_sample"] = manager_df.head(3).to_dict("records")
+        except Exception as exc:
+            logger.warning(f"fund_registry aux fund_manager ts_code={fund_code} failed: {exc}")
+        if sleep_seconds:
+            time.sleep(sleep_seconds)
+
+        try:
+            portfolio_df = pro.fund_portfolio(ts_code=fund_code)
+            if portfolio_df is not None and not portfolio_df.empty:
+                discovered_sources.append("fund_portfolio")
+                latest_portfolio_period = portfolio_df.iloc[0].get("end_date")
+                aux_payload["fund_portfolio_sample"] = portfolio_df.head(3).to_dict("records")
+        except Exception as exc:
+            logger.warning(f"fund_registry aux fund_portfolio ts_code={fund_code} failed: {exc}")
+        if sleep_seconds:
+            time.sleep(sleep_seconds)
+
+        if not discovered_sources:
+            logger.info(f"fund_registry aux ts_code={fund_code}: no auxiliary data discovered")
+            continue
+
+        discovered_rows.append(
+            {
+                "fund_code": fund_code,
+                "name": fund_code,
+                "management": management_name,
+                "fund_type": None,
+                "invest_type": None,
+                "status": "AUX_DISCOVERED",
+                "market": market,
+                "latest_nav_date": latest_nav_date,
+                "latest_share_date": latest_share_date,
+                "latest_portfolio_period": latest_portfolio_period,
+                "discovered_sources": discovered_sources,
+                "payload": aux_payload,
+            }
+        )
+
+    written = upsert_fund_registry_aux(engine, discovered_rows)
+    if written:
+        ensure_normalized_views(engine)
+    logger.info(f"fund_registry aux discover finished: requested={len(explicit_codes)}, written={written}")
+    return written
+
 
 # ---------------------------------------------------------------------------
 # 同步逻辑
@@ -525,21 +807,21 @@ def query_fund_codes_for_portfolio_sync(
         where_clauses.append(f"COALESCE(status, '') IN ({', '.join(placeholders)})")
 
     sql = f"""
-    WITH basic_codes AS (
+    WITH registry_codes AS (
         SELECT DISTINCT fund_code
-        FROM vw_fund_basic
+        FROM vw_fund_registry
         WHERE {' AND '.join(where_clauses)}
     ),
     portfolio_codes AS (
         SELECT DISTINCT p.fund_code
         FROM vw_fund_portfolio p
-        LEFT JOIN vw_fund_basic b ON b.fund_code = p.fund_code
+        LEFT JOIN vw_fund_registry r ON r.fund_code = p.fund_code
         WHERE p.fund_code IS NOT NULL
-          AND b.fund_code IS NULL
-          AND (NOT EXISTS (SELECT 1 FROM basic_codes) OR p.fund_code NOT IN (SELECT fund_code FROM basic_codes))
+          AND r.fund_code IS NULL
+          AND (NOT EXISTS (SELECT 1 FROM registry_codes) OR p.fund_code NOT IN (SELECT fund_code FROM registry_codes))
     ),
     merged AS (
-        SELECT fund_code, 1 AS priority FROM basic_codes
+        SELECT fund_code, 1 AS priority FROM registry_codes
         UNION ALL
         SELECT fund_code, 2 AS priority FROM portfolio_codes
     )
@@ -623,21 +905,21 @@ def query_missing_fund_portfolio_tasks(
             limit_sql = "\n        LIMIT :limit"
 
         fund_cte = f"""
-        basic_funds AS (
+        registry_funds AS (
             SELECT DISTINCT fund_code
-            FROM vw_fund_basic
+            FROM vw_fund_registry
             WHERE {' AND '.join(where_clauses)}
         ),
         portfolio_only_funds AS (
             SELECT DISTINCT p.fund_code
             FROM vw_fund_portfolio p
-            LEFT JOIN vw_fund_basic b ON b.fund_code = p.fund_code
+            LEFT JOIN vw_fund_registry r ON r.fund_code = p.fund_code
             WHERE p.fund_code IS NOT NULL
-              AND b.fund_code IS NULL
-              AND (NOT EXISTS (SELECT 1 FROM basic_funds) OR p.fund_code NOT IN (SELECT fund_code FROM basic_funds))
+              AND r.fund_code IS NULL
+              AND (NOT EXISTS (SELECT 1 FROM registry_funds) OR p.fund_code NOT IN (SELECT fund_code FROM registry_funds))
         ),
         merged_funds AS (
-            SELECT fund_code, 1 AS priority FROM basic_funds
+            SELECT fund_code, 1 AS priority FROM registry_funds
             UNION ALL
             SELECT fund_code, 2 AS priority FROM portfolio_only_funds
         ),
@@ -1486,53 +1768,17 @@ def search_funds(
     normalized_direct_code = normalize_fund_ts_code(keyword) or kw
     bare_code = normalized_direct_code.split(".", 1)[0]
     sql = """
-    WITH basic AS (
-        SELECT
-            fund_code,
-            name,
-            management,
-            fund_type,
-            invest_type,
-            status,
-            issue_amount,
-            1 AS source_priority,
-            0 AS holding_priority,
-            NULL::date AS latest_end_date
-        FROM vw_fund_basic
-    ),
-    portfolio_only AS (
-        SELECT
-            p.fund_code,
-            NULL::text AS name,
-            NULL::text AS management,
-            NULL::text AS fund_type,
-            NULL::text AS invest_type,
-            NULL::text AS status,
-            NULL::numeric AS issue_amount,
-            2 AS source_priority,
-            1 AS holding_priority,
-            MAX(p.end_date) AS latest_end_date
-        FROM vw_fund_portfolio p
-        LEFT JOIN vw_fund_basic b ON b.fund_code = p.fund_code
-        WHERE b.fund_code IS NULL
-        GROUP BY p.fund_code
-    ),
-    merged AS (
-        SELECT * FROM basic
-        UNION ALL
-        SELECT * FROM portfolio_only
-    )
     SELECT
         fund_code,
         COALESCE(name, fund_code) AS name,
-        COALESCE(management, '持仓表补全') AS management,
+        COALESCE(management, '辅助发现') AS management,
         COALESCE(fund_type, invest_type, CASE WHEN fund_code LIKE '%.SH' OR fund_code LIKE '%.SZ' THEN '场内基金/ETF' ELSE '未知类型' END) AS fund_type,
         invest_type,
         status,
         issue_amount,
-        latest_end_date,
+        latest_portfolio_period AS latest_end_date,
         source_priority,
-        holding_priority,
+        CASE WHEN latest_portfolio_period IS NOT NULL THEN 1 ELSE 0 END AS holding_priority,
         CASE
             WHEN UPPER(fund_code) = :exact THEN 0
             WHEN replace(replace(replace(UPPER(fund_code), '.OF', ''), '.SZ', ''), '.SH', '') = :bare_code_upper THEN 1
@@ -1547,7 +1793,7 @@ def search_funds(
             ELSE 999999
         END AS name_pos,
         LENGTH(COALESCE(name, fund_code)) AS name_len
-    FROM merged
+    FROM vw_fund_registry
     WHERE fund_code ILIKE :prefix
        OR replace(replace(replace(fund_code, '.OF', ''), '.SZ', ''), '.SH', '') = :bare_code
        OR COALESCE(name, '') ILIKE :contains
@@ -1556,28 +1802,50 @@ def search_funds(
         match_rank,
         name_pos,
         holding_priority DESC,
-        latest_end_date DESC NULLS LAST,
+        latest_portfolio_period DESC NULLS LAST,
         source_priority,
         name_len,
         fund_code
     LIMIT :limit
     """
 
+    params = {
+        'prefix': f'{keyword}%',
+        'contains': f'%{keyword}%',
+        'exact': normalized_direct_code,
+        'prefix_upper': f'{kw}%',
+        'bare_code': bare_code,
+        'bare_code_upper': bare_code.upper(),
+        'keyword_in_name': kw,
+        'limit': int(limit),
+    }
+
     with engine.connect() as conn:
-        return pd.read_sql(
-            text(sql),
-            conn,
-            params={
-                'prefix': f'{keyword}%',
-                'contains': f'%{keyword}%',
-                'exact': normalized_direct_code,
-                'prefix_upper': f'{kw}%',
-                'bare_code': bare_code,
-                'bare_code_upper': bare_code.upper(),
-                'keyword_in_name': kw,
-                'limit': int(limit),
-            },
-        )
+        result_df = pd.read_sql(text(sql), conn, params=params)
+
+    if result_df is not None and not result_df.empty:
+        return result_df
+
+    should_try_aux_discovery = bool(normalized_direct_code and '.' in normalized_direct_code)
+    if not should_try_aux_discovery and bare_code.isdigit() and len(bare_code) == 6:
+        should_try_aux_discovery = True
+
+    if should_try_aux_discovery:
+        try:
+            pro = _init_tushare()
+            discovered = discover_missing_funds_from_aux_sources(
+                engine,
+                pro,
+                fund_codes=[normalized_direct_code],
+                api_sleep=0,
+            )
+            if discovered:
+                with engine.connect() as conn:
+                    return pd.read_sql(text(sql), conn, params=params)
+        except Exception as exc:
+            logger.warning(f"search_funds aux discover failed keyword={keyword}: {exc}")
+
+    return result_df if result_df is not None else pd.DataFrame()
 
 
 def query_fund_meta_by_codes(
@@ -1590,52 +1858,18 @@ def query_fund_meta_by_codes(
         return pd.DataFrame()
 
     sql = """
-    WITH basic AS (
-        SELECT
-            fund_code,
-            name,
-            management,
-            fund_type,
-            invest_type,
-            status,
-            issue_amount,
-            1 AS source_priority,
-            NULL::date AS latest_end_date
-        FROM vw_fund_basic
-        WHERE fund_code IN :codes
-    ),
-    portfolio_only AS (
-        SELECT
-            p.fund_code,
-            NULL::text AS name,
-            NULL::text AS management,
-            NULL::text AS fund_type,
-            NULL::text AS invest_type,
-            NULL::text AS status,
-            NULL::numeric AS issue_amount,
-            2 AS source_priority,
-            MAX(p.end_date) AS latest_end_date
-        FROM vw_fund_portfolio p
-        LEFT JOIN vw_fund_basic b ON b.fund_code = p.fund_code
-        WHERE p.fund_code IN :codes AND b.fund_code IS NULL
-        GROUP BY p.fund_code
-    ),
-    merged AS (
-        SELECT * FROM basic
-        UNION ALL
-        SELECT * FROM portfolio_only
-    )
     SELECT
         fund_code,
         COALESCE(name, fund_code) AS name,
-        COALESCE(management, '持仓表补全') AS management,
+        COALESCE(management, '辅助发现') AS management,
         COALESCE(fund_type, invest_type, CASE WHEN fund_code LIKE '%.SH' OR fund_code LIKE '%.SZ' THEN '场内基金/ETF' ELSE '未知类型' END) AS fund_type,
         invest_type,
         status,
         issue_amount,
-        latest_end_date,
+        latest_portfolio_period AS latest_end_date,
         source_priority
-    FROM merged
+    FROM vw_fund_registry
+    WHERE fund_code IN :codes
     ORDER BY source_priority, fund_code
     """
 

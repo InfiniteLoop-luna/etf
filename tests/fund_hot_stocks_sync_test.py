@@ -240,11 +240,59 @@ class FundPortfolioByFundSyncTests(unittest.TestCase):
         self.assertEqual(result.iloc[0]["fund_code"], "159915.SZ")
         sql_text = str(mock_read_sql.call_args.args[0])
         params = mock_read_sql.call_args.kwargs["params"]
-        self.assertIn("portfolio_only", sql_text)
+        self.assertIn("vw_fund_registry", sql_text)
         self.assertIn("issue_amount", sql_text)
         self.assertEqual(params["exact"], "159915.OF")
         self.assertEqual(params["bare_code"], "159915")
         self.assertEqual(params["prefix_upper"], "159915%")
+    def test_search_funds_triggers_aux_discovery_for_missing_direct_code(self):
+        self.assertTrue(hasattr(fhs, "search_funds"), "search_funds should exist")
+
+        class FakeConnection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeEngine:
+            def connect(self):
+                return FakeConnection()
+
+        first_df = pd.DataFrame()
+        second_df = pd.DataFrame(
+            [
+                {
+                    "fund_code": "007491.OF",
+                    "name": "007491.OF",
+                    "management": "辅助发现",
+                    "fund_type": "未知类型",
+                    "invest_type": None,
+                    "status": "AUX_DISCOVERED",
+                    "issue_amount": None,
+                    "latest_end_date": pd.Timestamp("2026-06-30"),
+                    "source_priority": 3,
+                    "holding_priority": 1,
+                    "match_rank": 0,
+                    "name_pos": 999999,
+                    "name_len": 9,
+                }
+            ]
+        )
+
+        engine = FakeEngine()
+
+        with patch.object(fhs.pd, "read_sql", side_effect=[first_df, second_df]) as mock_read_sql, patch.object(
+            fhs, "_init_tushare", return_value=object()
+        ) as mock_init_tushare, patch.object(
+            fhs, "discover_missing_funds_from_aux_sources", return_value=1
+        ) as mock_discover:
+            result = fhs.search_funds("007491", limit=10, engine=engine)
+
+        self.assertEqual(result.iloc[0]["fund_code"], "007491.OF")
+        mock_init_tushare.assert_called_once()
+        mock_discover.assert_called_once_with(engine, mock_init_tushare.return_value, fund_codes=["007491.OF"], api_sleep=0)
+        self.assertEqual(mock_read_sql.call_count, 2)
 
 
 if __name__ == "__main__":
