@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -42,20 +43,57 @@ def find_expired_archives(base_dir: Path, keep_days: int, now: datetime | None =
     return expired
 
 
+def _to_repo_relpath(path: Path, project_root: Path) -> str:
+    return str(path.relative_to(project_root)).replace("\\", "/")
+
+
+def _classify_git_tracking(project_root: Path, paths: list[Path]) -> dict[str, str]:
+    relpaths = [_to_repo_relpath(path, project_root) for path in paths]
+    tracked: set[str] = set()
+    if relpaths:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(project_root), "ls-files", "--", *relpaths],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            tracked = {line.strip().replace("\\", "/") for line in result.stdout.splitlines() if line.strip()}
+        except Exception:
+            tracked = set()
+    return {relpath: ("tracked" if relpath in tracked else "untracked") for relpath in relpaths}
+
+
 def cleanup_archives(keep_days: int, dry_run: bool = False) -> dict:
     expired = find_expired_archives(RECOMMENDATIONS_DIR, keep_days=keep_days)
+    tracking = _classify_git_tracking(PROJECT_ROOT, expired)
     removed: list[str] = []
+    removed_details: list[dict[str, str]] = []
 
     for path in expired:
-        removed.append(str(path.relative_to(PROJECT_ROOT)).replace("\\", "/"))
+        relpath = _to_repo_relpath(path, PROJECT_ROOT)
+        tracking_state = tracking.get(relpath, "unknown")
+        removed.append(relpath)
+        removed_details.append({"path": relpath, "git_tracking": tracking_state})
         if not dry_run:
             path.unlink(missing_ok=True)
+
+    tracked_count = sum(1 for item in removed_details if item["git_tracking"] == "tracked")
+    untracked_count = sum(1 for item in removed_details if item["git_tracking"] == "untracked")
 
     return {
         "keep_days": int(keep_days),
         "dry_run": bool(dry_run),
         "removed_count": len(removed),
+        "tracked_removed_count": tracked_count,
+        "untracked_removed_count": untracked_count,
         "removed": removed,
+        "removed_details": removed_details,
+        "summary_message": (
+            f"cleanup {'would remove' if dry_run else 'removed'} {len(removed)} archive(s) "
+            f"(tracked={tracked_count}, untracked={untracked_count})"
+        ),
     }
 
 

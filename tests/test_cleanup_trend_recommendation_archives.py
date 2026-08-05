@@ -38,9 +38,23 @@ def test_cleanup_archives_dry_run_does_not_delete_files(tmp_path: Path, monkeypa
         type("FakeDateTime", (), {"now": staticmethod(lambda tz=None: datetime(2026, 8, 5, 12, 0, 0, tzinfo=tz))}),
     )
 
+    monkeypatch.setattr(
+        "scripts.cleanup_trend_recommendation_archives._classify_git_tracking",
+        lambda project_root, paths: {"data/recommendations/2026-07-01_trend_recommendations.json": "untracked"},
+    )
+
     summary = cleanup_archives(keep_days=30, dry_run=True)
 
     assert summary["removed_count"] == 1
+    assert summary["tracked_removed_count"] == 0
+    assert summary["untracked_removed_count"] == 1
+    assert "tracked=0, untracked=1" in summary["summary_message"]
+    assert summary["removed_details"] == [
+        {
+            "path": "data/recommendations/2026-07-01_trend_recommendations.json",
+            "git_tracking": "untracked",
+        }
+    ]
     assert (rec_dir / "2026-07-01_trend_recommendations.json").exists()
 
 
@@ -61,9 +75,24 @@ def test_cleanup_archives_deletes_expired_files(tmp_path: Path, monkeypatch):
         type("FakeDateTime", (), {"now": staticmethod(lambda tz=None: datetime(2026, 8, 5, 12, 0, 0, tzinfo=tz))}),
     )
 
+    monkeypatch.setattr(
+        "scripts.cleanup_trend_recommendation_archives._classify_git_tracking",
+        lambda project_root, paths: {
+            "data/recommendations/2026-07-01_trend_recommendations.json": "tracked",
+        },
+    )
+
     summary = cleanup_archives(keep_days=30, dry_run=False)
 
     assert summary["removed"] == ["data/recommendations/2026-07-01_trend_recommendations.json"]
+    assert summary["tracked_removed_count"] == 1
+    assert summary["untracked_removed_count"] == 0
+    assert summary["removed_details"] == [
+        {
+            "path": "data/recommendations/2026-07-01_trend_recommendations.json",
+            "git_tracking": "tracked",
+        }
+    ]
     assert not old_file.exists()
     assert recent_file.exists()
     assert latest_file.exists()
