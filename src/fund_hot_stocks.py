@@ -572,6 +572,19 @@ def upsert_rows(
 
     return written
 
+def _looks_like_placeholder_fund_name(name: object, fund_code: object) -> bool:
+    raw_name = str(name or "").strip()
+    raw_code = normalize_fund_ts_code(fund_code) or str(fund_code or "").strip().upper()
+    if not raw_name:
+        return True
+    if raw_name.upper() == raw_code.upper():
+        return True
+    bare_code = raw_code.split('.', 1)[0]
+    if raw_name.upper() == bare_code.upper():
+        return True
+    return False
+
+
 def upsert_fund_registry_aux(engine: Engine, rows: list[dict]) -> int:
     if not rows:
         return 0
@@ -588,7 +601,12 @@ def upsert_fund_registry_aux(engine: Engine, rows: list[dict]) -> int:
             :discovered_sources, CAST(:payload AS jsonb), NOW()
         )
         ON CONFLICT (fund_code) DO UPDATE SET
-            name = COALESCE(EXCLUDED.name, {FUND_REGISTRY_AUX_TABLE}.name),
+            name = CASE
+                WHEN {FUND_REGISTRY_AUX_TABLE}.name IS NULL OR {FUND_REGISTRY_AUX_TABLE}.name = '' THEN EXCLUDED.name
+                WHEN {FUND_REGISTRY_AUX_TABLE}.name = {FUND_REGISTRY_AUX_TABLE}.fund_code THEN COALESCE(EXCLUDED.name, {FUND_REGISTRY_AUX_TABLE}.name)
+                WHEN replace({FUND_REGISTRY_AUX_TABLE}.name, '.OF', '') = replace({FUND_REGISTRY_AUX_TABLE}.fund_code, '.OF', '') THEN COALESCE(EXCLUDED.name, {FUND_REGISTRY_AUX_TABLE}.name)
+                ELSE {FUND_REGISTRY_AUX_TABLE}.name
+            END,
             management = COALESCE(EXCLUDED.management, {FUND_REGISTRY_AUX_TABLE}.management),
             fund_type = COALESCE(EXCLUDED.fund_type, {FUND_REGISTRY_AUX_TABLE}.fund_type),
             invest_type = COALESCE(EXCLUDED.invest_type, {FUND_REGISTRY_AUX_TABLE}.invest_type),
