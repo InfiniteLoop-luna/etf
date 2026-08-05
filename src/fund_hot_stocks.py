@@ -417,7 +417,7 @@ def ensure_normalized_views(engine: Engine):
             NULL::date AS latest_share_date,
             MAX(p.end_date) AS latest_portfolio_period,
             ARRAY['fund_portfolio']::text[] AS discovered_sources,
-            2 AS source_priority
+            3 AS source_priority
         FROM vw_fund_portfolio p
         LEFT JOIN vw_fund_basic b ON b.fund_code = p.fund_code
         WHERE p.fund_code IS NOT NULL
@@ -440,35 +440,50 @@ def ensure_normalized_views(engine: Engine):
             latest_share_date,
             latest_portfolio_period,
             discovered_sources,
-            3 AS source_priority
+            2 AS source_priority
         FROM {FUND_REGISTRY_AUX_TABLE}
     ),
     merged AS (
         SELECT * FROM basic
         UNION ALL
-        SELECT * FROM portfolio_only
-        UNION ALL
         SELECT * FROM aux
+        UNION ALL
+        SELECT * FROM portfolio_only
+    ),
+    portfolio_latest AS (
+        SELECT fund_code, MAX(latest_portfolio_period) AS latest_portfolio_period
+        FROM merged
+        GROUP BY fund_code
+    ),
+    source_union AS (
+        SELECT fund_code, ARRAY_AGG(DISTINCT source_item) AS discovered_sources
+        FROM (
+            SELECT fund_code, unnest(COALESCE(discovered_sources, ARRAY[]::text[])) AS source_item
+            FROM merged
+        ) t
+        GROUP BY fund_code
     )
-    SELECT DISTINCT ON (fund_code)
-        fund_code,
-        COALESCE(name, fund_code) AS name,
-        management,
-        fund_type,
-        invest_type,
-        status,
-        market,
-        issue_amount,
-        list_date,
-        found_date,
-        latest_nav_date,
-        latest_share_date,
-        latest_portfolio_period,
-        discovered_sources,
-        source_priority
-    FROM merged
-    WHERE fund_code IS NOT NULL
-    ORDER BY fund_code, source_priority, latest_portfolio_period DESC NULLS LAST, latest_nav_date DESC NULLS LAST, latest_share_date DESC NULLS LAST
+    SELECT DISTINCT ON (m.fund_code)
+        m.fund_code,
+        COALESCE(m.name, m.fund_code) AS name,
+        m.management,
+        m.fund_type,
+        m.invest_type,
+        m.status,
+        m.market,
+        m.issue_amount,
+        m.list_date,
+        m.found_date,
+        m.latest_nav_date,
+        m.latest_share_date,
+        pl.latest_portfolio_period,
+        su.discovered_sources,
+        m.source_priority
+    FROM merged m
+    LEFT JOIN portfolio_latest pl ON pl.fund_code = m.fund_code
+    LEFT JOIN source_union su ON su.fund_code = m.fund_code
+    WHERE m.fund_code IS NOT NULL
+    ORDER BY m.fund_code, m.source_priority, m.latest_nav_date DESC NULLS LAST, m.latest_share_date DESC NULLS LAST
     """
 
     with engine.begin() as conn:
