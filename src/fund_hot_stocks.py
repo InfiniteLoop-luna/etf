@@ -164,8 +164,28 @@ def _normalize_value(v):
     return v
 
 
+def _json_safe(value):
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    if hasattr(value, "item"):
+        try:
+            value = value.item()
+        except Exception:
+            pass
+    return value
+
+
 def normalize_payload(row: dict) -> dict:
-    return {k: _normalize_value(v) for k, v in row.items()}
+    return {k: _json_safe(v) for k, v in row.items()}
 
 
 def compute_record_hash(payload: dict) -> str:
