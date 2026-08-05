@@ -166,8 +166,13 @@ if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/
 else
   echo "[$(date -Is)] etf-data-update: generate_daily_trend_reco_from_pyc.py done"
   echo "[$(date -Is)] etf-data-update: cleanup old trend recommendation archives (keep ${TREND_RECO_KEEP_DAYS} days)"
-  if ! TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/cleanup_trend_recommendation_archives.py --keep-days "$TREND_RECO_KEEP_DAYS"; then
+  cleanup_output="$(TZ=Asia/Shanghai PYTHONPATH="$APP_DIR" "$APP_DIR/.venv/bin/python" scripts/cleanup_trend_recommendation_archives.py --keep-days "$TREND_RECO_KEEP_DAYS" 2>&1)"
+  cleanup_status=$?
+  if [[ $cleanup_status -ne 0 ]]; then
+    echo "$cleanup_output"
     echo "[$(date -Is)] etf-data-update: warning - cleanup_trend_recommendation_archives.py failed, skip and continue"
+  else
+    echo "$cleanup_output"
   fi
 fi
 
