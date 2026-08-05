@@ -1977,37 +1977,37 @@ def search_funds(
     with engine.connect() as conn:
         result_df = pd.read_sql(text(sql), conn, params=params)
 
-    if result_df is not None and not result_df.empty:
-        return result_df
-
     should_try_aux_discovery = bool(normalized_direct_code and '.' in normalized_direct_code)
     if not should_try_aux_discovery and bare_code.isdigit() and len(bare_code) == 6:
         should_try_aux_discovery = True
 
     if should_try_aux_discovery:
-        try:
-            pro = _init_tushare()
-            discovered = discover_missing_funds_from_aux_sources(
-                engine,
-                pro,
-                fund_codes=[normalized_direct_code],
-                api_sleep=0,
-            )
-            if discovered:
-                try:
-                    sync_fund_portfolio_for_codes(
-                        engine,
-                        pro,
-                        fund_codes=[normalized_direct_code],
-                        lookback_periods=3,
-                        api_sleep=0,
-                    )
-                except Exception as exc:
-                    logger.warning(f"search_funds targeted portfolio sync failed keyword={keyword}: {exc}")
-                with engine.connect() as conn:
-                    return pd.read_sql(text(sql), conn, params=params)
-        except Exception as exc:
-            logger.warning(f"search_funds aux discover failed keyword={keyword}: {exc}")
+        needs_portfolio_backfill = not has_fund_portfolio_data(normalized_direct_code, engine=engine)
+        needs_aux_discovery = result_df is None or result_df.empty
+        if needs_aux_discovery or needs_portfolio_backfill:
+            try:
+                pro = _init_tushare()
+                discovered = discover_missing_funds_from_aux_sources(
+                    engine,
+                    pro,
+                    fund_codes=[normalized_direct_code],
+                    api_sleep=0,
+                )
+                if discovered or needs_portfolio_backfill:
+                    try:
+                        sync_fund_portfolio_for_codes(
+                            engine,
+                            pro,
+                            fund_codes=[normalized_direct_code],
+                            lookback_periods=3,
+                            api_sleep=0,
+                        )
+                    except Exception as exc:
+                        logger.warning(f"search_funds targeted portfolio sync failed keyword={keyword}: {exc}")
+                    with engine.connect() as conn:
+                        return pd.read_sql(text(sql), conn, params=params)
+            except Exception as exc:
+                logger.warning(f"search_funds aux discover failed keyword={keyword}: {exc}")
 
     return result_df if result_df is not None else pd.DataFrame()
 
@@ -2040,6 +2040,32 @@ def query_fund_meta_by_codes(
     stmt = text(sql).bindparams(bindparam("codes", expanding=True))
     with engine.connect() as conn:
         return pd.read_sql(stmt, conn, params={"codes": codes})
+
+
+def has_fund_portfolio_data(
+    fund_code: str,
+    engine: Optional[Engine] = None,
+) -> bool:
+    engine = engine or get_engine()
+    normalized_code = normalize_fund_ts_code(fund_code)
+    if not normalized_code:
+        return False
+
+    with engine.connect() as conn:
+        count_value = conn.execute(
+            text(
+                """
+                SELECT COUNT(1)
+                FROM vw_fund_portfolio
+                WHERE fund_code = :fund_code
+                """
+            ),
+            {"fund_code": normalized_code},
+        ).scalar()
+    try:
+        return int(count_value or 0) > 0
+    except Exception:
+        return False
 
 
 def query_latest_fund_portfolio_periods(

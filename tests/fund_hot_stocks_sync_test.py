@@ -234,7 +234,9 @@ class FundPortfolioByFundSyncTests(unittest.TestCase):
             ]
         )
 
-        with patch.object(fhs.pd, "read_sql", return_value=portfolio_only_df) as mock_read_sql:
+        with patch.object(fhs.pd, "read_sql", return_value=portfolio_only_df) as mock_read_sql, patch.object(
+            fhs, "has_fund_portfolio_data", return_value=True
+        ):
             result = fhs.search_funds("159915", limit=10, engine=FakeEngine())
 
         self.assertEqual(result.iloc[0]["fund_code"], "159915.SZ")
@@ -287,13 +289,77 @@ class FundPortfolioByFundSyncTests(unittest.TestCase):
         ) as mock_init_tushare, patch.object(
             fhs, "discover_missing_funds_from_aux_sources", return_value=1
         ) as mock_discover, patch.object(
+            fhs, "has_fund_portfolio_data", return_value=False
+        ) as mock_has_portfolio, patch.object(
             fhs, "sync_fund_portfolio_for_codes", return_value=5
+        ) as mock_sync_portfolio:
+            result = fhs.search_funds("007491", limit=10, engine=engine)
+
+        mock_has_portfolio.assert_called_once_with("007491.OF", engine=engine)
+
+        self.assertEqual(result.iloc[0]["fund_code"], "007491.OF")
+        mock_init_tushare.assert_called_once()
+        mock_discover.assert_called_once_with(engine, mock_init_tushare.return_value, fund_codes=["007491.OF"], api_sleep=0)
+        mock_sync_portfolio.assert_called_once_with(
+            engine,
+            mock_init_tushare.return_value,
+            fund_codes=["007491.OF"],
+            lookback_periods=3,
+            api_sleep=0,
+        )
+        self.assertEqual(mock_read_sql.call_count, 2)
+
+    def test_search_funds_backfills_portfolio_for_registry_only_fund(self):
+        self.assertTrue(hasattr(fhs, "search_funds"), "search_funds should exist")
+
+        class FakeConnection:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeEngine:
+            def connect(self):
+                return FakeConnection()
+
+        existing_registry_df = pd.DataFrame(
+            [
+                {
+                    "fund_code": "007491.OF",
+                    "name": "南方信息创新混合C",
+                    "management": "茅炜",
+                    "fund_type": "未知类型",
+                    "invest_type": None,
+                    "status": "AUX_DISCOVERED",
+                    "issue_amount": None,
+                    "latest_end_date": pd.Timestamp("2026-06-30"),
+                    "source_priority": 3,
+                    "holding_priority": 1,
+                    "match_rank": 0,
+                    "name_pos": 999999,
+                    "name_len": 9,
+                }
+            ]
+        )
+        refreshed_df = existing_registry_df.copy()
+        engine = FakeEngine()
+
+        with patch.object(fhs.pd, "read_sql", side_effect=[existing_registry_df, refreshed_df]) as mock_read_sql, patch.object(
+            fhs, "_init_tushare", return_value=object()
+        ) as mock_init_tushare, patch.object(
+            fhs, "discover_missing_funds_from_aux_sources", return_value=0
+        ) as mock_discover, patch.object(
+            fhs, "has_fund_portfolio_data", return_value=False
+        ) as mock_has_portfolio, patch.object(
+            fhs, "sync_fund_portfolio_for_codes", return_value=12
         ) as mock_sync_portfolio:
             result = fhs.search_funds("007491", limit=10, engine=engine)
 
         self.assertEqual(result.iloc[0]["fund_code"], "007491.OF")
         mock_init_tushare.assert_called_once()
         mock_discover.assert_called_once_with(engine, mock_init_tushare.return_value, fund_codes=["007491.OF"], api_sleep=0)
+        mock_has_portfolio.assert_called_once_with("007491.OF", engine=engine)
         mock_sync_portfolio.assert_called_once_with(
             engine,
             mock_init_tushare.return_value,
