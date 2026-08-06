@@ -94,6 +94,7 @@ python src/aggregate_etf_categories.py --start-date 20260326 --end-date 20260326
 - 自动刷新机制
 
 ## 故障排除
+test
 
 - **找不到Excel文件**: 确保文件在运行目录下
 - **没有数据显示**: 检查筛选条件和日期范围
