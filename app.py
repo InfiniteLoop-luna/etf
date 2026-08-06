@@ -194,6 +194,7 @@ from src.apple_theme import (
     build_terminal_component_overrides_css,
     get_apple_theme_tokens,
 )
+from src.financial_icons import install_streamlit_svg_icon_renderer
 
 from src.ml_stock_train_v1 import (
     DEFAULT_CLASSIFICATION_TARGET,
@@ -290,6 +291,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+install_streamlit_svg_icon_renderer(st)
 
 terminal_plotly_template = build_apple_plotly_template()
 pio.templates["wealthspark_terminal"] = terminal_plotly_template
@@ -5623,7 +5626,7 @@ def render_security_jump_table(display_df: pd.DataFrame, help_text: str, code_co
             '查询': st.column_config.LinkColumn(
                 '查询',
                 help='点击后跳转到个股/指数查询',
-                display_text='🔎 查询'
+                display_text='查询'
             ),
             '标签': st.column_config.TextColumn(
                 '标签',
@@ -8500,7 +8503,7 @@ def render_daily_trend_reco_tab():
                 '查询': st.column_config.LinkColumn(
                     '查询',
                     help='点击后跳转到个股/指数查询',
-                    display_text='🔎 查看'
+                    display_text='查看'
                 )
             }
         )
@@ -8522,7 +8525,7 @@ def render_daily_trend_reco_tab():
                 '查询': st.column_config.LinkColumn(
                     '查询',
                     help='点击后跳转到个股/指数查询',
-                    display_text='🔎 查看'
+                    display_text='查看'
                 )
             }
         )
@@ -9997,7 +10000,7 @@ def build_company_screener_result_action_df(
         action_df["标签"] = results_df["has_ever_st"].map(lambda value: "曾经ST" if bool(value) else "")
     else:
         action_df["标签"] = ""
-    action_df["已在自选"] = action_df["代码"].map(lambda code: "✅ 已在自选" if code in existing_codes else "")
+    action_df["已在自选"] = action_df["代码"].map(lambda code: "已在自选" if code in existing_codes else "")
     return action_df
 
 
@@ -10372,7 +10375,7 @@ def render_company_screener_tab():
     pending_screener_action = st.session_state.pop("company_screener_pending_action", None)
     if pending_screener_action == "select_all":
         action_df = action_df.copy()
-        action_df["选择"] = action_df["已在自选"] != "✅ 已在自选"
+        action_df["选择"] = action_df["已在自选"] != "已在自选"
         st.session_state[action_df_cache_key] = action_df
     elif pending_screener_action == "clear_all":
         action_df = action_df.copy()
@@ -10390,7 +10393,7 @@ def render_company_screener_tab():
             "查询": st.column_config.LinkColumn(
                 "查询",
                 help="点击后跳转到个股/指数查询",
-                display_text="🔎 查询",
+                display_text="查询",
             ),
             "标签": st.column_config.TextColumn("标签", width="small"),
             "已在自选": st.column_config.TextColumn("已在自选", width="small"),
@@ -10403,7 +10406,7 @@ def render_company_screener_tab():
     
     selected_company_rows = edited_action_df[edited_action_df["选择"]].to_dict(orient="records") if not edited_action_df.empty else []
     selected_count = len(selected_company_rows)
-    can_select_all = bool(action_df[action_df["已在自选"] != "✅ 已在自选"].shape[0])
+    can_select_all = bool(action_df[action_df["已在自选"] != "已在自选"].shape[0])
     action_cols = st.columns([1.15, 1.15, 1.45, 1.55, 2.1])
     if action_cols[0].button("全选未入自选", key="company_screener_watchlist_select_all", disabled=not can_select_all):
         st.session_state["company_screener_pending_action"] = "select_all"
@@ -14011,7 +14014,7 @@ def render_stock_pool_table(filtered_df: pd.DataFrame) -> None:
             "个股详情": st.column_config.LinkColumn(
                 "个股详情",
                 help="点击后跳转到个股/指数查询",
-                display_text="🔎 查看",
+                display_text="查看",
             ),
             "名称": st.column_config.TextColumn("名称", width="medium"),
             "代码": st.column_config.TextColumn("代码", width="small"),
@@ -19029,7 +19032,7 @@ def render_fund_hot_stocks_tab():
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "跳转": st.column_config.LinkColumn("跳转", display_text="🔎 查询")
+                    "跳转": st.column_config.LinkColumn("跳转", display_text="查询")
                 },
             )
 
@@ -19811,7 +19814,7 @@ def render_moneyflow_tab():
                     "跳转": st.column_config.LinkColumn(
                         "跳转",
                         help='点击后跳转到个股/指数查询',
-                        display_text='🔎 查询'
+                        display_text='查询'
                     )
                 }
             )
@@ -20217,7 +20220,7 @@ def render_moneyflow_tab():
                     "跳转": st.column_config.LinkColumn(
                         "跳转",
                         help='点击后跳转到个股/指数查询',
-                        display_text='🔎 查询'
+                        display_text='查询'
                     )
                 }
             )

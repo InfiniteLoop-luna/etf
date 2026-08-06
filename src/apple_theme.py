@@ -228,6 +228,34 @@ body,
     letter-spacing: 0;
 }}
 
+img[src*="/app/static/icons/"],
+.ws-inline-svg-icon {{
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    margin: 0 0.24em 0 0;
+    object-fit: contain;
+    vertical-align: -0.12em;
+}}
+
+button img[src*="/app/static/icons/"],
+[data-baseweb="tab"] img[src*="/app/static/icons/"] {{
+    flex: 0 0 auto;
+    width: 15px;
+    height: 15px;
+    margin-right: 0.38rem;
+}}
+
+[data-testid="stAlert"] [data-testid="stIconMaterial"] {{
+    display: none !important;
+}}
+
+[data-testid="stAlert"] img[src*="/app/static/icons/"] {{
+    width: 16px;
+    height: 16px;
+    margin-right: 0.42rem;
+}}
+
 html,
 body,
 .stApp,
@@ -596,34 +624,56 @@ button[aria-label="Close sidebar"] {{
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button::before {{
-    content: "\\25A1";
+    content: "";
     flex: 0 0 18px;
     width: 18px;
-    color: #716B7D;
-    font-family: var(--ws-font-data);
-    font-size: 0.9rem;
-    font-weight: 700;
-    line-height: 1;
-    text-align: center;
+    height: 18px;
+    background: #716B7D;
+    mask: url("/app/static/icons/activity.svg") center / 16px 16px no-repeat;
+    -webkit-mask: url("/app/static/icons/activity.svg") center / 16px 16px no-repeat;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button::after {{
-    content: "\\203A";
+    content: "";
+    flex: 0 0 14px;
+    width: 14px;
+    height: 14px;
     margin-left: auto;
-    color: #8A8493;
-    font-size: 1rem;
-    line-height: 1;
+    background: #8A8493;
+    mask: url("/app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
+    -webkit-mask: url("/app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
     transform-origin: center;
     transition: transform 120ms ease;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-decision"] > div button::before {{ content: "\\25C8"; }}
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-stock"] > div button::before {{ content: "\\2197"; }}
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-fund"] > div button::before {{ content: "\\25A3"; }}
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-money"] > div button::before {{ content: "\\2248"; }}
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-macro"] > div button::before {{ content: "\\25CE"; }}
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-data"] > div button::before {{ content: "\\25A6"; }}
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-favorite"] > div button::before {{ content: "\\2606"; }}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-decision"] > div button::before {{
+    mask-image: url("/app/static/icons/briefcase-business.svg");
+    -webkit-mask-image: url("/app/static/icons/briefcase-business.svg");
+}}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-stock"] > div button::before {{
+    mask-image: url("/app/static/icons/chart-candlestick.svg");
+    -webkit-mask-image: url("/app/static/icons/chart-candlestick.svg");
+}}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-fund"] > div button::before {{
+    mask-image: url("/app/static/icons/landmark.svg");
+    -webkit-mask-image: url("/app/static/icons/landmark.svg");
+}}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-money"] > div button::before {{
+    mask-image: url("/app/static/icons/badge-dollar-sign.svg");
+    -webkit-mask-image: url("/app/static/icons/badge-dollar-sign.svg");
+}}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-macro"] > div button::before {{
+    mask-image: url("/app/static/icons/globe.svg");
+    -webkit-mask-image: url("/app/static/icons/globe.svg");
+}}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-data"] > div button::before {{
+    mask-image: url("/app/static/icons/database.svg");
+    -webkit-mask-image: url("/app/static/icons/database.svg");
+}}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-favorite"] > div button::before {{
+    mask-image: url("/app/static/icons/star.svg");
+    -webkit-mask-image: url("/app/static/icons/star.svg");
+}}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button {{
     width: 100%;
@@ -640,6 +690,16 @@ button[aria-label="Close sidebar"] {{
     line-height: 1.25;
     text-align: left;
     white-space: normal;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button img,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button img,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button img,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button img {{
+    width: 15px;
+    height: 15px;
+    margin-right: 0.42rem;
+    opacity: 0.78;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button:hover,
@@ -669,6 +729,20 @@ button[aria-label="Close sidebar"] {{
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::before,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::after {{
     color: var(--ws-color-primary-hover);
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::before {{
+    background: var(--ws-color-primary-hover);
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::after {{
+    background: var(--ws-color-primary-hover);
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] > div button img,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] > div button img {{
+    filter: brightness(0) saturate(100%) invert(13%) sepia(99%) saturate(5048%) hue-rotate(275deg) brightness(71%) contrast(121%);
+    opacity: 1;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] > div button,

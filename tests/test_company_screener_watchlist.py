@@ -19,7 +19,7 @@ class CompanyScreenerWatchlistTests(unittest.TestCase):
         df = app.build_company_screener_result_action_df(results_df, existing_df)
 
         self.assertEqual(df["代码"].tolist(), ["000001.SZ", "000733.SZ"])
-        self.assertEqual(df["已在自选"].tolist(), ["", "✅ 已在自选"])
+        self.assertEqual(df["已在自选"].tolist(), ["", "已在自选"])
         self.assertEqual(df["标签"].tolist(), ["", "曾经ST"])
         self.assertEqual(df["主要业务"].tolist(), ["零售银行", "电子元件"])
         self.assertEqual(df["产品及服务"].tolist(), ["存贷款", "连接器"])
