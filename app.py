@@ -3987,7 +3987,20 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                         unsafe_allow_html=True,
                     )
             else:
-                for module in SIDEBAR_MODULES:
+                module_order = {
+                    "decision": 0,
+                    "stock": 1,
+                    "fund": 2,
+                    "money": 3,
+                    "macro": 4,
+                    "data": 5,
+                    "favorite": 6,
+                }
+                ordered_modules = sorted(
+                    SIDEBAR_MODULES,
+                    key=lambda item: module_order.get(item.id, len(module_order)),
+                )
+                for module in ordered_modules:
                     is_current_module = module.id == selected_module.id
                     is_expanded_module = module.id == expanded_module_id
                     module_key = _build_sidebar_element_key(
@@ -3996,7 +4009,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                         "expanded" if is_expanded_module else "",
                     )
                     if st.button(
-                        f'{"▾" if is_expanded_module else "▸"} {module.label}',
+                        module.label,
                         key=module_key,
                         use_container_width=True,
                     ):

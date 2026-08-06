@@ -215,6 +215,7 @@ def build_global_apple_theme_css() -> str:
     --ws-font-sans: Inter, "Segoe UI Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
     --ws-font-heading: "Hanken Grotesk", Inter, "Segoe UI Variable", "PingFang SC", sans-serif;
     --ws-font-data: "Archivo Narrow", Inter, "Segoe UI Variable", sans-serif;
+    --ws-sidebar-row-height: 38px;
 }}
 
 html,
@@ -487,8 +488,7 @@ button[aria-label="Close sidebar"] {{
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-page-description {{
-    display: block;
-    margin: 0.12rem 0 0.3rem 0.75rem;
+    display: none;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-search-result-meta {{
@@ -544,25 +544,37 @@ button[aria-label="Close sidebar"] {{
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-tree"] > div {{
     display: flex;
     flex-direction: column;
-    gap: 0.12rem;
+    gap: 0;
+    padding: 0 0.05rem;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"],
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"],
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"],
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] {{
     border-radius: var(--ws-radius-md);
 }}
 
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] {{
+    margin: 1px 0;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] {{
+    position: relative;
+    width: calc(100% - 1rem);
+    margin-left: auto;
+    padding-left: 0.55rem;
+    border-left: 1px solid var(--ws-border-soft);
+    border-radius: 0;
+}}
+
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button {{
     width: 100%;
-    min-height: 34px;
+    min-height: var(--ws-sidebar-row-height);
     justify-content: flex-start;
-    padding: 0.42rem 0.6rem !important;
+    padding: 0.45rem 0.55rem !important;
     color: var(--ws-text-muted) !important;
     background: transparent !important;
     border: 1px solid transparent !important;
@@ -575,8 +587,59 @@ button[aria-label="Close sidebar"] {{
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button {{
-    color: var(--ws-text-main) !important;
-    font-weight: 650 !important;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    color: var(--ws-text-muted) !important;
+    font-size: 0.82rem;
+    font-weight: 600 !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button::before {{
+    content: "\\25A1";
+    flex: 0 0 18px;
+    width: 18px;
+    color: #716B7D;
+    font-family: var(--ws-font-data);
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button::after {{
+    content: "\\203A";
+    margin-left: auto;
+    color: #8A8493;
+    font-size: 1rem;
+    line-height: 1;
+    transform-origin: center;
+    transition: transform 120ms ease;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-decision"] > div button::before {{ content: "\\25C8"; }}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-stock"] > div button::before {{ content: "\\2197"; }}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-fund"] > div button::before {{ content: "\\25A3"; }}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-money"] > div button::before {{ content: "\\2248"; }}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-macro"] > div button::before {{ content: "\\25CE"; }}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-data"] > div button::before {{ content: "\\25A6"; }}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-favorite"] > div button::before {{ content: "\\2606"; }}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button {{
+    width: 100%;
+    min-height: 31px;
+    justify-content: flex-start;
+    padding: 0.28rem 0.45rem 0.28rem 0.62rem !important;
+    color: var(--ws-text-soft) !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: var(--ws-radius-sm) !important;
+    box-shadow: none !important;
+    font-size: 0.74rem;
+    font-weight: 500 !important;
+    line-height: 1.25;
+    text-align: left;
+    white-space: normal;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button:hover,
@@ -587,14 +650,50 @@ button[aria-label="Close sidebar"] {{
     background: var(--ws-surface-soft) !important;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] > div button,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] > div button,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] > div button,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] > div button {{
+    color: var(--ws-text-main) !important;
+    background: var(--ws-surface-soft) !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] > div button::after {{
+    transform: rotate(90deg);
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button {{
     color: var(--ws-color-primary-hover) !important;
     background: #F0E9FF !important;
     border-color: transparent !important;
     box-shadow: inset 3px 0 0 var(--ws-color-primary) !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::before,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::after {{
+    color: var(--ws-color-primary-hover);
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] > div button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] > div button {{
+    color: var(--ws-color-primary-hover) !important;
+    background: #F8F4FF !important;
+    font-weight: 700 !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"]::before {{
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: -3px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--ws-color-primary);
+    transform: translateY(-50%);
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button {{
+    color: var(--ws-color-primary-hover) !important;
+    background: #F8F4FF !important;
+    border-color: #E7D9FF !important;
 }}
 
 html body .stApp [data-testid="stAppViewContainer"] .main .block-container h1,
