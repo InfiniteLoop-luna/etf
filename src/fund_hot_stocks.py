@@ -135,32 +135,37 @@ def normalize_fund_ts_code(raw) -> Optional[str]:
     return code
 
 
-def resolve_fund_name_from_akshare(fund_code: str) -> Optional[str]:
+def resolve_fund_identity_from_akshare(fund_code: str) -> dict:
     normalized_code = normalize_fund_ts_code(fund_code)
     if not normalized_code or ak is None:
-        return None
+        return {}
 
     bare_code = normalized_code.split('.', 1)[0]
     try:
         df = ak.fund_name_em()
     except Exception as exc:
         logger.warning(f"fund_registry aux akshare fund_name_em failed fund_code={normalized_code}: {exc}")
-        return None
+        return {}
 
     if df is None or df.empty:
-        return None
+        return {}
 
     code_col = '基金代码' if '基金代码' in df.columns else None
     name_col = '基金简称' if '基金简称' in df.columns else None
+    type_col = '基金类型' if '基金类型' in df.columns else None
     if not code_col or not name_col:
-        return None
+        return {}
 
     hit = df[df[code_col].astype(str).str.strip().eq(bare_code)]
     if hit.empty:
-        return None
+        return {}
 
-    name = str(hit.iloc[0][name_col]).strip()
-    return name or None
+    row = hit.iloc[0]
+    payload = {
+        'name': str(row.get(name_col) or '').strip() or None,
+        'fund_type': str(row.get(type_col) or '').strip() or None if type_col else None,
+    }
+    return {k: v for k, v in payload.items() if v}
 
 
 def _dedupe_normalized_fund_codes(fund_codes: Optional[Iterable[str]], limit: Optional[int] = None) -> list[str]:
@@ -724,7 +729,6 @@ def discover_missing_funds_from_aux_sources(
             manager_df = pro.fund_manager(ts_code=fund_code)
             if manager_df is not None and not manager_df.empty:
                 discovered_sources.append("fund_manager")
-                management_name = manager_df.iloc[0].get("name") or management_name
                 aux_payload["fund_manager_sample"] = manager_df.head(3).to_dict("records")
         except Exception as exc:
             logger.warning(f"fund_registry aux fund_manager ts_code={fund_code} failed: {exc}")
@@ -746,14 +750,14 @@ def discover_missing_funds_from_aux_sources(
             logger.info(f"fund_registry aux ts_code={fund_code}: no auxiliary data discovered")
             continue
 
-        resolved_name = resolve_fund_name_from_akshare(fund_code)
+        identity = resolve_fund_identity_from_akshare(fund_code)
 
         discovered_rows.append(
             {
                 "fund_code": fund_code,
-                "name": resolved_name or fund_code,
+                "name": identity.get("name") or fund_code,
                 "management": management_name,
-                "fund_type": None,
+                "fund_type": identity.get("fund_type"),
                 "invest_type": None,
                 "status": "AUX_DISCOVERED",
                 "market": market,
