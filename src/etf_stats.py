@@ -14,6 +14,8 @@ from sqlalchemy import create_engine, text
 
 import tushare as ts
 
+from src.sync_tushare_security_data import build_active_stock_sql_clause
+
 DEFAULT_DB_HOST = '127.0.0.1'
 DEFAULT_DB_PORT = 5432
 DEFAULT_DB_NAME = 'postgres'
