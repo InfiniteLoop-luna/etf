@@ -6084,9 +6084,9 @@ def _series_to_plotly_list(series: pd.Series) -> list:
 
 def _normalize_adjustment_mode(value: str | None) -> str:
     mode = str(value or '').strip().lower()
-    if mode in {'hfq', '后复权', '後復權', '后复權'}:
+    if mode in {'hfq', '后复权'}:
         return 'hfq'
-    if mode in {'qfq', '前复权', '前復權', '前复權'}:
+    if mode in {'qfq', '前复权'}:
         return 'qfq'
     return 'none'
 
@@ -6117,10 +6117,24 @@ def create_security_kline_chart(
     if df is None or df.empty or any(col not in df.columns for col in required):
         return None
 
-    chart_df = df[required + [c for c in [amount_col, vol_col] if c in df.columns]].copy()
     adjustment_mode = _normalize_adjustment_mode(adjustment_mode)
+    selected_ohlc_cols = [open_col, high_col, low_col, close_col]
+    adj_label = {"qfq": "前复权", "hfq": "后复权"}.get(adjustment_mode)
+    if prefix == "d" and adjustment_mode in {"qfq", "hfq"}:
+        candidate_ohlc = [
+            f"{adjustment_mode}_open",
+            f"{adjustment_mode}_high",
+            f"{adjustment_mode}_low",
+            f"{adjustment_mode}_close",
+        ]
+        if all(col in df.columns for col in candidate_ohlc):
+            selected_ohlc_cols = candidate_ohlc
+
+    extra_cols = [c for c in [amount_col, vol_col, "pct_chg", "change_pct", "pct_change", "change"] if c in df.columns]
+    chart_df = df[["trade_date"] + selected_ohlc_cols + extra_cols].copy()
+    open_col, high_col, low_col, close_col = selected_ohlc_cols
     chart_df["trade_date"] = pd.to_datetime(chart_df["trade_date"], errors="coerce")
-    for col in [open_col, high_col, low_col, close_col, amount_col, vol_col]:
+    for col in [open_col, high_col, low_col, close_col, amount_col, vol_col, "pct_chg", "change_pct", "pct_change", "change"]:
         if col in chart_df.columns:
             chart_df[col] = pd.to_numeric(chart_df[col], errors="coerce")
 
@@ -6128,28 +6142,18 @@ def create_security_kline_chart(
     if chart_df.empty:
         return None
 
-    adj_label = {"qfq": "前复权", "hfq": "后复权"}.get(adjustment_mode)
     adj_return_col = None
-    if adjustment_mode == 'qfq':
-        for candidate in ('qfq_pct_chg', 'qfq_change'):
-            if candidate in chart_df.columns:
-                adj_return_col = candidate
-                break
-    elif adjustment_mode == 'hfq':
-        for candidate in ('hfq_pct_chg', 'hfq_change'):
-            if candidate in chart_df.columns:
-                adj_return_col = candidate
-                break
-
-    if adj_return_col is None:
-        for candidate in ('pct_chg', 'change_pct', 'pct_change'):
-            if candidate in chart_df.columns:
-                adj_return_col = candidate
-                break
+    for candidate in ("pct_chg", "change_pct", "pct_change"):
+        if candidate in chart_df.columns:
+            adj_return_col = candidate
+            break
 
     if adj_return_col in chart_df.columns:
-        chart_df[adj_return_col] = pd.to_numeric(chart_df[adj_return_col], errors='coerce')
         chart_df['hover_pct_text'] = chart_df[adj_return_col].map(lambda v: f"{float(v):+.2f}%" if pd.notna(v) else '-')
+    elif 'change' in chart_df.columns and close_col in chart_df.columns:
+        prev_close = pd.to_numeric(chart_df[close_col], errors='coerce').shift(1)
+        pct_series = (pd.to_numeric(chart_df['change'], errors='coerce') / prev_close.replace(0, np.nan)) * 100.0
+        chart_df['hover_pct_text'] = pct_series.map(lambda v: f"{float(v):+.2f}%" if pd.notna(v) else '-')
     else:
         chart_df['hover_pct_text'] = '-'
 

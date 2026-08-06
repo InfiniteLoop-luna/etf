@@ -1646,6 +1646,8 @@ def get_stock_kline_timeseries(ts_code: str, start_date: str = None, end_date: s
             d.close,
             d.vol,
             d.amount,
+            d.pct_chg,
+            d.change,
             w.w_open,
             w.w_high,
             w.w_low,
