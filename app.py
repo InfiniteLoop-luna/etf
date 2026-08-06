@@ -290,22 +290,19 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-apple_plotly_template = build_apple_plotly_template()
-pio.templates["wealthspark_apple"] = apple_plotly_template
-pio.templates["wealthspark_balanced"] = apple_plotly_template
-pio.templates["plotly_white"] = apple_plotly_template
-pio.templates.default = "wealthspark_apple"
+stripi_plotly_template = build_apple_plotly_template()
+pio.templates["wealthspark_stripi"] = stripi_plotly_template
+pio.templates["wealthspark_balanced"] = stripi_plotly_template
+pio.templates["plotly_white"] = stripi_plotly_template
+pio.templates.default = "wealthspark_stripi"
 
 THEME = get_apple_theme_tokens(APPLE_THEME_TOKENS)
 THEME_PRIMARY = THEME["primary"]
-THEME_PRIMARY_HOVER = THEME["primary_hover"]
-THEME_PRIMARY_STRONG = THEME["primary_strong"]
 THEME_NAVY = THEME["bg_dark"]
 THEME_SURFACE = THEME["bg_surface"]
 THEME_TEXT = THEME["text_main"]
 THEME_MUTED = THEME["text_muted"]
 THEME_BORDER_SOFT = THEME["border_soft"]
-THEME_SHADOW = THEME["shadow"]
 THEME_UP = THEME["color_up"]
 THEME_DOWN = THEME["color_down"]
 THEME_WARN = THEME["color_warn"]
@@ -313,14 +310,14 @@ THEME_NEUTRAL = THEME["color_neutral"]
 THEME_PURPLE = THEME["color_purple"]
 CHART_BG = THEME_SURFACE
 CHART_PAPER_BG = THEME["bg_base"]
-CHART_GRID_COLOR = "rgba(27, 38, 59, 0.08)"
-CHART_AXIS_COLOR = "rgba(27, 38, 59, 0.12)"
-CHART_ZERO_LINE_COLOR = "rgba(27, 38, 59, 0.18)"
-CHART_UP_FILL = "rgba(230, 57, 70, 0.20)"
+CHART_GRID_COLOR = "rgba(227, 232, 238, 0.78)"
+CHART_AXIS_COLOR = "rgba(168, 195, 222, 0.72)"
+CHART_ZERO_LINE_COLOR = "rgba(100, 116, 141, 0.30)"
+CHART_UP_FILL = "rgba(234, 34, 97, 0.18)"
 CHART_DOWN_FILL = "rgba(42, 157, 143, 0.20)"
-CHART_NAVY_SOFT_FILL = "rgba(27, 38, 59, 0.10)"
-CHART_GOLD_SOFT_FILL = "rgba(212, 175, 55, 0.12)"
-CHART_SERIES = [THEME_NAVY, THEME_PRIMARY, "#4F6785", "#5B8E7D", "#C28C4E", THEME_PURPLE]
+CHART_NAVY_SOFT_FILL = "rgba(28, 30, 84, 0.10)"
+CHART_PRIMARY_SOFT_FILL = "rgba(83, 58, 253, 0.12)"
+CHART_SERIES = [THEME_PRIMARY, THEME_NAVY, THEME_UP, "#F96BEE", THEME_DOWN, THEME_PURPLE]
 TIME_SERIES_HOVER_RIGHT_MARGIN = 160
 TIME_SERIES_HOVER_DISTANCE = 60
 TIME_SERIES_HOVER_TARGET_WIDTH = 42
@@ -402,7 +399,7 @@ def apply_time_series_hover_affordance(
             y=[y0, y1],
             mode="lines",
             name="latest-day-hover-target",
-            line=dict(color="rgba(212, 175, 55, 0.01)", width=TIME_SERIES_HOVER_TARGET_WIDTH),
+            line=dict(color="rgba(83, 58, 253, 0.01)", width=TIME_SERIES_HOVER_TARGET_WIDTH),
             hovertemplate="<extra></extra>",
             showlegend=False,
         ))
@@ -438,7 +435,7 @@ def apply_time_series_hover_affordance(
         )
     return fig
 
-# Legacy inline CSS retired; shared Professional Gold theme is injected below.
+# Shared Stripi-inspired theme is injected below.
 
 # 数据文件路径
 DATA_FILE = "主要ETF基金份额变动情况.xlsx"
@@ -3893,8 +3890,8 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
         """
         <div class="ws-sidebar-brand">
             <span class="ws-sidebar-brand-kicker">WealthSpark</span>
-            <h2>桌面导航</h2>
-            <p>通过搜索、模块树和最近访问在桌面端快速切换页面。</p>
+            <h2>投资决策台</h2>
+            <p>市场 · 股票 · 基金 · 数据</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -3913,8 +3910,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                 st.markdown(
                     """
                     <div class="ws-sidebar-block">
-                        <div class="ws-sidebar-block-title">⭐ My Favorite</div>
-                        <p class="ws-sidebar-block-copy">你收藏的页面快捷入口。</p>
+                        <div class="ws-sidebar-block-title">My Favorite</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -3933,7 +3929,6 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
             """
             <div class="ws-sidebar-block">
                 <div class="ws-sidebar-block-title">搜索与导航</div>
-                <p class="ws-sidebar-block-copy">搜索页面，或在模块树中展开当前工作区。</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -3964,7 +3959,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                         st.markdown(
                             (
                                 '<span class="ws-sidebar-search-result-meta">'
-                                f'{escape(result.module_label)} · {escape(result.description)}'
+                                f'{escape(result.module_label)}'
                                 "</span>"
                             ),
                             unsafe_allow_html=True,
@@ -4010,21 +4005,10 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                         ):
                             _navigate_desktop_sidebar_to(module.id, page.id)
                             st.rerun()
-                        if is_active_page:
-                            st.markdown(
-                                (
-                                    '<span class="ws-sidebar-page-description">'
-                                    f"{escape(page.description)}"
-                                    "</span>"
-                                ),
-                                unsafe_allow_html=True,
-                            )
-
         st.markdown(
             """
             <div class="ws-sidebar-block">
                 <div class="ws-sidebar-block-title">最近访问</div>
-                <p class="ws-sidebar-block-copy">保留最近浏览页面，作为次级快捷入口。</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -5573,9 +5557,9 @@ def format_historical_st_badge(value) -> str:
 
 def style_historical_st_badge_column(column: pd.Series) -> list[str]:
     badge_style = (
-        'background-color: #F6E7B8; '
-        'color: #1B263B; '
-        'font-weight: 700; '
+        'background-color: #F5E9D4; '
+        'color: #0D253D; '
+        'font-weight: 400; '
         f'border: 1px solid {THEME_PRIMARY}; '
         'border-radius: 999px; '
         'text-align: center; '
@@ -6190,7 +6174,7 @@ def create_security_kline_chart(
                 base=[selected_body_bottom],
                 width=[selected_body_width_ms],
                 marker=dict(
-                    color=CHART_GOLD_SOFT_FILL,
+                    color=CHART_PRIMARY_SOFT_FILL,
                     line=dict(color=THEME_PRIMARY, width=2.4),
                 ),
                 hoverinfo="skip",
@@ -6918,7 +6902,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
             y=[0, latest_total_amount],
             mode="lines",
             name="latest-day-hover-target",
-            line=dict(color="rgba(212, 175, 55, 0.01)", width=42),
+            line=dict(color="rgba(83, 58, 253, 0.01)", width=42),
             hovertemplate="<extra></extra>",
             showlegend=False,
         ))
@@ -7317,8 +7301,8 @@ def main():
         st.markdown(
             '<div style="margin:0.25rem 0 0.75rem 0;"><a href="?iphone_mode=1" '
             'style="display:inline-block;padding:0.45rem 0.8rem;border-radius:999px;'
-            f'background:linear-gradient(135deg,{THEME_PRIMARY} 0%, {THEME_PRIMARY_STRONG} 100%);'
-            f'color:{THEME_NAVY};text-decoration:none;font-weight:700;box-shadow:{THEME_SHADOW};">📱 iPhone模式</a></div>',
+            f'background:{THEME_PRIMARY};border:1px solid {THEME_PRIMARY};'
+            'color:#FFFFFF;text-decoration:none;font-weight:400;box-shadow:none;">iPhone 模式</a></div>',
             unsafe_allow_html=True,
         )
 
@@ -7337,17 +7321,17 @@ def main():
                 padding: 1rem 1rem 3rem 1rem !important;
             }
             div[data-testid="stExpander"] {
-                border: 1px solid rgba(27, 38, 59, 0.08) !important;
-                border-radius: 14px !important;
-                background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248, 250, 248, 0.98) 100%) !important;
+                border: 1px solid #E3E8EE !important;
+                border-radius: 8px !important;
+                background: #FFFFFF !important;
                 overflow: hidden !important;
-                box-shadow: 0 8px 24px rgba(37, 99, 235, 0.08) !important;
+                box-shadow: 0 1px 3px rgba(0, 55, 112, 0.08) !important;
                 margin-bottom: 1rem !important;
             }
             div[data-testid="stExpander"] details summary {
                 padding: 0.85rem 1rem !important;
-                font-weight: 700 !important;
-                color: #1B263B !important;
+                font-weight: 400 !important;
+                color: #0D253D !important;
             }
             div[data-testid="stExpanderDetails"] {
                 padding: 0.2rem 1rem 1rem 1rem !important;
@@ -11151,7 +11135,7 @@ def create_change_curve_chart(
             line=dict(width=2.4, color=THEME_WARN, shape='spline'),
             marker=dict(size=5, color=THEME_WARN),
             fill='tozeroy',
-            fillcolor=CHART_GOLD_SOFT_FILL,
+            fillcolor=CHART_PRIMARY_SOFT_FILL,
             customdata=custom_data,
             hovertemplate=hover_template
         ))

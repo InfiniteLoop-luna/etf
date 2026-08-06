@@ -44,14 +44,14 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertEqual(tokens["primary_hover"], APPLE_THEME_TOKENS["primary_hover"])
         self.assertEqual(tokens["primary_strong"], APPLE_THEME_TOKENS["primary_strong"])
 
-    def test_build_global_apple_theme_css_contains_professional_gold_core_tokens(self):
+    def test_build_global_apple_theme_css_contains_stripi_core_tokens(self):
         css = build_global_apple_theme_css()
 
-        self.assertIn("--ws-bg-base: #F4F7F6", css)
+        self.assertIn("--ws-bg-base: #F6F9FC", css)
         self.assertIn("--ws-bg-surface: #FFFFFF", css)
-        self.assertIn("--ws-bg-dark: #1B263B", css)
-        self.assertIn("--ws-color-primary: #D4AF37", css)
-        self.assertIn("--ws-color-up: #E63946", css)
+        self.assertIn("--ws-bg-dark: #1C1E54", css)
+        self.assertIn("--ws-color-primary: #533AFD", css)
+        self.assertIn("--ws-color-up: #EA2261", css)
         self.assertIn("--ws-color-down: #2A9D8F", css)
         self.assertIn('[data-testid="stSidebar"]', css)
         self.assertIn('[data-testid="stDataFrame"]', css)
@@ -78,14 +78,14 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn('[data-testid="stSidebar"] [role="radiogroup"]', css)
         self.assertIn('.block-container h1 *', css)
 
-    def test_build_global_apple_theme_css_uses_professional_gold_shell_structure(self):
+    def test_build_global_apple_theme_css_uses_stripi_shell_structure(self):
         css = build_global_apple_theme_css()
 
-        self.assertIn("background: var(--ws-bg-base) !important", css)
+        self.assertIn("background: var(--ws-bg-surface) !important", css)
         self.assertIn("background: var(--ws-bg-dark) !important", css)
         self.assertIn("var(--ws-bg-surface)", css)
         self.assertIn("var(--ws-color-primary)", css)
-        self.assertIn("box-shadow: 0 4px 20px rgba(27, 38, 59, 0.04)", css)
+        self.assertIn("radial-gradient(ellipse", css)
 
     def test_build_global_apple_theme_css_adds_shell_finish_details(self):
         css = build_global_apple_theme_css()
@@ -94,15 +94,15 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn(".ws-ai-signal", css)
         self.assertIn(".main .block-container", css)
         self.assertIn('[data-testid="stSidebar"] [aria-checked="true"]', css)
-        self.assertIn("linear-gradient(135deg, var(--ws-color-primary)", css)
+        self.assertIn("background: var(--ws-color-primary) !important", css)
 
-    def test_build_apple_plotly_template_uses_professional_gold_palette(self):
+    def test_build_apple_plotly_template_uses_stripi_palette(self):
         template = build_apple_plotly_template()
 
-        self.assertEqual(template.layout.paper_bgcolor, "#F4F7F6")
+        self.assertEqual(template.layout.paper_bgcolor, "#FFFFFF")
         self.assertEqual(template.layout.plot_bgcolor, "#FFFFFF")
-        self.assertEqual(template.layout.colorway[0], "#1B263B")
-        self.assertEqual(template.layout.colorway[1], "#D4AF37")
+        self.assertEqual(template.layout.colorway[0], "#533AFD")
+        self.assertEqual(template.layout.colorway[1], "#EA2261")
 
     def test_app_py_no_longer_uses_legacy_cold_blue_theme_literals(self):
         app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
@@ -119,10 +119,10 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn(".ws-tracker-section", css)
         self.assertIn(".ws-evidence-gallery", css)
 
-    def test_tracker_direction_colors_follow_professional_gold_semantics(self):
-        self.assertEqual(DIRECTION_COLORS["bullish"], "#E63946")
+    def test_tracker_direction_colors_follow_stripi_semantics(self):
+        self.assertEqual(DIRECTION_COLORS["bullish"], "#EA2261")
         self.assertEqual(DIRECTION_COLORS["exit_signal"], "#2A9D8F")
-        self.assertEqual(DIRECTION_COLORS["neutral"], "#6E7C8C")
+        self.assertEqual(DIRECTION_COLORS["neutral"], "#64748D")
 
     def test_build_dashboard_payload_splits_cycles_and_keeps_metadata(self):
         rows = [

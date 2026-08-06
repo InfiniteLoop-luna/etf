@@ -3,34 +3,37 @@ from __future__ import annotations
 import plotly.graph_objects as go
 
 
+# The public names are retained for compatibility with existing imports. The
+# implementation now follows the Stripi-inspired design system in DESIGN.md.
 APPLE_THEME_DEFAULT_TOKENS = {
-    "bg_base": "#F4F7F6",
+    "bg_base": "#F6F9FC",
     "bg_surface": "#FFFFFF",
-    "bg_dark": "#1B263B",
-    "surface_soft": "#EEF2F0",
-    "surface_alt": "#F8FAF8",
-    "surface_dark_alt": "#22314A",
-    "primary": "#D4AF37",
-    "primary_hover": "#E5C158",
-    "primary_strong": "#FFD700",
-    "primary_soft": "rgba(212, 175, 55, 0.16)",
-    "text_main": "#1B263B",
-    "text_muted": "#6E7C8C",
-    "text_soft": "#8A97A6",
-    "text_inverse": "#F8FAFC",
-    "border_soft": "rgba(27, 38, 59, 0.05)",
-    "border_strong": "rgba(27, 38, 59, 0.12)",
-    "shadow": "0 4px 20px rgba(27, 38, 59, 0.04)",
-    "shadow_hover": "0 10px 28px rgba(27, 38, 59, 0.08)",
-    "ai_glow": "0 0 0 1px rgba(212, 175, 55, 0.24), 0 12px 30px rgba(212, 175, 55, 0.12)",
-    "color_up": "#E63946",
+    "bg_dark": "#1C1E54",
+    "surface_soft": "#F6F9FC",
+    "surface_alt": "#F5E9D4",
+    "surface_dark_alt": "#252761",
+    "primary": "#533AFD",
+    "primary_hover": "#4434D4",
+    "primary_press": "#2E2B8C",
+    "primary_strong": "#665EFD",
+    "primary_soft": "rgba(83, 58, 253, 0.12)",
+    "text_main": "#0D253D",
+    "text_muted": "#64748D",
+    "text_soft": "#61718A",
+    "text_inverse": "#FFFFFF",
+    "border_soft": "#E3E8EE",
+    "border_strong": "#A8C3DE",
+    "shadow": "0 1px 3px rgba(0, 55, 112, 0.08)",
+    "shadow_hover": "0 8px 24px rgba(0, 55, 112, 0.08), 0 2px 6px rgba(0, 55, 112, 0.04)",
+    "ai_glow": "0 0 0 1px rgba(83, 58, 253, 0.20), 0 10px 28px rgba(83, 58, 253, 0.10)",
+    "color_up": "#EA2261",
     "color_down": "#2A9D8F",
-    "color_warn": "#F4A261",
-    "color_neutral": "#607086",
-    "color_purple": "#7D6B91",
-    "radius_lg": "22px",
-    "radius_md": "16px",
-    "radius_sm": "12px",
+    "color_warn": "#9B6829",
+    "color_neutral": "#64748D",
+    "color_purple": "#665EFD",
+    "radius_lg": "12px",
+    "radius_md": "8px",
+    "radius_sm": "6px",
     "max_width": "1480px",
 }
 
@@ -47,50 +50,51 @@ def get_apple_theme_tokens(overrides: dict | None = None) -> dict:
 
 def build_apple_plotly_template() -> go.layout.Template:
     tokens = get_apple_theme_tokens()
+    font_family = "Inter, 'Segoe UI Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif"
     return go.layout.Template(
         layout=go.Layout(
-            paper_bgcolor=tokens["bg_base"],
+            paper_bgcolor=tokens["bg_surface"],
             plot_bgcolor=tokens["bg_surface"],
-            font={"color": tokens["text_main"], "family": "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif"},
-            title={"font": {"color": tokens["text_main"], "size": 20}},
+            font={"color": tokens["text_main"], "family": font_family, "size": 13},
+            title={"font": {"color": tokens["text_main"], "size": 18}},
             colorway=[
-                tokens["bg_dark"],
                 tokens["primary"],
-                "#4F6785",
-                "#5B8E7D",
-                "#C28C4E",
-                "#7D6B91",
+                tokens["color_up"],
+                tokens["bg_dark"],
+                "#F96BEE",
+                tokens["color_down"],
+                tokens["primary_strong"],
             ],
             hoverlabel={
                 "bgcolor": tokens["bg_dark"],
-                "font": {"color": tokens["text_inverse"]},
-                "bordercolor": tokens["border_strong"],
+                "font": {"color": tokens["text_inverse"], "family": font_family},
+                "bordercolor": tokens["primary_strong"],
             },
             legend={
-                "bgcolor": "rgba(255,255,255,0.94)",
+                "bgcolor": "rgba(255,255,255,0.96)",
                 "bordercolor": tokens["border_soft"],
                 "borderwidth": 1,
                 "font": {"color": tokens["text_muted"]},
             },
-            margin={"l": 20, "r": 20, "t": 36, "b": 20},
+            margin={"l": 20, "r": 20, "t": 38, "b": 20},
             xaxis={
                 "showline": True,
                 "linewidth": 1,
                 "ticks": "outside",
-                "tickcolor": "rgba(27, 38, 59, 0.16)",
-                "gridcolor": "rgba(27, 38, 59, 0.08)",
-                "linecolor": "rgba(27, 38, 59, 0.12)",
-                "zerolinecolor": "rgba(27, 38, 59, 0.08)",
+                "tickcolor": tokens["border_strong"],
+                "gridcolor": "rgba(227, 232, 238, 0.78)",
+                "linecolor": tokens["border_soft"],
+                "zerolinecolor": tokens["border_soft"],
                 "title": {"font": {"color": tokens["text_muted"]}},
             },
             yaxis={
                 "showline": True,
                 "linewidth": 1,
                 "ticks": "outside",
-                "tickcolor": "rgba(27, 38, 59, 0.16)",
-                "gridcolor": "rgba(27, 38, 59, 0.08)",
-                "linecolor": "rgba(27, 38, 59, 0.12)",
-                "zerolinecolor": "rgba(27, 38, 59, 0.08)",
+                "tickcolor": tokens["border_strong"],
+                "gridcolor": "rgba(227, 232, 238, 0.78)",
+                "linecolor": tokens["border_soft"],
+                "zerolinecolor": tokens["border_soft"],
                 "title": {"font": {"color": tokens["text_muted"]}},
             },
         )
@@ -101,10 +105,10 @@ def build_author_tracker_apple_css() -> str:
     tokens = get_apple_theme_tokens()
     return f"""
 .ws-tracker-shell {{
-    background: linear-gradient(180deg, {tokens["bg_surface"]} 0%, {tokens["surface_alt"]} 100%);
+    background: {tokens["bg_surface"]};
     border: 1px solid {tokens["border_soft"]};
     border-radius: {tokens["radius_lg"]};
-    padding: 1.2rem 1.3rem;
+    padding: 1.25rem 1.4rem;
     box-shadow: {tokens["shadow"]};
     margin: 0.35rem 0 1rem 0;
 }}
@@ -113,28 +117,28 @@ def build_author_tracker_apple_css() -> str:
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-    padding: 0.3rem 0.7rem;
-    border-radius: 999px;
+    padding: 0.25rem 0.55rem;
+    border-radius: 9999px;
     background: {tokens["primary_soft"]};
     color: {tokens["primary"]};
-    font-size: 0.76rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
+    font-size: 0.68rem;
+    font-weight: 400;
+    letter-spacing: 0;
 }}
 
 .ws-tracker-shell h4 {{
-    margin: 0.9rem 0 0.35rem 0;
+    margin: 0.85rem 0 0.35rem 0;
     color: {tokens["text_main"]};
     font-size: 1.25rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
+    font-weight: 300;
+    letter-spacing: 0;
 }}
 
 .ws-tracker-shell p {{
     margin: 0;
     color: {tokens["text_muted"]};
-    font-size: 0.95rem;
-    line-height: 1.6;
+    font-size: 0.94rem;
+    line-height: 1.5;
 }}
 
 .ws-tracker-section {{
@@ -146,22 +150,22 @@ def build_author_tracker_apple_css() -> str:
 .ws-tracker-section span {{
     color: {tokens["text_main"]};
     font-size: 1rem;
-    font-weight: 650;
-    letter-spacing: -0.01em;
+    font-weight: 400;
+    letter-spacing: 0;
 }}
 
 .ws-evidence-gallery {{
     margin: 0.8rem 0 0.25rem 0;
     padding: 0.9rem 1rem;
     border-radius: {tokens["radius_md"]};
-    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(244, 247, 246, 0.96) 100%);
+    background: {tokens["surface_soft"]};
     border: 1px solid {tokens["border_soft"]};
-    box-shadow: {tokens["shadow"]};
 }}
 
 .ws-evidence-gallery strong {{
     color: {tokens["text_main"]};
     font-size: 0.93rem;
+    font-weight: 400;
 }}
 
 .ws-evidence-gallery-note {{
@@ -184,6 +188,7 @@ def build_global_apple_theme_css() -> str:
     --ws-surface-dark-alt: {tokens["surface_dark_alt"]};
     --ws-color-primary: {tokens["primary"]};
     --ws-color-primary-hover: {tokens["primary_hover"]};
+    --ws-color-primary-press: {tokens["primary_press"]};
     --ws-color-primary-strong: {tokens["primary_strong"]};
     --ws-color-primary-soft: {tokens["primary_soft"]};
     --ws-text-main: {tokens["text_main"]};
@@ -205,26 +210,41 @@ def build_global_apple_theme_css() -> str:
     --ws-radius-lg: {tokens["radius_lg"]};
     --ws-radius-md: {tokens["radius_md"]};
     --ws-radius-sm: {tokens["radius_sm"]};
+    --ws-font-sans: Inter, "Segoe UI Variable", "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
 }}
 
-html, body, [class*="css"] {{
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+html,
+body,
+[class*="css"] {{
+    font-family: var(--ws-font-sans);
+    font-feature-settings: "ss01";
+    font-size: 15px;
+    font-weight: 300;
+    line-height: 1.4;
+    letter-spacing: 0;
 }}
 
-html, body, .stApp, [data-testid="stAppViewContainer"] {{
-    background: var(--ws-bg-base) !important;
+html,
+body,
+.stApp,
+[data-testid="stAppViewContainer"] {{
+    background: var(--ws-bg-surface) !important;
     color: var(--ws-text-main) !important;
 }}
 
 [data-testid="stAppViewContainer"]::before {{
     content: "";
     position: fixed;
-    inset: 0;
+    inset: 0 0 auto 0;
+    height: 19rem;
     pointer-events: none;
     background:
-        radial-gradient(circle at 16% 0%, rgba(212, 175, 55, 0.10), transparent 24%),
-        radial-gradient(circle at 84% 8%, rgba(27, 38, 59, 0.08), transparent 26%),
-        linear-gradient(180deg, rgba(255,255,255,0.28) 0%, rgba(244, 247, 246, 0.00) 44%);
+        radial-gradient(ellipse 42% 82% at 2% 18%, rgba(245, 233, 212, 0.96) 0%, rgba(245, 233, 212, 0) 73%),
+        radial-gradient(ellipse 38% 94% at 29% 0%, rgba(241, 170, 116, 0.62) 0%, rgba(241, 170, 116, 0) 70%),
+        radial-gradient(ellipse 46% 96% at 55% 7%, rgba(185, 185, 249, 0.88) 0%, rgba(185, 185, 249, 0) 72%),
+        radial-gradient(ellipse 37% 98% at 78% 0%, rgba(83, 58, 253, 0.78) 0%, rgba(83, 58, 253, 0) 73%),
+        radial-gradient(ellipse 32% 88% at 101% 5%, rgba(234, 34, 97, 0.68) 0%, rgba(249, 107, 238, 0) 74%),
+        linear-gradient(180deg, rgba(246, 249, 252, 0.16) 0%, rgba(255, 255, 255, 0.98) 100%);
     z-index: 0;
 }}
 
@@ -237,32 +257,27 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {{
 
 .main .block-container {{
     max-width: {tokens["max_width"]};
-    padding: 1.6rem 2.2rem 3rem 2.2rem;
-    margin-top: 0.55rem;
-    background: linear-gradient(180deg, var(--ws-bg-surface) 0%, rgba(248, 250, 248, 0.98) 100%) !important;
-    border: 1px solid var(--ws-border-soft);
-    border-radius: 32px;
-    box-shadow: 0 4px 20px rgba(27, 38, 59, 0.04);
-}}
-
-.main .block-container::before {{
-    content: "";
-    position: absolute;
-    inset: 0 auto auto 0;
-    width: 100%;
-    height: 7rem;
-    pointer-events: none;
-    border-radius: 32px 32px 0 0;
-    background: linear-gradient(180deg, rgba(212, 175, 55, 0.06) 0%, rgba(212, 175, 55, 0.00) 100%);
+    padding: 2rem 2.25rem 4rem;
+    margin-top: 0;
 }}
 
 .main p,
 .main li,
 .main label,
-.main span,
 .main .stMarkdown,
 .main [data-testid="stCaptionContainer"] {{
     color: var(--ws-text-muted) !important;
+}}
+
+.main a {{
+    color: var(--ws-color-primary) !important;
+    text-decoration: none;
+}}
+
+.main a:hover {{
+    color: var(--ws-color-primary-hover) !important;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
 }}
 
 #MainMenu,
@@ -273,50 +288,51 @@ header {{
 
 [data-testid="stSidebar"] {{
     background: var(--ws-bg-dark) !important;
-    border-right: 1px solid rgba(255,255,255,0.06) !important;
-    padding: 1.5rem 1rem !important;
-    min-width: 300px !important;
-}}
-
-[data-testid="stSidebar"][aria-expanded="false"] {{
-    min-width: 300px !important;
-    width: 300px !important;
-    transform: none !important;
-    margin-left: 0 !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+    padding: 1.25rem 0.9rem !important;
+    min-width: 288px !important;
 }}
 
 [data-testid="stSidebar"] > div:first-child {{
-    width: 300px !important;
-    background: linear-gradient(180deg, var(--ws-bg-dark) 0%, var(--ws-surface-dark-alt) 100%) !important;
-    box-shadow: inset -1px 0 0 rgba(255,255,255,0.04);
+    width: 288px !important;
+    background: var(--ws-bg-dark) !important;
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.05);
+}}
+
+@media (min-width: 769px) {{
+    [data-testid="stSidebar"][aria-expanded="false"] {{
+        min-width: 288px !important;
+        width: 288px !important;
+        transform: none !important;
+        margin-left: 0 !important;
+    }}
 }}
 
 [data-testid="collapsedControl"],
 button[aria-label="Open sidebar"],
 button[aria-label="Close sidebar"] {{
     position: fixed !important;
-    top: 0.85rem !important;
-    left: 0.85rem !important;
-    width: 2.8rem !important;
-    height: 2.8rem !important;
-    border-radius: 999px !important;
-    border: 1px solid rgba(212, 175, 55, 0.30) !important;
-    background: linear-gradient(135deg, var(--ws-bg-dark) 0%, #24344F 100%) !important;
+    top: 0.75rem !important;
+    left: 0.75rem !important;
+    width: 2.5rem !important;
+    height: 2.5rem !important;
+    border-radius: 9999px !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    background: var(--ws-bg-dark) !important;
     color: var(--ws-text-inverse) !important;
-    box-shadow: 0 12px 28px rgba(27, 38, 59, 0.20) !important;
+    box-shadow: 0 8px 24px rgba(28, 30, 84, 0.20) !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
     z-index: 1000 !important;
-    transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease !important;
+    transition: background 0.18s ease, border-color 0.18s ease !important;
 }}
 
 [data-testid="collapsedControl"]:hover,
 button[aria-label="Open sidebar"]:hover,
 button[aria-label="Close sidebar"]:hover {{
-    transform: translateY(-1px);
-    box-shadow: 0 16px 30px rgba(27, 38, 59, 0.24) !important;
-    background: linear-gradient(135deg, var(--ws-bg-dark) 0%, #30415E 100%) !important;
+    border-color: rgba(255, 255, 255, 0.34) !important;
+    background: var(--ws-surface-dark-alt) !important;
 }}
 
 [data-testid="stSidebar"] *,
@@ -334,135 +350,136 @@ button[aria-label="Close sidebar"]:hover {{
 }}
 
 [data-testid="stSidebar"] [role="radiogroup"] {{
-    padding: 0.75rem 0.85rem !important;
-    margin: 0.4rem 0 0.85rem 0 !important;
-    background: rgba(255,255,255,0.04) !important;
-    border: 1px solid rgba(255,255,255,0.06) !important;
-    border-radius: 20px !important;
+    padding: 0.55rem 0.6rem !important;
+    margin: 0.35rem 0 0.75rem !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: var(--ws-radius-md) !important;
 }}
 
 [data-testid="stSidebar"] [aria-checked="true"] {{
-    accent-color: var(--ws-color-primary) !important;
+    accent-color: var(--ws-color-primary-strong) !important;
 }}
 
 [data-testid="stSidebar"] [aria-checked="true"] + div,
 [data-testid="stSidebar"] [aria-checked="true"] ~ div {{
-    color: var(--ws-color-primary) !important;
+    color: #B9B9F9 !important;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-brand {{
-    margin: 0 0 1rem 0;
-    padding: 1rem 1.05rem;
-    border-radius: 22px;
-    background: linear-gradient(180deg, rgba(212, 175, 55, 0.18) 0%, rgba(255, 255, 255, 0.04) 100%);
-    border: 1px solid rgba(212, 175, 55, 0.22);
-    box-shadow: 0 18px 34px rgba(9, 15, 25, 0.18);
+    margin: 0 0 1rem;
+    padding: 1rem 1.05rem 1.1rem;
+    border-radius: var(--ws-radius-md);
+    background:
+        radial-gradient(ellipse 80% 130% at 0% 0%, rgba(245, 233, 212, 0.25) 0%, transparent 70%),
+        radial-gradient(ellipse 75% 120% at 72% 0%, rgba(83, 58, 253, 0.55) 0%, transparent 72%),
+        radial-gradient(ellipse 60% 110% at 100% 100%, rgba(234, 34, 97, 0.30) 0%, transparent 72%),
+        rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-brand h2 {{
-    margin: 0.35rem 0 0.2rem 0;
-    font-size: 1.02rem;
-    color: var(--ws-text-inverse) !important;
+    margin: 0.55rem 0 0.25rem;
+    font-size: 1.15rem;
+    font-weight: 300;
+    letter-spacing: 0;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-brand p {{
     margin: 0;
-    color: rgba(248, 250, 252, 0.76) !important;
-    font-size: 0.82rem;
-    line-height: 1.55;
+    color: rgba(255, 255, 255, 0.72) !important;
+    font-size: 0.8rem;
+    line-height: 1.5;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-brand-kicker {{
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
-    padding: 0.22rem 0.68rem;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--ws-color-primary) !important;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
+    padding: 0.22rem 0.55rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #FFFFFF !important;
+    font-size: 0.68rem;
+    font-weight: 400;
+    letter-spacing: 0;
     text-transform: uppercase;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-block {{
-    margin: 0.85rem 0 0.3rem 0;
-    padding: 0.75rem 0.9rem;
-    border-radius: 18px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    margin: 0.9rem 0 0.35rem;
+    padding: 0.15rem 0.35rem 0.6rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-block-title {{
     color: var(--ws-text-inverse) !important;
-    font-size: 0.82rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
+    font-size: 0.79rem;
+    font-weight: 400;
+    letter-spacing: 0;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-block-copy {{
-    margin: 0.35rem 0 0 0;
-    color: rgba(248, 250, 252, 0.72) !important;
-    font-size: 0.78rem;
-    line-height: 1.5;
+    margin: 0.28rem 0 0;
+    color: rgba(255, 255, 255, 0.58) !important;
+    font-size: 0.74rem;
+    line-height: 1.45;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-recent-item {{
     display: flex;
     flex-direction: column;
     gap: 0.12rem;
-    padding: 0.72rem 0.85rem;
-    margin: 0.28rem 0 0 0;
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.035);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 0.6rem 0.72rem;
+    margin: 0.25rem 0 0;
+    border-radius: var(--ws-radius-sm);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-recent-module {{
-    color: var(--ws-color-primary) !important;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
+    color: #B9B9F9 !important;
+    font-size: 0.69rem;
+    font-weight: 400;
+    letter-spacing: 0;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-recent-page {{
     color: var(--ws-text-inverse) !important;
-    font-size: 0.84rem;
-    font-weight: 600;
-    line-height: 1.45;
+    font-size: 0.82rem;
+    font-weight: 400;
+    line-height: 1.4;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-tree"] > div {{
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
-    margin: 0.9rem 0 0 0;
+    gap: 0.25rem;
+    margin: 0.75rem 0 0;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-page-description,
 [data-testid="stSidebar"] .ws-sidebar-search-result-meta,
 [data-testid="stSidebar"] .ws-sidebar-empty {{
     display: block;
-    color: rgba(248, 250, 252, 0.66) !important;
-    font-size: 0.76rem;
-    line-height: 1.45;
+    color: rgba(255, 255, 255, 0.58) !important;
+    font-size: 0.73rem;
+    line-height: 1.4;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-page-description {{
-    margin-top: 0.18rem;
+    margin: 0.18rem 0 0.35rem 0.75rem;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-search-result-meta {{
-    margin-top: 0.22rem;
-    color: rgba(248, 250, 252, 0.6) !important;
+    margin: 0.16rem 0 0.3rem 0.65rem;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-empty {{
-    padding: 0.95rem 1rem;
-    border-radius: 16px;
+    padding: 0.8rem;
+    border-radius: var(--ws-radius-sm);
     background: rgba(255, 255, 255, 0.04);
-    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border: 1px dashed rgba(255, 255, 255, 0.14);
     text-align: center;
 }}
 
@@ -470,12 +487,8 @@ button[aria-label="Close sidebar"]:hover {{
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"],
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"],
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] {{
-    border-radius: 18px;
-    transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
-}}
-
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] {{
-    margin: 0.15rem 0 0 0;
+    border-radius: var(--ws-radius-sm);
+    transition: background 0.16s ease, border-color 0.16s ease;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button,
@@ -488,115 +501,70 @@ button[aria-label="Close sidebar"]:hover {{
     justify-content: flex-start;
     white-space: normal;
     text-align: left;
-    border-radius: 18px !important;
+    border-radius: var(--ws-radius-sm) !important;
     box-shadow: none !important;
     color: var(--ws-text-inverse) !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button {{
-    padding: 0.7rem 0.85rem !important;
-    background: linear-gradient(180deg, rgba(212, 175, 55, 0.14) 0%, rgba(255, 255, 255, 0.04) 100%) !important;
-    border: 1px solid rgba(212, 175, 55, 0.2) !important;
-    box-shadow: 0 14px 28px rgba(9, 15, 25, 0.14) !important;
-    color: var(--ws-text-inverse) !important;
-    font-weight: 650 !important;
+    padding: 0.62rem 0.72rem !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    font-weight: 400 !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] > div button {{
-    background: linear-gradient(180deg, rgba(212, 175, 55, 0.22) 0%, rgba(255, 255, 255, 0.08) 100%) !important;
-    border-color: rgba(212, 175, 55, 0.32) !important;
-    box-shadow: inset 3px 0 0 var(--ws-color-primary), 0 16px 30px rgba(9, 15, 25, 0.18) !important;
-}}
-
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] {{
-    margin: 0;
+    background: rgba(83, 58, 253, 0.24) !important;
+    border-color: rgba(185, 185, 249, 0.32) !important;
+    box-shadow: inset 2px 0 0 #B9B9F9 !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button {{
-    padding: 0.58rem 0.72rem 0.62rem 1rem !important;
-    background: rgba(255, 255, 255, 0.03) !important;
+    padding: 0.52rem 0.65rem 0.55rem 0.88rem !important;
+    background: transparent !important;
     border: 1px solid transparent !important;
-    color: var(--ws-text-inverse) !important;
-    font-weight: 600 !important;
+    font-weight: 300 !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button:hover {{
-    transform: translateX(2px);
     background: rgba(255, 255, 255, 0.06) !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] > div button,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] > div button {{
-    background: linear-gradient(135deg, rgba(212, 175, 55, 0.22) 0%, rgba(212, 175, 55, 0.12) 100%) !important;
-    border-color: rgba(212, 175, 55, 0.3) !important;
-    box-shadow: inset 3px 0 0 var(--ws-color-primary), 0 12px 24px rgba(9, 15, 25, 0.16) !important;
-    color: var(--ws-text-inverse) !important;
-}}
-
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] {{
-    margin: 0.2rem 0 0 0;
+    background: rgba(83, 58, 253, 0.32) !important;
+    border-color: rgba(185, 185, 249, 0.30) !important;
+    box-shadow: inset 2px 0 0 #B9B9F9 !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button {{
-    padding: 0.72rem 0.88rem !important;
-    background: linear-gradient(135deg, rgba(212, 175, 55, 0.24) 0%, rgba(255, 255, 255, 0.08) 100%) !important;
-    border: 1px solid rgba(212, 175, 55, 0.28) !important;
-    box-shadow: 0 14px 28px rgba(9, 15, 25, 0.16) !important;
-    font-weight: 650 !important;
-}}
-
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button:hover,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button:focus {{
-    transform: translateY(-1px);
-    background: linear-gradient(135deg, rgba(212, 175, 55, 0.34) 0%, rgba(255, 255, 255, 0.12) 100%) !important;
-    border-color: rgba(229, 193, 88, 0.42) !important;
-    box-shadow: 0 18px 32px rgba(9, 15, 25, 0.2) !important;
-    color: var(--ws-text-inverse) !important;
-}}
-
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button *,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button p,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button span,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button div[data-testid="stMarkdownContainer"] {{
-    color: var(--ws-text-inverse) !important;
-    -webkit-text-fill-color: var(--ws-text-inverse) !important;
-}}
-
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] {{
-    margin: 0.2rem 0 0 0;
+    padding: 0.62rem 0.75rem !important;
+    background: rgba(83, 58, 253, 0.25) !important;
+    border: 1px solid rgba(185, 185, 249, 0.28) !important;
+    font-weight: 400 !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button {{
-    padding: 0.8rem 0.9rem !important;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.04) 100%) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    box-shadow: 0 16px 28px rgba(9, 15, 25, 0.14) !important;
-    color: var(--ws-text-inverse) !important;
-}}
-
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button:hover {{
-    transform: translateY(-1px);
-    border-color: rgba(212, 175, 55, 0.22) !important;
-    box-shadow: 0 18px 32px rgba(9, 15, 25, 0.18) !important;
+    padding: 0.65rem 0.72rem !important;
+    background: rgba(255, 255, 255, 0.07) !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] {{
-    margin: 0;
-    opacity: 0.82;
+    opacity: 0.78;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button {{
-    padding: 0.45rem 0.72rem 0.48rem 1.25rem !important;
+    padding: 0.42rem 0.65rem 0.45rem 1rem !important;
     background: transparent !important;
     border: 1px solid transparent !important;
-    color: rgba(248, 250, 252, 0.8) !important;
-    font-weight: 500 !important;
+    font-weight: 300 !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button:hover {{
     opacity: 1;
-    background: rgba(255, 255, 255, 0.04) !important;
+    background: rgba(255, 255, 255, 0.05) !important;
 }}
 
 html body .stApp [data-testid="stAppViewContainer"] .main .block-container h1,
@@ -613,16 +581,26 @@ html body .stApp [data-testid="stAppViewContainer"] .main .block-container h3 * 
     -webkit-text-fill-color: var(--ws-text) !important;
     text-fill-color: var(--ws-text) !important;
     text-shadow: none !important;
+    letter-spacing: 0 !important;
 }}
 
 h1 {{
-    font-size: clamp(2rem, 3vw, 2.7rem);
-    font-weight: 720;
+    font-size: 2rem;
+    line-height: 1.1;
+    font-weight: 300;
     margin-bottom: 0.45rem;
 }}
 
-h2, h3 {{
-    font-weight: 650;
+h2 {{
+    font-size: 1.625rem;
+    line-height: 1.12;
+    font-weight: 300;
+}}
+
+h3 {{
+    font-size: 1.25rem;
+    line-height: 1.35;
+    font-weight: 300;
 }}
 
 [data-testid="stSidebar"] label,
@@ -631,56 +609,95 @@ h2, h3 {{
 .stTextInput label,
 .stDateInput label,
 .stNumberInput label,
-.stTextArea label {{
+.stTextArea label,
+.stFileUploader label {{
     color: var(--ws-text-muted) !important;
-    font-size: 0.84rem;
-    font-weight: 600;
-    letter-spacing: 0.01em;
+    font-size: 0.78rem;
+    font-weight: 400;
+    letter-spacing: 0;
 }}
 
 .stButton > button,
-button[kind="primary"],
+.stDownloadButton > button,
 button[kind="secondary"] {{
-    min-height: 2.75rem;
-    border-radius: 999px !important;
-    border: 1px solid rgba(212, 175, 55, 0.22) !important;
-    background: linear-gradient(135deg, var(--ws-color-primary) 0%, var(--ws-color-primary-strong) 100%) !important;
-    color: var(--ws-bg-dark) !important;
-    box-shadow: var(--ws-shadow) !important;
-    font-weight: 700 !important;
-    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease !important;
+    min-height: 2.5rem;
+    padding: 0.5rem 1rem !important;
+    border-radius: 9999px !important;
+    border: 1px solid var(--ws-color-primary) !important;
+    background: var(--ws-bg-surface) !important;
+    color: var(--ws-color-primary) !important;
+    box-shadow: none !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+    transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease !important;
+}}
+
+button[kind="primary"] {{
+    min-height: 2.5rem;
+    padding: 0.5rem 1rem !important;
+    border-radius: 9999px !important;
+    border: 1px solid var(--ws-color-primary) !important;
+    background: var(--ws-color-primary) !important;
+    color: var(--ws-text-inverse) !important;
+    box-shadow: none !important;
+    font-weight: 400 !important;
+}}
+
+.stButton > button *,
+.stDownloadButton > button *,
+button[kind="secondary"] * {{
+    color: inherit !important;
+    -webkit-text-fill-color: currentColor !important;
+}}
+
+button[kind="primary"] * {{
+    color: var(--ws-text-inverse) !important;
+    -webkit-text-fill-color: var(--ws-text-inverse) !important;
 }}
 
 .stButton > button:hover,
-button[kind="primary"]:hover,
+.stDownloadButton > button:hover,
 button[kind="secondary"]:hover {{
-    transform: translateY(-1px);
-    box-shadow: var(--ws-shadow-hover) !important;
-    background: linear-gradient(135deg, var(--ws-color-primary-hover) 0%, var(--ws-color-primary-strong) 100%) !important;
+    color: var(--ws-color-primary-hover) !important;
+    background: rgba(83, 58, 253, 0.06) !important;
+    border-color: var(--ws-color-primary-hover) !important;
 }}
 
-button[kind="secondary"] {{
-    background: var(--ws-bg-surface) !important;
-    color: var(--ws-color-primary) !important;
-    border-color: rgba(212, 175, 55, 0.38) !important;
+button[kind="primary"]:hover {{
+    background: var(--ws-color-primary-hover) !important;
+    border-color: var(--ws-color-primary-hover) !important;
+}}
+
+button[kind="primary"]:active {{
+    background: var(--ws-color-primary-press) !important;
+    border-color: var(--ws-color-primary-press) !important;
+}}
+
+.stButton > button:focus-visible,
+.stDownloadButton > button:focus-visible,
+button:focus-visible {{
+    outline: 3px solid rgba(83, 58, 253, 0.20) !important;
+    outline-offset: 2px;
 }}
 
 html body .stApp [data-testid="stAppViewContainer"] .main a[href*="iphone_mode"],
 html body .stApp [data-testid="stAppViewContainer"] .main a[href*="iphone_mode"] * {{
-    background: linear-gradient(135deg, var(--ws-color-primary) 0%, var(--ws-color-primary-strong) 100%) !important;
+    background: var(--ws-color-primary) !important;
     background-image: none !important;
-    color: var(--ws-bg-dark) !important;
-    border: 1px solid rgba(212, 175, 55, 0.30) !important;
-    box-shadow: var(--ws-shadow) !important;
+    color: var(--ws-text-inverse) !important;
+    border: 1px solid var(--ws-color-primary) !important;
+    box-shadow: none !important;
 }}
 
 [data-baseweb="select"] > div,
 .stTextInput input,
 .stNumberInput input,
 .stDateInput input,
+.stTimeInput input,
 .stTextArea textarea {{
+    min-height: 2.5rem;
     border-radius: var(--ws-radius-sm) !important;
-    border: 1px solid var(--ws-border-soft) !important;
+    border: 1px solid var(--ws-border-strong) !important;
     background: var(--ws-bg-surface) !important;
     color: var(--ws-text-main) !important;
     box-shadow: none !important;
@@ -690,26 +707,33 @@ html body .stApp [data-testid="stAppViewContainer"] .main a[href*="iphone_mode"]
 .stTextInput input:focus,
 .stNumberInput input:focus,
 .stDateInput input:focus,
+.stTimeInput input:focus,
 .stTextArea textarea:focus {{
-    border-color: rgba(212, 175, 55, 0.45) !important;
-    box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.10) !important;
+    border-color: var(--ws-color-primary) !important;
+    box-shadow: 0 0 0 3px rgba(83, 58, 253, 0.12) !important;
 }}
 
 [data-baseweb="tag"] {{
-    background: rgba(212, 175, 55, 0.12) !important;
-    border: 1px solid rgba(212, 175, 55, 0.18) !important;
-    border-radius: 999px !important;
+    background: var(--ws-color-primary-soft) !important;
+    border: 1px solid rgba(83, 58, 253, 0.16) !important;
+    border-radius: 9999px !important;
     box-shadow: none !important;
 }}
 
 [data-baseweb="tag"] span {{
-    color: var(--ws-color-primary) !important;
-    font-weight: 600;
+    color: var(--ws-color-primary-hover) !important;
+    font-weight: 400;
+}}
+
+[data-baseweb="checkbox"] [aria-checked="true"],
+[data-baseweb="toggle"] [aria-checked="true"] {{
+    background-color: var(--ws-color-primary) !important;
+    border-color: var(--ws-color-primary) !important;
 }}
 
 .stMetric,
-[data-testid="metric-container"],
 [data-testid="stMetric"],
+[data-testid="metric-container"],
 .stPlotlyChart,
 [data-testid="stDataFrame"],
 div[data-testid="stTable"],
@@ -721,30 +745,42 @@ div[data-testid="stExpander"] {{
 }}
 
 .stMetric,
-[data-testid="metric-container"],
-[data-testid="stMetric"] {{
-    padding: 0.95rem 1rem !important;
+[data-testid="stMetric"],
+[data-testid="metric-container"] {{
+    padding: 0.85rem 0.95rem !important;
 }}
 
-[data-testid="stMetricLabel"] p,
+[data-testid="stMetricLabel"] p {{
+    color: var(--ws-text-muted) !important;
+    font-size: 0.78rem !important;
+    font-weight: 400 !important;
+}}
+
+[data-testid="stMetricValue"],
+[data-testid="stMetricDelta"],
+[data-testid="stDataFrame"],
+div[data-testid="stTable"] {{
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+}}
+
 [data-testid="stMetricValue"] {{
     color: var(--ws-text-main) !important;
+    font-size: 1.55rem !important;
+    font-weight: 300 !important;
+    letter-spacing: 0 !important;
 }}
 
 .stPlotlyChart {{
-    padding: 0.95rem 1rem;
-    margin: 0.85rem 0;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-}}
-
-.stPlotlyChart:hover {{
-    transform: translateY(-1px);
-    box-shadow: var(--ws-shadow-hover) !important;
+    padding: 0.85rem 0.95rem;
+    margin: 0.75rem 0;
+    border-radius: var(--ws-radius-lg) !important;
 }}
 
 [data-testid="stDataFrame"],
 div[data-testid="stTable"] {{
-    padding: 0.65rem;
+    padding: 0.55rem;
+    border-radius: var(--ws-radius-lg) !important;
 }}
 
 div[data-testid="stExpander"] {{
@@ -752,26 +788,32 @@ div[data-testid="stExpander"] {{
 }}
 
 div[data-testid="stExpander"] details summary {{
-    padding: 0.9rem 1rem !important;
+    padding: 0.8rem 0.9rem !important;
     color: var(--ws-text-main) !important;
-    font-weight: 620 !important;
+    font-weight: 400 !important;
+}}
+
+div[data-testid="stExpanderDetails"] {{
+    padding: 0.15rem 0.9rem 0.9rem !important;
+    border-top: 1px solid var(--ws-border-soft);
 }}
 
 .ws-page-toolbar,
 [class*="st-key-ws-page-toolbar"] {{
-    margin: 0.4rem 0 1.1rem 0;
-    padding: 0.95rem 1.05rem;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 248, 0.92) 100%);
-    border: 1px solid var(--ws-border-soft);
-    border-radius: var(--ws-radius-md);
-    box-shadow: var(--ws-shadow);
+    margin: 0.35rem 0 1rem;
+    padding: 0.85rem 0.95rem;
+    background: rgba(246, 249, 252, 0.92);
+    border-top: 1px solid var(--ws-border-soft);
+    border-bottom: 1px solid var(--ws-border-soft);
+    border-radius: 0;
+    box-shadow: none;
 }}
 
 .ws-page-toolbar {{
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.85rem;
+    gap: 0.75rem;
 }}
 
 .ws-page-toolbar > * {{
@@ -779,46 +821,56 @@ div[data-testid="stExpander"] details summary {{
 }}
 
 [class*="st-key-ws-page-toolbar"] > div[data-testid="stVerticalBlock"] {{
-    gap: 0.85rem;
+    gap: 0.75rem;
 }}
 
 [class*="st-key-ws-page-toolbar"] [data-testid="stHorizontalBlock"] {{
     align-items: flex-end;
 }}
 
-div[data-testid="stExpanderDetails"] {{
-    padding: 0.2rem 1rem 1rem 1rem !important;
-}}
-
 .stTabs [role="tablist"] {{
-    gap: 0.5rem;
+    width: fit-content;
+    max-width: 100%;
+    gap: 0.2rem;
+    padding: 0.2rem;
+    border-radius: 9999px;
+    background: var(--ws-surface-soft);
+    border: 1px solid var(--ws-border-soft);
+    overflow-x: auto;
 }}
 
 .stTabs [role="tab"] {{
-    border-radius: 999px !important;
-    background: rgba(255,255,255,0.94) !important;
-    border: 1px solid var(--ws-border-soft) !important;
+    min-height: 2.25rem;
+    border-radius: 9999px !important;
+    background: transparent !important;
+    border: 1px solid transparent !important;
     color: var(--ws-text-muted) !important;
-    padding: 0.45rem 0.9rem !important;
+    padding: 0.4rem 0.8rem !important;
+    font-weight: 400 !important;
+}}
+
+.stTabs [role="tab"] * {{
+    color: inherit !important;
+    -webkit-text-fill-color: currentColor !important;
 }}
 
 .stTabs [aria-selected="true"] {{
-    color: var(--ws-bg-dark) !important;
-    background: rgba(212, 175, 55, 0.14) !important;
-    border-color: rgba(212, 175, 55, 0.34) !important;
-    box-shadow: 0 8px 18px rgba(212, 175, 55, 0.10) !important;
+    color: var(--ws-color-primary-hover) !important;
+    background: var(--ws-bg-surface) !important;
+    border-color: rgba(83, 58, 253, 0.22) !important;
+    box-shadow: var(--ws-shadow) !important;
 }}
 
 .stAlert {{
     border-radius: var(--ws-radius-md) !important;
     border: 1px solid var(--ws-border-soft) !important;
-    border-left: 1px solid var(--ws-border-soft) !important;
+    border-left: 3px solid var(--ws-color-primary) !important;
     background: var(--ws-bg-surface) !important;
-    box-shadow: var(--ws-shadow) !important;
+    box-shadow: none !important;
 }}
 
 .stImage img {{
-    border-radius: 18px;
+    border-radius: var(--ws-radius-md);
     border: 1px solid var(--ws-border-soft);
     box-shadow: var(--ws-shadow);
 }}
@@ -828,20 +880,82 @@ div[data-testid="stExpanderDetails"] {{
     box-shadow: var(--ws-ai-glow) !important;
 }}
 
+[data-testid="stFileUploaderDropzone"] {{
+    background: var(--ws-surface-soft) !important;
+    border: 1px dashed var(--ws-border-strong) !important;
+    border-radius: var(--ws-radius-md) !important;
+}}
+
+[data-testid="stProgress"] > div > div {{
+    background-color: var(--ws-color-primary) !important;
+}}
+
+[data-baseweb="popover"],
+[role="dialog"] {{
+    border-radius: var(--ws-radius-md) !important;
+    border-color: var(--ws-border-soft) !important;
+    box-shadow: var(--ws-shadow-hover) !important;
+}}
+
+hr {{
+    border-color: var(--ws-border-soft) !important;
+}}
+
+code {{
+    color: var(--ws-color-primary-hover) !important;
+    background: var(--ws-surface-soft) !important;
+    border-radius: 4px;
+}}
+
 @media (max-width: 768px) {{
+    [data-testid="stAppViewContainer"]::before {{
+        height: 12rem;
+        background:
+            radial-gradient(ellipse 85% 90% at 0% 0%, rgba(245, 233, 212, 0.94) 0%, rgba(245, 233, 212, 0) 72%),
+            radial-gradient(ellipse 82% 95% at 48% 0%, rgba(185, 185, 249, 0.82) 0%, rgba(185, 185, 249, 0) 73%),
+            radial-gradient(ellipse 72% 90% at 100% 0%, rgba(234, 34, 97, 0.54) 0%, rgba(83, 58, 253, 0) 75%),
+            linear-gradient(180deg, rgba(246, 249, 252, 0.12) 0%, rgba(255, 255, 255, 0.98) 100%);
+    }}
+
     .main .block-container {{
-        padding: 1rem 0.95rem 2rem 0.95rem;
-        border-radius: 24px;
+        padding: 1.25rem 0.95rem 2.5rem;
     }}
 
     [data-testid="stSidebar"] {{
+        min-width: 280px !important;
+        width: 280px !important;
         padding: 1rem 0.75rem !important;
+    }}
+
+    [data-testid="stSidebar"] > div:first-child {{
+        width: 280px !important;
+    }}
+
+    [data-testid="stSidebar"][aria-expanded="false"] {{
+        min-width: 0 !important;
+        width: 0 !important;
+        transform: translateX(-100%) !important;
+    }}
+
+    h1 {{
+        font-size: 1.625rem;
+    }}
+
+    h2 {{
+        font-size: 1.375rem;
+    }}
+
+    .stButton > button,
+    .stDownloadButton > button,
+    button[kind="primary"],
+    button[kind="secondary"] {{
+        min-height: 2.75rem;
     }}
 
     .stPlotlyChart,
     [data-testid="stDataFrame"],
     div[data-testid="stTable"] {{
-        padding: 0.55rem;
+        padding: 0.45rem;
     }}
 
     .ws-tracker-shell {{
