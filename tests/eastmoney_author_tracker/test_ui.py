@@ -8,6 +8,7 @@ from src.apple_theme import (
     build_apple_plotly_template,
     build_author_tracker_apple_css,
     build_global_apple_theme_css,
+    build_terminal_component_overrides_css,
     get_apple_theme_tokens,
 )
 from src.eastmoney_author_tracker.ui import (
@@ -44,15 +45,15 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertEqual(tokens["primary_hover"], APPLE_THEME_TOKENS["primary_hover"])
         self.assertEqual(tokens["primary_strong"], APPLE_THEME_TOKENS["primary_strong"])
 
-    def test_build_global_apple_theme_css_contains_stripi_core_tokens(self):
+    def test_build_global_apple_theme_css_contains_terminal_core_tokens(self):
         css = build_global_apple_theme_css()
 
-        self.assertIn("--ws-bg-base: #F6F9FC", css)
+        self.assertIn("--ws-bg-base: #F7F9FF", css)
         self.assertIn("--ws-bg-surface: #FFFFFF", css)
-        self.assertIn("--ws-bg-dark: #1C1E54", css)
-        self.assertIn("--ws-color-primary: #533AFD", css)
-        self.assertIn("--ws-color-up: #EA2261", css)
-        self.assertIn("--ws-color-down: #2A9D8F", css)
+        self.assertIn("--ws-bg-dark: #2A3138", css)
+        self.assertIn("--ws-color-primary: #6001D2", css)
+        self.assertIn("--ws-color-up: #037B66", css)
+        self.assertIn("--ws-color-down: #D11022", css)
         self.assertIn('[data-testid="stSidebar"]', css)
         self.assertIn('[data-testid="stDataFrame"]', css)
         self.assertIn(".stMetric", css)
@@ -78,14 +79,15 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn('[data-testid="stSidebar"] [role="radiogroup"]', css)
         self.assertIn('.block-container h1 *', css)
 
-    def test_build_global_apple_theme_css_uses_stripi_shell_structure(self):
+    def test_build_global_apple_theme_css_uses_terminal_shell_structure(self):
         css = build_global_apple_theme_css()
 
         self.assertIn("background: var(--ws-bg-surface) !important", css)
-        self.assertIn("background: var(--ws-bg-dark) !important", css)
+        self.assertIn("background: var(--ws-bg-base) !important", css)
         self.assertIn("var(--ws-bg-surface)", css)
         self.assertIn("var(--ws-color-primary)", css)
-        self.assertIn("radial-gradient(ellipse", css)
+        self.assertIn(".ws-terminal-header", css)
+        self.assertNotIn("radial-gradient(ellipse", css)
 
     def test_build_global_apple_theme_css_adds_shell_finish_details(self):
         css = build_global_apple_theme_css()
@@ -96,13 +98,22 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn('[data-testid="stSidebar"] [aria-checked="true"]', css)
         self.assertIn("background: var(--ws-color-primary) !important", css)
 
-    def test_build_apple_plotly_template_uses_stripi_palette(self):
+    def test_build_apple_plotly_template_uses_terminal_palette(self):
         template = build_apple_plotly_template()
 
         self.assertEqual(template.layout.paper_bgcolor, "#FFFFFF")
         self.assertEqual(template.layout.plot_bgcolor, "#FFFFFF")
-        self.assertEqual(template.layout.colorway[0], "#533AFD")
-        self.assertEqual(template.layout.colorway[1], "#EA2261")
+        self.assertEqual(template.layout.colorway[0], "#6001D2")
+        self.assertEqual(template.layout.colorway[1], "#0052D0")
+        self.assertEqual(template.layout.colorway[2], "#037B66")
+
+    def test_terminal_component_overrides_cover_custom_watchboards(self):
+        css = build_terminal_component_overrides_css()
+
+        self.assertIn(".ws-watchboard-shell", css)
+        self.assertIn(".ws-fund-watchboard", css)
+        self.assertIn("background: #FFFFFF !important", css)
+        self.assertIn("border-radius: 4px !important", css)
 
     def test_app_py_no_longer_uses_legacy_cold_blue_theme_literals(self):
         app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
@@ -119,10 +130,10 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn(".ws-tracker-section", css)
         self.assertIn(".ws-evidence-gallery", css)
 
-    def test_tracker_direction_colors_follow_stripi_semantics(self):
-        self.assertEqual(DIRECTION_COLORS["bullish"], "#EA2261")
-        self.assertEqual(DIRECTION_COLORS["exit_signal"], "#2A9D8F")
-        self.assertEqual(DIRECTION_COLORS["neutral"], "#64748D")
+    def test_tracker_direction_colors_follow_terminal_semantics(self):
+        self.assertEqual(DIRECTION_COLORS["bullish"], "#037B66")
+        self.assertEqual(DIRECTION_COLORS["exit_signal"], "#D11022")
+        self.assertEqual(DIRECTION_COLORS["neutral"], "#6B6675")
 
     def test_build_dashboard_payload_splits_cycles_and_keeps_metadata(self):
         rows = [

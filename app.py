@@ -191,6 +191,7 @@ from src.apple_theme import (
     build_apple_plotly_template,
     build_author_tracker_apple_css,
     build_global_apple_theme_css,
+    build_terminal_component_overrides_css,
     get_apple_theme_tokens,
 )
 
@@ -290,11 +291,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-stripi_plotly_template = build_apple_plotly_template()
-pio.templates["wealthspark_stripi"] = stripi_plotly_template
-pio.templates["wealthspark_balanced"] = stripi_plotly_template
-pio.templates["plotly_white"] = stripi_plotly_template
-pio.templates.default = "wealthspark_stripi"
+terminal_plotly_template = build_apple_plotly_template()
+pio.templates["wealthspark_terminal"] = terminal_plotly_template
+pio.templates["wealthspark_stripi"] = terminal_plotly_template
+pio.templates["wealthspark_balanced"] = terminal_plotly_template
+pio.templates["plotly_white"] = terminal_plotly_template
+pio.templates.default = "wealthspark_terminal"
 
 THEME = get_apple_theme_tokens(APPLE_THEME_TOKENS)
 THEME_PRIMARY = THEME["primary"]
@@ -309,15 +311,15 @@ THEME_WARN = THEME["color_warn"]
 THEME_NEUTRAL = THEME["color_neutral"]
 THEME_PURPLE = THEME["color_purple"]
 CHART_BG = THEME_SURFACE
-CHART_PAPER_BG = THEME["bg_base"]
-CHART_GRID_COLOR = "rgba(227, 232, 238, 0.78)"
-CHART_AXIS_COLOR = "rgba(168, 195, 222, 0.72)"
-CHART_ZERO_LINE_COLOR = "rgba(100, 116, 141, 0.30)"
-CHART_UP_FILL = "rgba(234, 34, 97, 0.18)"
-CHART_DOWN_FILL = "rgba(42, 157, 143, 0.20)"
-CHART_NAVY_SOFT_FILL = "rgba(28, 30, 84, 0.10)"
-CHART_PRIMARY_SOFT_FILL = "rgba(83, 58, 253, 0.12)"
-CHART_SERIES = [THEME_PRIMARY, THEME_NAVY, THEME_UP, "#F96BEE", THEME_DOWN, THEME_PURPLE]
+CHART_PAPER_BG = THEME_SURFACE
+CHART_GRID_COLOR = "rgba(212, 219, 228, 0.62)"
+CHART_AXIS_COLOR = "rgba(184, 192, 202, 0.82)"
+CHART_ZERO_LINE_COLOR = "rgba(74, 68, 85, 0.28)"
+CHART_UP_FILL = "rgba(3, 123, 102, 0.16)"
+CHART_DOWN_FILL = "rgba(209, 16, 34, 0.14)"
+CHART_NAVY_SOFT_FILL = "rgba(42, 49, 56, 0.08)"
+CHART_PRIMARY_SOFT_FILL = "rgba(96, 1, 210, 0.10)"
+CHART_SERIES = [THEME_PRIMARY, THEME["secondary"], THEME_UP, THEME_DOWN, THEME_WARN, THEME_PURPLE]
 TIME_SERIES_HOVER_RIGHT_MARGIN = 160
 TIME_SERIES_HOVER_DISTANCE = 60
 TIME_SERIES_HOVER_TARGET_WIDTH = 42
@@ -399,7 +401,7 @@ def apply_time_series_hover_affordance(
             y=[y0, y1],
             mode="lines",
             name="latest-day-hover-target",
-            line=dict(color="rgba(83, 58, 253, 0.01)", width=TIME_SERIES_HOVER_TARGET_WIDTH),
+            line=dict(color="rgba(96, 1, 210, 0.01)", width=TIME_SERIES_HOVER_TARGET_WIDTH),
             hovertemplate="<extra></extra>",
             showlegend=False,
         ))
@@ -435,7 +437,7 @@ def apply_time_series_hover_affordance(
         )
     return fig
 
-# Shared Stripi-inspired theme is injected below.
+# Shared terminal theme is injected below.
 
 # 数据文件路径
 DATA_FILE = "主要ETF基金份额变动情况.xlsx"
@@ -461,7 +463,7 @@ HOTMONEY_SECTION_WRAPPER_CSS = """
     align-items: center;
     gap: 0.35rem;
     padding: 0.22rem 0.72rem;
-    border-radius: 999px;
+    border-radius: 4px;
     background: var(--ws-color-primary-soft);
     color: var(--ws-color-primary);
     font-size: 0.76rem;
@@ -1557,7 +1559,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     color:#e1ecff !important;
     -webkit-text-fill-color:#e1ecff !important;
     border:1px solid rgba(70,126,255,.3);
-    border-radius:999px;
+    border-radius:4px;
     background:rgba(47,123,255,.12);
     font-size:.64rem;
     text-overflow:ellipsis;
@@ -3876,6 +3878,21 @@ def consume_pending_fund_watchlist_navigation() -> None:
     st.session_state["iphone_page_etf"] = ETF_FUND_WATCHLIST_PAGE_LABEL
 
 
+def render_terminal_header() -> None:
+    st.markdown(
+        """
+        <div class="ws-terminal-header">
+            <div class="ws-terminal-header__title">WealthSpark Decision Dashboard</div>
+            <div class="ws-terminal-header__meta">
+                <span class="ws-terminal-header__pulse"></span>
+                <span>PROFESSIONAL TERMINAL</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_desktop_sidebar_navigation() -> tuple[str, str]:
     selected_module, selected_page = _resolve_desktop_sidebar_selection()
     expanded_module_id = resolve_expanded_module_id(
@@ -3889,9 +3906,9 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
     st.sidebar.markdown(
         """
         <div class="ws-sidebar-brand">
-            <span class="ws-sidebar-brand-kicker">WealthSpark</span>
-            <h2>投资决策台</h2>
-            <p>市场 · 股票 · 基金 · 数据</p>
+            <span class="ws-sidebar-brand-kicker">W</span>
+            <h2>WealthSpark</h2>
+            <p>Professional Terminal</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -3928,7 +3945,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
         st.markdown(
             """
             <div class="ws-sidebar-block">
-                <div class="ws-sidebar-block-title">搜索与导航</div>
+                <div class="ws-sidebar-block-title">导航目录</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -5557,11 +5574,11 @@ def format_historical_st_badge(value) -> str:
 
 def style_historical_st_badge_column(column: pd.Series) -> list[str]:
     badge_style = (
-        'background-color: #F5E9D4; '
-        'color: #0D253D; '
-        'font-weight: 400; '
-        f'border: 1px solid {THEME_PRIMARY}; '
-        'border-radius: 999px; '
+        'background-color: #EADDFF; '
+        'color: #44009A; '
+        'font-weight: 700; '
+        'border: 1px solid transparent; '
+        'border-radius: 4px; '
         'text-align: center; '
         'white-space: nowrap;'
     )
@@ -7255,9 +7272,17 @@ def main():
         st.title("WealthSpark")
         st.caption("iPhone 模式")
     else:
-        st.title("WealthSpark 决策看板")
-        st.caption("趋势 × 资金流 × 情绪，一页看懂今日机会")
-        st.caption("📌 Version 4.5 - 新增策略收益趋势图与累计收益曲线（规则/模型/混合）(2026-04-20)")
+        render_terminal_header()
+        st.markdown(
+            """
+            <div class="ws-page-intro">
+                <span class="ws-page-intro__eyebrow">Market Intelligence</span>
+                <h1>WealthSpark 决策看板</h1>
+                <p>趋势 × 资金流 × 情绪</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     # 显示最后更新时间
     try:
@@ -7300,9 +7325,9 @@ def main():
     if not iphone_mode:
         st.markdown(
             '<div style="margin:0.25rem 0 0.75rem 0;"><a href="?iphone_mode=1" '
-            'style="display:inline-block;padding:0.45rem 0.8rem;border-radius:999px;'
+            'style="display:inline-block;padding:0.45rem 0.8rem;border-radius:4px;'
             f'background:{THEME_PRIMARY};border:1px solid {THEME_PRIMARY};'
-            'color:#FFFFFF;text-decoration:none;font-weight:400;box-shadow:none;">iPhone 模式</a></div>',
+            'color:#FFFFFF;text-decoration:none;font-weight:700;box-shadow:none;">iPhone 模式</a></div>',
             unsafe_allow_html=True,
         )
 
@@ -7321,17 +7346,17 @@ def main():
                 padding: 1rem 1rem 3rem 1rem !important;
             }
             div[data-testid="stExpander"] {
-                border: 1px solid #E3E8EE !important;
-                border-radius: 8px !important;
+                border: 1px solid #E0E4E9 !important;
+                border-radius: 4px !important;
                 background: #FFFFFF !important;
                 overflow: hidden !important;
-                box-shadow: 0 1px 3px rgba(0, 55, 112, 0.08) !important;
+                box-shadow: none !important;
                 margin-bottom: 1rem !important;
             }
             div[data-testid="stExpander"] details summary {
                 padding: 0.85rem 1rem !important;
                 font-weight: 400 !important;
-                color: #0D253D !important;
+                color: #151C23 !important;
             }
             div[data-testid="stExpanderDetails"] {
                 padding: 0.2rem 1rem 1rem 1rem !important;
@@ -7587,6 +7612,13 @@ def main():
             render_index_monitor_tab()
         else:
             render_macro_tab()
+
+    # Local dashboard modules inject their own CSS while rendering. This final
+    # pass keeps those modules aligned with the shared terminal design system.
+    st.markdown(
+        f"<style>{build_terminal_component_overrides_css()}</style>",
+        unsafe_allow_html=True,
+    )
 
 
 
@@ -11112,9 +11144,9 @@ def create_change_curve_chart(
     positive_max = chart_df.loc[chart_df[value_col] > 0, value_col].max() if not chart_df.empty else None
     negative_min = chart_df.loc[chart_df[value_col] < 0, value_col].min() if not chart_df.empty else None
     if pd.notna(positive_max):
-        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor="rgba(230, 57, 70, 0.05)", line_width=0)
+        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor="rgba(3, 123, 102, 0.05)", line_width=0)
     if pd.notna(negative_min):
-        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor="rgba(42, 157, 143, 0.05)", line_width=0)
+        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor="rgba(209, 16, 34, 0.05)", line_width=0)
 
     if series_col is None:
         custom_cols = [col for col in [pct_col, extra_col] if col and col in chart_df.columns]
@@ -11223,9 +11255,9 @@ def create_change_bar_chart(
     positive_max = chart_df.loc[chart_df[value_col] > 0, value_col].max() if not chart_df.empty else None
     negative_min = chart_df.loc[chart_df[value_col] < 0, value_col].min() if not chart_df.empty else None
     if pd.notna(positive_max):
-        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor="rgba(230, 57, 70, 0.05)", line_width=0)
+        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor="rgba(3, 123, 102, 0.05)", line_width=0)
     if pd.notna(negative_min):
-        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor="rgba(42, 157, 143, 0.05)", line_width=0)
+        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor="rgba(209, 16, 34, 0.05)", line_width=0)
 
     if series_col is None:
         colors = [
