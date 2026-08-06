@@ -6082,6 +6082,15 @@ def _series_to_plotly_list(series: pd.Series) -> list:
     return pd.Series(series).astype(object).where(pd.notna(series), None).tolist()
 
 
+def _normalize_adjustment_mode(value: str | None) -> str:
+    mode = str(value or '').strip().lower()
+    if mode in {'hfq', '后复权', '後復權', '后复權'}:
+        return 'hfq'
+    if mode in {'qfq', '前复权', '前復權', '前复權'}:
+        return 'qfq'
+    return 'none'
+
+
 def create_security_kline_chart(
     df: pd.DataFrame,
     prefix: str,
@@ -6091,6 +6100,7 @@ def create_security_kline_chart(
     show_macd: bool = False,
     enable_select_points: bool = False,
     selected_trade_date: str = "",
+    adjustment_mode: str = 'none',
 ) -> go.Figure | None:
     if prefix == "d":
         open_col, high_col, low_col, close_col = "open", "high", "low", "close"
@@ -6108,6 +6118,7 @@ def create_security_kline_chart(
         return None
 
     chart_df = df[required + [c for c in [amount_col, vol_col] if c in df.columns]].copy()
+    adjustment_mode = _normalize_adjustment_mode(adjustment_mode)
     chart_df["trade_date"] = pd.to_datetime(chart_df["trade_date"], errors="coerce")
     for col in [open_col, high_col, low_col, close_col, amount_col, vol_col]:
         if col in chart_df.columns:
@@ -6116,6 +6127,31 @@ def create_security_kline_chart(
     chart_df = chart_df.dropna(subset=["trade_date", open_col, high_col, low_col, close_col]).sort_values("trade_date")
     if chart_df.empty:
         return None
+
+    adj_label = {"qfq": "前复权", "hfq": "后复权"}.get(adjustment_mode)
+    adj_return_col = None
+    if adjustment_mode == 'qfq':
+        for candidate in ('qfq_pct_chg', 'qfq_change'):
+            if candidate in chart_df.columns:
+                adj_return_col = candidate
+                break
+    elif adjustment_mode == 'hfq':
+        for candidate in ('hfq_pct_chg', 'hfq_change'):
+            if candidate in chart_df.columns:
+                adj_return_col = candidate
+                break
+
+    if adj_return_col is None:
+        for candidate in ('pct_chg', 'change_pct', 'pct_change'):
+            if candidate in chart_df.columns:
+                adj_return_col = candidate
+                break
+
+    if adj_return_col in chart_df.columns:
+        chart_df[adj_return_col] = pd.to_numeric(chart_df[adj_return_col], errors='coerce')
+        chart_df['hover_pct_text'] = chart_df[adj_return_col].map(lambda v: f"{float(v):+.2f}%" if pd.notna(v) else '-')
+    else:
+        chart_df['hover_pct_text'] = '-'
 
     trade_dates = chart_df["trade_date"].dt.strftime("%Y-%m-%d").tolist()
     selected_trade_date = str(selected_trade_date or "").strip()
@@ -6158,11 +6194,21 @@ def create_security_kline_chart(
             high=high_values,
             low=low_values,
             close=close_values,
+            customdata=chart_df[["hover_pct_text"]],
+            hovertemplate=(
+                "%{x|%Y-%m-%d}"
+                "<br>开: %{open:,.2f}"
+                "<br>高: %{high:,.2f}"
+                "<br>低: %{low:,.2f}"
+                "<br>收: %{close:,.2f}"
+                "<br>涨幅: %{customdata[0]}"
+                "<extra></extra>"
+            ),
             increasing_line_color=THEME_UP,
             decreasing_line_color=THEME_DOWN,
             increasing_fillcolor=CHART_UP_FILL,
             decreasing_fillcolor=CHART_DOWN_FILL,
-            name="K线",
+            name=(adj_label + "K线") if adj_label else "K线",
         ),
         row=1, col=1
     )
@@ -6329,7 +6375,12 @@ def create_security_kline_chart(
         margin=dict(l=20, r=20, t=60, b=20),
     )
     apply_time_series_hover_affordance(fig, chart_df["trade_date"], chart_df[close_col])
-    fig.update_yaxes(title_text="价格", row=1, col=1, fixedrange=True)
+    fig.update_yaxes(
+        title_text=f"价格{'（' + adj_label + '）' if adj_label else ''}",
+        row=1,
+        col=1,
+        fixedrange=True,
+    )
     fig.update_yaxes(title_text=y_title, row=2, col=1, fixedrange=True)
     if show_macd:
         fig.update_yaxes(title_text="MACD", row=3, col=1, fixedrange=True)
@@ -15056,7 +15107,7 @@ def render_security_search_tab():
             if kline_df is None or kline_df.empty:
                 st.info("暂无可用K线数据。")
             else:
-                kline_ctl_cols = st.columns([1.2, 1.4, 1.0])
+                kline_ctl_cols = st.columns([1.1, 1.2, 1.0, 1.0])
                 with kline_ctl_cols[0]:
                     kline_freq = st.radio(
                         "K线周期",
@@ -15095,6 +15146,13 @@ def render_security_search_tab():
                             key=f"security_kline_bars_{selected_code}",
                         )
                 with kline_ctl_cols[2]:
+                    kline_adj_mode_label = st.selectbox(
+                        "复权",
+                        options=["不复权", "前复权", "后复权"],
+                        index=0,
+                        key=f"security_kline_adj_{selected_code}",
+                    )
+                with kline_ctl_cols[3]:
                     st.metric("K线样本", f"{len(kline_df):,} 条")
 
                 ma_ctl_cols = st.columns([1.0, 1.0, 1.4])
@@ -15167,6 +15225,7 @@ def render_security_search_tab():
                     show_macd=show_macd,
                     enable_select_points=enable_intraday_click,
                     selected_trade_date=current_selected_trade_date,
+                    adjustment_mode={"不复权": "none", "前复权": "qfq", "后复权": "hfq"}.get(kline_adj_mode_label, "none"),
                 )
                 if kline_chart is not None:
                     if enable_intraday_click:
