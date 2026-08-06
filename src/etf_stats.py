@@ -11,9 +11,8 @@ import os
 import re
 import pandas as pd
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import URL
 
-from src.sync_tushare_security_data import build_active_stock_sql_clause
+import tushare as ts
 
 DEFAULT_DB_HOST = '127.0.0.1'
 DEFAULT_DB_PORT = 5432
@@ -28,8 +27,47 @@ def _build_db_url():
     return build_db_url()
 
 
-def _get_engine():
-    return create_engine(_build_db_url(), pool_pre_ping=True)
+
+
+def _init_tushare_client():
+    from src.volume_fetcher import _init_tushare
+
+    return _init_tushare()
+
+
+def _normalize_ts_date(value: str | None) -> str | None:
+    text = str(value or '').strip()
+    if not text:
+        return None
+    return text.replace('-', '')[:8]
+
+
+def _apply_tushare_adjustment(df: pd.DataFrame, mode: str) -> pd.DataFrame:
+    mode = str(mode or '').strip().lower()
+    if df is None or df.empty or mode not in {'qfq', 'hfq'}:
+        return df
+    if 'adj_factor' not in df.columns:
+        return df
+
+    result = df.copy()
+    factors = pd.to_numeric(result['adj_factor'], errors='coerce')
+    if factors.isna().all():
+        return result
+
+    last_factor = factors.dropna().iloc[-1] if factors.dropna().size else None
+    first_factor = factors.dropna().iloc[0] if factors.dropna().size else None
+    if last_factor in (None, 0) or first_factor in (None, 0):
+        return result
+
+    if mode == 'qfq':
+        scale = factors / float(last_factor)
+    else:
+        scale = factors / float(first_factor)
+
+    for col in ['open', 'high', 'low', 'close']:
+        if col in result.columns:
+            result[col] = pd.to_numeric(result[col], errors='coerce') * scale
+    return result
 
 
 def get_category_daily_summary(
@@ -1659,7 +1697,9 @@ def get_stock_kline_timeseries(ts_code: str, start_date: str = None, end_date: s
             w.m_low,
             w.m_close,
             w.m_vol,
-            w.m_amount
+            w.m_amount,
+            w.pct_chg AS w_pct_chg,
+            w.pct_chg AS m_pct_chg
         FROM {STOCK_PRICE_DAILY_VIEW} d
         LEFT JOIN {STOCK_WEEK_MONTH_ADJ_VIEW} w
           ON d.ts_code = w.ts_code
@@ -1673,7 +1713,46 @@ def get_stock_kline_timeseries(ts_code: str, start_date: str = None, end_date: s
           )
         ORDER BY d.trade_date
     """
-    return pd.read_sql(text(sql), engine, params=params)
+    df = pd.read_sql(text(sql), engine, params=params)
+    if df is None or df.empty:
+        return df
+
+    ts_client = _init_tushare_client()
+    ts_code_tushare = ts_code
+    try:
+        if '.' in ts_code:
+            code, market = ts_code.split('.', 1)
+            ts_code_tushare = f'{code}.{market}'
+    except Exception:
+        pass
+
+    adj_df = None
+    try:
+        adj_df = ts_client.adj_factor(ts_code=ts_code_tushare, start_date=_normalize_ts_date(start_date), end_date=_normalize_ts_date(end_date))
+    except Exception:
+        adj_df = None
+
+    if adj_df is not None and not adj_df.empty and 'trade_date' in adj_df.columns and 'adj_factor' in adj_df.columns:
+        adj_df = adj_df[['trade_date', 'adj_factor']].copy()
+        adj_df['trade_date'] = pd.to_datetime(adj_df['trade_date'], errors='coerce')
+        adj_df['adj_factor'] = pd.to_numeric(adj_df['adj_factor'], errors='coerce')
+        df['trade_date'] = pd.to_datetime(df['trade_date'], errors='coerce')
+        df = df.merge(adj_df, on='trade_date', how='left')
+        df = df.sort_values('trade_date').reset_index(drop=True)
+        df['qfq_open'] = df['open']
+        df['qfq_high'] = df['high']
+        df['qfq_low'] = df['low']
+        df['qfq_close'] = df['close']
+        df['hfq_open'] = df['open']
+        df['hfq_high'] = df['high']
+        df['hfq_low'] = df['low']
+        df['hfq_close'] = df['close']
+        qfq = _apply_tushare_adjustment(df[['trade_date', 'open', 'high', 'low', 'close', 'adj_factor']].copy(), 'qfq')
+        hfq = _apply_tushare_adjustment(df[['trade_date', 'open', 'high', 'low', 'close', 'adj_factor']].copy(), 'hfq')
+        for col in ['open', 'high', 'low', 'close']:
+            df[f'qfq_{col}'] = qfq[col].values
+            df[f'hfq_{col}'] = hfq[col].values
+    return df
 
 
 def get_index_profile(ts_code: str, engine=None) -> pd.DataFrame:

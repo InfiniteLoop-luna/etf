@@ -6129,6 +6129,8 @@ def create_security_kline_chart(
         ]
         if all(col in df.columns for col in candidate_ohlc):
             selected_ohlc_cols = candidate_ohlc
+    if prefix == "d" and adjustment_mode in {"qfq", "hfq"} and selected_ohlc_cols == [open_col, high_col, low_col, close_col]:
+        adj_label = None
 
     extra_cols = [c for c in [amount_col, vol_col, "pct_chg", "change_pct", "pct_change", "change"] if c in df.columns]
     chart_df = df[["trade_date"] + selected_ohlc_cols + extra_cols].copy()
@@ -6143,17 +6145,18 @@ def create_security_kline_chart(
         return None
 
     adj_return_col = None
-    for candidate in ("pct_chg", "change_pct", "pct_change"):
+    for candidate in ("pct_chg", "change_pct", "pct_change", "change"):
         if candidate in chart_df.columns:
             adj_return_col = candidate
             break
 
     if adj_return_col in chart_df.columns:
-        chart_df['hover_pct_text'] = chart_df[adj_return_col].map(lambda v: f"{float(v):+.2f}%" if pd.notna(v) else '-')
-    elif 'change' in chart_df.columns and close_col in chart_df.columns:
-        prev_close = pd.to_numeric(chart_df[close_col], errors='coerce').shift(1)
-        pct_series = (pd.to_numeric(chart_df['change'], errors='coerce') / prev_close.replace(0, np.nan)) * 100.0
-        chart_df['hover_pct_text'] = pct_series.map(lambda v: f"{float(v):+.2f}%" if pd.notna(v) else '-')
+        if adj_return_col == 'change' and close_col in chart_df.columns:
+            prev_close = pd.to_numeric(chart_df[close_col], errors='coerce').shift(1)
+            pct_series = (pd.to_numeric(chart_df['change'], errors='coerce') / prev_close.replace(0, np.nan)) * 100.0
+            chart_df['hover_pct_text'] = pct_series.map(lambda v: f"{float(v):+.2f}%" if pd.notna(v) else '-')
+        else:
+            chart_df['hover_pct_text'] = pd.to_numeric(chart_df[adj_return_col], errors='coerce').map(lambda v: f"{float(v):+.2f}%" if pd.notna(v) else '-')
     else:
         chart_df['hover_pct_text'] = '-'
 
