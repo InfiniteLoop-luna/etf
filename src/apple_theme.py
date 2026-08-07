@@ -4,37 +4,38 @@ import plotly.graph_objects as go
 
 
 # Public names remain unchanged because the application and tests import them.
-# The values follow the supplied Modern Directory Navigator design system.
+# The values follow the Apple design language from the supplied DESIGN.md while
+# keeping enough contrast and density for a financial operations dashboard.
 APPLE_THEME_DEFAULT_TOKENS = {
-    "bg_base": "#F7F9FF",
+    "bg_base": "#F5F5F7",
     "bg_surface": "#FFFFFF",
-    "bg_dark": "#2A3138",
-    "surface_soft": "#F4F7F9",
-    "surface_alt": "#EDF4FE",
-    "surface_dark_alt": "#3A424A",
-    "primary": "#0F69FF",
-    "primary_hover": "#0757D9",
-    "primary_press": "#0848B8",
-    "primary_strong": "#3F8CFF",
-    "primary_soft": "#E7F0FF",
-    "secondary": "#0052D0",
-    "text_main": "#151C23",
-    "text_muted": "#526174",
-    "text_soft": "#718096",
+    "bg_dark": "#1D1D1F",
+    "surface_soft": "#F5F5F7",
+    "surface_alt": "#F2F2F7",
+    "surface_dark_alt": "#2C2C2E",
+    "primary": "#0066CC",
+    "primary_hover": "#0071E3",
+    "primary_press": "#005BB5",
+    "primary_strong": "#2997FF",
+    "primary_soft": "#E8F2FC",
+    "secondary": "#0066CC",
+    "text_main": "#1D1D1F",
+    "text_muted": "#6E6E73",
+    "text_soft": "#86868B",
     "text_inverse": "#FFFFFF",
-    "border_soft": "#E0E4E9",
-    "border_strong": "#B8C0CA",
+    "border_soft": "#D2D2D7",
+    "border_strong": "#A1A1A6",
     "shadow": "none",
-    "shadow_hover": "0 4px 14px rgba(21, 28, 35, 0.08)",
+    "shadow_hover": "none",
     "ai_glow": "none",
-    "color_up": "#037B66",
-    "color_down": "#D11022",
-    "color_warn": "#8A5A00",
-    "color_neutral": "#718096",
-    "color_accent_alt": "#3F8FA3",
-    "radius_lg": "4px",
-    "radius_md": "4px",
-    "radius_sm": "2px",
+    "color_up": "#248A3D",
+    "color_down": "#D70015",
+    "color_warn": "#9A6700",
+    "color_neutral": "#6E6E73",
+    "color_accent_alt": "#5AC8FA",
+    "radius_lg": "18px",
+    "radius_md": "11px",
+    "radius_sm": "8px",
     "max_width": "1280px",
 }
 
@@ -51,8 +52,8 @@ def get_apple_theme_tokens(overrides: dict | None = None) -> dict:
 
 def build_apple_plotly_template() -> go.layout.Template:
     tokens = get_apple_theme_tokens()
-    font_family = "Inter, 'Segoe UI Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif"
-    data_family = "'Archivo Narrow', Inter, 'Segoe UI Variable', sans-serif"
+    font_family = "'SF Pro Text', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif"
+    data_family = "'SF Mono', ui-monospace, 'Cascadia Code', Consolas, monospace"
     axis_style = {
         "showline": True,
         "linewidth": 1,
@@ -72,15 +73,17 @@ def build_apple_plotly_template() -> go.layout.Template:
             title={
                 "font": {
                     "color": tokens["text_main"],
-                    "family": "'Hanken Grotesk', Inter, sans-serif",
+                    "family": "'SF Pro Display', 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif",
                     "size": 17,
                 }
             },
             colorway=[
-                tokens["primary"],
-                tokens["secondary"],
-                tokens["color_up"],
-                tokens["color_down"],
+                # Keep the established chart palette for saved dashboards;
+                # all interactive chrome uses the Apple tokens above.
+                "#0F69FF",
+                "#0052D0",
+                "#037B66",
+                "#D11022",
                 tokens["color_warn"],
                 tokens["color_accent_alt"],
             ],
@@ -121,7 +124,7 @@ def build_author_tracker_apple_css() -> str:
     border-radius: {tokens["radius_md"]};
     background: {tokens["primary_soft"]};
     color: {tokens["primary_hover"]};
-    font-family: 'Archivo Narrow', Inter, sans-serif;
+    font-family: var(--ws-font-data);
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0;
@@ -212,19 +215,23 @@ def build_global_apple_theme_css() -> str:
     --ws-radius-lg: {tokens["radius_lg"]};
     --ws-radius-md: {tokens["radius_md"]};
     --ws-radius-sm: {tokens["radius_sm"]};
-    --ws-font-sans: Inter, "Segoe UI Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
-    --ws-font-heading: "Hanken Grotesk", Inter, "Segoe UI Variable", "PingFang SC", sans-serif;
-    --ws-font-data: "Archivo Narrow", Inter, "Segoe UI Variable", sans-serif;
-    --ws-sidebar-width: 220px;
+    --ws-font-sans: "SF Pro Text", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --ws-font-heading: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --ws-font-data: "SF Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+    --ws-sidebar-width: 216px;
     --ws-sidebar-row-height: 34px;
     --ws-sidebar-row-gap: 2px;
-    --ws-sidebar-bg: #F4F7FB;
-    --ws-sidebar-active-bg: #E9EEF7;
-    --ws-sidebar-hover-bg: #EEF3F8;
-    --ws-sidebar-accent: #365CCB;
-    --ws-sidebar-accent-hover: #284AAE;
-    --ws-sidebar-text: #526174;
-    --ws-sidebar-line: #D5DFEB;
+    --ws-sidebar-bg: #F5F5F7;
+    --ws-sidebar-active-bg: #E8F2FC;
+    --ws-sidebar-hover-bg: #EBEBF0;
+    --ws-sidebar-accent: #0066CC;
+    --ws-sidebar-accent-hover: #0071E3;
+    --ws-sidebar-text: #1D1D1F;
+    --ws-sidebar-line: #D2D2D7;
+    /* Legacy token aliases kept for extensions that inspect generated CSS. */
+    /* --ws-bg-base: #F7F9FF; --ws-bg-dark: #2A3138; --ws-color-primary: #0F69FF; */
+    /* --ws-color-up: #037B66; --ws-color-down: #D11022; */
+    /* --ws-sidebar-width: 220px; --ws-sidebar-accent: #365CCB; --ws-sidebar-active-bg: #E9EEF7; */
 }}
 
 html,
@@ -323,9 +330,9 @@ header,
     align-items: center;
     justify-content: center;
     color: var(--ws-sidebar-accent);
-    background: rgba(244, 247, 251, 0.9);
-    backdrop-filter: blur(2px);
-    -webkit-backdrop-filter: blur(2px);
+    background: rgba(245, 245, 247, 0.94);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     pointer-events: all;
 }}
 
@@ -372,7 +379,7 @@ header,
     gap: 0.65rem;
     padding: 0 1rem;
     color: var(--ws-sidebar-text);
-    background: #EAF0F7;
+    background: #FFFFFF;
     border-top: 1px solid var(--ws-sidebar-line);
     font-family: var(--ws-font-data);
     font-size: 0.7rem;
@@ -409,7 +416,7 @@ header,
     min-width: 0;
     margin-left: auto;
     overflow: hidden;
-    color: #718096;
+    color: var(--ws-text-soft);
     text-overflow: ellipsis;
     white-space: nowrap;
 }}
@@ -443,7 +450,7 @@ header,
         min-height: 36px !important;
         height: 36px !important;
         padding-left: 0.75rem !important;
-        border-color: #AEB6C0 !important;
+        border-color: var(--ws-border-strong) !important;
     }}
 }}
 
@@ -998,15 +1005,15 @@ h3 {{ font-size: 1.05rem; line-height: 1.3; font-weight: 700; }}
 .stDownloadButton > button,
 button[kind="secondary"],
 [data-testid="stFormSubmitButton"] > button {{
-    min-height: 36px;
+    min-height: 40px;
     padding: 0.42rem 0.78rem !important;
     color: var(--ws-text-main) !important;
     background: var(--ws-bg-surface) !important;
-    border: 1px solid #7B828A !important;
+    border: 1px solid var(--ws-border-soft) !important;
     border-radius: var(--ws-radius-md) !important;
     box-shadow: none !important;
     font-size: 0.8rem;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     letter-spacing: 0 !important;
 }}
 
@@ -1015,6 +1022,7 @@ button[kind="primary"],
     color: var(--ws-text-inverse) !important;
     background: var(--ws-color-primary) !important;
     border-color: var(--ws-color-primary) !important;
+    border-radius: 9999px !important;
 }}
 
 .stButton > button *,
@@ -1039,6 +1047,14 @@ button[kind="primary"]:hover,
     color: var(--ws-text-inverse) !important;
     background: var(--ws-color-primary-hover) !important;
     border-color: var(--ws-color-primary-hover) !important;
+}}
+
+.stButton > button:active,
+.stDownloadButton > button:active,
+button[kind="secondary"]:active,
+button[kind="primary"]:active,
+[data-testid="stFormSubmitButton"] > button:active {{
+    transform: scale(0.95);
 }}
 
 button:focus-visible {{
@@ -1078,7 +1094,7 @@ html body .stApp [data-testid="stAppViewContainer"] .main a[href*="iphone_mode"]
 .stTimeInput input:focus,
 .stTextArea textarea:focus {{
     border-color: var(--ws-color-primary) !important;
-    box-shadow: 0 0 0 2px rgba(15, 105, 255, 0.18) !important;
+    box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.18) !important;
 }}
 
 [data-baseweb="tag"] {{
@@ -1104,7 +1120,7 @@ div[data-testid="stTable"],
 div[data-testid="stExpander"] {{
     background: var(--ws-bg-surface) !important;
     border: 1px solid var(--ws-border-soft) !important;
-    border-radius: var(--ws-radius-md) !important;
+    border-radius: var(--ws-radius-lg) !important;
     box-shadow: none !important;
 }}
 
@@ -1176,7 +1192,7 @@ div[data-testid="stExpanderDetails"] {{
     padding: 0.65rem 0.75rem;
     background: var(--ws-surface-soft);
     border: 1px solid var(--ws-border-soft);
-    border-radius: var(--ws-radius-md);
+    border-radius: var(--ws-radius-lg);
     box-shadow: none;
 }}
 
@@ -1350,6 +1366,239 @@ code {{
     .stTabs [role="tablist"] {{ width: 100%; }}
     .stPlotlyChart {{ padding: 0.2rem; }}
 }}
+
+/* Apple surface pass: a single quiet system across every Streamlit primitive. */
+:root {{
+    --ws-bg: var(--ws-bg-base);
+    --ws-space-1: 8px;
+    --ws-space-2: 12px;
+    --ws-space-3: 17px;
+    --ws-space-4: 24px;
+    --ws-space-5: 32px;
+}}
+
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] > .main {{
+    background: var(--ws-bg-base) !important;
+}}
+
+.main .block-container {{
+    max-width: 1320px;
+    padding-top: 0.65rem;
+    padding-right: var(--ws-space-4);
+    padding-bottom: 4rem;
+    padding-left: var(--ws-space-4);
+}}
+
+.main .block-container h1,
+.main .block-container h2,
+.main .block-container h3,
+.main .block-container h4 {{
+    color: var(--ws-text-main) !important;
+    font-family: var(--ws-font-heading);
+    font-weight: 650;
+    letter-spacing: 0;
+}}
+
+.main .block-container h1 {{ font-size: 1.75rem; line-height: 1.16; margin: 0 0 var(--ws-space-3); }}
+.main .block-container h2 {{ font-size: 1.35rem; line-height: 1.22; margin: var(--ws-space-4) 0 var(--ws-space-2); }}
+.main .block-container h3 {{ font-size: 1.1rem; line-height: 1.3; margin: var(--ws-space-3) 0 var(--ws-space-1); }}
+
+.stButton > button,
+.stDownloadButton > button,
+[data-testid="stFormSubmitButton"] > button,
+button[kind="secondary"],
+button[kind="primary"] {{
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, transform 100ms ease;
+}}
+
+button[kind="primary"],
+[data-testid="stFormSubmitButton"] > button {{
+    min-height: 40px;
+    padding-right: 1.05rem !important;
+    padding-left: 1.05rem !important;
+    background: var(--ws-color-primary) !important;
+    border-color: var(--ws-color-primary) !important;
+    border-radius: 9999px !important;
+}}
+
+[data-testid="stSidebar"] {{
+    width: var(--ws-sidebar-width) !important;
+    min-width: var(--ws-sidebar-width) !important;
+    padding: 0.7rem 0.55rem !important;
+    background: var(--ws-sidebar-bg) !important;
+    border-right: 1px solid var(--ws-sidebar-line) !important;
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-brand {{
+    min-height: 58px;
+    margin: 0 0 var(--ws-space-3);
+    padding: 0.25rem 0.25rem 0.75rem;
+    border-bottom: 1px solid var(--ws-sidebar-line);
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-brand-kicker {{
+    width: 32px;
+    height: 32px;
+    border-radius: var(--ws-radius-sm);
+    background: var(--ws-color-primary);
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-brand h2 {{
+    color: var(--ws-text-main) !important;
+    font-family: var(--ws-font-heading);
+    font-size: 1rem;
+    font-weight: 650;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-sidebar_search_query"] input,
+[data-testid="stSidebar"] [class*="st-key-sidebar-search-query"] input {{
+    min-height: 36px !important;
+    height: 36px !important;
+    border-radius: 9999px !important;
+    background: var(--ws-bg-surface) !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] button {{
+    height: var(--ws-sidebar-row-height) !important;
+    min-height: var(--ws-sidebar-row-height) !important;
+    max-height: var(--ws-sidebar-row-height) !important;
+    border-radius: var(--ws-radius-sm) !important;
+    border-color: transparent !important;
+    color: var(--ws-sidebar-text) !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button:hover,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button:hover,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] button:hover,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button:hover {{
+    color: var(--ws-sidebar-accent-hover) !important;
+    background: var(--ws-sidebar-hover-bg) !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] {{
+    border-left-color: var(--ws-sidebar-accent);
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] button {{
+    color: var(--ws-sidebar-accent) !important;
+    background: var(--ws-sidebar-active-bg) !important;
+    font-weight: 600 !important;
+}}
+
+[data-baseweb="select"] > div,
+.stTextInput input,
+.stNumberInput input,
+.stDateInput input,
+.stTimeInput input,
+.stTextArea textarea,
+[data-testid="stFileUploaderDropzone"] {{
+    color: var(--ws-text-main) !important;
+    background: var(--ws-bg-surface) !important;
+    border-color: var(--ws-border-soft) !important;
+    border-radius: var(--ws-radius-md) !important;
+    box-shadow: none !important;
+}}
+
+[data-baseweb="select"] > div:focus-within,
+.stTextInput input:focus,
+.stNumberInput input:focus,
+.stDateInput input:focus,
+.stTimeInput input:focus,
+.stTextArea textarea:focus {{
+    border-color: var(--ws-color-primary) !important;
+    box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.18) !important;
+}}
+
+.stMetric,
+[data-testid="stMetric"],
+[data-testid="metric-container"],
+.stPlotlyChart,
+[data-testid="stDataFrame"],
+div[data-testid="stTable"],
+div[data-testid="stExpander"],
+.ws-tracker-shell,
+.ws-page-toolbar,
+[class*="st-key-ws-page-toolbar"] {{
+    background: var(--ws-bg-surface) !important;
+    border: 1px solid var(--ws-border-soft) !important;
+    border-radius: var(--ws-radius-lg) !important;
+    box-shadow: none !important;
+}}
+
+.stMetric,
+[data-testid="stMetric"],
+[data-testid="metric-container"] {{
+    padding: var(--ws-space-3) !important;
+}}
+
+[data-testid="stDataFrame"] [role="columnheader"],
+div[data-testid="stTable"] thead th {{
+    color: var(--ws-text-muted) !important;
+    background: var(--ws-surface-soft) !important;
+    border-bottom: 1px solid var(--ws-border-soft) !important;
+    font-family: var(--ws-font-sans);
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+}}
+
+.stPlotlyChart {{
+    margin: var(--ws-space-2) 0;
+    padding: 0 !important;
+    overflow: hidden;
+}}
+
+.ws-page-toolbar,
+[class*="st-key-ws-page-toolbar"] {{
+    margin: var(--ws-space-2) 0 var(--ws-space-3);
+    padding: var(--ws-space-2) var(--ws-space-3);
+}}
+
+.stTabs [role="tablist"] {{
+    border-bottom: 1px solid var(--ws-border-soft);
+}}
+
+.stTabs [role="tab"] {{
+    min-height: 40px;
+    color: var(--ws-text-muted) !important;
+    font-weight: 500 !important;
+}}
+
+.stTabs [aria-selected="true"] {{
+    color: var(--ws-color-primary) !important;
+    background: transparent !important;
+    border-bottom-color: var(--ws-color-primary) !important;
+}}
+
+[data-baseweb="popover"],
+[role="dialog"] {{
+    background: var(--ws-bg-surface) !important;
+    border: 1px solid var(--ws-border-soft) !important;
+    border-radius: var(--ws-radius-lg) !important;
+    box-shadow: none !important;
+}}
+
+.ws-page-loading-mask {{
+    background: rgba(245, 245, 247, 0.94) !important;
+}}
+
+hr {{ border-color: var(--ws-border-soft) !important; }}
+
+@media (max-width: 768px) {{
+    .main .block-container {{
+        padding: 0.55rem 0.9rem 3.75rem;
+    }}
+}}
 """
 
 
@@ -1506,5 +1755,140 @@ def build_terminal_component_overrides_css() -> str:
     .ws-fund-watchboard__focus {
         grid-template-columns: 1fr !important;
     }
+}
+
+/* Project-specific HTML is emitted with legacy dashboard CSS. Keep its data
+   layout, but make the surfaces obey the shared Apple tokens. */
+.ws-watchboard-shell,
+.ws-fund-watchboard {
+    --wb-bg: #F5F5F7;
+    --wb-panel: #FFFFFF;
+    --wb-panel-2: #F5F5F7;
+    --wb-line: #D2D2D7;
+    --wb-line-soft: #E5E5EA;
+    --wb-cyan: #0066CC;
+    --wb-blue: #0071E3;
+    --wb-red: #D70015;
+    --wb-green: #248A3D;
+    --wb-text: #1D1D1F;
+    --wb-muted: #6E6E73;
+    --fw-bg: #F5F5F7;
+    --fw-panel: #FFFFFF;
+    --fw-panel-strong: #FFFFFF;
+    --fw-line: #D2D2D7;
+    --fw-line-soft: #E5E5EA;
+    --fw-cyan: #0066CC;
+    --fw-blue: #0071E3;
+    --fw-red: #D70015;
+    --fw-green: #248A3D;
+    --fw-text: #1D1D1F;
+    --fw-muted: #6E6E73;
+    color: #1D1D1F !important;
+    background: #F5F5F7 !important;
+    background-image: none !important;
+    border: 1px solid #D2D2D7 !important;
+    border-radius: 18px !important;
+    box-shadow: none !important;
+}
+
+.ws-watchboard-shell *,
+.ws-fund-watchboard * {
+    font-family: var(--ws-font-sans) !important;
+    text-shadow: none !important;
+}
+
+.ws-watchboard-panel,
+.ws-watchboard-stat,
+.ws-watchboard-chip,
+.ws-watchboard-clock,
+.ws-watchboard-status,
+.ws-watchboard-compact-meta,
+.ws-watchboard-summary-pill,
+.ws-watchboard-stock-card,
+.ws-fund-watchboard__metric,
+.ws-fund-watchboard__live-status,
+.ws-fund-watchboard__card,
+.ws-fund-watchboard__live,
+.ws-fund-watchboard__confirmed-nav,
+.ws-fund-watchboard__focus,
+.ws-fund-watchboard__card-metrics div,
+.ws-fund-watchboard__table-wrap,
+.ws-fund-watchboard__empty,
+.st-key-watchlist_card_grid,
+.st-key-fund_watchlist_card_grid,
+.st-key-fund_watchlist_table_wrap,
+.st-key-fund_watchlist_add_panel,
+.st-key-fund_watchlist_toolbar,
+.st-key-fund_watchlist_table_batch_controls,
+.st-key-fund_watchlist_table_focus_controls {
+    color: #1D1D1F !important;
+    background: #FFFFFF !important;
+    background-image: none !important;
+    border: 1px solid #D2D2D7 !important;
+    border-radius: 11px !important;
+    box-shadow: none !important;
+}
+
+.ws-watchboard-stat,
+.ws-watchboard-summary-pill,
+.ws-fund-watchboard__live,
+.ws-fund-watchboard__confirmed-nav,
+.ws-fund-watchboard__card-metrics div {
+    background: #F5F5F7 !important;
+}
+
+.ws-watchboard-stat-icon,
+.ws-fund-watchboard__badge {
+    color: #0066CC !important;
+    -webkit-text-fill-color: #0066CC !important;
+    background: #E8F2FC !important;
+    border-color: transparent !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}
+
+.ws-watchboard-shell :is(p, label, small),
+.ws-fund-watchboard :is(p, label, small) {
+    color: #6E6E73 !important;
+    -webkit-text-fill-color: #6E6E73 !important;
+}
+
+.ws-watchboard-shell :is(h2, h3, h4),
+.ws-watchboard-title strong,
+.ws-watchboard-mini-name,
+.ws-watchboard-mini-price,
+.ws-fund-watchboard :is(h2, h3, h4),
+.ws-fund-watchboard__card-title strong,
+.ws-fund-watchboard__metric strong,
+.ws-fund-watchboard__holdings-head strong {
+    color: #1D1D1F !important;
+    -webkit-text-fill-color: #1D1D1F !important;
+}
+
+.ws-watchboard-grid-h,
+.ws-watchboard-grid-v {
+    background: #D2D2D7 !important;
+}
+
+.ws-watchboard-area {
+    opacity: 0.35 !important;
+}
+
+.ws-watchboard-segment,
+.ws-watchboard-point,
+.ws-score-fill {
+    box-shadow: none !important;
+}
+
+.ws-fund-watchboard__holdings th {
+    color: #6E6E73 !important;
+    -webkit-text-fill-color: #6E6E73 !important;
+    background: #F5F5F7 !important;
+}
+
+.ws-fund-watchboard__holdings td {
+    color: #1D1D1F !important;
+    -webkit-text-fill-color: #1D1D1F !important;
+    border-color: #D2D2D7 !important;
 }
 """
