@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, unquote, urlparse
 from pathlib import Path
 
+from streamlit import config as streamlit_config
+
 from src.apple_theme import (
     APPLE_THEME_TOKENS,
     MIN_FONT_SIZE,
@@ -107,6 +109,26 @@ class TrackerUiPayloadTests(unittest.TestCase):
                     undersized.append(f"{path}:{match.group(0)}")
 
         self.assertEqual(undersized, [])
+
+    def test_all_table_surfaces_use_single_borders_and_readable_type(self):
+        css = build_global_apple_theme_css()
+        final_table_rules = css[css.rfind('/* Unified table surfaces */') :]
+
+        self.assertEqual(streamlit_config.get_option("theme.baseFontSize"), 16)
+        self.assertEqual(streamlit_config.get_option("theme.dataframeBorderColor"), "#D2D2D7")
+        self.assertEqual(streamlit_config.get_option("theme.dataframeHeaderBackgroundColor"), "#F8F9FB")
+        self.assertIn("html {", final_table_rules)
+        self.assertIn("font-size: 16px !important", final_table_rules)
+        self.assertIn('[data-testid="stDataFrame"] {', final_table_rules)
+        self.assertIn("border: 0 !important", final_table_rules)
+        self.assertIn("padding: 0 !important", final_table_rules)
+        self.assertIn('[data-testid="stDataFrameResizable"] {', final_table_rules)
+        self.assertIn("border: 1px solid var(--ws-border-soft) !important", final_table_rules)
+        self.assertIn("border-radius: 8px !important", final_table_rules)
+        self.assertIn('div[data-testid="stTable"] table', final_table_rules)
+        self.assertIn("font-size: 14px !important", final_table_rules)
+        self.assertIn("border-collapse: separate", final_table_rules)
+        self.assertIn(".ws-fund-watchboard__holdings table", final_table_rules)
 
     def test_build_global_apple_theme_css_includes_primary_interaction_selectors(self):
         css = build_global_apple_theme_css()

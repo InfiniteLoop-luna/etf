@@ -2137,6 +2137,74 @@ select,
     text-align: center !important;
 }}
 
+/* Unified table surfaces */
+html {{
+    font-size: 16px !important;
+}}
+
+[data-testid="stDataFrame"] {{
+    box-sizing: border-box !important;
+    width: 100% !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+}}
+
+[data-testid="stDataFrame"] [data-testid="stDataFrameResizable"] {{
+    box-sizing: border-box !important;
+    background: var(--ws-bg-surface) !important;
+    border: 1px solid var(--ws-border-soft) !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+}}
+
+[data-testid="stDataFrame"] .stDataFrameGlideDataEditor,
+[data-testid="stDataFrame"] .dvn-scroller {{
+    border-radius: 7px !important;
+}}
+
+div[data-testid="stTable"] {{
+    padding: 0 !important;
+    background: var(--ws-bg-surface) !important;
+    border: 1px solid var(--ws-border-soft) !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    overflow: auto !important;
+}}
+
+div[data-testid="stTable"] table,
+.ws-fund-watchboard__holdings table {{
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    color: var(--ws-text-main);
+    font-family: var(--ws-font-sans);
+    font-size: 14px !important;
+    line-height: 1.45;
+}}
+
+div[data-testid="stTable"] th,
+div[data-testid="stTable"] td {{
+    padding: 0.62rem 0.75rem !important;
+    border: 0 !important;
+    border-right: 1px solid var(--ws-border-soft) !important;
+    border-bottom: 1px solid var(--ws-border-soft) !important;
+    font-size: 14px !important;
+    vertical-align: middle;
+}}
+
+div[data-testid="stTable"] th:last-child,
+div[data-testid="stTable"] td:last-child {{
+    border-right: 0 !important;
+}}
+
+div[data-testid="stTable"] tbody tr:last-child td {{
+    border-bottom: 0 !important;
+}}
+
 hr {{ border-color: var(--ws-border-soft) !important; }}
 
 @media (max-width: 768px) {{
