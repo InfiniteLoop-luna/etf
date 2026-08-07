@@ -19,6 +19,8 @@ def test_app_py_contains_desktop_sidebar_navigation_shell_hooks():
     assert "def render_desktop_sidebar_navigation()" in APP_SOURCE
     assert "selected_module, selected_page = render_desktop_sidebar_navigation()" in APP_SOURCE
     assert 'st.container(key="ws-sidebar-tree")' in APP_SOURCE
+    assert 'st.container(key="ws-sidebar-recent-list")' in APP_SOURCE
+    assert 'st.container(key="ws-sidebar-favorite-list")' in APP_SOURCE
     assert 'key="sidebar_search_query"' in APP_SOURCE
     assert "search_sidebar_pages(search_query)" in APP_SOURCE
     assert '"current" if is_active_page else ""' in APP_SOURCE

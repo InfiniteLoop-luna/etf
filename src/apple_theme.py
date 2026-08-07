@@ -216,7 +216,8 @@ def build_global_apple_theme_css() -> str:
     --ws-font-heading: "Hanken Grotesk", Inter, "Segoe UI Variable", "PingFang SC", sans-serif;
     --ws-font-data: "Archivo Narrow", Inter, "Segoe UI Variable", sans-serif;
     --ws-sidebar-width: 220px;
-    --ws-sidebar-row-height: 36px;
+    --ws-sidebar-row-height: 34px;
+    --ws-sidebar-row-gap: 2px;
     --ws-sidebar-bg: #F4F7FB;
     --ws-sidebar-active-bg: #E9EEF7;
     --ws-sidebar-hover-bg: #EEF3F8;
@@ -501,8 +502,8 @@ button[aria-label="Close sidebar"] {{
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-block {{
-    margin: 0.65rem 0 0.25rem;
-    padding: 0 0.35rem 0.35rem;
+    margin: 0.8rem 0 0.35rem;
+    padding: 0 0.35rem;
     border-bottom: 0;
 }}
 
@@ -522,7 +523,10 @@ button[aria-label="Close sidebar"] {{
 }}
 
 [class*="st-key-user-session-menu-"] button {{
+    box-sizing: border-box !important;
+    height: var(--ws-sidebar-row-height);
     min-height: var(--ws-sidebar-row-height);
+    max-height: var(--ws-sidebar-row-height);
     justify-content: flex-start !important;
     color: var(--ws-sidebar-text) !important;
     background: transparent !important;
@@ -600,11 +604,15 @@ button[aria-label="Close sidebar"] {{
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-tree"],
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-tree"] [data-testid="stVerticalBlock"] {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-tree"] [data-testid="stVerticalBlock"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-list"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-list"] [data-testid="stVerticalBlock"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-list"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-list"] [data-testid="stVerticalBlock"] {{
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 0;
+    gap: var(--ws-sidebar-row-gap) !important;
     width: 100%;
     padding: 0;
 }}
@@ -612,18 +620,22 @@ button[aria-label="Close sidebar"] {{
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"],
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"],
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] {{
+    box-sizing: border-box;
+    width: 100%;
+    margin: 0;
     border-radius: var(--ws-radius-md);
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] {{
     width: 100%;
-    margin: 1px 0;
+    margin: 0;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] {{
     position: relative;
     box-sizing: border-box;
     width: calc(100% - 1.55rem);
+    min-height: var(--ws-sidebar-row-height);
     margin-left: 1.55rem;
     padding-left: 0.58rem;
     border-left: 1px solid var(--ws-sidebar-line);
@@ -635,11 +647,14 @@ button[aria-label="Close sidebar"] {{
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] button {{
     display: flex !important;
+    box-sizing: border-box !important;
     align-items: center !important;
     width: 100%;
+    height: var(--ws-sidebar-row-height);
     min-height: var(--ws-sidebar-row-height);
+    max-height: var(--ws-sidebar-row-height);
     justify-content: flex-start !important;
-    padding: 0.38rem 0.48rem !important;
+    padding: 0 0.48rem !important;
     color: var(--ws-sidebar-text) !important;
     background: transparent !important;
     border: 1px solid transparent !important;
@@ -648,7 +663,9 @@ button[aria-label="Close sidebar"] {{
     font-size: 0.8rem;
     font-weight: 500 !important;
     text-align: left !important;
-    white-space: normal;
+    line-height: 1 !important;
+    white-space: nowrap;
+    overflow: hidden;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button {{
@@ -659,6 +676,12 @@ button[aria-label="Close sidebar"] {{
     color: var(--ws-sidebar-text) !important;
     font-size: 0.82rem;
     font-weight: 600 !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] {{
+    box-sizing: border-box;
+    width: 100%;
+    margin: 0;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button > div,
@@ -695,7 +718,10 @@ button[aria-label="Close sidebar"] {{
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button p,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button p {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button p,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] button p,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button p,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] button p {{
     display: flex !important;
     align-items: center !important;
     justify-content: flex-start !important;
@@ -703,6 +729,10 @@ button[aria-label="Close sidebar"] {{
     margin: 0 !important;
     color: inherit !important;
     text-align: left !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button::before {{
@@ -759,11 +789,14 @@ button[aria-label="Close sidebar"] {{
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button {{
     display: flex !important;
+    box-sizing: border-box !important;
     align-items: center !important;
     width: 100%;
-    min-height: 29px;
+    height: var(--ws-sidebar-row-height);
+    min-height: var(--ws-sidebar-row-height);
+    max-height: var(--ws-sidebar-row-height);
     justify-content: flex-start !important;
-    padding: 0.24rem 0.2rem !important;
+    padding: 0 0.2rem !important;
     color: #607087 !important;
     background: transparent !important;
     border: 0 !important;
@@ -771,9 +804,10 @@ button[aria-label="Close sidebar"] {{
     box-shadow: none !important;
     font-size: 0.74rem;
     font-weight: 500 !important;
-    line-height: 1.25;
+    line-height: 1 !important;
     text-align: left !important;
-    white-space: normal;
+    white-space: nowrap;
+    overflow: hidden;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button img {{

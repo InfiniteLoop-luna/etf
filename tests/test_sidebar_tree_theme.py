@@ -41,6 +41,13 @@ class SidebarTreeThemeTest(unittest.TestCase):
         self.assertNotIn('[class*="st-key-ws-sidebar-module-"] > div button', css)
         self.assertNotIn('[class*="st-key-ws-sidebar-page-"] > div button', css)
 
+        self.assertIn("--ws-sidebar-row-height: 34px", css)
+        self.assertIn("--ws-sidebar-row-gap: 2px", css)
+        self.assertIn('height: var(--ws-sidebar-row-height)', css)
+        self.assertIn('[class*="st-key-ws-sidebar-recent-list"]', css)
+        self.assertIn('[class*="st-key-ws-sidebar-favorite-list"]', css)
+        self.assertNotIn("min-height: 29px", css)
+
         page_icon_rule = css.split(
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button img {',
             1,

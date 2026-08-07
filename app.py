@@ -4038,15 +4038,16 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                     """,
                     unsafe_allow_html=True,
                 )
-                for fav_index, fav in enumerate(favorite_df.head(6).to_dict("records")):
-                    label = str(fav.get("page_label") or "").strip() or str(fav.get("page_id") or "")
-                    if st.button(
-                        label,
-                        key=f"ws-sidebar-favorite-{fav.get('module_id')}-{fav.get('page_id')}-{fav_index}",
-                        use_container_width=True,
-                    ):
-                        _navigate_any_mode_to(str(fav.get("module_id") or ""), str(fav.get("page_id") or ""))
-                        st.rerun()
+                with st.container(key="ws-sidebar-favorite-list"):
+                    for fav_index, fav in enumerate(favorite_df.head(6).to_dict("records")):
+                        label = str(fav.get("page_label") or "").strip() or str(fav.get("page_id") or "")
+                        if st.button(
+                            label,
+                            key=f"ws-sidebar-favorite-{fav.get('module_id')}-{fav.get('page_id')}-{fav_index}",
+                            use_container_width=True,
+                        ):
+                            _navigate_any_mode_to(str(fav.get("module_id") or ""), str(fav.get("page_id") or ""))
+                            st.rerun()
 
         st.markdown(
             """
@@ -4150,18 +4151,19 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
             unsafe_allow_html=True,
         )
         if recent_visits:
-            for recent_index, recent_item in enumerate(recent_visits):
-                if st.button(
-                    f'{recent_item["module_label"]} / {recent_item["page_label"]}',
-                    key=f'ws-sidebar-recent-link-{recent_item["page_id"]}-{recent_index}',
-                    use_container_width=True,
-                ):
-                    _navigate_desktop_sidebar_to(
-                        recent_item["module_id"],
-                        recent_item["page_id"],
-                        clear_search=True,
-                    )
-                    st.rerun()
+            with st.container(key="ws-sidebar-recent-list"):
+                for recent_index, recent_item in enumerate(recent_visits):
+                    if st.button(
+                        f'{recent_item["module_label"]} / {recent_item["page_label"]}',
+                        key=f'ws-sidebar-recent-link-{recent_item["page_id"]}-{recent_index}',
+                        use_container_width=True,
+                    ):
+                        _navigate_desktop_sidebar_to(
+                            recent_item["module_id"],
+                            recent_item["page_id"],
+                            clear_search=True,
+                        )
+                        st.rerun()
         else:
             st.markdown(
                 '<span class="ws-sidebar-empty">最近访问会显示在这里。</span>',

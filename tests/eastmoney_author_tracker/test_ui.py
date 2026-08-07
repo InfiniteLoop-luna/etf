@@ -74,7 +74,8 @@ class TrackerUiPayloadTests(unittest.TestCase):
         css = build_global_apple_theme_css()
 
         self.assertIn("--ws-sidebar-width: 220px", css)
-        self.assertIn("--ws-sidebar-row-height: 36px", css)
+        self.assertIn("--ws-sidebar-row-height: 34px", css)
+        self.assertIn("--ws-sidebar-row-gap: 2px", css)
         self.assertIn("--ws-sidebar-accent: #365CCB", css)
         self.assertIn("--ws-sidebar-active-bg: #E9EEF7", css)
         self.assertIn('[class*="st-key-ws-sidebar-module-"] button::before', css)
