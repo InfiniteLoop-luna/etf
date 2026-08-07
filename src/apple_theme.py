@@ -1528,7 +1528,7 @@ code {{
 .main .block-container,
 [data-testid="stMainBlockContainer"],
 [data-testid="stAppViewContainer"] .main .block-container {{
-    max-width: 1320px !important;
+    max-width: 1800px !important;
     padding-top: 0.25rem !important;
     padding-right: var(--ws-space-4) !important;
     padding-bottom: 4rem !important;
@@ -2227,7 +2227,7 @@ hr {{ border-color: var(--ws-border-soft) !important; }}
     width: 100% !important;
     height: auto !important;
     flex: 0 0 auto !important;
-    max-width: 1320px !important;
+    max-width: 1800px !important;
     min-height: calc(100dvh - 64px) !important;
     margin: 0 auto !important;
     padding: 24px 28px 32px !important;

@@ -265,6 +265,8 @@ class TrackerUiPayloadTests(unittest.TestCase):
 
         self.assertIn('[data-testid="stMain"] {', page_shell)
         self.assertIn('[data-testid="stMainBlockContainer"] {', page_shell)
+        self.assertIn("max-width: 1800px !important", page_shell)
+        self.assertNotIn("max-width: 1320px !important", css)
         self.assertIn("background: var(--ws-bg-base) !important", page_shell)
         self.assertIn("background: var(--ws-bg-surface) !important", page_shell)
         self.assertIn("border: 1px solid rgba(15, 23, 42, 0.06) !important", page_shell)
