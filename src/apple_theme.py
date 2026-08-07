@@ -444,6 +444,16 @@ header,
     background: var(--ws-sidebar-bg) !important;
 }}
 
+[data-testid="stSidebarHeader"] {{
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}}
+
 @media (min-width: 769px) {{
     [data-testid="stSidebar"] [class*="st-key-sidebar_search_query"] input,
     [data-testid="stSidebar"] [class*="st-key-sidebar-search-query"] input {{
