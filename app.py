@@ -6429,7 +6429,7 @@ def create_security_kline_chart(
         xaxis_rangeslider_visible=False,
         margin=dict(l=20, r=20, t=60, b=20),
     )
-    apply_time_series_hover_affordance(fig, chart_df["trade_date"], chart_df[close_col])
+    apply_time_series_hover_affordance(fig, chart_df["trade_date"], chart_df[close_col], add_hover_target=False)
     fig.update_yaxes(
         title_text=f"价格{'（' + adj_label + '）' if adj_label else ''}",
         row=1,
