@@ -197,6 +197,13 @@ class TrackerUiPayloadTests(unittest.TestCase):
 
         self.assertIn(".ws-watchboard-shell", css)
         self.assertIn(".ws-fund-watchboard", css)
+        self.assertIn('[data-testid="stTextInputRootElement"]', css)
+        self.assertIn('[data-testid="stTextAreaRootElement"]', css)
+        self.assertIn('[data-testid="stTimeInputTimeDisplay"]', css)
+        self.assertIn('.react-aria-ComboBox', css)
+        self.assertIn('min-height: 96px !important', css)
+        self.assertIn('background: transparent !important', css)
+        self.assertIn('box-sizing: border-box !important', css)
         self.assertIn("background: #FFFFFF !important", css)
         self.assertIn("border-radius: 4px !important", css)
 

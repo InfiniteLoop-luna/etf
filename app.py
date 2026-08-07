@@ -2032,12 +2032,16 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     color:#dbe8f8 !important;
     -webkit-text-fill-color:#dbe8f8 !important;
 }
-.st-key-fund_watchlist_add_panel .stTextInput input,
+.st-key-fund_watchlist_add_panel [data-testid="stTextInputRootElement"],
 .st-key-fund_watchlist_add_panel [data-baseweb="select"] > div {
     border-color:rgba(151,188,255,.72) !important;
     background:#f7faff !important;
     color:#13213b !important;
     -webkit-text-fill-color:#13213b !important;
+}
+.st-key-fund_watchlist_add_panel .stTextInput input {
+    border:0 !important;
+    background:transparent !important;
 }
 .st-key-fund_watchlist_add_panel .stTextInput input::placeholder {
     color:#6c7c93 !important;

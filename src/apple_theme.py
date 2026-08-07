@@ -473,11 +473,10 @@ header,
 }}
 
 @media (min-width: 769px) {{
-    [data-testid="stSidebar"] [class*="st-key-sidebar_search_query"] input,
-    [data-testid="stSidebar"] [class*="st-key-sidebar-search-query"] input {{
+    [data-testid="stSidebar"] [class*="st-key-sidebar_search_query"] [data-testid="stTextInputRootElement"],
+    [data-testid="stSidebar"] [class*="st-key-sidebar-search-query"] [data-testid="stTextInputRootElement"] {{
         min-height: 36px !important;
         height: 36px !important;
-        padding-left: 0.75rem !important;
         border-color: var(--ws-border-strong) !important;
     }}
 }}
@@ -1511,18 +1510,16 @@ button[kind="primary"],
     font-weight: 650;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-sidebar_search_query"] input,
-[data-testid="stSidebar"] [class*="st-key-sidebar-search-query"] input {{
+[data-testid="stSidebar"] [class*="st-key-sidebar_search_query"] [data-testid="stTextInputRootElement"],
+[data-testid="stSidebar"] [class*="st-key-sidebar-search-query"] [data-testid="stTextInputRootElement"] {{
     min-height: 36px !important;
     height: 36px !important;
     border-radius: 8px !important;
     background: var(--ws-bg-surface) !important;
 }}
 
-[class*="st-key-security_search_keyword"] input,
-[class*="st-key-security-search-keyword"] input,
-[class*="st-key-security_search_keyword"] [data-baseweb="input"],
-[class*="st-key-security-search-keyword"] [data-baseweb="input"] {{
+[class*="st-key-security_search_keyword"] [data-testid="stTextInputRootElement"],
+[class*="st-key-security-search-keyword"] [data-testid="stTextInputRootElement"] {{
     border-radius: 8px !important;
 }}
 
@@ -2177,5 +2174,103 @@ def build_terminal_component_overrides_css() -> str:
     color: #1D1D1F !important;
     -webkit-text-fill-color: #1D1D1F !important;
     border-color: #D2D2D7 !important;
+}
+
+/* Streamlit 1.x paints widget chrome on a root element and its input child.
+   Keep the root as the only painted surface so borders and backgrounds share
+   one box and never drift by a pixel. */
+html body [data-testid="stTextInputRootElement"],
+html body [data-testid="stNumberInputContainer"],
+html body .stDateInput [data-baseweb="input"],
+html body .stTimeInput [data-baseweb="input"],
+html body [data-testid="stTimeInputTimeDisplay"],
+html body [data-testid="stTextAreaRootElement"],
+html body [data-baseweb="textarea"],
+html body .stSelectbox .react-aria-ComboBox [role="group"],
+html body [data-baseweb="select"] > div {
+    box-sizing: border-box !important;
+    min-height: 36px !important;
+    height: 36px !important;
+    padding: 0 !important;
+    color: var(--ws-text-main) !important;
+    background: var(--ws-bg-surface) !important;
+    border: 1px solid var(--ws-border-soft) !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+}
+
+html body [data-testid="stTextAreaRootElement"],
+html body [data-baseweb="textarea"] {
+    min-height: 96px !important;
+    height: auto !important;
+}
+
+html body [data-testid="stTextInputRootElement"] input,
+html body [data-testid="stNumberInputField"],
+html body [data-testid="stDateInputField"],
+html body [data-testid="stTimeInputField"] {
+    box-sizing: border-box !important;
+    min-height: 34px !important;
+    height: 34px !important;
+    padding: 7px 10px !important;
+    color: var(--ws-text-main) !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+html body [data-testid="stTimeInputTimeDisplay"] [role="group"],
+html body .stSelectbox .react-aria-ComboBox input[role="combobox"] {
+    box-sizing: border-box !important;
+    min-height: 34px !important;
+    height: 34px !important;
+    padding: 7px 10px !important;
+    color: var(--ws-text-main) !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+html body [data-testid="stTextAreaRootElement"] textarea,
+html body [data-baseweb="textarea"] textarea {
+    box-sizing: border-box !important;
+    min-height: 94px !important;
+    padding: 10px !important;
+    color: var(--ws-text-main) !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+html body [data-testid="stTextInputRootElement"]:focus-within,
+html body [data-testid="stNumberInputContainer"]:focus-within,
+html body .stDateInput [data-baseweb="input"]:focus-within,
+html body .stTimeInput [data-baseweb="input"]:focus-within,
+html body [data-testid="stTimeInputTimeDisplay"]:focus-within,
+html body .stSelectbox .react-aria-ComboBox [role="group"]:focus-within,
+html body [data-baseweb="select"] > div:focus-within,
+html body [data-testid="stTextAreaRootElement"]:focus-within,
+html body [data-baseweb="textarea"]:focus-within {
+    border-color: var(--ws-color-primary) !important;
+    box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.16) !important;
+}
+
+html body .stTextInput input:focus,
+html body .stNumberInput input:focus,
+html body .stDateInput input:focus,
+html body .stTimeInput input:focus,
+html body .stSelectbox input[role="combobox"]:focus,
+html body .stTextArea textarea:focus,
+html body [data-baseweb="textarea"] textarea:focus {
+    border: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
 }
 """
