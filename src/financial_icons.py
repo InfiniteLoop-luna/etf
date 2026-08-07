@@ -6,7 +6,7 @@ import re
 from typing import Any, Callable
 
 
-ICON_ASSET_ROOT = "/app/static/icons"
+ICON_ASSET_ROOT = "app/static/icons"
 
 # Emoji remain valid internal labels for backward-compatible navigation and
 # persisted state. At render time they are replaced with local Lucide SVGs.
@@ -340,7 +340,7 @@ def _sanitize_table_data(value: Any) -> Any:
     def sanitize_cell(cell: Any) -> Any:
         if not isinstance(cell, str):
             return cell
-        if "://" in cell or cell.startswith("/app/static/"):
+        if "://" in cell or cell.lstrip("/").startswith("app/static/"):
             return cell
         return strip_emoji_icons(cell)
 

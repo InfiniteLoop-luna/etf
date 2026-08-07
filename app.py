@@ -2305,7 +2305,7 @@ def render_user_login_dialog() -> None:
     st.markdown(
         """
         <div class="ws-login-dialog-intro">
-            <img src="/app/static/icons/user-round.svg" alt="">
+            <img src="app/static/icons/user-round.svg" alt="">
             <div>
                 <strong>登录 WealthSpark</strong>
                 <span>输入用户名以加载你的自选、股票池和收藏页面。</span>

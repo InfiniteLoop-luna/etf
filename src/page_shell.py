@@ -5,7 +5,7 @@ from html import escape
 from typing import Any, Callable, Mapping, TypeVar
 
 
-ICON_ROOT = "/app/static/icons"
+ICON_ROOT = "app/static/icons"
 T = TypeVar("T")
 
 

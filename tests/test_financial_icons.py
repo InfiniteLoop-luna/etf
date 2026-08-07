@@ -10,6 +10,7 @@ from src.financial_icons import (
     replace_emoji_icons_html,
     strip_emoji_icons,
 )
+from src.page_shell import PageStatus, build_page_loading_mask_html, build_page_status_bar_html
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -22,10 +23,11 @@ def test_markdown_renderer_replaces_financial_emoji_with_local_svg_assets():
     assert "⚠" not in rendered
     assert "⭐" not in rendered
     assert "🔎" not in rendered
-    assert "/app/static/icons/trending-up.svg" in rendered
-    assert "/app/static/icons/triangle-alert.svg" in rendered
-    assert "/app/static/icons/star.svg" in rendered
-    assert "/app/static/icons/search.svg" in rendered
+    assert "app/static/icons/trending-up.svg" in rendered
+    assert "app/static/icons/triangle-alert.svg" in rendered
+    assert "app/static/icons/star.svg" in rendered
+    assert "app/static/icons/search.svg" in rendered
+    assert "/app/static/icons/" not in rendered
 
 
 def test_html_renderer_uses_real_image_elements_in_unsafe_html_blocks():
@@ -33,7 +35,7 @@ def test_html_renderer_uses_real_image_elements_in_unsafe_html_blocks():
 
     assert "💹" not in rendered
     assert 'class="ws-inline-svg-icon"' in rendered
-    assert 'src="/app/static/icons/badge-dollar-sign.svg"' in rendered
+    assert 'src="app/static/icons/badge-dollar-sign.svg"' in rendered
 
 
 def test_plain_text_controls_remove_emoji_without_changing_business_copy():
@@ -64,9 +66,24 @@ def test_every_mapped_icon_asset_is_packaged_with_the_app():
 def test_sidebar_module_icons_use_svg_masks_instead_of_character_glyphs():
     css = build_global_apple_theme_css()
 
-    assert 'mask-image: url("/app/static/icons/chart-candlestick.svg")' in css
-    assert 'mask-image: url("/app/static/icons/landmark.svg")' in css
-    assert 'mask-image: url("/app/static/icons/database.svg")' in css
-    assert 'mask: url("/app/static/icons/chevron-right.svg")' in css
+    assert 'mask-image: url("app/static/icons/chart-candlestick.svg")' in css
+    assert 'mask-image: url("app/static/icons/landmark.svg")' in css
+    assert 'mask-image: url("app/static/icons/database.svg")' in css
+    assert 'mask: url("app/static/icons/chevron-right.svg")' in css
+    assert 'url("/app/static/icons/' not in css
     assert 'content: "\\25A1"' not in css
     assert 'content: "\\203A"' not in css
+
+
+def test_all_icon_generators_use_document_relative_static_paths():
+    app_source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8", errors="ignore")
+    status_html = build_page_status_bar_html(PageStatus())
+    loading_html = build_page_loading_mask_html()
+
+    assert 'src="app/static/icons/user-round.svg"' in app_source
+    assert 'src="app/static/icons/calendar-days.svg"' in status_html
+    assert 'src="app/static/icons/info.svg"' in status_html
+    assert 'src="app/static/icons/refresh-cw.svg"' in loading_html
+    assert 'src="/app/static/icons/' not in app_source
+    assert 'src="/app/static/icons/' not in status_html
+    assert 'src="/app/static/icons/' not in loading_html

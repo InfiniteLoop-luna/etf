@@ -262,7 +262,7 @@ label,
     font-family: var(--ws-font-sans) !important;
 }}
 
-img[src*="/app/static/icons/"],
+img[src*="app/static/icons/"],
 .ws-inline-svg-icon {{
     display: inline-block;
     width: 1em;
@@ -272,8 +272,8 @@ img[src*="/app/static/icons/"],
     vertical-align: -0.12em;
 }}
 
-button img[src*="/app/static/icons/"],
-[data-baseweb="tab"] img[src*="/app/static/icons/"] {{
+button img[src*="app/static/icons/"],
+[data-baseweb="tab"] img[src*="app/static/icons/"] {{
     flex: 0 0 auto;
     width: 15px;
     height: 15px;
@@ -284,7 +284,7 @@ button img[src*="/app/static/icons/"],
     display: none !important;
 }}
 
-[data-testid="stAlert"] img[src*="/app/static/icons/"] {{
+[data-testid="stAlert"] img[src*="app/static/icons/"] {{
     width: 16px;
     height: 16px;
     margin-right: 0.42rem;
@@ -880,8 +880,8 @@ button[aria-label="Open sidebar"]:hover {{
     height: 14px;
     content: "";
     background-color: currentColor;
-    -webkit-mask: url("/app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
-    mask: url("/app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
+    -webkit-mask: url("app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
+    mask: url("app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
     transform: translateY(-50%);
     transform-origin: center;
     transition: transform 140ms ease;
@@ -916,8 +916,8 @@ button[aria-label="Open sidebar"]:hover {{
     width: 18px;
     height: 18px;
     background: #64748B;
-    mask: url("/app/static/icons/activity.svg") center / 16px 16px no-repeat;
-    -webkit-mask: url("/app/static/icons/activity.svg") center / 16px 16px no-repeat;
+    mask: url("app/static/icons/activity.svg") center / 16px 16px no-repeat;
+    -webkit-mask: url("app/static/icons/activity.svg") center / 16px 16px no-repeat;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button::after {{
@@ -927,40 +927,40 @@ button[aria-label="Open sidebar"]:hover {{
     height: 14px;
     margin-left: auto;
     background: #7B8798;
-    mask: url("/app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
-    -webkit-mask: url("/app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
+    mask: url("app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
+    -webkit-mask: url("app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
     transform-origin: center;
     transition: transform 120ms ease;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-decision"] button::before {{
-    mask-image: url("/app/static/icons/briefcase-business.svg");
-    -webkit-mask-image: url("/app/static/icons/briefcase-business.svg");
+    mask-image: url("app/static/icons/briefcase-business.svg");
+    -webkit-mask-image: url("app/static/icons/briefcase-business.svg");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-stock"] button::before {{
-    mask-image: url("/app/static/icons/chart-candlestick.svg");
-    -webkit-mask-image: url("/app/static/icons/chart-candlestick.svg");
+    mask-image: url("app/static/icons/chart-candlestick.svg");
+    -webkit-mask-image: url("app/static/icons/chart-candlestick.svg");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-fund"] button::before {{
-    mask-image: url("/app/static/icons/landmark.svg");
-    -webkit-mask-image: url("/app/static/icons/landmark.svg");
+    mask-image: url("app/static/icons/landmark.svg");
+    -webkit-mask-image: url("app/static/icons/landmark.svg");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-money"] button::before {{
-    mask-image: url("/app/static/icons/badge-dollar-sign.svg");
-    -webkit-mask-image: url("/app/static/icons/badge-dollar-sign.svg");
+    mask-image: url("app/static/icons/badge-dollar-sign.svg");
+    -webkit-mask-image: url("app/static/icons/badge-dollar-sign.svg");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-macro"] button::before {{
-    mask-image: url("/app/static/icons/globe.svg");
-    -webkit-mask-image: url("/app/static/icons/globe.svg");
+    mask-image: url("app/static/icons/globe.svg");
+    -webkit-mask-image: url("app/static/icons/globe.svg");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-data"] button::before {{
-    mask-image: url("/app/static/icons/database.svg");
-    -webkit-mask-image: url("/app/static/icons/database.svg");
+    mask-image: url("app/static/icons/database.svg");
+    -webkit-mask-image: url("app/static/icons/database.svg");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-favorite"] button::before {{
     background: #F5B400 !important;
-    mask-image: url("/app/static/icons/star.svg");
-    -webkit-mask-image: url("/app/static/icons/star.svg");
+    mask-image: url("app/static/icons/star.svg");
+    -webkit-mask-image: url("app/static/icons/star.svg");
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-my_favorite"] button img[src$="/star.svg"] {{
