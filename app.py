@@ -5202,7 +5202,10 @@ def render_lhb_monitor_tab():
         st.session_state["lhb_refresh_nonce"] = int(st.session_state.get("lhb_refresh_nonce", 0)) + 1
 
     if not st.session_state.get("lhb_loaded_once", False):
-        st.info("当前页面尚未拉取龙虎榜数据。")
+        st.markdown(
+            '<div class="ws-empty-selection-state">当前没有选择</div>',
+            unsafe_allow_html=True,
+        )
         return
 
     normalized_code = _normalize_lhb_ts_code_input(stock_code_input)

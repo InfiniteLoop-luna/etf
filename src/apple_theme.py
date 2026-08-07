@@ -1268,6 +1268,22 @@ div[data-testid="stExpanderDetails"] {{
     font-size: 0.8rem;
 }}
 
+.ws-empty-selection-state {{
+    display: grid;
+    min-height: 128px;
+    place-items: center;
+    margin: 1.5rem 0 0.75rem;
+    padding: 2.5rem 1rem 1rem;
+    color: var(--ws-text-soft) !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    font-family: var(--ws-font-sans);
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-align: center;
+}}
+
 .stImage img {{
     border: 1px solid var(--ws-border-soft);
     border-radius: var(--ws-radius-md);
