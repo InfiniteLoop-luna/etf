@@ -15400,11 +15400,14 @@ def render_security_search_tab():
                                 if not previous_close_series.empty:
                                     intraday_reference_close = float(previous_close_series.iloc[-1])
 
+                            intraday_mode_label = '前复权' if intraday_adjustment_mode == 'qfq' else '后复权' if intraday_adjustment_mode == 'hfq' else '不复权'
+                            intraday_reference_label = '前复权昨收' if intraday_adjustment_mode == 'qfq' else '后复权昨收' if intraday_adjustment_mode == 'hfq' else '昨收'
                             intraday_chart = create_security_intraday_chart(
                                 adjusted_intraday_df,
-                                title=f"{title_name} — {effective_intraday_date} 分时图（{'前复权' if intraday_adjustment_mode == 'qfq' else '后复权' if intraday_adjustment_mode == 'hfq' else '不复权'}）",
+                                title=f"{title_name} — {effective_intraday_date} 分时图（{intraday_mode_label}）",
                                 reference_close=intraday_reference_close,
                             )
+                            st.caption(f"当前分时口径：{intraday_mode_label}｜涨幅参考：{intraday_reference_label}")
                             if intraday_chart is not None:
                                 st.plotly_chart(intraday_chart, use_container_width=True)
                             metric_intraday_cols = st.columns(4)
