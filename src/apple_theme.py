@@ -281,7 +281,7 @@ body,
 
 .main .block-container {{
     max-width: {tokens["max_width"]};
-    padding: 1rem 1.5rem 3rem;
+    padding: 0.35rem 1.5rem 3rem;
 }}
 
 .main p,
@@ -304,9 +304,15 @@ body,
 }}
 
 #MainMenu,
-footer,
-header {{
+footer {{
     visibility: hidden;
+}}
+
+header,
+[data-testid="stHeader"] {{
+    display: none !important;
+    height: 0 !important;
+    min-height: 0 !important;
 }}
 
 .ws-page-loading-mask {{
@@ -333,12 +339,22 @@ header {{
     font-weight: 700;
 }}
 
-.ws-page-loading-mask__indicator img {{
+.ws-page-loading-mask__spinner {{
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    display: inline-grid;
+    place-items: center;
+    transform-origin: center;
+    will-change: transform;
+    animation: ws-page-loading-spin 0.8s linear infinite;
+}}
+
+.ws-page-loading-mask__spinner img {{
     width: 18px;
     height: 18px;
     margin: 0;
     filter: brightness(0) saturate(100%) invert(38%) sepia(44%) saturate(1781%) hue-rotate(194deg) brightness(84%) contrast(90%);
-    animation: ws-page-loading-spin 0.85s linear infinite;
 }}
 
 @keyframes ws-page-loading-spin {{
@@ -398,11 +414,13 @@ header {{
     white-space: nowrap;
 }}
 
-@media (prefers-reduced-motion: reduce) {{
-    .ws-page-loading-mask__indicator img {{ animation: none; }}
+.stApp:has([data-testid="stSidebar"][aria-expanded="false"]) .ws-page-loading-mask,
+.stApp:has([data-testid="stSidebar"][aria-expanded="false"]) .ws-page-status-bar {{
+    left: 0;
 }}
 
 [data-testid="stSidebar"] {{
+    position: relative;
     box-sizing: border-box !important;
     min-width: var(--ws-sidebar-width) !important;
     width: var(--ws-sidebar-width) !important;
@@ -420,13 +438,6 @@ header {{
 }}
 
 @media (min-width: 769px) {{
-    [data-testid="stSidebar"][aria-expanded="false"] {{
-        min-width: var(--ws-sidebar-width) !important;
-        width: var(--ws-sidebar-width) !important;
-        margin-left: 0 !important;
-        transform: none !important;
-    }}
-
     [data-testid="stSidebar"] [class*="st-key-sidebar_search_query"] input,
     [data-testid="stSidebar"] [class*="st-key-sidebar-search-query"] input {{
         min-height: 36px !important;
@@ -436,10 +447,60 @@ header {{
     }}
 }}
 
-[data-testid="collapsedControl"],
-button[aria-label="Open sidebar"],
+[data-testid="stSidebarCollapseButton"],
+button[aria-label="Collapse sidebar"],
 button[aria-label="Close sidebar"] {{
-    display: none !important;
+    position: absolute !important;
+    top: 0.55rem !important;
+    right: 0.5rem !important;
+    left: auto !important;
+    z-index: 1004 !important;
+    display: flex !important;
+}}
+
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="stExpandSidebarButton"],
+button[aria-label="Expand sidebar"],
+button[aria-label="Open sidebar"] {{
+    position: fixed !important;
+    top: 0.55rem !important;
+    left: 0.55rem !important;
+    z-index: 1004 !important;
+    display: flex !important;
+}}
+
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebarCollapseButton"] button,
+[data-testid="stExpandSidebarButton"],
+[data-testid="stExpandSidebarButton"] button,
+[data-testid="collapsedControl"] button,
+button[aria-label="Collapse sidebar"],
+button[aria-label="Close sidebar"],
+button[aria-label="Expand sidebar"],
+button[aria-label="Open sidebar"] {{
+    width: 30px !important;
+    height: 30px !important;
+    min-height: 30px !important;
+    padding: 0 !important;
+    color: var(--ws-sidebar-text) !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: var(--ws-radius-sm) !important;
+    box-shadow: none !important;
+}}
+
+[data-testid="stSidebarCollapseButton"]:hover,
+[data-testid="stSidebarCollapseButton"] button:hover,
+[data-testid="stExpandSidebarButton"]:hover,
+[data-testid="stExpandSidebarButton"] button:hover,
+[data-testid="collapsedControl"] button:hover,
+button[aria-label="Collapse sidebar"]:hover,
+button[aria-label="Close sidebar"]:hover,
+button[aria-label="Expand sidebar"]:hover,
+button[aria-label="Open sidebar"]:hover {{
+    color: var(--ws-sidebar-accent) !important;
+    background: var(--ws-sidebar-hover-bg) !important;
 }}
 
 [data-testid="stSidebar"] h1,

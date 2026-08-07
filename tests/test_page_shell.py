@@ -62,6 +62,7 @@ def test_page_loading_mask_uses_local_svg_and_accessible_status_markup():
     html = build_page_loading_mask_html()
 
     assert 'class="ws-page-loading-mask"' in html
+    assert 'class="ws-page-loading-mask__spinner"' in html
     assert 'role="status"' in html
     assert '/app/static/icons/refresh-cw.svg' in html
     assert "加载中" in html
@@ -99,3 +100,24 @@ def test_global_theme_positions_loading_mask_and_status_bar_in_main_area():
     assert "inset: 0 0 32px var(--ws-sidebar-width)" in css
     assert ".ws-page-status-bar {" in css
     assert "inset: auto 0 0 var(--ws-sidebar-width)" in css
+
+
+def test_global_theme_removes_header_space_and_allows_sidebar_collapse():
+    css = build_global_apple_theme_css()
+
+    assert 'header,\n[data-testid="stHeader"] {' in css
+    header_rule = css.split('header,\n[data-testid="stHeader"] {', 1)[1].split("}", 1)[0]
+    assert "display: none !important" in header_rule
+    assert "height: 0 !important" in header_rule
+    assert "transform: none !important" not in css
+    assert '[data-testid="stSidebarCollapseButton"]' in css
+    assert '[data-testid="stExpandSidebarButton"]' in css
+    assert '.stApp:has([data-testid="stSidebar"][aria-expanded="false"])' in css
+
+
+def test_global_theme_keeps_loading_spinner_rotating():
+    css = build_global_apple_theme_css()
+
+    assert ".ws-page-loading-mask__spinner {" in css
+    assert "animation: ws-page-loading-spin 0.8s linear infinite" in css
+    assert "prefers-reduced-motion" not in css

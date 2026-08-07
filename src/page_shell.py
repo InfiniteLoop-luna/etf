@@ -104,7 +104,9 @@ def build_page_loading_mask_html() -> str:
     return f"""
 <div class="ws-page-loading-mask" role="status" aria-live="polite" aria-label="页面加载中">
     <span class="ws-page-loading-mask__indicator">
-        <img src="{ICON_ROOT}/refresh-cw.svg" alt="">
+        <span class="ws-page-loading-mask__spinner" aria-hidden="true">
+            <img src="{ICON_ROOT}/refresh-cw.svg" alt="">
+        </span>
         <span>加载中</span>
     </span>
 </div>
