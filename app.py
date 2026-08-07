@@ -15286,7 +15286,7 @@ def render_security_search_tab():
                     if enable_intraday_click:
                         st.caption("💡 直接点击某根日K蜡烛，可按需拉取该交易日 1 分钟分时图；下载后会自动写入 PostgreSQL 缓存。")
                         chart_key = f"security_kline_chart_{selected_code}"
-                        if plotly_events is not None:
+                        if False and plotly_events is not None:
                             click_points = plotly_events(
                                 kline_chart,
                                 click_event=True,
