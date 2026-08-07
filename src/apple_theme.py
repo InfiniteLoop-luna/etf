@@ -784,7 +784,8 @@ button[aria-label="Open sidebar"]:hover {{
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button > div,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button > div {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button > div,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button > div {{
     display: flex !important;
     flex: 1 1 auto !important;
     align-items: center !important;
@@ -794,7 +795,8 @@ button[aria-label="Open sidebar"]:hover {{
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button > div > span,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button > div > span {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button > div > span,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button > div > span {{
     display: flex !important;
     flex: 1 1 auto !important;
     align-items: center !important;
@@ -804,7 +806,8 @@ button[aria-label="Open sidebar"]:hover {{
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button [data-testid="stMarkdownContainer"],
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button [data-testid="stMarkdownContainer"] {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button [data-testid="stMarkdownContainer"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button [data-testid="stMarkdownContainer"] {{
     display: flex !important;
     flex: 1 1 auto !important;
     align-items: center !important;
@@ -814,6 +817,79 @@ button[aria-label="Open sidebar"]:hover {{
     margin: 0 !important;
     margin-right: auto !important;
     text-align: left !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button {{
+    padding-right: 0.35rem !important;
+    padding-left: 0.35rem !important;
+    border: 0 !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-toggle-"] {{
+    box-sizing: border-box;
+    width: 100%;
+    margin-top: 0.8rem;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-toggle-"] button {{
+    position: relative;
+    box-sizing: border-box !important;
+    width: 100%;
+    height: var(--ws-sidebar-row-height) !important;
+    min-height: var(--ws-sidebar-row-height) !important;
+    max-height: var(--ws-sidebar-row-height) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    padding: 0 0.35rem !important;
+    color: var(--ws-text-muted) !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: var(--ws-radius-sm) !important;
+    box-shadow: none !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-toggle-"] button:hover {{
+    color: var(--ws-sidebar-accent) !important;
+    background: var(--ws-sidebar-hover-bg) !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-toggle-"] button > div,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-toggle-"] button > div > span,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-toggle-"] button [data-testid="stMarkdownContainer"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-toggle-"] button p {{
+    min-width: 0 !important;
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    margin: 0 !important;
+    color: inherit !important;
+    font-family: var(--ws-font-data) !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    text-align: left !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-toggle-"] button::after {{
+    position: absolute;
+    top: 50%;
+    right: 0.45rem;
+    width: 14px;
+    height: 14px;
+    content: "";
+    background-color: currentColor;
+    -webkit-mask: url("/app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
+    mask: url("/app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
+    transform: translateY(-50%);
+    transform-origin: center;
+    transition: transform 140ms ease;
+    pointer-events: none;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-toggle-expanded"] button::after {{
+    transform: translateY(-50%) rotate(90deg);
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button p,
@@ -882,8 +958,14 @@ button[aria-label="Open sidebar"]:hover {{
     -webkit-mask-image: url("/app/static/icons/database.svg");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-favorite"] button::before {{
+    background: #F5B400 !important;
     mask-image: url("/app/static/icons/star.svg");
     -webkit-mask-image: url("/app/static/icons/star.svg");
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-my_favorite"] button img[src$="/star.svg"] {{
+    opacity: 1 !important;
+    filter: brightness(0) saturate(100%) invert(70%) sepia(100%) saturate(1186%) hue-rotate(359deg) brightness(102%) contrast(103%) !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button {{
@@ -1495,6 +1577,12 @@ button[kind="primary"],
 
 [data-testid="stSidebar"] .ws-sidebar-brand {{
     min-height: 58px;
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    grid-template-rows: 32px 20px;
+    column-gap: 0.5rem;
+    row-gap: 0;
+    align-items: center;
     margin: 0 0 var(--ws-space-3);
     padding: 0.25rem 0.25rem 0.75rem;
     border-bottom: 1px solid var(--ws-sidebar-line);
@@ -1606,6 +1694,9 @@ button[kind="primary"],
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-brand-kicker {{
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
     width: 32px;
     height: 32px;
     border-radius: var(--ws-radius-sm);
@@ -1613,10 +1704,36 @@ button[kind="primary"],
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-brand h2 {{
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+    min-width: 0;
+    margin: 0;
+    padding: 0 !important;
     color: var(--ws-text-main) !important;
     font-family: var(--ws-font-heading);
     font-size: 1rem;
     font-weight: 650;
+    line-height: 1.2;
+    letter-spacing: 0 !important;
+    white-space: nowrap;
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-brand p {{
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+    min-width: 0;
+    margin: 0 !important;
+    padding: 0 !important;
+    color: var(--ws-text-muted) !important;
+    font-family: var(--ws-font-sans);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 20px;
+    letter-spacing: 0;
+    text-transform: none;
+    white-space: nowrap;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-sidebar_search_query"] [data-testid="stTextInputRootElement"],
@@ -1690,7 +1807,19 @@ button[kind="primary"],
     position: fixed !important;
     top: 8px !important;
     right: auto !important;
-    left: 8px !important;
+    left: 6px !important;
+    width: 36px !important;
+    height: 36px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}}
+
+[data-testid="stSidebar"][aria-expanded="false"] [data-testid="stSidebarCollapseButton"] button {{
+    width: 36px !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    margin: 0 !important;
+    padding: 0 !important;
 }}
 
 [data-testid="stSidebar"][aria-expanded="false"] [data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"] {{
@@ -1706,12 +1835,24 @@ button[kind="primary"],
     overflow: visible !important;
 }}
 
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-middle"] {{
+    padding-right: 0 !important;
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+}}
+
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-middle"]::-webkit-scrollbar {{
+    width: 0;
+    height: 0;
+}}
+
 [data-testid="stSidebar"][aria-expanded="false"] .ws-sidebar-brand,
 [data-testid="stSidebar"][aria-expanded="false"] .ws-sidebar-block,
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-sidebar_search_query"],
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-sidebar-search-query"],
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-page-"],
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-search-result-"],
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-recent-toggle-"],
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-recent-link-"],
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-favorite-"],
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-user-session-menu-"] {{

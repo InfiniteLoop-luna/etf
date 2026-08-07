@@ -4150,33 +4150,39 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                         ):
                             _navigate_desktop_sidebar_to(module.id, page.id)
                             st.rerun()
-        sidebar_middle.markdown(
-            """
-            <div class="ws-sidebar-block">
-                <div class="ws-sidebar-block-title">最近访问</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        recent_expanded = bool(st.session_state.get("sidebar_recent_expanded", True))
+        recent_toggle_key = _build_sidebar_element_key(
+            "ws-sidebar-recent-toggle",
+            "expanded" if recent_expanded else "collapsed",
         )
-        if recent_visits:
-            with sidebar_middle.container(key="ws-sidebar-recent-list"):
-                for recent_index, recent_item in enumerate(recent_visits):
-                    if st.button(
-                        f'{recent_item["module_label"]} / {recent_item["page_label"]}',
-                        key=f'ws-sidebar-recent-link-{recent_item["page_id"]}-{recent_index}',
-                        use_container_width=True,
-                    ):
-                        _navigate_desktop_sidebar_to(
-                            recent_item["module_id"],
-                            recent_item["page_id"],
-                            clear_search=True,
-                        )
-                        st.rerun()
-        else:
-            sidebar_middle.markdown(
-                '<span class="ws-sidebar-empty">最近访问会显示在这里。</span>',
-                unsafe_allow_html=True,
-            )
+        if sidebar_middle.button(
+            "最近访问",
+            key=recent_toggle_key,
+            use_container_width=True,
+        ):
+            st.session_state["sidebar_recent_expanded"] = not recent_expanded
+            st.rerun()
+
+        if recent_expanded:
+            if recent_visits:
+                with sidebar_middle.container(key="ws-sidebar-recent-list"):
+                    for recent_index, recent_item in enumerate(recent_visits):
+                        if st.button(
+                            f'{recent_item["module_label"]} / {recent_item["page_label"]}',
+                            key=f'ws-sidebar-recent-link-{recent_item["page_id"]}-{recent_index}',
+                            use_container_width=True,
+                        ):
+                            _navigate_desktop_sidebar_to(
+                                recent_item["module_id"],
+                                recent_item["page_id"],
+                                clear_search=True,
+                            )
+                            st.rerun()
+            else:
+                sidebar_middle.markdown(
+                    '<span class="ws-sidebar-empty">最近访问会显示在这里。</span>',
+                    unsafe_allow_html=True,
+                )
 
         with st.container(key="ws-sidebar-footer"):
             st.markdown(

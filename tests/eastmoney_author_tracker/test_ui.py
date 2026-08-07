@@ -154,6 +154,49 @@ class TrackerUiPayloadTests(unittest.TestCase):
         sidebar_content_rule = css[css.rfind('[data-testid="stSidebar"] [data-testid="stSidebarContent"] {') :]
         self.assertIn("padding-right: 0 !important", sidebar_content_rule)
 
+    def test_sidebar_brand_uses_clean_two_row_lockup(self):
+        css = build_global_apple_theme_css()
+        brand_rule = css[css.rfind('[data-testid="stSidebar"] .ws-sidebar-brand {') :]
+
+        self.assertIn("grid-template-rows: 32px 20px", brand_rule)
+        self.assertIn("grid-row: 1", brand_rule)
+        self.assertIn("grid-row: 2", brand_rule)
+        self.assertIn("padding: 0 !important", brand_rule)
+        self.assertIn("white-space: nowrap", brand_rule)
+        self.assertIn("text-transform: none", brand_rule)
+
+    def test_sidebar_favorite_stars_use_high_visibility_yellow(self):
+        css = build_global_apple_theme_css()
+        favorite_rule = css[css.rfind('[class*="st-key-ws-sidebar-module-favorite"] button::before') :]
+
+        self.assertIn("background: #F5B400 !important", favorite_rule)
+        self.assertIn('[class*="st-key-ws-sidebar-page-my_favorite"] button img[src$="/star.svg"]', css)
+        self.assertIn("opacity: 1 !important", favorite_rule)
+        self.assertIn("filter:", favorite_rule)
+        self.assertIn("contrast(103%) !important", favorite_rule)
+
+    def test_collapsed_sidebar_controls_share_one_centered_rail_grid(self):
+        css = build_global_apple_theme_css()
+        collapsed_rule = css[css.rfind('[data-testid="stSidebar"][aria-expanded="false"] {') :]
+
+        self.assertIn('[data-testid="stSidebarCollapseButton"] button', collapsed_rule)
+        self.assertIn("left: 6px !important", collapsed_rule)
+        self.assertIn("width: 36px !important", collapsed_rule)
+        self.assertIn("margin: 0 !important", collapsed_rule)
+        self.assertIn("scrollbar-gutter: auto", collapsed_rule)
+
+    def test_recent_sidebar_group_is_collapsible_and_left_aligned(self):
+        css = build_global_apple_theme_css()
+        app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertIn('"sidebar_recent_expanded"', app_source)
+        self.assertIn('"ws-sidebar-recent-toggle"', app_source)
+        self.assertIn('[class*="st-key-ws-sidebar-recent-toggle-"] button::after', css)
+        self.assertIn('url("/app/static/icons/chevron-right.svg")', css)
+        self.assertIn('[class*="st-key-ws-sidebar-recent-toggle-expanded"] button::after', css)
+        self.assertIn('[class*="st-key-ws-sidebar-recent-link-"] button > div', css)
+        self.assertIn("justify-content: flex-start !important", css)
+
     def test_sidebar_section_labels_clear_the_following_control(self):
         css = build_global_apple_theme_css()
 
