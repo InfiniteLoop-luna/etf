@@ -30,3 +30,10 @@ def test_app_py_removes_legacy_desktop_quick_jump_flow():
     assert "sidebar_shortcut_" not in APP_SOURCE
     assert 'st.sidebar.selectbox(' not in APP_SOURCE
     assert "sidebar_quick_jump_applied" not in APP_SOURCE
+
+
+def test_app_py_does_not_render_redundant_desktop_header():
+    assert "render_terminal_header" not in APP_SOURCE
+    assert "ws-terminal-header" not in APP_SOURCE
+    assert "ws-page-intro" not in APP_SOURCE
+    assert 'href="?iphone_mode=1"' not in APP_SOURCE

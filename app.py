@@ -3999,21 +3999,6 @@ def consume_pending_fund_watchlist_navigation() -> None:
     st.session_state["iphone_page_etf"] = ETF_FUND_WATCHLIST_PAGE_LABEL
 
 
-def render_terminal_header() -> None:
-    st.markdown(
-        """
-        <div class="ws-terminal-header">
-            <div class="ws-terminal-header__title">WealthSpark Decision Dashboard</div>
-            <div class="ws-terminal-header__meta">
-                <span class="ws-terminal-header__pulse"></span>
-                <span>PROFESSIONAL TERMINAL</span>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def render_desktop_sidebar_navigation() -> tuple[str, str]:
     selected_module, selected_page = _resolve_desktop_sidebar_selection()
     expanded_module_id = resolve_expanded_module_id(
@@ -7413,22 +7398,6 @@ def _render_application_page() -> PageStatus:
     # ===== iPhone only mode (no sidebar dependency) =====
     iphone_mode = get_query_param_value("iphone_mode").strip() == "1"
 
-    if iphone_mode:
-        st.title("WealthSpark")
-        st.caption("iPhone 模式")
-    else:
-        render_terminal_header()
-        st.markdown(
-            """
-            <div class="ws-page-intro">
-                <span class="ws-page-intro__eyebrow">Market Intelligence</span>
-                <h1>WealthSpark 决策看板</h1>
-                <p>趋势 × 资金流 × 情绪</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
     update_summary = {}
     funding_freshness = {}
     refresh_nonce = int(st.session_state.get("data_health_refresh_nonce", 0))
@@ -7448,15 +7417,6 @@ def _render_application_page() -> PageStatus:
 
     # 处理外部跳转请求（例如从榜单点击跳到个股查询）
     trigger_security_tab_jump_if_needed()
-
-    if not iphone_mode:
-        st.markdown(
-            '<div style="margin:0.25rem 0 0.75rem 0;"><a href="?iphone_mode=1" '
-            'style="display:inline-block;padding:0.45rem 0.8rem;border-radius:4px;'
-            f'background:{THEME_PRIMARY};border:1px solid {THEME_PRIMARY};'
-            'color:#FFFFFF;text-decoration:none;font-weight:700;box-shadow:none;">iPhone 模式</a></div>',
-            unsafe_allow_html=True,
-        )
 
     if iphone_mode:
         st.markdown(

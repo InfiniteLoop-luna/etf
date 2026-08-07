@@ -280,7 +280,7 @@ body,
 
 .main .block-container {{
     max-width: {tokens["max_width"]};
-    padding: 4.55rem 1.5rem 3rem;
+    padding: 1rem 1.5rem 3rem;
 }}
 
 .main p,
@@ -308,50 +308,9 @@ header {{
     visibility: hidden;
 }}
 
-.ws-terminal-header {{
-    position: fixed;
-    inset: 0 0 auto var(--ws-sidebar-width);
-    z-index: 999;
-    height: 50px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0 1.4rem;
-    color: var(--ws-text-main);
-    background: rgba(255, 255, 255, 0.98);
-    border-bottom: 1px solid var(--ws-border-soft);
-}}
-
-.ws-terminal-header__title {{
-    min-width: 220px;
-    font-family: var(--ws-font-heading);
-    font-size: 0.98rem;
-    font-weight: 700;
-    letter-spacing: 0;
-}}
-
-.ws-terminal-header__meta {{
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    color: var(--ws-text-muted);
-    font-family: var(--ws-font-data);
-    font-size: 0.75rem;
-    font-weight: 700;
-    white-space: nowrap;
-}}
-
-.ws-terminal-header__pulse {{
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--ws-color-up);
-}}
-
 .ws-page-loading-mask {{
     position: fixed;
-    inset: 50px 0 32px var(--ws-sidebar-width);
+    inset: 0 0 32px var(--ws-sidebar-width);
     z-index: 997;
     display: flex;
     align-items: center;
@@ -442,36 +401,6 @@ header {{
     .ws-page-loading-mask__indicator img {{ animation: none; }}
 }}
 
-.ws-page-intro {{
-    margin: 0 0 0.75rem;
-    padding: 0 0 0.7rem;
-    border-bottom: 1px solid var(--ws-border-soft);
-}}
-
-.ws-page-intro__eyebrow {{
-    display: block;
-    margin-bottom: 0.18rem;
-    color: var(--ws-color-primary);
-    font-family: var(--ws-font-data);
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0;
-    text-transform: uppercase;
-}}
-
-.ws-page-intro h1 {{
-    margin: 0;
-    color: var(--ws-text-main);
-    font-size: 1.55rem;
-    font-weight: 700;
-}}
-
-.ws-page-intro p {{
-    margin: 0.18rem 0 0;
-    color: var(--ws-text-muted) !important;
-    font-size: 0.84rem;
-}}
-
 [data-testid="stSidebar"] {{
     box-sizing: border-box !important;
     min-width: var(--ws-sidebar-width) !important;
@@ -497,17 +426,6 @@ header {{
         transform: none !important;
     }}
 
-    [data-testid="stSidebar"] [class*="st-key-sidebar_search_query"],
-    [data-testid="stSidebar"] [class*="st-key-sidebar-search-query"] {{
-        position: fixed !important;
-        top: 7px;
-        left: 455px;
-        z-index: 1002;
-        width: min(340px, calc(100vw - 690px));
-        min-width: 220px;
-        margin: 0 !important;
-    }}
-
     [data-testid="stSidebar"] [class*="st-key-sidebar_search_query"] input,
     [data-testid="stSidebar"] [class*="st-key-sidebar-search-query"] input {{
         min-height: 36px !important;
@@ -520,20 +438,7 @@ header {{
 [data-testid="collapsedControl"],
 button[aria-label="Open sidebar"],
 button[aria-label="Close sidebar"] {{
-    position: fixed !important;
-    top: 7px !important;
-    left: 0.7rem !important;
-    z-index: 1004 !important;
-    width: 36px !important;
-    height: 36px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    color: var(--ws-text-main) !important;
-    background: var(--ws-bg-surface) !important;
-    border: 1px solid var(--ws-border-soft) !important;
-    border-radius: var(--ws-radius-md) !important;
-    box-shadow: none !important;
+    display: none !important;
 }}
 
 [data-testid="stSidebar"] h1,
@@ -1311,13 +1216,7 @@ code {{
     border-radius: var(--ws-radius-sm);
 }}
 
-@media (max-width: 1050px) {{
-    .ws-terminal-header__meta {{ display: none; }}
-}}
-
 @media (max-width: 768px) {{
-    .ws-terminal-header {{ display: none; }}
-
     .ws-page-loading-mask {{ inset: 0 0 32px 0; }}
 
     .ws-page-status-bar {{

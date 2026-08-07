@@ -102,7 +102,8 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn("background: var(--ws-bg-base) !important", css)
         self.assertIn("var(--ws-bg-surface)", css)
         self.assertIn("var(--ws-color-primary)", css)
-        self.assertIn(".ws-terminal-header", css)
+        self.assertNotIn(".ws-terminal-header", css)
+        self.assertNotIn(".ws-page-intro", css)
         self.assertNotIn("radial-gradient(ellipse", css)
 
     def test_build_global_apple_theme_css_adds_shell_finish_details(self):

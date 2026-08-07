@@ -96,6 +96,6 @@ def test_global_theme_positions_loading_mask_and_status_bar_in_main_area():
     css = build_global_apple_theme_css()
 
     assert ".ws-page-loading-mask {" in css
-    assert "inset: 50px 0 32px var(--ws-sidebar-width)" in css
+    assert "inset: 0 0 32px var(--ws-sidebar-width)" in css
     assert ".ws-page-status-bar {" in css
     assert "inset: auto 0 0 var(--ws-sidebar-width)" in css
