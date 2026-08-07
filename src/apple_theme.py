@@ -1796,6 +1796,55 @@ div[data-testid="stTable"] thead th {{
     background: rgba(245, 245, 247, 0.94) !important;
 }}
 
+/* Streamlit alerts are passive page states in this app. Keep every alert
+   variant quiet and centered instead of rendering a boxed callout. */
+[data-testid="stAlertContainer"] {{
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100% !important;
+    min-height: 96px;
+    margin: 1.25rem 0 0.75rem !important;
+    padding: 1.5rem 0 0.5rem !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    color: var(--ws-text-soft) !important;
+    font-size: 0.85rem;
+    text-align: center !important;
+}}
+
+[data-testid="stAlertContainer"] > [data-testid^="stAlertContent"],
+[data-testid="stAlertContainer"] .stAlert,
+[data-testid="stAlert"] {{
+    width: auto !important;
+    max-width: min(100%, 720px);
+    margin: 0 auto !important;
+    padding: 0.35rem 0.5rem !important;
+    color: var(--ws-text-soft) !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    text-align: center !important;
+}}
+
+[data-testid="stAlertContainer"] [data-testid="stIconMaterial"],
+[data-testid="stAlertContainer"] [data-testid^="stAlertContent"] > svg,
+[data-testid="stAlertContainer"] img {{
+    display: none !important;
+}}
+
+[data-testid="stAlertContainer"] [data-testid^="stAlertContent"],
+[data-testid="stAlertContainer"] [data-testid="stMarkdownContainer"],
+[data-testid="stAlertContainer"] p {{
+    margin: 0 !important;
+    padding: 0 !important;
+    color: inherit !important;
+    text-align: center !important;
+}}
+
 hr {{ border-color: var(--ws-border-soft) !important; }}
 
 @media (max-width: 768px) {{

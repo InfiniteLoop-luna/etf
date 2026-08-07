@@ -116,6 +116,19 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn('[data-testid="stSidebar"] [aria-checked="true"]', css)
         self.assertIn("background: var(--ws-color-primary) !important", css)
 
+    def test_global_alerts_are_borderless_centered_page_states(self):
+        css = build_global_apple_theme_css()
+        final_alert_override = css[css.rfind('[data-testid="stAlertContainer"] {') :]
+
+        self.assertIn('justify-content: center !important', final_alert_override)
+        self.assertIn('background: transparent !important', final_alert_override)
+        self.assertIn('border: 0 !important', final_alert_override)
+        self.assertIn('box-shadow: none !important', final_alert_override)
+        self.assertIn('> [data-testid^="stAlertContent"]', final_alert_override)
+        self.assertIn('[data-testid="stIconMaterial"]', final_alert_override)
+        self.assertIn('display: none !important', final_alert_override)
+        self.assertIn('text-align: center !important', final_alert_override)
+
     def test_build_apple_plotly_template_uses_terminal_palette(self):
         template = build_apple_plotly_template()
 
