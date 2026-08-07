@@ -4076,33 +4076,6 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
     with st.sidebar:
         sidebar_middle = st.container(key="ws-sidebar-middle")
         _consume_pending_sidebar_search_reset()
-        current_username = get_logged_in_username()
-        if current_username:
-            favorite_df = pd.DataFrame()
-            try:
-                favorite_df = list_favorite_pages(current_username)
-            except Exception:
-                favorite_df = pd.DataFrame()
-            if favorite_df is not None and not favorite_df.empty:
-                sidebar_middle.markdown(
-                    """
-                    <div class="ws-sidebar-block">
-                        <div class="ws-sidebar-block-title">My Favorite</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                with sidebar_middle.container(key="ws-sidebar-favorite-list"):
-                    for fav_index, fav in enumerate(favorite_df.head(6).to_dict("records")):
-                        label = str(fav.get("page_label") or "").strip() or str(fav.get("page_id") or "")
-                        if st.button(
-                            label,
-                            key=f"ws-sidebar-favorite-{fav.get('module_id')}-{fav.get('page_id')}-{fav_index}",
-                            use_container_width=True,
-                        ):
-                            _navigate_any_mode_to(str(fav.get("module_id") or ""), str(fav.get("page_id") or ""))
-                            st.rerun()
-
         sidebar_middle.markdown(
             """
             <div class="ws-sidebar-block">
