@@ -1,4 +1,6 @@
+from base64 import b64decode
 from pathlib import Path
+import re
 
 import pandas as pd
 
@@ -23,11 +25,11 @@ def test_markdown_renderer_replaces_financial_emoji_with_local_svg_assets():
     assert "⚠" not in rendered
     assert "⭐" not in rendered
     assert "🔎" not in rendered
-    assert "app/static/icons/trending-up.svg" in rendered
-    assert "app/static/icons/triangle-alert.svg" in rendered
-    assert "app/static/icons/star.svg" in rendered
-    assert "app/static/icons/search.svg" in rendered
-    assert "/app/static/icons/" not in rendered
+    payloads = re.findall(r"data:image/svg\+xml;base64,([A-Za-z0-9+/=]+)", rendered)
+
+    assert len(payloads) == 4
+    assert all(b"<svg" in b64decode(payload) for payload in payloads)
+    assert "app/static/icons/" not in rendered
 
 
 def test_html_renderer_uses_real_image_elements_in_unsafe_html_blocks():

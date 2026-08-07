@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from functools import wraps
+from base64 import b64encode
+from functools import lru_cache, wraps
 from html import escape
+from pathlib import Path
 import re
 from typing import Any, Callable
 
 
 ICON_ASSET_ROOT = "app/static/icons"
+ICON_ASSET_DIRECTORY = Path(__file__).resolve().parents[1] / "static" / "icons"
 
 # Emoji remain valid internal labels for backward-compatible navigation and
 # persisted state. At render time they are replaced with local Lucide SVGs.
@@ -115,13 +118,27 @@ _EMOJI_PATTERN = re.compile(
 )
 
 
+def _safe_icon_name(icon_name: str) -> str:
+    return re.sub(r"[^a-z0-9-]", "", str(icon_name).lower()) or "activity"
+
+
 def icon_asset_url(icon_name: str) -> str:
-    safe_name = re.sub(r"[^a-z0-9-]", "", str(icon_name).lower()) or "activity"
+    safe_name = _safe_icon_name(icon_name)
     return f"{ICON_ASSET_ROOT}/{safe_name}.svg"
 
 
+@lru_cache(maxsize=None)
+def icon_asset_data_uri(icon_name: str) -> str:
+    safe_name = _safe_icon_name(icon_name)
+    icon_path = ICON_ASSET_DIRECTORY / f"{safe_name}.svg"
+    if not icon_path.is_file():
+        icon_path = ICON_ASSET_DIRECTORY / "activity.svg"
+    payload = b64encode(icon_path.read_bytes()).decode("ascii")
+    return f"data:image/svg+xml;base64,{payload}"
+
+
 def icon_markdown(icon_name: str, alt: str) -> str:
-    return f"![{alt}]({icon_asset_url(icon_name)})"
+    return f"![{alt}]({icon_asset_data_uri(icon_name)})"
 
 
 def replace_emoji_icons(value: Any) -> Any:
