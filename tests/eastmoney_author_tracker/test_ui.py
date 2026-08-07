@@ -341,6 +341,11 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertNotIn("rgba(236, 241, 247, 0.84)", app_source)
         self.assertNotIn("linear-gradient(180deg, #F8FAFC 0%, #EEF4FF 48%, #E2E8F0 100%)", app_source)
 
+    def test_app_does_not_render_current_location_breadcrumb(self):
+        app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertNotIn("当前位置：", app_source)
+
     def test_build_author_tracker_apple_css_contains_tracker_hooks(self):
         css = build_author_tracker_apple_css()
 

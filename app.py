@@ -7496,7 +7496,6 @@ def _render_application_page() -> PageStatus:
                 FAVORITE_PAGE_OPTIONS,
                 key="iphone_page_favorite",
             )
-            st.caption(f"当前位置：Favorite / {mobile_page}")
             if mobile_page == FAVORITE_MY_FAVORITE_PAGE_LABEL:
                 render_my_favorite_tab()
             else:
@@ -7508,7 +7507,6 @@ def _render_application_page() -> PageStatus:
                 DECISION_PAGE_OPTIONS,
                 key="iphone_page_decision",
             )
-            st.caption(f"当前位置：决策 / {mobile_page}")
             if mobile_page == "💼 今日机会清单":
                 render_commercial_mvp_tab()
             elif mobile_page == "⭐ 每日趋势推荐":
@@ -7524,7 +7522,6 @@ def _render_application_page() -> PageStatus:
                 ETF_PAGE_OPTIONS,
                 key="iphone_page_etf",
             )
-            st.caption(f"当前位置：基金 / {mobile_page}")
             if mobile_page == ETF_MAIN_PAGE_LABEL:
                 render_etf_tab()
             elif mobile_page == ETF_RATIO_PAGE_LABEL:
@@ -7549,7 +7546,6 @@ def _render_application_page() -> PageStatus:
                 STOCK_PAGE_OPTIONS,
                 key="iphone_page_stock",
             )
-            st.caption(f"当前位置：股票 / {mobile_page}")
             if mobile_page == STOCK_OBJECT_PAGE_LABEL:
                 render_stock_object_page()
             elif mobile_page == STOCK_SECURITY_SEARCH_LABEL:
@@ -7577,7 +7573,6 @@ def _render_application_page() -> PageStatus:
                 MONEY_PAGE_OPTIONS,
                 key="iphone_page_money",
             )
-            st.caption(f"当前位置：资金 / {mobile_page}")
             if mobile_page == MONEY_FLOW_PAGE_LABEL:
                 render_moneyflow_tab()
             elif mobile_page == MONEY_MARGIN_PAGE_LABEL:
@@ -7599,7 +7594,6 @@ def _render_application_page() -> PageStatus:
                 MACRO_PAGE_OPTIONS,
                 key="iphone_page_macro",
             )
-            st.caption(f"当前位置：宏观 / {mobile_page}")
             if mobile_page == "🌏 宏观经济":
                 render_macro_tab()
             elif mobile_page == "🏦 本外币存款":
@@ -7613,7 +7607,6 @@ def _render_application_page() -> PageStatus:
 
     # ===== 方案B进阶版：desktop sidebar 导航壳层 =====
     selected_module, selected_page = render_desktop_sidebar_navigation()
-    st.caption(f"当前位置：{selected_module} / {selected_page}")
 
     decision_module_label = get_module_label_for_page(DECISION_TODAY_PAGE_LABEL)
     fund_module_label = get_module_label_for_page(ETF_MAIN_PAGE_LABEL)
