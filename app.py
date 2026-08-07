@@ -4050,7 +4050,6 @@ def consume_pending_fund_watchlist_navigation() -> None:
     st.session_state["iphone_page_etf"] = ETF_FUND_WATCHLIST_PAGE_LABEL
 
 
-@st.fragment
 def render_desktop_sidebar_navigation() -> tuple[str, str]:
     selected_module, selected_page = _resolve_desktop_sidebar_selection()
     expanded_module_ids = set(_get_sidebar_expanded_module_ids(selected_page.id))
@@ -18807,14 +18806,9 @@ def _fund_watchlist_fragment_passthrough(func):
     return func
 
 
-_fund_watchlist_live_fragment = (
-    st.fragment(run_every="60s")
-    if hasattr(st, "fragment")
-    else _fund_watchlist_fragment_passthrough
-)
 
 
-@_fund_watchlist_live_fragment
+@_fund_watchlist_fragment_passthrough
 def render_fund_watchlist_live_dashboard(items: list[dict], current_username: str) -> None:
     market_state = get_fund_intraday_market_state()
     dashboard_items = items
