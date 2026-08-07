@@ -2207,9 +2207,48 @@ div[data-testid="stTable"] tbody tr:last-child td {{
 
 hr {{ border-color: var(--ws-border-soft) !important; }}
 
+/* Unified Apple page panel */
+[data-testid="stMain"] {{
+    box-sizing: border-box !important;
+    padding: 16px 16px 48px !important;
+    background: var(--ws-bg-base) !important;
+}}
+
+[data-testid="stMainBlockContainer"] {{
+    box-sizing: border-box !important;
+    width: 100% !important;
+    height: auto !important;
+    flex: 0 0 auto !important;
+    max-width: 1320px !important;
+    min-height: calc(100dvh - 64px) !important;
+    margin: 0 auto !important;
+    padding: 24px 28px 32px !important;
+    position: relative;
+    isolation: isolate;
+    color: var(--ws-text-main) !important;
+    background: var(--ws-bg-surface) !important;
+    border: 1px solid rgba(15, 23, 42, 0.06) !important;
+    border-radius: 18px !important;
+    box-shadow:
+        0 1px 2px rgba(15, 23, 42, 0.04),
+        0 10px 30px rgba(15, 23, 42, 0.08) !important;
+    overflow: visible;
+}}
+
 @media (max-width: 768px) {{
-    .main .block-container {{
-        padding: 0.55rem 0.9rem 3.75rem;
+    [data-testid="stMain"] {{
+        padding: 8px 8px 40px !important;
+    }}
+
+    .stApp:has([data-testid="stSidebar"][aria-expanded="false"]) [data-testid="stMain"] {{
+        width: calc(100% - var(--ws-sidebar-collapsed-width)) !important;
+        margin-left: var(--ws-sidebar-collapsed-width) !important;
+    }}
+
+    [data-testid="stMainBlockContainer"] {{
+        min-height: calc(100dvh - 48px) !important;
+        padding: 16px 14px 24px !important;
+        border-radius: 14px !important;
     }}
 }}
 """

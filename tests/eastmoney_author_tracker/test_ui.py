@@ -256,6 +256,26 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn('[data-testid="stSidebar"] [aria-checked="true"]', css)
         self.assertIn("background: var(--ws-color-primary) !important", css)
 
+    def test_right_side_pages_use_one_responsive_apple_panel(self):
+        css = build_global_apple_theme_css()
+        page_shell = css[css.rfind("/* Unified Apple page panel */") :]
+
+        self.assertIn('[data-testid="stMain"] {', page_shell)
+        self.assertIn('[data-testid="stMainBlockContainer"] {', page_shell)
+        self.assertIn("background: var(--ws-bg-base) !important", page_shell)
+        self.assertIn("background: var(--ws-bg-surface) !important", page_shell)
+        self.assertIn("border: 1px solid rgba(15, 23, 42, 0.06) !important", page_shell)
+        self.assertIn("border-radius: 18px !important", page_shell)
+        self.assertIn("height: auto !important", page_shell)
+        self.assertIn("flex: 0 0 auto !important", page_shell)
+        self.assertIn("box-shadow:", page_shell)
+        self.assertIn("min-height: calc(100dvh - 64px) !important", page_shell)
+        self.assertIn("@media (max-width: 768px)", page_shell)
+        self.assertIn('.stApp:has([data-testid="stSidebar"][aria-expanded="false"]) [data-testid="stMain"]', page_shell)
+        self.assertIn("margin-left: var(--ws-sidebar-collapsed-width) !important", page_shell)
+        self.assertIn("width: calc(100% - var(--ws-sidebar-collapsed-width)) !important", page_shell)
+        self.assertIn("border-radius: 14px !important", page_shell)
+
     def test_global_alerts_are_borderless_centered_page_states(self):
         css = build_global_apple_theme_css()
         final_alert_override = css[css.rfind('[data-testid="stAlertContainer"] {') :]
