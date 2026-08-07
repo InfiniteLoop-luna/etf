@@ -2338,7 +2338,6 @@ def build_terminal_component_overrides_css() -> str:
 .ws-watchboard-status,
 .ws-watchboard-compact-meta,
 .ws-watchboard-summary-pill,
-.ws-watchboard-stock-card,
 .ws-fund-watchboard__metric,
 .ws-fund-watchboard__live-status,
 .ws-fund-watchboard__card,
@@ -2493,7 +2492,6 @@ def build_terminal_component_overrides_css() -> str:
 .ws-watchboard-status,
 .ws-watchboard-compact-meta,
 .ws-watchboard-summary-pill,
-.ws-watchboard-stock-card,
 .ws-fund-watchboard__metric,
 .ws-fund-watchboard__live-status,
 .ws-fund-watchboard__card,
@@ -3104,5 +3102,445 @@ html body [data-baseweb="textarea"] textarea:focus {
     .st-key-fund_watchlist_card_grid {
         padding: 0.65rem !important;
     }
+}
+
+/* Stock watchlist cards: restore complete legacy dark terminal styling. */
+.ws-watchboard-stock-link {
+    display: block !important;
+    min-width: 0 !important;
+    color: inherit !important;
+    text-decoration: none !important;
+}
+
+.ws-watchboard-stock-link:focus-visible {
+    outline: 2px solid var(--wb-cyan) !important;
+    outline-offset: 2px !important;
+    border-radius: 8px !important;
+}
+
+.ws-watchboard-stock-card {
+    --wb-cyan: #22d7ff;
+    --wb-text: #f5f9ff;
+    --wb-muted: #93a9ca;
+    min-height: 104px !important;
+    height: 100% !important;
+    padding: 0.42rem 0.46rem !important;
+    color: var(--wb-text) !important;
+    border: 1px solid rgba(70, 126, 255, 0.35) !important;
+    border-radius: 8px !important;
+    background:
+        linear-gradient(180deg, rgba(5, 17, 39, 0.93), rgba(2, 9, 24, 0.96)),
+        radial-gradient(circle at 90% 0%, color-mix(in srgb, var(--accent), transparent 70%), transparent 36%) !important;
+    box-shadow: inset 0 0 16px rgba(47, 123, 255, 0.10) !important;
+    overflow: hidden !important;
+    cursor: pointer !important;
+    transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease !important;
+}
+
+.ws-watchboard-stock-link:hover .ws-watchboard-stock-card {
+    border-color: color-mix(in srgb, var(--accent), white 22%) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: inset 0 0 18px color-mix(in srgb, var(--accent), transparent 76%), 0 8px 18px rgba(2, 8, 24, 0.24) !important;
+}
+
+.ws-watchboard-stock-card.is-active {
+    border-color: color-mix(in srgb, var(--accent), white 12%) !important;
+    box-shadow: inset 0 0 20px color-mix(in srgb, var(--accent), transparent 74%), 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
+}
+
+.ws-watchboard-stock-card .ws-watchboard-stock-head,
+.ws-watchboard-stock-card .ws-watchboard-stock-price-row,
+.ws-watchboard-stock-card .ws-watchboard-stock-foot {
+    display: flex !important;
+    justify-content: space-between !important;
+    gap: 0.28rem !important;
+    align-items: center !important;
+}
+
+.ws-watchboard-stock-card .ws-watchboard-stock-name {
+    min-width: 0 !important;
+    color: #f6fbff !important;
+    -webkit-text-fill-color: #f6fbff !important;
+    font-size: 1rem !important;
+    font-weight: 900 !important;
+    line-height: normal !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.68), 0 0 10px rgba(118, 198, 255, 0.24) !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+.ws-watchboard-stock-card .ws-watchboard-stock-code {
+    flex: 0 0 auto !important;
+    color: #8ea8d2 !important;
+    -webkit-text-fill-color: #8ea8d2 !important;
+    font-size: 1rem !important;
+    font-weight: normal !important;
+    line-height: normal !important;
+}
+
+.ws-watchboard-stock-card .ws-watchboard-stock-price {
+    margin-top: 0.34rem !important;
+    color: var(--accent) !important;
+    -webkit-text-fill-color: var(--accent) !important;
+    font-size: clamp(1.04rem, 1.55vw, 1.34rem) !important;
+    line-height: 1 !important;
+    font-weight: 900 !important;
+    letter-spacing: 0 !important;
+}
+
+.ws-watchboard-stock-card .ws-watchboard-stock-ret {
+    color: var(--accent) !important;
+    -webkit-text-fill-color: var(--accent) !important;
+    font-size: 1rem !important;
+    font-weight: 800 !important;
+    line-height: normal !important;
+    white-space: nowrap !important;
+}
+
+.ws-watchboard-stock-card .ws-watchboard-stock-metrics {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.2rem !important;
+    margin-top: 0.36rem !important;
+}
+
+.ws-watchboard-stock-card .ws-watchboard-stock-metric {
+    min-width: 0 !important;
+}
+
+.ws-watchboard-stock-card .ws-watchboard-stock-metric label {
+    display: block !important;
+    color: var(--wb-muted) !important;
+    -webkit-text-fill-color: var(--wb-muted) !important;
+    font-size: 1rem !important;
+    font-weight: normal !important;
+    line-height: 1 !important;
+}
+
+.ws-watchboard-stock-card .ws-watchboard-stock-metric strong {
+    display: block !important;
+    margin-top: 0.08rem !important;
+    color: #edf5ff !important;
+    -webkit-text-fill-color: #edf5ff !important;
+    font-size: 1rem !important;
+    font-weight: bold !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+.ws-watchboard-stock-card .ws-watchboard-stock-score {
+    height: 4px !important;
+    margin-top: 0.34rem !important;
+    border-radius: 999px !important;
+    background: #122954 !important;
+    overflow: hidden !important;
+}
+
+.ws-watchboard-stock-card .ws-watchboard-stock-score span {
+    display: block !important;
+    width: var(--score) !important;
+    height: 100% !important;
+    border-radius: inherit !important;
+    background: linear-gradient(90deg, var(--accent), rgba(255, 255, 255, 0.78)) !important;
+}
+
+.ws-watchboard-stock-card .ws-watchboard-stock-foot {
+    margin-top: 0.28rem !important;
+    color: #9db8e6 !important;
+    -webkit-text-fill-color: #9db8e6 !important;
+    font-size: 1rem !important;
+    font-weight: normal !important;
+    line-height: 1.1 !important;
+}
+
+.ws-watchboard-stock-card .ws-watchboard-stock-signal {
+    min-width: 0 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+/* Fund watchlist cards: restore complete legacy dark terminal styling. */
+.ws-fund-watchboard__card {
+    --fw-cyan: #22d7ff;
+    --fw-blue: #2f7bff;
+    --fw-red: #ff3f55;
+    --fw-green: #20dfb8;
+    --fw-text: #f5f9ff;
+    --fw-muted: #c6d6eb;
+    --fw-line: rgba(70, 126, 255, 0.38);
+    --fw-line-soft: rgba(70, 126, 255, 0.2);
+    min-height: 390px !important;
+    padding: 0.92rem !important;
+    color: var(--fw-text) !important;
+    border: 1px solid var(--fw-line-soft) !important;
+    background: linear-gradient(145deg, rgba(9, 29, 64, 0.96), rgba(3, 13, 32, 0.98)) !important;
+    border-radius: 10px !important;
+    box-shadow: inset 0 0 20px rgba(47, 123, 255, 0.08) !important;
+    transition: border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease !important;
+}
+
+.ws-fund-watchboard__card:hover {
+    border-color: rgba(34, 215, 255, 0.7) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: inset 0 0 24px rgba(34, 215, 255, 0.08), 0 12px 28px rgba(2, 8, 24, 0.3) !important;
+}
+
+.ws-fund-watchboard__card.is-active {
+    border-color: var(--fw-cyan) !important;
+    box-shadow: inset 0 0 26px rgba(34, 215, 255, 0.12), 0 0 0 1px rgba(34, 215, 255, 0.16) !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__card-head {
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 0.7rem !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__card-title {
+    min-width: 0 !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__card-title strong {
+    display: block !important;
+    overflow: hidden !important;
+    color: var(--fw-text) !important;
+    -webkit-text-fill-color: var(--fw-text) !important;
+    font-size: 1rem !important;
+    font-weight: bold !important;
+    line-height: 1.35 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__card-title span,
+.ws-fund-watchboard__card .ws-fund-watchboard__live small,
+.ws-fund-watchboard__card .ws-fund-watchboard__confirmed-nav small,
+.ws-fund-watchboard__card .ws-fund-watchboard__ratio small,
+.ws-fund-watchboard__card .ws-fund-watchboard__card-metrics label,
+.ws-fund-watchboard__card .ws-fund-watchboard__changes label {
+    color: var(--fw-muted) !important;
+    -webkit-text-fill-color: var(--fw-muted) !important;
+    font-size: 1rem !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__card-title span {
+    letter-spacing: 0.04em !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__badge {
+    flex: none !important;
+    max-width: 42% !important;
+    overflow: hidden !important;
+    padding: 0.18rem 0.48rem !important;
+    color: #e1ecff !important;
+    -webkit-text-fill-color: #e1ecff !important;
+    border: 1px solid rgba(70, 126, 255, 0.3) !important;
+    border-color: rgba(70, 126, 255, 0.3) !important;
+    border-radius: 4px !important;
+    background: rgba(47, 123, 255, 0.12) !important;
+    font-size: 1rem !important;
+    font-weight: normal !important;
+    line-height: normal !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__live {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    grid-template-columns: none !important;
+    gap: 0.75rem !important;
+    min-height: 0 !important;
+    margin: 0.72rem 0 0.55rem !important;
+    padding: 0.58rem 0.65rem !important;
+    border: 1px solid rgba(34, 215, 255, 0.24) !important;
+    background: linear-gradient(135deg, rgba(10, 48, 78, 0.72), rgba(4, 19, 42, 0.82)) !important;
+    border-radius: 8px !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__live small {
+    display: block !important;
+    font-weight: 700 !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__live strong {
+    display: block !important;
+    margin-top: 0.08rem !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    font-size: 1.12rem !important;
+    font-weight: bold !important;
+    line-height: 1.08 !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__live > span {
+    min-width: auto !important;
+    color: #c9d9ee !important;
+    -webkit-text-fill-color: #c9d9ee !important;
+    font-size: 1rem !important;
+    line-height: 1.45 !important;
+    text-align: right !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__live.is-idle {
+    background: rgba(3, 12, 30, 0.58) !important;
+    border-color: rgba(125, 158, 203, 0.2) !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__live.is-up strong,
+.ws-fund-watchboard__card .ws-fund-watchboard__confirmed-nav .is-up strong,
+.ws-fund-watchboard__card .ws-fund-watchboard__ratio.is-high,
+.ws-fund-watchboard__card .ws-fund-watchboard__changes .is-negative strong {
+    color: #ff6b7d !important;
+    -webkit-text-fill-color: #ff6b7d !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__live.is-down strong,
+.ws-fund-watchboard__card .ws-fund-watchboard__confirmed-nav .is-down strong,
+.ws-fund-watchboard__card .ws-fund-watchboard__ratio.is-low,
+.ws-fund-watchboard__card .ws-fund-watchboard__changes .is-positive strong {
+    color: var(--fw-green) !important;
+    -webkit-text-fill-color: var(--fw-green) !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__confirmed-nav {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: center !important;
+    gap: 0.42rem 0.6rem !important;
+    margin: -0.1rem 0 0.55rem !important;
+    padding: 0.5rem 0.65rem !important;
+    border: 1px solid rgba(70, 126, 255, 0.22) !important;
+    background: rgba(3, 12, 30, 0.66) !important;
+    border-radius: 8px !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__confirmed-nav > div {
+    min-width: 0 !important;
+    padding: 0.12rem 0.2rem !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__confirmed-nav small {
+    display: block !important;
+    font-weight: 700 !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__confirmed-nav strong {
+    display: block !important;
+    margin-top: 0.08rem !important;
+    color: #f5f9ff !important;
+    -webkit-text-fill-color: #f5f9ff !important;
+    font-size: 1rem !important;
+    font-weight: bold !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__confirmed-nav > span {
+    display: block !important;
+    grid-column: 1 / -1 !important;
+    overflow: visible !important;
+    padding-top: 0.38rem !important;
+    color: #b8cae2 !important;
+    -webkit-text-fill-color: #b8cae2 !important;
+    border-top: 1px solid rgba(70, 126, 255, 0.14) !important;
+    font-size: 1rem !important;
+    line-height: normal !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    -webkit-box-orient: initial !important;
+    -webkit-line-clamp: unset !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__ratio {
+    margin: 0.82rem 0 0.7rem !important;
+    color: var(--fw-cyan) !important;
+    -webkit-text-fill-color: var(--fw-cyan) !important;
+    font-size: 1.52rem !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__ratio small {
+    display: block !important;
+    margin-bottom: 0.28rem !important;
+    font-weight: 600 !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__card-metrics {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.45rem !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__card-metrics div {
+    min-width: 0 !important;
+    padding: 0.48rem 0.55rem !important;
+    border: 1px solid rgba(70, 126, 255, 0.15) !important;
+    background: rgba(3, 12, 30, 0.58) !important;
+    border-radius: 7px !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__card-metrics label,
+.ws-fund-watchboard__card .ws-fund-watchboard__changes label {
+    display: block !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__card-metrics strong {
+    display: block !important;
+    overflow: hidden !important;
+    margin-top: 0.1rem !important;
+    color: #e9f2ff !important;
+    -webkit-text-fill-color: #e9f2ff !important;
+    font-size: 1rem !important;
+    font-weight: bold !important;
+    line-height: normal !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__changes {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.38rem !important;
+    margin-top: 0.55rem !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__changes strong {
+    display: block !important;
+    margin-top: 0.06rem !important;
+    color: #dce8ff !important;
+    -webkit-text-fill-color: #dce8ff !important;
+    font-size: 1rem !important;
+    font-weight: bold !important;
+    line-height: normal !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__date {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.5rem !important;
+    margin-top: 0.62rem !important;
+    padding-top: 0.52rem !important;
+    color: #b8cae2 !important;
+    -webkit-text-fill-color: #b8cae2 !important;
+    border-top: 1px solid rgba(70, 126, 255, 0.13) !important;
+    font-size: 1rem !important;
+    line-height: normal !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__date span {
+    color: #d9e6f7 !important;
+    -webkit-text-fill-color: #d9e6f7 !important;
+}
+
+.ws-fund-watchboard__card .ws-fund-watchboard__date .is-error {
+    color: #ff9aa8 !important;
+    -webkit-text-fill-color: #ff9aa8 !important;
 }
 """

@@ -334,6 +334,69 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn("background: #FFFFFF !important", css)
         self.assertIn("border-radius: 4px !important", css)
 
+    def test_terminal_overrides_restore_complete_legacy_dark_stock_cards_last(self):
+        css = build_terminal_component_overrides_css()
+        light_palette_index = css.index("/* Fund watchboard: high-contrast neutral palette.")
+        dark_cards_index = css.index(
+            "/* Stock watchlist cards: restore complete legacy dark terminal styling. */"
+        )
+        fund_cards_index = css.index(
+            "/* Fund watchlist cards: restore complete legacy dark terminal styling. */"
+        )
+        dark_cards = css[dark_cards_index:fund_cards_index]
+        white_surface_rules = [
+            rule
+            for rule in css.split("}")
+            if "background: #FFFFFF !important" in rule
+        ]
+
+        self.assertGreater(dark_cards_index, light_palette_index)
+        self.assertTrue(white_surface_rules)
+        self.assertTrue(
+            all(".ws-watchboard-stock-card" not in rule for rule in white_surface_rules)
+        )
+        self.assertIn(
+            "linear-gradient(180deg, rgba(5, 17, 39, 0.93), rgba(2, 9, 24, 0.96))",
+            dark_cards,
+        )
+        self.assertIn("min-height: 104px !important", dark_cards)
+        self.assertIn("padding: 0.42rem 0.46rem !important", dark_cards)
+        self.assertIn("--wb-muted: #93a9ca", dark_cards)
+        self.assertIn("color: #f6fbff !important", dark_cards)
+        self.assertIn("font-weight: 900 !important", dark_cards)
+        self.assertIn("font-size: clamp(1.04rem, 1.55vw, 1.34rem) !important", dark_cards)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr)) !important", dark_cards)
+        self.assertIn("background: #122954 !important", dark_cards)
+        self.assertIn("color: #9db8e6 !important", dark_cards)
+
+    def test_terminal_overrides_restore_complete_legacy_dark_fund_cards_last(self):
+        css = build_terminal_component_overrides_css()
+        light_palette_index = css.index("/* Fund watchboard: high-contrast neutral palette.")
+        dark_cards_index = css.index(
+            "/* Fund watchlist cards: restore complete legacy dark terminal styling. */"
+        )
+        dark_cards = css[dark_cards_index:]
+
+        self.assertGreater(dark_cards_index, light_palette_index)
+        self.assertIn(".ws-fund-watchboard__card {", dark_cards)
+        self.assertIn("--fw-text: #f5f9ff", dark_cards)
+        self.assertIn(
+            "linear-gradient(145deg, rgba(9, 29, 64, 0.96), rgba(3, 13, 32, 0.98))",
+            dark_cards,
+        )
+        self.assertIn(".ws-fund-watchboard__card .ws-fund-watchboard__live", dark_cards)
+        self.assertIn("display: flex !important", dark_cards)
+        self.assertIn("margin: 0.72rem 0 0.55rem !important", dark_cards)
+        self.assertIn("font-size: 1.12rem !important", dark_cards)
+        self.assertIn("background: rgba(3, 12, 30, 0.66) !important", dark_cards)
+        self.assertIn("background: rgba(3, 12, 30, 0.58) !important", dark_cards)
+        self.assertIn("color: #e9f2ff !important", dark_cards)
+        self.assertIn("font-size: 1.52rem !important", dark_cards)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr)) !important", dark_cards)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr)) !important", dark_cards)
+        self.assertIn("overflow: visible !important", dark_cards)
+        self.assertIn("white-space: nowrap !important", dark_cards)
+
     def test_fund_watchboard_final_palette_restates_readable_text_tiers(self):
         css = build_terminal_component_overrides_css()
         final_palette = css[css.rfind("/* Fund watchboard: high-contrast neutral palette.") :]
