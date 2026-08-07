@@ -349,6 +349,99 @@ header {{
     background: var(--ws-color-up);
 }}
 
+.ws-page-loading-mask {{
+    position: fixed;
+    inset: 50px 0 32px var(--ws-sidebar-width);
+    z-index: 997;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ws-sidebar-accent);
+    background: rgba(244, 247, 251, 0.9);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    pointer-events: all;
+}}
+
+.ws-page-loading-mask__indicator {{
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--ws-sidebar-accent);
+    font-family: var(--ws-font-data);
+    font-size: 0.78rem;
+    font-weight: 700;
+}}
+
+.ws-page-loading-mask__indicator img {{
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    filter: brightness(0) saturate(100%) invert(38%) sepia(44%) saturate(1781%) hue-rotate(194deg) brightness(84%) contrast(90%);
+    animation: ws-page-loading-spin 0.85s linear infinite;
+}}
+
+@keyframes ws-page-loading-spin {{
+    to {{ transform: rotate(360deg); }}
+}}
+
+.ws-page-status-bar {{
+    position: fixed;
+    inset: auto 0 0 var(--ws-sidebar-width);
+    z-index: 1000;
+    box-sizing: border-box;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0 1rem;
+    color: var(--ws-sidebar-text);
+    background: #EAF0F7;
+    border-top: 1px solid var(--ws-sidebar-line);
+    font-family: var(--ws-font-data);
+    font-size: 0.7rem;
+    font-weight: 600;
+}}
+
+.ws-page-status-bar__item {{
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.34rem;
+    white-space: nowrap;
+}}
+
+.ws-page-status-bar__item img {{
+    flex: 0 0 13px;
+    width: 13px;
+    height: 13px;
+    margin: 0;
+    opacity: 0.78;
+}}
+
+.ws-page-status-bar__item--healthy {{ color: var(--ws-color-up); }}
+.ws-page-status-bar__item--warning {{ color: var(--ws-color-warn); }}
+
+.ws-page-status-bar__divider {{
+    flex: 0 0 1px;
+    width: 1px;
+    height: 14px;
+    background: var(--ws-sidebar-line);
+}}
+
+.ws-page-status-bar__meta {{
+    min-width: 0;
+    margin-left: auto;
+    overflow: hidden;
+    color: #718096;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}}
+
+@media (prefers-reduced-motion: reduce) {{
+    .ws-page-loading-mask__indicator img {{ animation: none; }}
+}}
+
 .ws-page-intro {{
     margin: 0 0 0.75rem;
     padding: 0 0 0.7rem;
@@ -1154,6 +1247,16 @@ code {{
 
 @media (max-width: 768px) {{
     .ws-terminal-header {{ display: none; }}
+
+    .ws-page-loading-mask {{ inset: 0 0 32px 0; }}
+
+    .ws-page-status-bar {{
+        left: 0;
+        gap: 0.45rem;
+        padding: 0 0.7rem;
+    }}
+
+    .ws-page-status-bar__meta {{ display: none; }}
 
     .main .block-container {{
         max-width: 100%;

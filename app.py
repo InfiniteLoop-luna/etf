@@ -195,6 +195,12 @@ from src.apple_theme import (
     get_apple_theme_tokens,
 )
 from src.financial_icons import install_streamlit_svg_icon_renderer
+from src.page_shell import (
+    PageStatus,
+    build_page_status,
+    build_page_status_bar_html,
+    render_with_page_loading_mask,
+)
 
 from src.ml_stock_train_v1 import (
     DEFAULT_CLASSIFICATION_TARGET,
@@ -7276,7 +7282,7 @@ def render_volume_tab():
 
 
 # 主应用
-def main():
+def _render_application_page() -> PageStatus:
     """主应用逻辑"""
     hydrate_security_jump_from_query_params()
     consume_pending_fund_watchlist_navigation()
@@ -7300,40 +7306,22 @@ def main():
             unsafe_allow_html=True,
         )
 
-    # 显示最后更新时间
+    update_summary = {}
+    funding_freshness = {}
+    refresh_nonce = int(st.session_state.get("data_health_refresh_nonce", 0))
     try:
-        update_summary = load_update_activity_summary_cached(int(st.session_state.get("data_health_refresh_nonce", 0)))
-        update_meta = update_summary.get("last_update") or {}
+        update_summary = load_update_activity_summary_cached(refresh_nonce)
         funding_freshness = update_summary.get("funding_freshness") or {}
-        display_update_date = update_meta.get("effective_update_date") or update_meta.get("update_date") or "未知"
-        display_update_ts = update_meta.get("effective_last_update") or update_meta.get("last_update") or "未知"
-        update_source = update_meta.get("source") or "last_update.json"
-        if iphone_mode:
-            st.caption(f"📅 更新: {display_update_date}")
-        else:
-            st.info(f"📅 数据最后更新: {display_update_date} (记录时间: {display_update_ts} / 来源: {update_source})")
-    except Exception:
-        funding_freshness = {}
+    except Exception as exc:
+        logger.warning("Failed to load page update status: %s", exc)
 
     try:
         if not funding_freshness:
-            funding_freshness = load_funding_freshness_summary_cached(int(st.session_state.get("data_health_refresh_nonce", 0)))
-        freshness_items = funding_freshness.get("items") or []
-        stale_items = [item for item in freshness_items if not item.get("ok")]
-        target_date = funding_freshness.get("target_date") or "-"
-        if not stale_items:
-            if iphone_mode:
-                st.caption(f"✅ 资金链新鲜度正常（目标 {target_date}）")
-            else:
-                st.success(f"✅ 资金链新鲜度正常（目标 {target_date}）")
-        else:
-            stale_text = "、".join(f"{item.get('key')}={item.get('latest_date') or '-'}" for item in stale_items[:6])
-            if iphone_mode:
-                st.caption(f"⚠️ 资金链存在滞后（目标 {target_date}）：{stale_text}")
-            else:
-                st.warning(f"⚠️ 资金链存在滞后（目标 {target_date}）：{stale_text}")
-    except Exception:
-        pass
+            funding_freshness = load_funding_freshness_summary_cached(refresh_nonce)
+    except Exception as exc:
+        logger.warning("Failed to load page funding freshness: %s", exc)
+
+    page_status = build_page_status(update_summary, funding_freshness)
 
     # 处理外部跳转请求（例如从榜单点击跳到个股查询）
     trigger_security_tab_jump_if_needed()
@@ -7518,7 +7506,7 @@ def main():
             else:
                 render_fund_monitor_tab()
 
-        st.stop()
+        return page_status
 
     # ===== 方案B进阶版：desktop sidebar 导航壳层 =====
     selected_module, selected_page = render_desktop_sidebar_navigation()
@@ -7633,6 +7621,17 @@ def main():
     # pass keeps those modules aligned with the shared terminal design system.
     st.markdown(
         f"<style>{build_terminal_component_overrides_css()}</style>",
+        unsafe_allow_html=True,
+    )
+
+    return page_status
+
+
+def main() -> None:
+    page_status = render_with_page_loading_mask(st, _render_application_page)
+
+    st.markdown(
+        build_page_status_bar_html(page_status),
         unsafe_allow_html=True,
     )
 
