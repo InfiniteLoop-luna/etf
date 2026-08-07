@@ -5,6 +5,7 @@ from pathlib import Path
 
 from src.apple_theme import (
     APPLE_THEME_TOKENS,
+    SYSTEM_FONT_FAMILY,
     build_apple_plotly_template,
     build_author_tracker_apple_css,
     build_global_apple_theme_css,
@@ -57,6 +58,24 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn('[data-testid="stSidebar"]', css)
         self.assertIn('[data-testid="stDataFrame"]', css)
         self.assertIn(".stMetric", css)
+
+    def test_global_theme_uses_system_font_stack(self):
+        css = build_global_apple_theme_css()
+        expected = '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif'
+
+        self.assertEqual(SYSTEM_FONT_FAMILY, expected)
+        self.assertIn(f"--ws-font-sans: {expected}", css)
+        self.assertIn(f"--ws-font-heading: {expected}", css)
+        self.assertIn('input,\ntextarea,\nselect,', css)
+        self.assertIn('font-family: var(--ws-font-sans) !important', css)
+
+        standalone_renderers = (
+            Path("src/lhb_board_component/index.html"),
+            Path("src/stock_analysis_template_report.py"),
+            Path("src/stock_research_html_renderer.py"),
+        )
+        for path in standalone_renderers:
+            self.assertIn(expected, path.read_text(encoding="utf-8", errors="ignore"))
 
     def test_build_global_apple_theme_css_includes_primary_interaction_selectors(self):
         css = build_global_apple_theme_css()
@@ -132,6 +151,8 @@ class TrackerUiPayloadTests(unittest.TestCase):
     def test_build_apple_plotly_template_uses_terminal_palette(self):
         template = build_apple_plotly_template()
 
+        self.assertEqual(template.layout.font.family, SYSTEM_FONT_FAMILY)
+        self.assertEqual(template.layout.title.font.family, SYSTEM_FONT_FAMILY)
         self.assertEqual(template.layout.paper_bgcolor, "#FFFFFF")
         self.assertEqual(template.layout.plot_bgcolor, "#FFFFFF")
         self.assertEqual(template.layout.colorway[0], "#0F69FF")
@@ -149,6 +170,7 @@ class TrackerUiPayloadTests(unittest.TestCase):
     def test_app_py_no_longer_uses_legacy_cold_blue_theme_literals(self):
         app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 
+        self.assertNotIn("Inter, PingFang SC, sans-serif", app_source)
         self.assertNotIn("rgba(248, 250, 252, 0.92)", app_source)
         self.assertNotIn("rgba(241, 245, 249, 0.58)", app_source)
         self.assertNotIn("rgba(236, 241, 247, 0.84)", app_source)

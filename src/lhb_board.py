@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from src.apple_theme import SYSTEM_FONT_FAMILY
 from src.lhb_monitor import prepare_lhb_inst_frame, prepare_lhb_top_list_frame
 
 
@@ -458,7 +459,7 @@ def create_lhb_today_treemap_figure(
         plot_bgcolor=palette["plot"],
         margin=dict(l=0, r=0, t=8, b=0),
         height=560,
-        font=dict(family="Inter, PingFang SC, Microsoft YaHei, sans-serif", color=palette["text"], size=13),
+        font=dict(family=SYSTEM_FONT_FAMILY, color=palette["text"], size=13),
         uniformtext=dict(minsize=10, mode="hide"),
     )
     return fig

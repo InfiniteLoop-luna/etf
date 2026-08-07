@@ -188,6 +188,7 @@ from src.ml_reco_candidate_scores import (
 )
 from src.apple_theme import (
     APPLE_THEME_TOKENS,
+    SYSTEM_FONT_FAMILY,
     build_apple_plotly_template,
     build_author_tracker_apple_css,
     build_global_apple_theme_css,
@@ -4753,7 +4754,7 @@ def render_single_stock_hotmoney_tracker(latest_dt):
             template="wealthspark_balanced",
             paper_bgcolor=CHART_PAPER_BG,
             plot_bgcolor=CHART_BG,
-            font=dict(family="Inter, PingFang SC, sans-serif"),
+            font=dict(family=SYSTEM_FONT_FAMILY),
             height=360,
             margin=dict(l=45, r=45, t=55, b=45),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
@@ -4806,7 +4807,7 @@ def render_single_stock_hotmoney_tracker(latest_dt):
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=360,
                 margin=dict(l=45, r=25, t=55, b=45),
                 xaxis_title="",
@@ -4846,7 +4847,7 @@ def render_single_stock_hotmoney_tracker(latest_dt):
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=max(360, len(pivot) * 28),
                 margin=dict(l=150, r=25, t=55, b=55),
                 xaxis_title="",
@@ -4877,7 +4878,7 @@ def render_single_stock_hotmoney_tracker(latest_dt):
             template="wealthspark_balanced",
             paper_bgcolor=CHART_PAPER_BG,
             plot_bgcolor=CHART_BG,
-            font=dict(family="Inter, PingFang SC, sans-serif"),
+            font=dict(family=SYSTEM_FONT_FAMILY),
             height=max(330, len(plot_actor) * 28),
             margin=dict(l=145, r=55, t=55, b=30),
             xaxis_title="净买卖(亿)",
@@ -4902,7 +4903,7 @@ def render_single_stock_hotmoney_tracker(latest_dt):
             template="wealthspark_balanced",
             paper_bgcolor=CHART_PAPER_BG,
             plot_bgcolor=CHART_BG,
-            font=dict(family="Inter, PingFang SC, sans-serif"),
+            font=dict(family=SYSTEM_FONT_FAMILY),
             height=320,
             margin=dict(l=45, r=35, t=55, b=45),
             xaxis_title="",
@@ -5424,7 +5425,7 @@ def render_lhb_monitor_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=390,
                 margin=dict(l=45, r=25, t=55, b=45),
                 xaxis_title="",
@@ -5452,7 +5453,7 @@ def render_lhb_monitor_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     height=max(390, len(reason_plot) * 28),
                     margin=dict(l=150, r=35, t=55, b=30),
                     xaxis_title="次数",
@@ -5517,7 +5518,7 @@ def render_lhb_monitor_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=max(380, len(plot_df) * 28),
                 margin=dict(l=150, r=55, t=55, b=35),
                 xaxis_title="合计净买入(亿)",
@@ -5600,7 +5601,7 @@ def render_lhb_monitor_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     height=330,
                     margin=dict(l=45, r=25, t=55, b=45),
                     yaxis_title="亿元",
@@ -5655,7 +5656,7 @@ def render_lhb_monitor_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=max(360, len(plot_inst) * 28),
                 margin=dict(l=150, r=55, t=55, b=35),
                 xaxis_title="净买入(亿)",
@@ -6640,7 +6641,7 @@ def create_metric_line_chart(
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     apply_time_series_hover_affordance(fig, chart_df[x_col], chart_df[y_col])
@@ -6687,7 +6688,7 @@ def create_financial_bar_chart(
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     fig.update_xaxes(showgrid=False)
@@ -6871,7 +6872,7 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     if fig.data:
@@ -7082,7 +7083,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=VOLUME_STACKED_HOVER_RIGHT_MARGIN, t=60, b=20)
     )
 
@@ -7200,7 +7201,7 @@ def create_volume_total_line(df: pd.DataFrame) -> go.Figure:
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     apply_time_series_hover_affordance(fig, daily_total['trade_date'], daily_total['amount'])
@@ -8983,7 +8984,7 @@ def render_hotmoney_tab():
             template="wealthspark_balanced",
             paper_bgcolor=CHART_PAPER_BG,
             plot_bgcolor=CHART_BG,
-            font=dict(family="Inter, PingFang SC, sans-serif"),
+            font=dict(family=SYSTEM_FONT_FAMILY),
             height=max(340, len(show) * 20),
             margin=dict(l=120, r=30, t=55, b=20),
             yaxis=dict(autorange="reversed"),
@@ -9056,7 +9057,7 @@ def render_hotmoney_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=max(340, len(show) * 20),
                 margin=dict(l=120, r=30, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -9109,7 +9110,7 @@ def render_hotmoney_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=max(340, len(show) * 20),
                 margin=dict(l=120, r=30, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -9217,7 +9218,7 @@ def render_hotmoney_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=max(340, len(plot_df) * 24),
                 margin=dict(l=140, r=55, t=55, b=30),
                 xaxis_title="净买卖绝对额合计(亿)",
@@ -9291,7 +9292,7 @@ def render_hotmoney_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         height=330,
                         margin=dict(l=45, r=25, t=55, b=45),
                         yaxis_title="净买卖(亿)",
@@ -9340,7 +9341,7 @@ def render_hotmoney_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         height=max(330, len(pivot) * 28),
                         margin=dict(l=100, r=25, t=55, b=45),
                         xaxis_title="",
@@ -9452,7 +9453,7 @@ def render_limitup_monitor_tab():
         template="wealthspark_balanced",
         paper_bgcolor=CHART_PAPER_BG,
         plot_bgcolor=CHART_BG,
-        font=dict(family="Inter, PingFang SC, sans-serif"),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         height=360,
         margin=dict(l=30, r=30, t=55, b=30),
         xaxis_title="日期",
@@ -9523,7 +9524,7 @@ def render_limitup_monitor_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     height=300,
                     margin=dict(l=25, r=25, t=50, b=25),
                     xaxis_title="标签",
@@ -9564,7 +9565,7 @@ def render_limitup_monitor_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     height=300,
                     margin=dict(l=25, r=25, t=50, b=25),
                     xaxis_title="出现次数",
@@ -9901,7 +9902,7 @@ def render_factor_workbench_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     height=360,
                     xaxis_title="股票",
                     yaxis_title="总分",
@@ -11315,7 +11316,7 @@ def create_change_curve_chart(
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.25,
             xanchor='center', x=0.5,
@@ -11429,7 +11430,7 @@ def create_change_bar_chart(
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.25,
             xanchor='center', x=0.5,
@@ -11511,7 +11512,7 @@ def create_macro_line_chart(
         template="wealthspark_balanced",
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family="Inter, PingFang SC, sans-serif"),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         legend=dict(
             orientation="h", yanchor="bottom", y=-0.25,
             xanchor="center", x=0.5,
@@ -11774,7 +11775,7 @@ def render_etf_trend_tab():
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     apply_time_series_hover_affordance(fig, chart_data['trade_date'], chart_data[metric_col])
@@ -11943,7 +11944,7 @@ def _render_top10_shareholder_panel(top10_holders, top10_floatholders, stock_tit
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=140, r=40, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
             )
@@ -11995,7 +11996,7 @@ def _render_top10_shareholder_panel(top10_holders, top10_floatholders, stock_tit
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=140, r=40, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
             )
@@ -12116,7 +12117,7 @@ def _render_security_fund_holding_panel(selected_code: str, title_name: str, per
             template="wealthspark_balanced",
             paper_bgcolor=CHART_PAPER_BG,
             plot_bgcolor=CHART_BG,
-            font=dict(family="Inter, PingFang SC, sans-serif"),
+            font=dict(family=SYSTEM_FONT_FAMILY),
             margin=dict(l=120, r=40, t=55, b=20),
             yaxis=dict(autorange="reversed"),
         )
@@ -14683,7 +14684,7 @@ def render_security_search_tab():
                         template='plotly_white',
                         plot_bgcolor=CHART_BG,
                         paper_bgcolor=CHART_PAPER_BG,
-                        font=dict(family='Inter, PingFang SC, sans-serif'),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         margin=dict(l=20, r=20, t=55, b=20),
                         legend=dict(
                             orientation='h', yanchor='bottom', y=1.02,
@@ -15158,7 +15159,7 @@ def render_security_search_tab():
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     apply_time_series_hover_affordance(fig, chart_df['trade_date'], chart_df['metric_value'])
@@ -15750,7 +15751,7 @@ def render_wide_index_tab():
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.28,
             xanchor='center', x=0.5,
@@ -16023,7 +16024,7 @@ def render_industry_etf_tab():
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.28,
             xanchor='center', x=0.5,
@@ -19083,7 +19084,7 @@ def render_fund_hot_stocks_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=120, r=40, t=60, b=20),
                 yaxis=dict(autorange="reversed"),
             )
@@ -19322,7 +19323,7 @@ def render_fund_hot_stocks_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=120, r=40, t=60, b=20),
                 yaxis=dict(autorange="reversed"),
             )
@@ -19382,7 +19383,7 @@ def render_fund_hot_stocks_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     margin=dict(l=120, r=40, t=55, b=20),
                     yaxis=dict(autorange="reversed"),
                 )
@@ -19443,7 +19444,7 @@ def render_fund_hot_stocks_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     height=420,
                     margin=dict(l=50, r=50, t=55, b=30),
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
@@ -19694,7 +19695,7 @@ def render_fund_hot_stocks_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=120, r=40, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
             )
@@ -19858,7 +19859,7 @@ def render_moneyflow_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=100, r=60, t=60, b=20),
                 yaxis=dict(autorange="reversed"),
             )
@@ -20058,7 +20059,7 @@ def render_moneyflow_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=20, r=20, t=60, b=20),
                 legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
             )
@@ -20098,7 +20099,7 @@ def render_moneyflow_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     margin=dict(l=20, r=20, t=60, b=20),
                     hovermode="x unified",
                     legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
@@ -20154,7 +20155,7 @@ def render_moneyflow_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         margin=dict(l=20, r=20, t=60, b=20),
                     )
                     apply_time_series_hover_affordance(fig_ths, _ths["trade_date"], _ths["net_amount"])
@@ -20197,7 +20198,7 @@ def render_moneyflow_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         margin=dict(l=20, r=20, t=60, b=20),
                     )
                     apply_time_series_hover_affordance(fig_dc, _dc["trade_date"], _dc["net_amount"])
@@ -20267,7 +20268,7 @@ def render_moneyflow_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=20, r=20, t=60, b=20),
             )
             st.plotly_chart(fig_scatter, use_container_width=True)
@@ -20385,7 +20386,7 @@ def render_moneyflow_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         height=560,
                         margin=dict(l=30, r=30, t=60, b=30),
                         xaxis_title="净流入（亿元）",
@@ -20473,7 +20474,7 @@ def render_moneyflow_tab():
                             template="wealthspark_balanced",
                             paper_bgcolor=CHART_PAPER_BG,
                             plot_bgcolor=CHART_BG,
-                            font=dict(family="Inter, PingFang SC, sans-serif"),
+                            font=dict(family=SYSTEM_FONT_FAMILY),
                             height=720,
                             margin=dict(l=30, r=260, t=80, b=30),
                             xaxis_title="日期",
@@ -20543,7 +20544,7 @@ def render_moneyflow_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         margin=dict(l=20, r=20, t=50, b=20),
                         yaxis=dict(autorange="reversed"),
                     )
@@ -20586,7 +20587,7 @@ def render_moneyflow_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         margin=dict(l=20, r=20, t=50, b=20),
                         yaxis=dict(autorange="reversed"),
                     )
@@ -20688,7 +20689,7 @@ def render_moneyflow_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     margin=dict(l=20, r=20, t=60, b=20),
                     legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
                 )
@@ -20725,7 +20726,7 @@ def render_moneyflow_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         margin=dict(l=20, r=20, t=60, b=20),
                         hovermode="x unified",
                         legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),

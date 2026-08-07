@@ -3,6 +3,9 @@ from __future__ import annotations
 import plotly.graph_objects as go
 
 
+SYSTEM_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif'
+
+
 # Public names remain unchanged because the application and tests import them.
 # The values follow the Apple design language from the supplied DESIGN.md while
 # keeping enough contrast and density for a financial operations dashboard.
@@ -52,7 +55,7 @@ def get_apple_theme_tokens(overrides: dict | None = None) -> dict:
 
 def build_apple_plotly_template() -> go.layout.Template:
     tokens = get_apple_theme_tokens()
-    font_family = "'SF Pro Text', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif"
+    font_family = SYSTEM_FONT_FAMILY
     data_family = "'SF Mono', ui-monospace, 'Cascadia Code', Consolas, monospace"
     axis_style = {
         "showline": True,
@@ -73,7 +76,7 @@ def build_apple_plotly_template() -> go.layout.Template:
             title={
                 "font": {
                     "color": tokens["text_main"],
-                    "family": "'SF Pro Display', 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif",
+                    "family": SYSTEM_FONT_FAMILY,
                     "size": 17,
                 }
             },
@@ -215,8 +218,8 @@ def build_global_apple_theme_css() -> str:
     --ws-radius-lg: {tokens["radius_lg"]};
     --ws-radius-md: {tokens["radius_md"]};
     --ws-radius-sm: {tokens["radius_sm"]};
-    --ws-font-sans: "SF Pro Text", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-    --ws-font-heading: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --ws-font-sans: {SYSTEM_FONT_FAMILY};
+    --ws-font-heading: {SYSTEM_FONT_FAMILY};
     --ws-font-data: "SF Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
     --ws-sidebar-width: 216px;
     --ws-sidebar-row-height: 34px;
@@ -242,6 +245,19 @@ body,
     font-weight: 400;
     line-height: 1.42;
     letter-spacing: 0;
+}}
+
+button,
+input,
+textarea,
+select,
+label,
+[role="option"],
+[role="tab"],
+[data-baseweb="select"],
+[data-baseweb="input"],
+[data-baseweb="textarea"] {{
+    font-family: var(--ws-font-sans) !important;
 }}
 
 img[src*="/app/static/icons/"],
