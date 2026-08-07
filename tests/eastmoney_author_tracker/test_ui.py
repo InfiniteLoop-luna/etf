@@ -137,6 +137,21 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn('[class*="-expanded"] button', css)
         self.assertIn('[class*="-active"] button', css)
 
+    def test_sidebar_keeps_header_and_footer_fixed_while_middle_scrolls(self):
+        css = build_global_apple_theme_css()
+        app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertIn('key="ws-sidebar-header"', app_source)
+        self.assertIn('key="ws-sidebar-middle"', app_source)
+        self.assertIn('key="ws-sidebar-footer"', app_source)
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr) auto !important", css)
+        self.assertIn('[class*="st-key-ws-sidebar-middle"]', css)
+        self.assertIn("overflow-y: auto !important", css)
+        self.assertIn('[class*="st-key-ws-sidebar-footer"]', css)
+        self.assertIn('[data-testid="stSidebar"] [data-testid="stSidebarHeader"]', css)
+        self.assertIn("position: absolute !important", css)
+        self.assertIn("pointer-events: auto", css)
+
     def test_build_global_apple_theme_css_includes_strong_legacy_overrides(self):
         css = build_global_apple_theme_css()
 

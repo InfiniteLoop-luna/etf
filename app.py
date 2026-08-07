@@ -4015,7 +4015,8 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
     record_recent_visit(st.session_state, selected_module.id, selected_page.id)
     recent_visits = get_recent_visits(st.session_state)
 
-    st.sidebar.markdown(
+    sidebar_header = st.sidebar.container(key="ws-sidebar-header")
+    sidebar_header.markdown(
         """
         <div class="ws-sidebar-brand">
             <span class="ws-sidebar-brand-kicker">W</span>
@@ -4027,6 +4028,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
     )
 
     with st.sidebar:
+        sidebar_middle = st.container(key="ws-sidebar-middle")
         _consume_pending_sidebar_search_reset()
         current_username = get_logged_in_username()
         if current_username:
@@ -4036,7 +4038,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
             except Exception:
                 favorite_df = pd.DataFrame()
             if favorite_df is not None and not favorite_df.empty:
-                st.markdown(
+                sidebar_middle.markdown(
                     """
                     <div class="ws-sidebar-block">
                         <div class="ws-sidebar-block-title">My Favorite</div>
@@ -4044,7 +4046,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                     """,
                     unsafe_allow_html=True,
                 )
-                with st.container(key="ws-sidebar-favorite-list"):
+                with sidebar_middle.container(key="ws-sidebar-favorite-list"):
                     for fav_index, fav in enumerate(favorite_df.head(6).to_dict("records")):
                         label = str(fav.get("page_label") or "").strip() or str(fav.get("page_id") or "")
                         if st.button(
@@ -4055,7 +4057,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                             _navigate_any_mode_to(str(fav.get("module_id") or ""), str(fav.get("page_id") or ""))
                             st.rerun()
 
-        st.markdown(
+        sidebar_middle.markdown(
             """
             <div class="ws-sidebar-block">
                 <div class="ws-sidebar-block-title">导航目录</div>
@@ -4063,14 +4065,14 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
             """,
             unsafe_allow_html=True,
         )
-        search_query = st.text_input(
+        search_query = sidebar_middle.text_input(
             "搜索页面",
             key="sidebar_search_query",
             placeholder="搜索模块、页面或描述…",
             label_visibility="collapsed",
         ).strip()
 
-        with st.container(key="ws-sidebar-tree"):
+        with sidebar_middle.container(key="ws-sidebar-tree"):
             if search_query:
                 search_results = search_sidebar_pages(search_query)
                 if search_results:
@@ -4148,7 +4150,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                         ):
                             _navigate_desktop_sidebar_to(module.id, page.id)
                             st.rerun()
-        st.markdown(
+        sidebar_middle.markdown(
             """
             <div class="ws-sidebar-block">
                 <div class="ws-sidebar-block-title">最近访问</div>
@@ -4157,7 +4159,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
             unsafe_allow_html=True,
         )
         if recent_visits:
-            with st.container(key="ws-sidebar-recent-list"):
+            with sidebar_middle.container(key="ws-sidebar-recent-list"):
                 for recent_index, recent_item in enumerate(recent_visits):
                     if st.button(
                         f'{recent_item["module_label"]} / {recent_item["page_label"]}',
@@ -4171,20 +4173,21 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                         )
                         st.rerun()
         else:
-            st.markdown(
+            sidebar_middle.markdown(
                 '<span class="ws-sidebar-empty">最近访问会显示在这里。</span>',
                 unsafe_allow_html=True,
             )
 
-        st.markdown(
-            """
-            <div class="ws-sidebar-block ws-sidebar-block--account">
-                <div class="ws-sidebar-block-title">账户</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        render_user_session_menu("desktop")
+        with st.container(key="ws-sidebar-footer"):
+            st.markdown(
+                """
+                <div class="ws-sidebar-block ws-sidebar-block--account">
+                    <div class="ws-sidebar-block-title">账户</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            render_user_session_menu("desktop")
 
     return selected_module.label, selected_page.label
 

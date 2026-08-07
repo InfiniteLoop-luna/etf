@@ -1496,6 +1496,110 @@ button[kind="primary"],
     border-bottom: 1px solid var(--ws-sidebar-line);
 }}
 
+/* Keep the shell ends fixed while the navigation body scrolls independently. */
+[data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+}}
+
+[data-testid="stSidebar"] [data-testid="stSidebarHeader"] {{
+    position: absolute !important;
+    inset: 0 0 auto 0 !important;
+    z-index: 1004 !important;
+    display: block !important;
+    width: 100% !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    pointer-events: none;
+}}
+
+[data-testid="stSidebar"] [data-testid="stSidebarHeader"] [data-testid="stLogoSpacer"] {{
+    display: none !important;
+}}
+
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] {{
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto;
+}}
+
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"] {{
+    visibility: visible !important;
+    opacity: 1 !important;
+}}
+
+[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {{
+    height: 100% !important;
+    min-height: 0 !important;
+    padding-bottom: 0 !important;
+    overflow: hidden !important;
+}}
+
+[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] > div {{
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+}}
+
+[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] > div > [data-testid="stVerticalBlock"] {{
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) auto !important;
+    gap: 0 !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+}}
+
+[data-testid="stSidebar"] [data-testid="stLayoutWrapper"]:has(> [class*="st-key-ws-sidebar-header"]),
+[data-testid="stSidebar"] [data-testid="stLayoutWrapper"]:has(> [class*="st-key-ws-sidebar-footer"]) {{
+    min-height: 0 !important;
+    overflow: visible !important;
+}}
+
+[data-testid="stSidebar"] [data-testid="stLayoutWrapper"]:has(> [class*="st-key-ws-sidebar-middle"]) {{
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-header"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-middle"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-footer"] {{
+    min-height: 0 !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-header"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-footer"] {{
+    gap: 0 !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-middle"] {{
+    height: 100% !important;
+    gap: 0 !important;
+    padding-right: 0.2rem;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-footer"] {{
+    padding-top: 0.65rem;
+    background: var(--ws-sidebar-bg);
+    border-top: 1px solid var(--ws-sidebar-line);
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-footer"] .ws-sidebar-block--account {{
+    margin: 0 0 0.35rem;
+    padding: 0 0.35rem;
+    border-top: 0;
+}}
+
 [data-testid="stSidebar"] .ws-sidebar-brand-kicker {{
     width: 32px;
     height: 32px;
@@ -1575,6 +1679,17 @@ button[kind="primary"],
     transform: translateX(0) !important;
     background: var(--ws-sidebar-bg) !important;
     border-right: 1px solid var(--ws-sidebar-line) !important;
+}}
+
+[data-testid="stSidebar"][aria-expanded="false"] [data-testid="stSidebarCollapseButton"] {{
+    position: fixed !important;
+    top: 8px !important;
+    right: auto !important;
+    left: 8px !important;
+}}
+
+[data-testid="stSidebar"][aria-expanded="false"] [data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"] {{
+    transform: rotate(180deg);
 }}
 
 [data-testid="stSidebar"][aria-expanded="false"] > div:first-child,
