@@ -180,6 +180,8 @@ class TrackerUiPayloadTests(unittest.TestCase):
         css = build_global_apple_theme_css()
         app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
         brand_rule = css[css.rfind('[data-testid="stSidebar"] .ws-sidebar-brand {') :]
+        subtitle_rule = brand_rule[brand_rule.find('[data-testid="stSidebar"] .ws-sidebar-brand p {') :]
+        subtitle_rule = subtitle_rule[: subtitle_rule.find("\n}") + 2]
 
         self.assertIn('<div class="ws-sidebar-brand-main">', app_source)
         self.assertIn("flex-direction: column", brand_rule)
@@ -188,6 +190,12 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn('[data-testid="stSidebar"] .ws-sidebar-brand-main {', brand_rule)
         self.assertIn("min-height: 32px", brand_rule)
         self.assertIn("width: 100%", brand_rule)
+        self.assertIn("display: flex", subtitle_rule)
+        self.assertIn("align-items: center", subtitle_rule)
+        self.assertIn("font-size: 14px", subtitle_rule)
+        self.assertIn("font-style: italic", subtitle_rule)
+        self.assertIn("transform: scale(0.86)", subtitle_rule)
+        self.assertIn("transform-origin: left center", subtitle_rule)
         self.assertIn("padding: 0 !important", brand_rule)
         self.assertIn("white-space: nowrap", brand_rule)
         self.assertIn("text-transform: none", brand_rule)

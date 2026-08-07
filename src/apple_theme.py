@@ -1735,19 +1735,23 @@ button[kind="primary"],
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-brand p {{
-    display: block;
+    display: flex;
+    align-items: center;
     flex: 0 0 20px;
-    align-self: start;
+    align-self: stretch;
     box-sizing: border-box;
-    width: 100%;
+    width: calc(100% / 0.86);
     min-width: 0;
     margin: 0 !important;
     padding: 0 !important;
     color: var(--ws-text-muted) !important;
     font-family: var(--ws-font-sans);
     font-size: 14px;
-    font-weight: 600;
-    line-height: 20px;
+    font-style: italic;
+    font-weight: 500;
+    line-height: 1;
+    transform: scale(0.86);
+    transform-origin: left center;
     letter-spacing: 0;
     text-transform: none;
     white-space: nowrap;
