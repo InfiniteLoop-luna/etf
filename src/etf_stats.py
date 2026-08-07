@@ -1703,8 +1703,8 @@ def get_stock_kline_timeseries(ts_code: str, start_date: str = None, end_date: s
             w.m_close,
             w.m_vol,
             w.m_amount,
-            w.pct_chg AS w_pct_chg,
-            w.pct_chg AS m_pct_chg
+            NULL::double precision AS w_pct_chg,
+            NULL::double precision AS m_pct_chg
         FROM {STOCK_PRICE_DAILY_VIEW} d
         LEFT JOIN {STOCK_WEEK_MONTH_ADJ_VIEW} w
           ON d.ts_code = w.ts_code
