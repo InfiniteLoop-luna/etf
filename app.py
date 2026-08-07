@@ -6150,15 +6150,23 @@ def create_security_kline_chart(
             adj_return_col = candidate
             break
 
+    pct_series = None
     if adj_return_col in chart_df.columns:
         if adj_return_col == 'change' and close_col in chart_df.columns:
             prev_close = pd.to_numeric(chart_df[close_col], errors='coerce').shift(1)
             pct_series = (pd.to_numeric(chart_df['change'], errors='coerce') / prev_close.replace(0, np.nan)) * 100.0
-            chart_df['hover_pct_text'] = pct_series.map(lambda v: f"{float(v):+.2f}%" if pd.notna(v) else '-')
         else:
-            chart_df['hover_pct_text'] = pd.to_numeric(chart_df[adj_return_col], errors='coerce').map(lambda v: f"{float(v):+.2f}%" if pd.notna(v) else '-')
+            pct_series = pd.to_numeric(chart_df[adj_return_col], errors='coerce')
+
+    chart_df['hover_pct_text'] = pct_series.map(lambda v: f"{float(v):+.2f}%" if pd.notna(v) else '-') if pct_series is not None else '-'
+    if 'change' in chart_df.columns:
+        chart_df['hover_change_text'] = pd.to_numeric(chart_df['change'], errors='coerce').map(lambda v: f"{float(v):+.2f}" if pd.notna(v) else '-')
+    elif pct_series is not None and close_col in chart_df.columns:
+        prev_close = pd.to_numeric(chart_df[close_col], errors='coerce').shift(1)
+        inferred_change = prev_close * pct_series / 100.0
+        chart_df['hover_change_text'] = inferred_change.map(lambda v: f"{float(v):+.2f}" if pd.notna(v) else '-')
     else:
-        chart_df['hover_pct_text'] = '-'
+        chart_df['hover_change_text'] = '-'
 
     trade_dates = chart_df["trade_date"].dt.strftime("%Y-%m-%d").tolist()
     selected_trade_date = str(selected_trade_date or "").strip()
@@ -6201,14 +6209,15 @@ def create_security_kline_chart(
             high=high_values,
             low=low_values,
             close=close_values,
-            customdata=chart_df[["hover_pct_text"]],
+            customdata=chart_df[["hover_pct_text", "hover_change_text"]],
             hovertemplate=(
                 "%{x|%Y-%m-%d}"
                 "<br>开: %{open:,.2f}"
                 "<br>高: %{high:,.2f}"
                 "<br>低: %{low:,.2f}"
                 "<br>收: %{close:,.2f}"
-                "<br>涨幅: %{customdata[0]}"
+                "<br>涨跌额: %{customdata[1]}"
+                "<br>涨跌幅: %{customdata[0]}"
                 "<extra></extra>"
             ),
             increasing_line_color=THEME_UP,
