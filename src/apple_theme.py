@@ -610,6 +610,27 @@ button[aria-label="Close sidebar"] {{
     text-transform: uppercase;
 }}
 
+[data-testid="stSidebar"] .ws-sidebar-block--account {{
+    margin-top: 1rem;
+    padding-top: 0.7rem;
+    border-top: 1px solid var(--ws-sidebar-line);
+}}
+
+[class*="st-key-user-session-menu-"] button {{
+    min-height: var(--ws-sidebar-row-height);
+    justify-content: flex-start !important;
+    color: var(--ws-sidebar-text) !important;
+    background: transparent !important;
+    border: 1px solid var(--ws-sidebar-line) !important;
+    border-radius: var(--ws-radius-sm) !important;
+    box-shadow: none !important;
+}}
+
+[class*="st-key-user-session-menu-"] button:hover {{
+    color: var(--ws-sidebar-accent-hover) !important;
+    background: var(--ws-sidebar-hover-bg) !important;
+}}
+
 [data-testid="stSidebar"] .ws-sidebar-block-copy,
 [data-testid="stSidebar"] .ws-sidebar-page-description,
 [data-testid="stSidebar"] .ws-sidebar-search-result-meta,
@@ -1231,6 +1252,55 @@ div[data-testid="stExpanderDetails"] {{
     border: 1px solid var(--ws-border-soft) !important;
     border-radius: var(--ws-radius-md) !important;
     box-shadow: var(--ws-shadow-hover) !important;
+}}
+
+.ws-login-dialog-intro {{
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: center;
+    margin: 0 0 1rem;
+    padding: 0.85rem;
+    background: var(--ws-sidebar-bg);
+    border: 1px solid var(--ws-sidebar-line);
+    border-radius: var(--ws-radius-md);
+}}
+
+.ws-login-dialog-intro img {{
+    width: 38px;
+    height: 38px;
+    margin: 0;
+    padding: 8px;
+    box-sizing: border-box;
+    background: var(--ws-sidebar-active-bg);
+    border-radius: 50%;
+    filter: brightness(0) saturate(100%) invert(38%) sepia(44%) saturate(1781%) hue-rotate(194deg) brightness(84%) contrast(90%);
+}}
+
+.ws-login-dialog-intro strong,
+.ws-login-dialog-intro span {{
+    display: block;
+    letter-spacing: 0;
+}}
+
+.ws-login-dialog-intro strong {{
+    color: var(--ws-text-main);
+    font-size: 0.9rem;
+    font-weight: 700;
+}}
+
+.ws-login-dialog-intro span {{
+    margin-top: 0.18rem;
+    color: var(--ws-text-muted);
+    font-size: 0.76rem;
+    line-height: 1.4;
+}}
+
+[class*="st-key-ws-user-storage-bridge"] {{
+    height: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
 }}
 
 hr {{ border-color: var(--ws-border-soft) !important; }}

@@ -201,6 +201,10 @@ from src.page_shell import (
     build_page_status_bar_html,
     render_with_page_loading_mask,
 )
+from src.browser_user_storage import (
+    parse_browser_storage_result,
+    render_browser_user_storage,
+)
 
 from src.ml_stock_train_v1 import (
     DEFAULT_CLASSIFICATION_TARGET,
@@ -2180,40 +2184,14 @@ def clear_pro_access() -> None:
 
 
 def get_logged_in_username() -> str:
-    session_username = normalize_username(st.session_state.get("logged_in_username", ""))
-    if session_username:
-        return session_username
-    return normalize_username(get_query_param_value("app_user").strip())
+    return normalize_username(st.session_state.get("logged_in_username", ""))
 
 
 def is_user_logged_in() -> bool:
     return bool(get_logged_in_username())
 
 
-def login_app_user(username: str) -> bool:
-    normalized_username = normalize_username(username)
-    st.session_state["logged_in_username"] = normalized_username
-    try:
-        if normalized_username:
-            st.query_params["app_user"] = normalized_username
-        elif "app_user" in st.query_params:
-            del st.query_params["app_user"]
-    except Exception:
-        pass
-    
-    if normalized_username:
-        try:
-            engine = get_security_intraday_engine_cached()
-            if engine is not None:
-                preload_watchlist_reports_bg(normalized_username, engine)
-        except Exception as e:
-            logger.warning(f"Failed to start preload background task: {e}")
-            
-    return bool(normalized_username)
-
-
-def logout_app_user() -> None:
-    st.session_state["logged_in_username"] = ""
+def _clear_legacy_user_query_param() -> None:
     try:
         if "app_user" in st.query_params:
             del st.query_params["app_user"]
@@ -2221,32 +2199,166 @@ def logout_app_user() -> None:
         pass
 
 
+def _queue_browser_username_sync(action: str, username: str = "") -> None:
+    request_number = int(st.session_state.get("user_storage_request_number", 0)) + 1
+    session_id = st.session_state.setdefault(
+        "user_storage_session_id",
+        str(time.time_ns()),
+    )
+    st.session_state["user_storage_request_number"] = request_number
+    st.session_state["pending_user_storage_action"] = {
+        "action": action,
+        "request_id": f"user-storage-{session_id}-{request_number}",
+        "username": str(username or ""),
+    }
+
+
+def _preload_user_workspace_bg(username: str) -> None:
+    if not username:
+        return
+    try:
+        engine = get_security_intraday_engine_cached()
+        if engine is not None:
+            preload_watchlist_reports_bg(username, engine)
+    except Exception as exc:
+        logger.warning("Failed to start preload background task: %s", exc)
+
+
+def sync_logged_in_username_from_browser() -> None:
+    if not st.session_state.get("user_storage_hydrated", False):
+        action = "read"
+        session_id = st.session_state.setdefault(
+            "user_storage_session_id",
+            str(time.time_ns()),
+        )
+        request_id = f"hydrate-user-storage-{session_id}"
+        payload = render_browser_user_storage(action=action, request_id=request_id)
+        result = parse_browser_storage_result(
+            payload,
+            expected_action=action,
+            expected_request_id=request_id,
+        )
+        if result is None:
+            st.stop()
+
+        stored_username = normalize_username(result.username) if result.ok else ""
+        st.session_state["logged_in_username"] = stored_username
+        st.session_state["user_storage_hydrated"] = True
+        st.session_state["user_storage_error"] = result.error if not result.ok else ""
+        _clear_legacy_user_query_param()
+        _preload_user_workspace_bg(stored_username)
+
+        if result.ok and result.username and result.username != stored_username:
+            _queue_browser_username_sync("write", stored_username)
+        st.rerun()
+
+    pending_action = st.session_state.get("pending_user_storage_action")
+    if not isinstance(pending_action, dict):
+        render_browser_user_storage(action="idle", request_id="idle-user-storage")
+        return
+
+    action = str(pending_action.get("action") or "idle")
+    request_id = str(pending_action.get("request_id") or "")
+    payload = render_browser_user_storage(
+        action=action,
+        request_id=request_id,
+        username=str(pending_action.get("username") or ""),
+    )
+    result = parse_browser_storage_result(
+        payload,
+        expected_action=action,
+        expected_request_id=request_id,
+    )
+    if result is not None:
+        st.session_state.pop("pending_user_storage_action", None)
+        st.session_state["user_storage_error"] = result.error if not result.ok else ""
+    elif action == "remove":
+        st.stop()
+
+
+def login_app_user(username: str) -> bool:
+    normalized_username = normalize_username(username)
+    st.session_state["logged_in_username"] = normalized_username
+    _clear_legacy_user_query_param()
+    if normalized_username:
+        _queue_browser_username_sync("write", normalized_username)
+        _preload_user_workspace_bg(normalized_username)
+
+    return bool(normalized_username)
+
+
+def logout_app_user() -> None:
+    st.session_state["logged_in_username"] = ""
+    _clear_legacy_user_query_param()
+    _queue_browser_username_sync("remove")
+
+
+@st.dialog("用户登录", dismissible=False, icon=":material/account_circle:")
+def render_user_login_dialog() -> None:
+    st.markdown(
+        """
+        <div class="ws-login-dialog-intro">
+            <img src="/app/static/icons/user-round.svg" alt="">
+            <div>
+                <strong>登录 WealthSpark</strong>
+                <span>输入用户名以加载你的自选、股票池和收藏页面。</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.form("app_user_login_form", clear_on_submit=False):
+        username_input = st.text_input(
+            "用户名",
+            placeholder="请输入用户名",
+            key="app_login_username_input",
+            autocomplete="username",
+        )
+        submitted = st.form_submit_button(
+            "登录",
+            type="primary",
+            icon=":material/login:",
+            use_container_width=True,
+        )
+    if submitted:
+        login_value = st.session_state.get("app_login_username_input", username_input)
+        if login_app_user(login_value):
+            st.rerun()
+        st.error("用户名不能为空")
+
+    if st.session_state.get("user_storage_error"):
+        st.warning("浏览器存储不可用，本次登录只会在当前页面会话中保留。")
+    else:
+        st.caption("用户名会保存在当前浏览器，下次打开时将自动登录。")
+
+
 def render_user_login_status() -> None:
+    sync_logged_in_username_from_browser()
+    if not get_logged_in_username():
+        render_user_login_dialog()
+
+
+def render_user_session_menu(key_suffix: str) -> None:
     current_username = get_logged_in_username()
-    with st.expander("👤 用户登录", expanded=not bool(current_username)):
-        if current_username:
-            status_cols = st.columns([3, 1])
-            status_cols[0].success(f"当前登录用户：{current_username}")
-            if status_cols[1].button("退出登录", key="btn_user_logout"):
-                logout_app_user()
-                st.rerun()
-            st.caption("当前版本为轻量登录：只需要用户名，不校验密码。")
-        else:
-            with st.form("app_user_login_form", clear_on_submit=False):
-                username_input = st.text_input(
-                    "用户名",
-                    placeholder="输入用户名后登录",
-                    key="app_login_username_input",
-                )
-                submitted = st.form_submit_button("登录", type="primary")
-            if submitted:
-                login_value = st.session_state.get("app_login_username_input", username_input)
-                if login_app_user(login_value):
-                    st.success(f"登录成功，欢迎你：{get_logged_in_username()}")
-                    st.rerun()
-                else:
-                    st.error("用户名不能为空")
-            st.caption("登录后可使用自选管理，并在个股查询页把股票加入自选。")
+    if not current_username:
+        return
+
+    with st.popover(
+        current_username,
+        icon=":material/account_circle:",
+        use_container_width=True,
+        key=f"user-session-menu-{key_suffix}",
+    ):
+        st.caption("当前登录用户")
+        st.markdown(f"**{escape(current_username)}**")
+        if st.button(
+            "退出登录",
+            key=f"btn-user-logout-{key_suffix}",
+            icon=":material/logout:",
+            use_container_width=True,
+        ):
+            logout_app_user()
+            st.rerun()
 
 
 def parse_watchlist_input(raw: str) -> list[str]:
@@ -4070,6 +4182,16 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                 '<span class="ws-sidebar-empty">最近访问会显示在这里。</span>',
                 unsafe_allow_html=True,
             )
+
+        st.markdown(
+            """
+            <div class="ws-sidebar-block ws-sidebar-block--account">
+                <div class="ws-sidebar-block-title">账户</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        render_user_session_menu("desktop")
 
     return selected_module.label, selected_page.label
 
@@ -7284,6 +7406,7 @@ def render_volume_tab():
 # 主应用
 def _render_application_page() -> PageStatus:
     """主应用逻辑"""
+    render_user_login_status()
     hydrate_security_jump_from_query_params()
     consume_pending_fund_watchlist_navigation()
 
@@ -7378,7 +7501,7 @@ def _render_application_page() -> PageStatus:
             unsafe_allow_html=True,
         )
 
-        render_user_login_status()
+        render_user_session_menu("iphone")
 
         mobile_group = st.radio(
             "模块",
@@ -7510,7 +7633,6 @@ def _render_application_page() -> PageStatus:
 
     # ===== 方案B进阶版：desktop sidebar 导航壳层 =====
     selected_module, selected_page = render_desktop_sidebar_navigation()
-    render_user_login_status()
     st.caption(f"当前位置：{selected_module} / {selected_page}")
 
     decision_module_label = get_module_label_for_page(DECISION_TODAY_PAGE_LABEL)

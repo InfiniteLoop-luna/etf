@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    html,
+    body {
+      width: 0;
+      height: 0;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: transparent;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    let lastRequestSignature = "";
+
+    function postStreamlitMessage(type, payload = {}) {
+      window.parent.postMessage({ isStreamlitMessage: true, type, ...payload }, "*");
+    }
+
+    function setComponentValue(value) {
+      postStreamlitMessage("streamlit:setComponentValue", {
+        value,
+        dataType: "json",
+      });
+    }
+
+    function handleStorageRequest(args) {
+      const action = String(args.action || "idle");
+      const requestId = String(args.request_id || "");
+      const storageKey = String(args.storage_key || "wealthspark.username");
+      const username = String(args.username || "");
+      const signature = JSON.stringify([action, requestId, storageKey, username]);
+
+      postStreamlitMessage("streamlit:setFrameHeight", { height: 0 });
+      if (action === "idle" || signature === lastRequestSignature) return;
+      lastRequestSignature = signature;
+
+      const result = {
+        action,
+        request_id: requestId,
+        username: "",
+        ok: true,
+        error: "",
+      };
+
+      try {
+        if (action === "read") {
+          result.username = window.localStorage.getItem(storageKey) || "";
+        } else if (action === "write") {
+          window.localStorage.setItem(storageKey, username);
+          result.username = username;
+        } else if (action === "remove") {
+          window.localStorage.removeItem(storageKey);
+        } else {
+          throw new Error(`Unsupported storage action: ${action}`);
+        }
+      } catch (error) {
+        result.ok = false;
+        result.error = error instanceof Error ? error.message : String(error);
+      }
+
+      setComponentValue(result);
+    }
+
+    window.addEventListener("message", (event) => {
+      if (!event.data || event.data.type !== "streamlit:render") return;
+      handleStorageRequest(event.data.args || {});
+    });
+
+    postStreamlitMessage("streamlit:componentReady", { apiVersion: 1 });
+    postStreamlitMessage("streamlit:setFrameHeight", { height: 0 });
+  </script>
+</body>
+</html>
