@@ -73,11 +73,14 @@ class TrackerUiPayloadTests(unittest.TestCase):
     def test_sidebar_tree_uses_compact_directory_hierarchy(self):
         css = build_global_apple_theme_css()
 
-        self.assertIn("--ws-sidebar-row-height: 38px", css)
+        self.assertIn("--ws-sidebar-width: 220px", css)
+        self.assertIn("--ws-sidebar-row-height: 36px", css)
+        self.assertIn("--ws-sidebar-accent: #365CCB", css)
+        self.assertIn("--ws-sidebar-active-bg: #E9EEF7", css)
         self.assertIn('[class*="st-key-ws-sidebar-module-"] > div button::before', css)
         self.assertIn('[class*="st-key-ws-sidebar-module-"] > div button::after', css)
-        self.assertIn("width: calc(100% - 1rem)", css)
-        self.assertIn("border-left: 1px solid var(--ws-border-soft)", css)
+        self.assertIn("width: calc(100% - 1.55rem)", css)
+        self.assertIn("border-left: 1px solid var(--ws-sidebar-line)", css)
         self.assertIn(".ws-sidebar-page-description {", css)
         self.assertIn("display: none", css)
         self.assertIn('[class*="-expanded"] > div button', css)

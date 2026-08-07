@@ -26,6 +26,11 @@ class SidebarTreeThemeTest(unittest.TestCase):
             with self.subTest(selector=selector):
                 self.assertIn(selector, css)
 
+        self.assertIn('align-items: flex-start', css)
+        self.assertIn('[data-testid="stMarkdownContainer"]', css)
+        self.assertIn('background: var(--ws-sidebar-active-bg)', css)
+        self.assertIn('border-left: 2px solid var(--ws-sidebar-accent)', css)
+
 
 if __name__ == "__main__":
     unittest.main()

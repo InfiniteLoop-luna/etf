@@ -215,7 +215,15 @@ def build_global_apple_theme_css() -> str:
     --ws-font-sans: Inter, "Segoe UI Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
     --ws-font-heading: "Hanken Grotesk", Inter, "Segoe UI Variable", "PingFang SC", sans-serif;
     --ws-font-data: "Archivo Narrow", Inter, "Segoe UI Variable", sans-serif;
-    --ws-sidebar-row-height: 38px;
+    --ws-sidebar-width: 220px;
+    --ws-sidebar-row-height: 36px;
+    --ws-sidebar-bg: #F4F7FB;
+    --ws-sidebar-active-bg: #E9EEF7;
+    --ws-sidebar-hover-bg: #EEF3F8;
+    --ws-sidebar-accent: #365CCB;
+    --ws-sidebar-accent-hover: #284AAE;
+    --ws-sidebar-text: #526174;
+    --ws-sidebar-line: #D5DFEB;
 }}
 
 html,
@@ -302,7 +310,7 @@ header {{
 
 .ws-terminal-header {{
     position: fixed;
-    inset: 0 0 auto 232px;
+    inset: 0 0 auto var(--ws-sidebar-width);
     z-index: 999;
     height: 50px;
     display: flex;
@@ -372,23 +380,25 @@ header {{
 }}
 
 [data-testid="stSidebar"] {{
-    min-width: 232px !important;
-    width: 232px !important;
-    padding: 0.9rem 0.75rem !important;
-    background: var(--ws-bg-surface) !important;
-    border-right: 1px solid var(--ws-border-soft) !important;
+    box-sizing: border-box !important;
+    min-width: var(--ws-sidebar-width) !important;
+    width: var(--ws-sidebar-width) !important;
+    padding: 0.8rem 0.6rem !important;
+    background: var(--ws-sidebar-bg) !important;
+    border-right: 1px solid var(--ws-sidebar-line) !important;
 }}
 
 [data-testid="stSidebar"] > div:first-child {{
-    width: 232px !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
     padding-top: 0 !important;
-    background: var(--ws-bg-surface) !important;
+    background: var(--ws-sidebar-bg) !important;
 }}
 
 @media (min-width: 769px) {{
     [data-testid="stSidebar"][aria-expanded="false"] {{
-        min-width: 232px !important;
-        width: 232px !important;
+        min-width: var(--ws-sidebar-width) !important;
+        width: var(--ws-sidebar-width) !important;
         margin-left: 0 !important;
         transform: none !important;
     }}
@@ -397,7 +407,7 @@ header {{
     [data-testid="stSidebar"] [class*="st-key-sidebar-search-query"] {{
         position: fixed !important;
         top: 7px;
-        left: 475px;
+        left: 455px;
         z-index: 1002;
         width: min(340px, calc(100vw - 690px));
         min-width: 220px;
@@ -566,14 +576,16 @@ button[aria-label="Close sidebar"] {{
 }}
 
 [data-testid="stSidebar"] [aria-checked="true"] {{
-    accent-color: var(--ws-color-primary) !important;
+    accent-color: var(--ws-sidebar-accent) !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-tree"] > div {{
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
     gap: 0;
-    padding: 0 0.05rem;
+    width: 100%;
+    padding: 0;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"],
@@ -583,15 +595,17 @@ button[aria-label="Close sidebar"] {{
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] {{
+    width: 100%;
     margin: 1px 0;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] {{
     position: relative;
-    width: calc(100% - 1rem);
-    margin-left: auto;
-    padding-left: 0.55rem;
-    border-left: 1px solid var(--ws-border-soft);
+    box-sizing: border-box;
+    width: calc(100% - 1.55rem);
+    margin-left: 1.55rem;
+    padding-left: 0.58rem;
+    border-left: 1px solid var(--ws-sidebar-line);
     border-radius: 0;
 }}
 
@@ -602,8 +616,8 @@ button[aria-label="Close sidebar"] {{
     width: 100%;
     min-height: var(--ws-sidebar-row-height);
     justify-content: flex-start;
-    padding: 0.45rem 0.55rem !important;
-    color: var(--ws-text-muted) !important;
+    padding: 0.38rem 0.48rem !important;
+    color: var(--ws-sidebar-text) !important;
     background: transparent !important;
     border: 1px solid transparent !important;
     border-radius: var(--ws-radius-md) !important;
@@ -617,10 +631,27 @@ button[aria-label="Close sidebar"] {{
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button {{
     display: flex;
     align-items: center;
-    gap: 0.55rem;
-    color: var(--ws-text-muted) !important;
+    gap: 0.5rem;
+    color: var(--ws-sidebar-text) !important;
     font-size: 0.82rem;
     font-weight: 600 !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button [data-testid="stMarkdownContainer"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button [data-testid="stMarkdownContainer"] {{
+    flex: 0 1 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    text-align: left !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button p,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button p {{
+    width: auto !important;
+    margin: 0 !important;
+    color: inherit !important;
+    text-align: left !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button::before {{
@@ -628,7 +659,7 @@ button[aria-label="Close sidebar"] {{
     flex: 0 0 18px;
     width: 18px;
     height: 18px;
-    background: #716B7D;
+    background: #64748B;
     mask: url("/app/static/icons/activity.svg") center / 16px 16px no-repeat;
     -webkit-mask: url("/app/static/icons/activity.svg") center / 16px 16px no-repeat;
 }}
@@ -639,7 +670,7 @@ button[aria-label="Close sidebar"] {{
     width: 14px;
     height: 14px;
     margin-left: auto;
-    background: #8A8493;
+    background: #7B8798;
     mask: url("/app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
     -webkit-mask: url("/app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
     transform-origin: center;
@@ -677,10 +708,10 @@ button[aria-label="Close sidebar"] {{
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button {{
     width: 100%;
-    min-height: 31px;
+    min-height: 29px;
     justify-content: flex-start;
-    padding: 0.28rem 0.45rem 0.28rem 0.62rem !important;
-    color: var(--ws-text-soft) !important;
+    padding: 0.24rem 0.2rem !important;
+    color: #607087 !important;
     background: transparent !important;
     border: 0 !important;
     border-radius: var(--ws-radius-sm) !important;
@@ -690,6 +721,10 @@ button[aria-label="Close sidebar"] {{
     line-height: 1.25;
     text-align: left;
     white-space: normal;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button img {{
+    display: none !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button img,
@@ -706,13 +741,13 @@ button[aria-label="Close sidebar"] {{
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button:hover,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button:hover,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button:hover {{
-    color: var(--ws-color-primary-hover) !important;
-    background: var(--ws-surface-soft) !important;
+    color: var(--ws-sidebar-accent-hover) !important;
+    background: var(--ws-sidebar-hover-bg) !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] > div button {{
-    color: var(--ws-text-main) !important;
-    background: var(--ws-surface-soft) !important;
+    color: var(--ws-sidebar-text) !important;
+    background: transparent !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] > div button::after {{
@@ -720,23 +755,23 @@ button[aria-label="Close sidebar"] {{
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button {{
-    color: var(--ws-color-primary-hover) !important;
-    background: #F0E9FF !important;
+    color: var(--ws-sidebar-accent) !important;
+    background: var(--ws-sidebar-active-bg) !important;
     border-color: transparent !important;
-    box-shadow: inset 3px 0 0 var(--ws-color-primary) !important;
+    box-shadow: none !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::before,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::after {{
-    color: var(--ws-color-primary-hover);
+    color: var(--ws-sidebar-accent);
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::before {{
-    background: var(--ws-color-primary-hover);
+    background: var(--ws-sidebar-accent);
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::after {{
-    background: var(--ws-color-primary-hover);
+    background: var(--ws-sidebar-accent);
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] > div button img,
@@ -747,27 +782,24 @@ button[aria-label="Close sidebar"] {{
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] > div button,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] > div button {{
-    color: var(--ws-color-primary-hover) !important;
-    background: #F8F4FF !important;
-    font-weight: 700 !important;
+    color: var(--ws-sidebar-accent) !important;
+    background: transparent !important;
+    font-weight: 600 !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] {{
+    border-left: 2px solid var(--ws-sidebar-accent);
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"]::before {{
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: -3px;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--ws-color-primary);
-    transform: translateY(-50%);
+    display: none;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button {{
-    color: var(--ws-color-primary-hover) !important;
-    background: #F8F4FF !important;
-    border-color: #E7D9FF !important;
+    color: var(--ws-sidebar-accent) !important;
+    background: var(--ws-sidebar-active-bg) !important;
+    border-color: var(--ws-sidebar-line) !important;
 }}
 
 html body .stApp [data-testid="stAppViewContainer"] .main .block-container h1,
@@ -1095,12 +1127,12 @@ code {{
     }}
 
     [data-testid="stSidebar"] {{
-        min-width: 280px !important;
-        width: 280px !important;
-        padding: 0.8rem 0.7rem !important;
+        min-width: var(--ws-sidebar-width) !important;
+        width: var(--ws-sidebar-width) !important;
+        padding: 0.8rem 0.6rem !important;
     }}
 
-    [data-testid="stSidebar"] > div:first-child {{ width: 280px !important; }}
+    [data-testid="stSidebar"] > div:first-child {{ width: 100% !important; }}
 
     [data-testid="stSidebar"][aria-expanded="false"] {{
         min-width: 0 !important;
