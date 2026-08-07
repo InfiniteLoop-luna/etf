@@ -6250,6 +6250,7 @@ def create_security_kline_chart(
             close=close_values,
             customdata=chart_df[["hover_pct_text", "hover_change_text"]],
             hovertemplate=(
+                "DEBUG-HOVER-20260807<br>"
                 "日期：%{x|%Y-%m-%d}<br>"
                 "当天涨跌幅：%{customdata[0]}<br>"
                 "当天涨跌额：%{customdata[1]}<br>"
