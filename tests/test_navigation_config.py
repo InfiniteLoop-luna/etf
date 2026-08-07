@@ -67,8 +67,8 @@ class NavigationConfigTests(unittest.TestCase):
     def test_style_historical_st_badge_column_uses_terminal_badge_palette(self):
         styles = style_historical_st_badge_column(pd.Series([HISTORICAL_ST_BADGE_TEXT, "", None]))
 
-        self.assertIn("background-color: #EADDFF", styles[0])
-        self.assertIn("color: #44009A", styles[0])
+        self.assertIn("background-color: #E7F0FF", styles[0])
+        self.assertIn("color: #0757D9", styles[0])
         self.assertIn("border-radius: 4px", styles[0])
         self.assertEqual(styles[1], "")
         self.assertEqual(styles[2], "")

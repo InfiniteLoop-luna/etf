@@ -562,7 +562,7 @@ def render_margin_dashboard(ts_code: str, title: str, *, key_prefix: str = "marg
                     y=overlay_df["margin_index"],
                     mode="lines",
                     name="两融余额指数(起点=100)",
-                    line=dict(color="#8b5cf6", width=2),
+                    line=dict(color="#3F8FA3", width=2),
                 )
             )
             compare_fig.update_layout(

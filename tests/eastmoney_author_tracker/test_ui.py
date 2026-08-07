@@ -51,7 +51,7 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn("--ws-bg-base: #F7F9FF", css)
         self.assertIn("--ws-bg-surface: #FFFFFF", css)
         self.assertIn("--ws-bg-dark: #2A3138", css)
-        self.assertIn("--ws-color-primary: #6001D2", css)
+        self.assertIn("--ws-color-primary: #0F69FF", css)
         self.assertIn("--ws-color-up: #037B66", css)
         self.assertIn("--ws-color-down: #D11022", css)
         self.assertIn('[data-testid="stSidebar"]', css)
@@ -121,7 +121,7 @@ class TrackerUiPayloadTests(unittest.TestCase):
 
         self.assertEqual(template.layout.paper_bgcolor, "#FFFFFF")
         self.assertEqual(template.layout.plot_bgcolor, "#FFFFFF")
-        self.assertEqual(template.layout.colorway[0], "#6001D2")
+        self.assertEqual(template.layout.colorway[0], "#0F69FF")
         self.assertEqual(template.layout.colorway[1], "#0052D0")
         self.assertEqual(template.layout.colorway[2], "#037B66")
 
@@ -151,7 +151,7 @@ class TrackerUiPayloadTests(unittest.TestCase):
     def test_tracker_direction_colors_follow_terminal_semantics(self):
         self.assertEqual(DIRECTION_COLORS["bullish"], "#037B66")
         self.assertEqual(DIRECTION_COLORS["exit_signal"], "#D11022")
-        self.assertEqual(DIRECTION_COLORS["neutral"], "#6B6675")
+        self.assertEqual(DIRECTION_COLORS["neutral"], "#718096")
 
     def test_build_dashboard_payload_splits_cycles_and_keeps_metadata(self):
         rows = [

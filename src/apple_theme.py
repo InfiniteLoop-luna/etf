@@ -12,15 +12,15 @@ APPLE_THEME_DEFAULT_TOKENS = {
     "surface_soft": "#F4F7F9",
     "surface_alt": "#EDF4FE",
     "surface_dark_alt": "#3A424A",
-    "primary": "#6001D2",
-    "primary_hover": "#44009A",
-    "primary_press": "#25005A",
-    "primary_strong": "#732EE5",
-    "primary_soft": "#EADDFF",
+    "primary": "#0F69FF",
+    "primary_hover": "#0757D9",
+    "primary_press": "#0848B8",
+    "primary_strong": "#3F8CFF",
+    "primary_soft": "#E7F0FF",
     "secondary": "#0052D0",
     "text_main": "#151C23",
-    "text_muted": "#4A4455",
-    "text_soft": "#6B6675",
+    "text_muted": "#526174",
+    "text_soft": "#718096",
     "text_inverse": "#FFFFFF",
     "border_soft": "#E0E4E9",
     "border_strong": "#B8C0CA",
@@ -30,8 +30,8 @@ APPLE_THEME_DEFAULT_TOKENS = {
     "color_up": "#037B66",
     "color_down": "#D11022",
     "color_warn": "#8A5A00",
-    "color_neutral": "#6B6675",
-    "color_purple": "#732EE5",
+    "color_neutral": "#718096",
+    "color_accent_alt": "#3F8FA3",
     "radius_lg": "4px",
     "radius_md": "4px",
     "radius_sm": "2px",
@@ -82,7 +82,7 @@ def build_apple_plotly_template() -> go.layout.Template:
                 tokens["color_up"],
                 tokens["color_down"],
                 tokens["color_warn"],
-                tokens["color_purple"],
+                tokens["color_accent_alt"],
             ],
             hoverlabel={
                 "bgcolor": tokens["bg_dark"],
@@ -208,7 +208,7 @@ def build_global_apple_theme_css() -> str:
     --ws-color-down: {tokens["color_down"]};
     --ws-color-warn: {tokens["color_warn"]};
     --ws-color-neutral: {tokens["color_neutral"]};
-    --ws-color-purple: {tokens["color_purple"]};
+    --ws-color-accent-alt: {tokens["color_accent_alt"]};
     --ws-radius-lg: {tokens["radius_lg"]};
     --ws-radius-md: {tokens["radius_md"]};
     --ws-radius-sm: {tokens["radius_sm"]};
@@ -969,7 +969,7 @@ button[kind="primary"] *,
 .stDownloadButton > button:hover,
 button[kind="secondary"]:hover {{
     color: var(--ws-color-primary-hover) !important;
-    background: #F7F2FF !important;
+    background: #F4F8FF !important;
     border-color: var(--ws-color-primary) !important;
 }}
 
@@ -1017,7 +1017,7 @@ html body .stApp [data-testid="stAppViewContainer"] .main a[href*="iphone_mode"]
 .stTimeInput input:focus,
 .stTextArea textarea:focus {{
     border-color: var(--ws-color-primary) !important;
-    box-shadow: 0 0 0 2px rgba(96, 1, 210, 0.18) !important;
+    box-shadow: 0 0 0 2px rgba(15, 105, 255, 0.18) !important;
 }}
 
 [data-baseweb="tag"] {{
@@ -1155,7 +1155,7 @@ div[data-testid="stExpanderDetails"] {{
 
 .stTabs [aria-selected="true"] {{
     color: var(--ws-color-primary-hover) !important;
-    background: #F8F4FF !important;
+    background: #F5F9FF !important;
     border-bottom-color: var(--ws-color-primary) !important;
     box-shadow: none !important;
 }}
@@ -1302,23 +1302,23 @@ def build_terminal_component_overrides_css() -> str:
     --wb-panel-2: #FFFFFF;
     --wb-line: #E0E4E9;
     --wb-line-soft: #E0E4E9;
-    --wb-cyan: #6001D2;
+    --wb-cyan: #0F69FF;
     --wb-blue: #0052D0;
     --wb-red: #037B66;
     --wb-green: #D11022;
     --wb-text: #151C23;
-    --wb-muted: #4A4455;
+    --wb-muted: #526174;
     --fw-bg: #FFFFFF;
     --fw-panel: #FFFFFF;
     --fw-panel-strong: #FFFFFF;
     --fw-line: #E0E4E9;
     --fw-line-soft: #E0E4E9;
-    --fw-cyan: #6001D2;
+    --fw-cyan: #0F69FF;
     --fw-blue: #0052D0;
     --fw-red: #037B66;
     --fw-green: #D11022;
     --fw-text: #151C23;
-    --fw-muted: #4A4455;
+    --fw-muted: #526174;
     color: #151C23 !important;
     background: #FFFFFF !important;
     border-color: #E0E4E9 !important;
@@ -1374,9 +1374,9 @@ def build_terminal_component_overrides_css() -> str:
 
 .ws-watchboard-stat-icon,
 .ws-fund-watchboard__badge {
-    color: #44009A !important;
-    -webkit-text-fill-color: #44009A !important;
-    background: #EADDFF !important;
+    color: #0757D9 !important;
+    -webkit-text-fill-color: #0757D9 !important;
+    background: #E7F0FF !important;
     border-color: transparent !important;
     border-radius: 4px !important;
     box-shadow: none !important;
@@ -1384,8 +1384,8 @@ def build_terminal_component_overrides_css() -> str:
 
 .ws-watchboard-shell :is(p, label, small),
 .ws-fund-watchboard :is(p, label, small) {
-    color: #4A4455 !important;
-    -webkit-text-fill-color: #4A4455 !important;
+    color: #526174 !important;
+    -webkit-text-fill-color: #526174 !important;
 }
 
 .ws-watchboard-shell :is(h2, h3, h4),
@@ -1428,8 +1428,8 @@ def build_terminal_component_overrides_css() -> str:
 }
 
 .ws-fund-watchboard__holdings th {
-    color: #4A4455 !important;
-    -webkit-text-fill-color: #4A4455 !important;
+    color: #526174 !important;
+    -webkit-text-fill-color: #526174 !important;
     background: #F4F7F9 !important;
 }
 

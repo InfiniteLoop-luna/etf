@@ -322,7 +322,7 @@ THEME_UP = THEME["color_up"]
 THEME_DOWN = THEME["color_down"]
 THEME_WARN = THEME["color_warn"]
 THEME_NEUTRAL = THEME["color_neutral"]
-THEME_PURPLE = THEME["color_purple"]
+THEME_ACCENT_ALT = THEME["color_accent_alt"]
 CHART_BG = THEME_SURFACE
 CHART_PAPER_BG = THEME_SURFACE
 CHART_GRID_COLOR = "rgba(212, 219, 228, 0.62)"
@@ -331,8 +331,8 @@ CHART_ZERO_LINE_COLOR = "rgba(74, 68, 85, 0.28)"
 CHART_UP_FILL = "rgba(3, 123, 102, 0.16)"
 CHART_DOWN_FILL = "rgba(209, 16, 34, 0.14)"
 CHART_NAVY_SOFT_FILL = "rgba(42, 49, 56, 0.08)"
-CHART_PRIMARY_SOFT_FILL = "rgba(96, 1, 210, 0.10)"
-CHART_SERIES = [THEME_PRIMARY, THEME["secondary"], THEME_UP, THEME_DOWN, THEME_WARN, THEME_PURPLE]
+CHART_PRIMARY_SOFT_FILL = "rgba(15, 105, 255, 0.10)"
+CHART_SERIES = [THEME_PRIMARY, THEME["secondary"], THEME_UP, THEME_DOWN, THEME_WARN, THEME_ACCENT_ALT]
 TIME_SERIES_HOVER_RIGHT_MARGIN = 160
 TIME_SERIES_HOVER_DISTANCE = 60
 TIME_SERIES_HOVER_TARGET_WIDTH = 42
@@ -414,7 +414,7 @@ def apply_time_series_hover_affordance(
             y=[y0, y1],
             mode="lines",
             name="latest-day-hover-target",
-            line=dict(color="rgba(96, 1, 210, 0.01)", width=TIME_SERIES_HOVER_TARGET_WIDTH),
+            line=dict(color="rgba(15, 105, 255, 0.01)", width=TIME_SERIES_HOVER_TARGET_WIDTH),
             hovertemplate="<extra></extra>",
             showlegend=False,
         ))
@@ -5705,8 +5705,8 @@ def format_historical_st_badge(value) -> str:
 
 def style_historical_st_badge_column(column: pd.Series) -> list[str]:
     badge_style = (
-        'background-color: #EADDFF; '
-        'color: #44009A; '
+        'background-color: #E7F0FF; '
+        'color: #0757D9; '
         'font-weight: 700; '
         'border: 1px solid transparent; '
         'border-radius: 4px; '
@@ -6346,7 +6346,7 @@ def create_security_kline_chart(
             col=1,
         )
 
-    ma_colors = [THEME_NAVY, THEME_PURPLE, THEME_WARN, THEME_DOWN, THEME_UP, "#6FA3B8"]
+    ma_colors = [THEME_NAVY, THEME_ACCENT_ALT, THEME_WARN, THEME_DOWN, THEME_UP, "#6FA3B8"]
     for idx, w in enumerate(ma_windows):
         ma_col = f"ma{w}"
         if ma_col not in chart_df.columns:
@@ -6391,7 +6391,7 @@ def create_security_kline_chart(
         if not volume_ma_windows:
             volume_ma_windows = [5, 10]
 
-        vol_ma_colors = ["#4F6785", THEME_PURPLE, "#C28C4E", "#5B8E7D"]
+        vol_ma_colors = ["#4F6785", THEME_ACCENT_ALT, "#C28C4E", "#5B8E7D"]
         for idx, w in enumerate(volume_ma_windows):
             vol_ma_col = f"vol_ma{w}"
             chart_df[vol_ma_col] = pd.to_numeric(chart_df[volume_used], errors="coerce").rolling(window=w).mean()
@@ -6444,7 +6444,7 @@ def create_security_kline_chart(
                 y=_series_to_plotly_list(chart_df["dea"]),
                 mode="lines",
                 name="DEA",
-                line=dict(color=THEME_PURPLE, width=1.5),
+                line=dict(color=THEME_ACCENT_ALT, width=1.5),
                 hovertemplate="%{x|%Y-%m-%d}<br>DEA: %{y:,.3f}<extra></extra>",
             ),
             row=3, col=1,
@@ -6773,8 +6773,8 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
     """
     # 专业金融调色盘
     color_palette = [
-        THEME_NAVY, THEME_PURPLE, "#C28C4E", "#5B8E7D", "#B86A84",
-        THEME_PRIMARY, "#6FA3B8", THEME_UP, "#8AA05A", THEME_PURPLE
+        THEME_NAVY, THEME_ACCENT_ALT, "#C28C4E", "#5B8E7D", "#607D9B",
+        THEME_PRIMARY, "#6FA3B8", THEME_UP, "#8AA05A", THEME_ACCENT_ALT
     ]
 
     fig = go.Figure()
@@ -7007,7 +7007,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
         '沪市主板': THEME_NAVY,
         '深市主板': "#5B8E7D",
         '创业板': "#C28C4E",
-        '科创板': THEME_PURPLE,
+        '科创板': THEME_ACCENT_ALT,
     }
 
     trade_dates = (
@@ -11271,7 +11271,7 @@ def create_change_curve_chart(
             hovertemplate=hover_template
         ))
     else:
-        palette = color_palette or [THEME_NAVY, THEME_PURPLE, "#C28C4E", "#5B8E7D", "#B86A84"]
+        palette = color_palette or [THEME_NAVY, THEME_ACCENT_ALT, "#C28C4E", "#5B8E7D", "#607D9B"]
         ordered_names = series_names or chart_df[series_col].dropna().unique().tolist()
         for idx, name in enumerate(ordered_names):
             line_df = chart_df[chart_df[series_col] == name]
@@ -11480,7 +11480,7 @@ def create_macro_line_chart(
     yaxis_title: str
 ) -> go.Figure:
     fig = go.Figure()
-    palette = [THEME_NAVY, THEME_UP, "#5B8E7D", THEME_WARN, THEME_PURPLE]
+    palette = [THEME_NAVY, THEME_UP, "#5B8E7D", THEME_WARN, THEME_ACCENT_ALT]
     chart_df = df.sort_values("trade_date").copy()
 
     for idx, (column, label) in enumerate(series):
@@ -12670,7 +12670,7 @@ def build_watchlist_dimension_scores(row: pd.Series) -> list[tuple[str, int, str
         ("资金面", _watchlist_score_value(capital_score), "#ff4055"),
         ("技术面", _watchlist_score_value(technical_score), "#2f7bff"),
         ("基本面", _watchlist_score_value(basic_score), "#49f2e0"),
-        ("消息面", _watchlist_score_value(sentiment_score), "#d66cff"),
+        ("消息面", _watchlist_score_value(sentiment_score), "#3F8FA3"),
         ("量化模型", _watchlist_score_value(model_score), "#ff9b73"),
     ]
 
@@ -14662,8 +14662,8 @@ def render_security_search_tab():
                             y=holder_ts_df['holder_num'],
                             mode='lines+markers',
                             name='股东人数趋势',
-                            line=dict(width=2, shape='spline', color=THEME_PURPLE, dash='dot'),
-                            marker=dict(size=6, color=THEME_PURPLE),
+                            line=dict(width=2, shape='spline', color=THEME_ACCENT_ALT, dash='dot'),
+                            marker=dict(size=6, color=THEME_ACCENT_ALT),
                             hovertemplate='%{x|%Y-%m-%d}<br>股东人数: %{y:,.0f}<extra></extra>',
                         ),
                         secondary_y=True,
@@ -15405,7 +15405,7 @@ def render_security_search_tab():
             st.caption("展示静态市盈率、动态市盈率与股息率曲线")
             valuation_metrics = [
                 ('静态市盈率曲线', 'pe', '静态市盈率PE', 1.0, 2, THEME_NAVY),
-                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, THEME_PURPLE),
+                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, THEME_ACCENT_ALT),
                 ('股息率曲线', 'dv_ratio', '股息率(%)', 1.0, 2, THEME_WARN),
             ]
             valuation_cols = st.columns(2)
@@ -15430,7 +15430,7 @@ def render_security_search_tab():
             st.caption("财务柱状图按报告期展示，默认与上方时间范围联动")
             financial_metrics = [
                 ('营业总收入柱状图', 'total_revenue', '营业总收入(亿元)', 100000000.0, 2, THEME_NAVY, "#4F6785"),
-                ('净利润柱状图', 'net_profit', '净利润(亿元)', 100000000.0, 2, THEME_PURPLE, THEME_DOWN),
+                ('净利润柱状图', 'net_profit', '净利润(亿元)', 100000000.0, 2, THEME_ACCENT_ALT, THEME_DOWN),
                 ('扣非净利润柱状图', 'profit_dedt', '扣非净利润(亿元)', 100000000.0, 2, THEME_WARN, THEME_DOWN),
             ]
             financial_cols = st.columns(3)
@@ -15484,7 +15484,7 @@ def render_security_search_tab():
             st.caption("展示指数静态市盈率与动态市盈率曲线")
             valuation_metrics = [
                 ('静态市盈率曲线', 'pe', '静态市盈率PE', 1.0, 2, THEME_NAVY),
-                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, THEME_PURPLE),
+                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, THEME_ACCENT_ALT),
             ]
             valuation_cols = st.columns(2)
             for index, (title, column, yaxis_title, scale, digits, color) in enumerate(valuation_metrics):
@@ -15717,7 +15717,7 @@ def render_wide_index_tab():
 
     fig = go.Figure()
     color_palette = [
-        THEME_NAVY, THEME_PURPLE, "#C28C4E", "#5B8E7D", "#B86A84",
+        THEME_NAVY, THEME_ACCENT_ALT, "#C28C4E", "#5B8E7D", "#607D9B",
         THEME_PRIMARY, "#6FA3B8", THEME_UP, "#8AA05A", "#4F6785",
         THEME_DOWN, THEME_WARN
     ]
@@ -15989,7 +15989,7 @@ def render_industry_etf_tab():
 
     chart_df = ts_df.sort_values(['benchmark_index_name', 'trade_date']).copy()
     color_palette = [
-        THEME_NAVY, THEME_PURPLE, "#C28C4E", "#5B8E7D", "#B86A84",
+        THEME_NAVY, THEME_ACCENT_ALT, "#C28C4E", "#5B8E7D", "#607D9B",
         THEME_PRIMARY, "#6FA3B8", THEME_UP, "#8AA05A", "#4F6785",
         THEME_DOWN, THEME_WARN
     ]
@@ -20035,7 +20035,7 @@ def render_moneyflow_tab():
                     y=elg_net,
                     mode="lines",
                     name="超大单净额",
-                    line=dict(color=THEME_PURPLE, width=2),
+                    line=dict(color=THEME_ACCENT_ALT, width=2),
                     hovertemplate="%{x|%Y-%m-%d}<br>超大单净额: %{y:,.0f} 万元<extra></extra>",
                 ))
 
@@ -20672,7 +20672,7 @@ def render_moneyflow_tab():
                     y=north_ma5,
                     mode="lines",
                     name="5日均线",
-                    line=dict(color=THEME_PURPLE, width=2.5),
+                    line=dict(color=THEME_ACCENT_ALT, width=2.5),
                     hovertemplate="%{x|%Y-%m-%d}<br>5日均线: %{y:,.2f} 亿<extra></extra>",
                 ))
 
