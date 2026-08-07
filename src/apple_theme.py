@@ -423,7 +423,7 @@ header,
 
 .stApp:has([data-testid="stSidebar"][aria-expanded="false"]) .ws-page-loading-mask,
 .stApp:has([data-testid="stSidebar"][aria-expanded="false"]) .ws-page-status-bar {{
-    left: 0;
+    left: var(--ws-sidebar-collapsed-width);
 }}
 
 [data-testid="stSidebar"] {{
@@ -1387,6 +1387,7 @@ code {{
     --ws-space-3: 17px;
     --ws-space-4: 24px;
     --ws-space-5: 32px;
+    --ws-sidebar-collapsed-width: 48px;
 }}
 
 .stApp,
@@ -1395,12 +1396,14 @@ code {{
     background: var(--ws-bg-base) !important;
 }}
 
-.main .block-container {{
-    max-width: 1320px;
-    padding-top: 0.65rem;
-    padding-right: var(--ws-space-4);
-    padding-bottom: 4rem;
-    padding-left: var(--ws-space-4);
+.main .block-container,
+[data-testid="stMainBlockContainer"],
+[data-testid="stAppViewContainer"] .main .block-container {{
+    max-width: 1320px !important;
+    padding-top: 0.25rem !important;
+    padding-right: var(--ws-space-4) !important;
+    padding-bottom: 4rem !important;
+    padding-left: var(--ws-space-4) !important;
 }}
 
 .main .block-container h1,
@@ -1513,6 +1516,158 @@ button[kind="primary"],
     color: var(--ws-sidebar-accent) !important;
     background: var(--ws-sidebar-active-bg) !important;
     font-weight: 600 !important;
+}}
+
+/* Collapsed navigation stays usable as a narrow icon rail. */
+[data-testid="stSidebar"][aria-expanded="false"] {{
+    display: block !important;
+    position: relative !important;
+    z-index: 1002 !important;
+    box-sizing: border-box !important;
+    width: var(--ws-sidebar-collapsed-width) !important;
+    min-width: var(--ws-sidebar-collapsed-width) !important;
+    max-width: var(--ws-sidebar-collapsed-width) !important;
+    min-height: 100vh !important;
+    padding: 3.25rem 6px 2.5rem !important;
+    overflow: visible !important;
+    visibility: visible !important;
+    transform: translateX(0) !important;
+    background: var(--ws-sidebar-bg) !important;
+    border-right: 1px solid var(--ws-sidebar-line) !important;
+}}
+
+[data-testid="stSidebar"][aria-expanded="false"] > div:first-child,
+[data-testid="stSidebar"][aria-expanded="false"] [data-testid="stSidebarContent"] {{
+    width: 36px !important;
+    min-width: 36px !important;
+    max-width: 36px !important;
+    padding: 0 !important;
+    overflow: visible !important;
+}}
+
+[data-testid="stSidebar"][aria-expanded="false"] .ws-sidebar-brand,
+[data-testid="stSidebar"][aria-expanded="false"] .ws-sidebar-block,
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-sidebar_search_query"],
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-sidebar-search-query"],
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-page-"],
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-search-result-"],
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-recent-link-"],
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-favorite-"],
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-user-session-menu-"] {{
+    display: none !important;
+}}
+
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-tree"],
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-tree"] [data-testid="stVerticalBlock"] {{
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 8px !important;
+    width: 36px !important;
+    padding: 0 !important;
+    overflow: visible !important;
+}}
+
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-"] {{
+    position: relative !important;
+    display: block !important;
+    width: 36px !important;
+    min-width: 36px !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    margin: 0 !important;
+    overflow: visible !important;
+}}
+
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-"] button {{
+    width: 36px !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    padding: 0 !important;
+    justify-content: center !important;
+    border-radius: 8px !important;
+    font-size: 0 !important;
+    overflow: visible !important;
+}}
+
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-"] button > div,
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-"] button > div > span,
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-"] button [data-testid="stMarkdownContainer"],
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-"] button p {{
+    display: none !important;
+}}
+
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-"] button::after {{
+    display: none !important;
+    position: absolute;
+    top: 3px;
+    left: 42px;
+    z-index: 1100;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: 180px;
+    padding: 7px 9px;
+    color: #FFFFFF;
+    background: #1D1D1F;
+    border-radius: 8px;
+    content: "";
+    font-family: var(--ws-font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    pointer-events: none;
+}}
+
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-"] button:hover::after {{
+    display: block !important;
+}}
+
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-decision"] button:hover::after {{ content: "Decision"; }}
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-stock"] button:hover::after {{ content: "Stocks"; }}
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-fund"] button:hover::after {{ content: "Funds"; }}
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-money"] button:hover::after {{ content: "Money flow"; }}
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-macro"] button:hover::after {{ content: "Macro"; }}
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-data"] button:hover::after {{ content: "Data"; }}
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-favorite"] button:hover::after {{ content: "Favorites"; }}
+
+[data-testid="collapsedControl"] {{
+    position: fixed !important;
+    top: 8px !important;
+    left: 8px !important;
+    z-index: 1101 !important;
+    display: flex !important;
+    width: 32px !important;
+    height: 32px !important;
+    padding: 0 !important;
+    background: var(--ws-bg-surface) !important;
+    border: 1px solid var(--ws-sidebar-line) !important;
+    border-radius: 8px !important;
+}}
+
+[data-testid="collapsedControl"] button {{
+    position: relative !important;
+    width: 32px !important;
+    height: 32px !important;
+    min-height: 32px !important;
+}}
+
+[data-testid="collapsedControl"] button:hover::after {{
+    position: absolute;
+    top: 3px;
+    left: 38px;
+    z-index: 1102;
+    padding: 7px 9px;
+    color: #FFFFFF;
+    background: #1D1D1F;
+    border-radius: 8px;
+    content: "Expand sidebar";
+    font-family: var(--ws-font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    pointer-events: none;
 }}
 
 [data-baseweb="select"] > div,
