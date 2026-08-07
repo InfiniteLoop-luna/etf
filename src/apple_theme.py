@@ -615,9 +615,11 @@ button[aria-label="Close sidebar"] {{
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] button,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] button {{
+    display: flex !important;
+    align-items: center !important;
     width: 100%;
     min-height: var(--ws-sidebar-row-height);
-    justify-content: flex-start;
+    justify-content: flex-start !important;
     padding: 0.38rem 0.48rem !important;
     color: var(--ws-sidebar-text) !important;
     background: transparent !important;
@@ -626,13 +628,14 @@ button[aria-label="Close sidebar"] {{
     box-shadow: none !important;
     font-size: 0.8rem;
     font-weight: 500 !important;
-    text-align: left;
+    text-align: left !important;
     white-space: normal;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button {{
-    display: flex;
-    align-items: center;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
     gap: 0.5rem;
     color: var(--ws-sidebar-text) !important;
     font-size: 0.82rem;
@@ -645,6 +648,7 @@ button[aria-label="Close sidebar"] {{
     width: auto !important;
     min-width: 0 !important;
     margin: 0 !important;
+    margin-right: auto !important;
     text-align: left !important;
 }}
 
@@ -709,9 +713,11 @@ button[aria-label="Close sidebar"] {{
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button {{
+    display: flex !important;
+    align-items: center !important;
     width: 100%;
     min-height: 29px;
-    justify-content: flex-start;
+    justify-content: flex-start !important;
     padding: 0.24rem 0.2rem !important;
     color: #607087 !important;
     background: transparent !important;
@@ -721,12 +727,12 @@ button[aria-label="Close sidebar"] {{
     font-size: 0.74rem;
     font-weight: 500 !important;
     line-height: 1.25;
-    text-align: left;
+    text-align: left !important;
     white-space: normal;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button img {{
-    display: none !important;
+    display: inline-block !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button img,
@@ -778,7 +784,7 @@ button[aria-label="Close sidebar"] {{
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] button img,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] button img {{
-    filter: brightness(0) saturate(100%) invert(13%) sepia(99%) saturate(5048%) hue-rotate(275deg) brightness(71%) contrast(121%);
+    filter: brightness(0) saturate(100%) invert(38%) sepia(44%) saturate(1781%) hue-rotate(194deg) brightness(84%) contrast(90%);
     opacity: 1;
 }}
 

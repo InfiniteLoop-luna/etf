@@ -31,9 +31,18 @@ class SidebarTreeThemeTest(unittest.TestCase):
         self.assertIn('background: var(--ws-sidebar-active-bg)', css)
         self.assertIn('border-left: 2px solid var(--ws-sidebar-accent)', css)
         self.assertIn('[data-testid="stSidebarContent"]', css)
-        self.assertIn('display: none !important', css)
+        self.assertIn('justify-content: flex-start !important', css)
+        self.assertIn('text-align: left !important', css)
+        self.assertIn('margin-right: auto !important', css)
+        self.assertIn('display: inline-block !important', css)
         self.assertNotIn('[class*="st-key-ws-sidebar-module-"] > div button', css)
         self.assertNotIn('[class*="st-key-ws-sidebar-page-"] > div button', css)
+
+        page_icon_rule = css.split(
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button img {',
+            1,
+        )[1].split('\n}', 1)[0]
+        self.assertNotIn('display: none', page_icon_rule)
 
 
 if __name__ == "__main__":
