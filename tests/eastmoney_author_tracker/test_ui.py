@@ -123,7 +123,7 @@ class TrackerUiPayloadTests(unittest.TestCase):
     def test_sidebar_tree_uses_compact_directory_hierarchy(self):
         css = build_global_apple_theme_css()
 
-        self.assertIn("--ws-sidebar-width: 220px", css)
+        self.assertIn("--ws-sidebar-width: 230px", css)
         self.assertIn("--ws-sidebar-row-height: 34px", css)
         self.assertIn("--ws-sidebar-row-gap: 2px", css)
         self.assertIn("--ws-sidebar-accent: #365CCB", css)

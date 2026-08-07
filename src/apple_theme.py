@@ -223,7 +223,7 @@ def build_global_apple_theme_css() -> str:
     --ws-font-heading: {SYSTEM_FONT_FAMILY};
     --ws-font-data: "SF Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
     --ws-font-size-min: {MIN_FONT_SIZE}px;
-    --ws-sidebar-width: 216px;
+    --ws-sidebar-width: 230px;
     --ws-sidebar-row-height: 34px;
     --ws-sidebar-row-gap: 2px;
     --ws-sidebar-bg: #F5F5F7;
