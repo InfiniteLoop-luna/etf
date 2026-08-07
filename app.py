@@ -305,7 +305,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-install_streamlit_svg_icon_renderer(st)
+install_streamlit_svg_icon_renderer(streamlit_module=st)
 
 terminal_plotly_template = build_apple_plotly_template()
 pio.templates["wealthspark_terminal"] = terminal_plotly_template
