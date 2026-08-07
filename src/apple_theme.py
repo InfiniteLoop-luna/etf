@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 
 
 SYSTEM_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif'
+MIN_FONT_SIZE = 14
 
 
 # Public names remain unchanged because the application and tests import them.
@@ -62,17 +63,17 @@ def build_apple_plotly_template() -> go.layout.Template:
         "linewidth": 1,
         "ticks": "outside",
         "tickcolor": tokens["border_strong"],
-        "tickfont": {"family": data_family, "color": tokens["text_muted"], "size": 12},
+        "tickfont": {"family": data_family, "color": tokens["text_muted"], "size": MIN_FONT_SIZE},
         "gridcolor": "rgba(212, 219, 228, 0.62)",
         "linecolor": tokens["border_soft"],
         "zerolinecolor": tokens["border_strong"],
-        "title": {"font": {"color": tokens["text_muted"], "size": 12}},
+        "title": {"font": {"color": tokens["text_muted"], "size": MIN_FONT_SIZE}},
     }
     return go.layout.Template(
         layout=go.Layout(
             paper_bgcolor=tokens["bg_surface"],
             plot_bgcolor=tokens["bg_surface"],
-            font={"color": tokens["text_main"], "family": font_family, "size": 12},
+            font={"color": tokens["text_main"], "family": font_family, "size": MIN_FONT_SIZE},
             title={
                 "font": {
                     "color": tokens["text_main"],
@@ -99,7 +100,7 @@ def build_apple_plotly_template() -> go.layout.Template:
                 "bgcolor": "rgba(255,255,255,0.96)",
                 "bordercolor": tokens["border_soft"],
                 "borderwidth": 1,
-                "font": {"color": tokens["text_muted"], "size": 12},
+                "font": {"color": tokens["text_muted"], "size": MIN_FONT_SIZE},
             },
             margin={"l": 18, "r": 18, "t": 38, "b": 18},
             xaxis=axis_style,
@@ -128,7 +129,7 @@ def build_author_tracker_apple_css() -> str:
     background: {tokens["primary_soft"]};
     color: {tokens["primary_hover"]};
     font-family: var(--ws-font-data);
-    font-size: 0.72rem;
+    font-size: 1rem;
     font-weight: 700;
     letter-spacing: 0;
 }}
@@ -144,7 +145,7 @@ def build_author_tracker_apple_css() -> str:
 .ws-tracker-shell p {{
     margin: 0;
     color: {tokens["text_muted"]};
-    font-size: 0.84rem;
+    font-size: 1rem;
     line-height: 1.45;
 }}
 
@@ -156,7 +157,7 @@ def build_author_tracker_apple_css() -> str:
 
 .ws-tracker-section span {{
     color: {tokens["text_main"]};
-    font-size: 0.92rem;
+    font-size: 1rem;
     font-weight: 700;
     letter-spacing: 0;
 }}
@@ -171,14 +172,14 @@ def build_author_tracker_apple_css() -> str:
 
 .ws-evidence-gallery strong {{
     color: {tokens["text_main"]};
-    font-size: 0.84rem;
+    font-size: 1rem;
     font-weight: 700;
 }}
 
 .ws-evidence-gallery-note {{
     margin-top: 0.3rem;
     color: {tokens["text_soft"]};
-    font-size: 0.76rem;
+    font-size: 1rem;
 }}
 """
 
@@ -221,6 +222,7 @@ def build_global_apple_theme_css() -> str:
     --ws-font-sans: {SYSTEM_FONT_FAMILY};
     --ws-font-heading: {SYSTEM_FONT_FAMILY};
     --ws-font-data: "SF Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+    --ws-font-size-min: {MIN_FONT_SIZE}px;
     --ws-sidebar-width: 216px;
     --ws-sidebar-row-height: 34px;
     --ws-sidebar-row-gap: 2px;
@@ -358,7 +360,7 @@ header,
     gap: 0.5rem;
     color: var(--ws-sidebar-accent);
     font-family: var(--ws-font-data);
-    font-size: 0.78rem;
+    font-size: 1rem;
     font-weight: 700;
 }}
 
@@ -398,7 +400,7 @@ header,
     background: #FFFFFF;
     border-top: 1px solid var(--ws-sidebar-line);
     font-family: var(--ws-font-data);
-    font-size: 0.7rem;
+    font-size: 1rem;
     font-weight: 600;
 }}
 
@@ -569,7 +571,7 @@ button[aria-label="Open sidebar"]:hover {{
     background: var(--ws-color-primary);
     border-radius: var(--ws-radius-md);
     font-family: var(--ws-font-heading);
-    font-size: 0.9rem;
+    font-size: 1rem;
     font-weight: 800;
     text-transform: uppercase;
 }}
@@ -589,7 +591,7 @@ button[aria-label="Open sidebar"]:hover {{
     margin: 0.12rem 0 0;
     color: var(--ws-text-muted) !important;
     font-family: var(--ws-font-data);
-    font-size: 0.58rem;
+    font-size: 1rem;
     font-weight: 700;
     line-height: 1;
     text-transform: uppercase;
@@ -604,7 +606,7 @@ button[aria-label="Open sidebar"]:hover {{
 [data-testid="stSidebar"] .ws-sidebar-block-title {{
     color: var(--ws-text-muted) !important;
     font-family: var(--ws-font-data);
-    font-size: 0.68rem;
+    font-size: 1rem;
     font-weight: 700;
     letter-spacing: 0;
     text-transform: uppercase;
@@ -639,7 +641,7 @@ button[aria-label="Open sidebar"]:hover {{
 [data-testid="stSidebar"] .ws-sidebar-search-result-meta,
 [data-testid="stSidebar"] .ws-sidebar-empty {{
     color: var(--ws-text-soft) !important;
-    font-size: 0.72rem;
+    font-size: 1rem;
     line-height: 1.35;
 }}
 
@@ -675,13 +677,13 @@ button[aria-label="Open sidebar"]:hover {{
 [data-testid="stSidebar"] .ws-sidebar-recent-module {{
     color: var(--ws-color-primary) !important;
     font-family: var(--ws-font-data);
-    font-size: 0.66rem;
+    font-size: 1rem;
     font-weight: 700;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-recent-page {{
     color: var(--ws-text-main) !important;
-    font-size: 0.78rem;
+    font-size: 1rem;
     font-weight: 600;
 }}
 
@@ -754,7 +756,7 @@ button[aria-label="Open sidebar"]:hover {{
     border: 1px solid transparent !important;
     border-radius: var(--ws-radius-md) !important;
     box-shadow: none !important;
-    font-size: 0.8rem;
+    font-size: 1rem;
     font-weight: 500 !important;
     text-align: left !important;
     line-height: 1 !important;
@@ -768,7 +770,7 @@ button[aria-label="Open sidebar"]:hover {{
     justify-content: flex-start !important;
     gap: 0.5rem;
     color: var(--ws-sidebar-text) !important;
-    font-size: 0.82rem;
+    font-size: 1rem;
     font-weight: 600 !important;
 }}
 
@@ -896,7 +898,7 @@ button[aria-label="Open sidebar"]:hover {{
     border: 0 !important;
     border-radius: var(--ws-radius-sm) !important;
     box-shadow: none !important;
-    font-size: 0.74rem;
+    font-size: 1rem;
     font-weight: 500 !important;
     line-height: 1 !important;
     text-align: left !important;
@@ -1022,7 +1024,7 @@ h3 {{ font-size: 1.05rem; line-height: 1.3; font-weight: 700; }}
 .stFileUploader label {{
     color: var(--ws-text-muted) !important;
     font-family: var(--ws-font-data);
-    font-size: 0.72rem;
+    font-size: 1rem;
     font-weight: 700;
     letter-spacing: 0;
 }}
@@ -1038,7 +1040,7 @@ button[kind="secondary"],
     border: 1px solid var(--ws-border-soft) !important;
     border-radius: var(--ws-radius-md) !important;
     box-shadow: none !important;
-    font-size: 0.8rem;
+    font-size: 1rem;
     font-weight: 600 !important;
     letter-spacing: 0 !important;
 }}
@@ -1112,7 +1114,7 @@ html body .stApp [data-testid="stAppViewContainer"] .main a[href*="iphone_mode"]
     border: 1px solid var(--ws-border-strong) !important;
     border-radius: 8px !important;
     box-shadow: none !important;
-    font-size: 0.82rem;
+    font-size: 1rem;
 }}
 
 [data-baseweb="select"] > div:focus-within,
@@ -1172,7 +1174,7 @@ div[data-testid="stExpander"] {{
 [data-testid="stMetricLabel"] p {{
     color: var(--ws-text-muted) !important;
     font-family: var(--ws-font-data);
-    font-size: 0.72rem !important;
+    font-size: 1rem !important;
     font-weight: 700 !important;
 }}
 
@@ -1206,7 +1208,7 @@ div[data-testid="stTable"] {{
     color: var(--ws-text-muted) !important;
     background: var(--ws-surface-soft) !important;
     font-family: var(--ws-font-data);
-    font-size: 0.72rem !important;
+    font-size: 1rem !important;
     font-weight: 700 !important;
 }}
 
@@ -1215,7 +1217,7 @@ div[data-testid="stExpander"] {{ overflow: hidden !important; }}
 div[data-testid="stExpander"] details summary {{
     padding: 0.65rem 0.75rem !important;
     color: var(--ws-text-main) !important;
-    font-size: 0.82rem;
+    font-size: 1rem;
     font-weight: 700 !important;
 }}
 
@@ -1262,7 +1264,7 @@ div[data-testid="stExpanderDetails"] {{
     border: 0 !important;
     border-bottom: 2px solid transparent !important;
     border-radius: 0 !important;
-    font-size: 0.8rem;
+    font-size: 1rem;
     font-weight: 600 !important;
 }}
 
@@ -1281,7 +1283,7 @@ div[data-testid="stExpanderDetails"] {{
     border-left: 3px solid var(--ws-color-primary) !important;
     border-radius: var(--ws-radius-md) !important;
     box-shadow: none !important;
-    font-size: 0.8rem;
+    font-size: 1rem;
 }}
 
 .ws-empty-selection-state {{
@@ -1295,7 +1297,7 @@ div[data-testid="stExpanderDetails"] {{
     border: 0 !important;
     border-radius: 0 !important;
     font-family: var(--ws-font-sans);
-    font-size: 0.9rem;
+    font-size: 1rem;
     font-weight: 500;
     text-align: center;
 }}
@@ -1355,14 +1357,14 @@ div[data-testid="stExpanderDetails"] {{
 
 .ws-login-dialog-intro strong {{
     color: var(--ws-text-main);
-    font-size: 0.9rem;
+    font-size: 1rem;
     font-weight: 700;
 }}
 
 .ws-login-dialog-intro span {{
     margin-top: 0.18rem;
     color: var(--ws-text-muted);
-    font-size: 0.76rem;
+    font-size: 1rem;
     line-height: 1.4;
 }}
 
@@ -1654,7 +1656,7 @@ button[kind="primary"],
     border-radius: 8px;
     content: "";
     font-family: var(--ws-font-sans);
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
     line-height: 1.2;
     white-space: nowrap;
@@ -1705,7 +1707,7 @@ button[kind="primary"],
     border-radius: 8px;
     content: "Expand sidebar";
     font-family: var(--ws-font-sans);
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
     line-height: 1.2;
     white-space: nowrap;
@@ -1768,7 +1770,7 @@ div[data-testid="stTable"] thead th {{
     background: var(--ws-surface-soft) !important;
     border-bottom: 1px solid var(--ws-border-soft) !important;
     font-family: var(--ws-font-sans);
-    font-size: 0.75rem !important;
+    font-size: 1rem !important;
     font-weight: 600 !important;
 }}
 
@@ -1812,6 +1814,22 @@ div[data-testid="stTable"] thead th {{
     background: rgba(245, 245, 247, 0.94) !important;
 }}
 
+p,
+label,
+small,
+caption,
+figcaption,
+th,
+td,
+input,
+textarea,
+select,
+[role="option"],
+[role="tab"],
+[data-testid="stCaptionContainer"] {{
+    font-size: max(var(--ws-font-size-min), 1em) !important;
+}}
+
 /* Streamlit alerts are passive page states in this app. Keep every alert
    variant quiet and centered instead of rendering a boxed callout. */
 [data-testid="stAlertContainer"] {{
@@ -1827,7 +1845,7 @@ div[data-testid="stTable"] thead th {{
     border-radius: 0 !important;
     box-shadow: none !important;
     color: var(--ws-text-soft) !important;
-    font-size: 0.85rem;
+    font-size: 1rem;
     text-align: center !important;
 }}
 

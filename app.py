@@ -188,6 +188,7 @@ from src.ml_reco_candidate_scores import (
 )
 from src.apple_theme import (
     APPLE_THEME_TOKENS,
+    MIN_FONT_SIZE,
     SYSTEM_FONT_FAMILY,
     build_apple_plotly_template,
     build_author_tracker_apple_css,
@@ -443,7 +444,7 @@ def apply_time_series_hover_affordance(
             xanchor="left",
             yanchor="bottom",
             xshift=6,
-            font=dict(size=11, color=THEME_TEXT),
+            font=dict(size=MIN_FONT_SIZE, color=THEME_TEXT),
             bgcolor="rgba(255, 255, 255, 0.72)",
             bordercolor=THEME_BORDER_SOFT,
             borderwidth=1,
@@ -480,7 +481,7 @@ HOTMONEY_SECTION_WRAPPER_CSS = """
     border-radius: 4px;
     background: var(--ws-color-primary-soft);
     color: var(--ws-color-primary);
-    font-size: 0.76rem;
+    font-size: 1rem;
     font-weight: 700;
     letter-spacing: 0.02em;
     margin-bottom: 0.45rem;
@@ -495,7 +496,7 @@ HOTMONEY_SECTION_WRAPPER_CSS = """
 }
 .ws-hotmoney-section .ws-hotmoney-note {
     color: var(--ws-text-soft);
-    font-size: 0.83rem;
+    font-size: 1rem;
     margin-top: -0.05rem;
     margin-bottom: 0.15rem;
     line-height: 1.6;
@@ -577,7 +578,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 }
 .ws-watchboard-title span {
     color: var(--wb-muted);
-    font-size: 0.95rem;
+    font-size: 1rem;
     white-space: nowrap;
 }
 .ws-watchboard-chip,
@@ -632,7 +633,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 }
 .ws-watchboard-symbol {
     color: var(--wb-muted);
-    font-size: 0.88rem;
+    font-size: 1rem;
     margin-bottom: 0.2rem;
 }
 .ws-watchboard-bigprice {
@@ -699,14 +700,14 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-stat label {
     display: block;
     color: var(--wb-muted);
-    font-size: 0.78rem;
+    font-size: 1rem;
     margin-bottom: 0.12rem;
     white-space: nowrap;
 }
 .ws-watchboard-stat strong {
     display: block;
     color: var(--wb-text);
-    font-size: clamp(0.9rem, 1.18vw, 1.08rem);
+    font-size: clamp(1rem, 1.18vw, 1.08rem);
     line-height: 1.15;
     white-space: normal;
     overflow-wrap: anywhere;
@@ -796,7 +797,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     top: var(--label-top);
     transform: translateY(-50%);
     color: #8fa8ce;
-    font-size: 0.78rem;
+    font-size: 1rem;
     line-height: 1;
 }
 .ws-watchboard-area {
@@ -846,7 +847,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     position: absolute;
     bottom: 0.2rem;
     color: #d6e5ff;
-    font-size: 0.82rem;
+    font-size: 1rem;
 }
 .ws-watchboard-x-label.is-start {
     left: 6.4%;
@@ -869,12 +870,12 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-foot label {
     display: block;
     color: var(--wb-muted);
-    font-size: 0.78rem;
+    font-size: 1rem;
 }
 .ws-watchboard-foot strong {
     display: block;
     color: var(--wb-text);
-    font-size: 0.96rem;
+    font-size: 1rem;
     margin-top: 0.12rem;
     white-space: normal;
     overflow-wrap: anywhere;
@@ -911,7 +912,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-score-donut span {
     display: block;
     color: #d8e6ff;
-    font-size: 0.78rem;
+    font-size: 1rem;
     font-weight: 650;
     text-align: center;
 }
@@ -925,7 +926,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     align-items: center;
     gap: 0.45rem;
     color: #d9e7ff;
-    font-size: 0.88rem;
+    font-size: 1rem;
 }
 .ws-score-track {
     height: 7px;
@@ -970,7 +971,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     margin: 0.38rem 0 0 0;
     color: #c3d2ec;
     line-height: 1.62;
-    font-size: 0.95rem;
+    font-size: 1rem;
 }
 .ws-watchboard-strip {
     display: grid;
@@ -1003,7 +1004,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 }
 .ws-watchboard-mini-code {
     color: var(--wb-muted);
-    font-size: 0.76rem;
+    font-size: 1rem;
     white-space: nowrap;
 }
 .ws-watchboard-mini-price {
@@ -1022,7 +1023,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 }
 .ws-watchboard-mini-score {
     color: #98b5ed;
-    font-size: 0.82rem;
+    font-size: 1rem;
 }
 .ws-watchboard-shell.is-compact {
     padding: 0.52rem;
@@ -1046,13 +1047,13 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-compact-title strong {
     display: block;
     color: var(--wb-text);
-    font-size: clamp(0.95rem, 1.5vw, 1.16rem);
+    font-size: clamp(1rem, 1.5vw, 1.16rem);
     line-height: 1.1;
 }
 .ws-watchboard-compact-title span {
     display: block;
     color: var(--wb-muted);
-    font-size: 0.72rem;
+    font-size: 1rem;
     margin-top: 0.12rem;
     white-space: nowrap;
     overflow: hidden;
@@ -1068,7 +1069,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     border: 1px solid var(--wb-line-soft);
     background: rgba(3, 13, 33, 0.78);
     color: #c9dcff;
-    font-size: 0.76rem;
+    font-size: 1rem;
     font-weight: 700;
     white-space: nowrap;
 }
@@ -1090,14 +1091,14 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-summary-pill label {
     display: block;
     color: var(--wb-muted);
-    font-size: 0.64rem;
+    font-size: 1rem;
     line-height: 1.1;
 }
 .ws-watchboard-summary-pill strong {
     display: block;
     margin-top: 0.1rem;
     color: var(--wb-text);
-    font-size: 0.84rem;
+    font-size: 1rem;
     line-height: 1.18;
     white-space: nowrap;
     overflow: hidden;
@@ -1213,7 +1214,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     align-items: center;
     gap: 0.35rem;
     color: #dce8ff;
-    font-size: 0.78rem;
+    font-size: 1rem;
     font-weight: 700;
 }
 .st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stCheckbox"] input {
@@ -1233,7 +1234,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-stock-name {
     min-width: 0;
     color: #f6fbff;
-    font-size: 0.82rem;
+    font-size: 1rem;
     font-weight: 900;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.68), 0 0 10px rgba(118, 198, 255, 0.24);
     white-space: nowrap;
@@ -1243,7 +1244,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-stock-code {
     flex: 0 0 auto;
     color: #8ea8d2;
-    font-size: 0.6rem;
+    font-size: 1rem;
 }
 .ws-watchboard-stock-price {
     color: var(--accent);
@@ -1255,7 +1256,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 }
 .ws-watchboard-stock-ret {
     color: var(--accent);
-    font-size: 0.72rem;
+    font-size: 1rem;
     font-weight: 800;
     white-space: nowrap;
 }
@@ -1271,13 +1272,13 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-stock-metric label {
     display: block;
     color: var(--wb-muted);
-    font-size: 0.56rem;
+    font-size: 1rem;
     line-height: 1;
 }
 .ws-watchboard-stock-metric strong {
     display: block;
     color: #edf5ff;
-    font-size: 0.66rem;
+    font-size: 1rem;
     line-height: 1.15;
     margin-top: 0.08rem;
     white-space: nowrap;
@@ -1301,7 +1302,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-stock-foot {
     margin-top: 0.28rem;
     color: #9db8e6;
-    font-size: 0.6rem;
+    font-size: 1rem;
     line-height: 1.1;
 }
 .ws-watchboard-stock-signal {
@@ -1426,13 +1427,13 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-bottom:.8rem;
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.78rem;
+    font-size:1rem;
     letter-spacing:.04em;
 }
 .ws-fund-watchboard__eyebrow strong {
     color:var(--fw-cyan) !important;
     -webkit-text-fill-color:var(--fw-cyan) !important;
-    font-size:.82rem;
+    font-size:1rem;
     letter-spacing:.1em;
 }
 .ws-fund-watchboard__summary {
@@ -1455,7 +1456,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-bottom:.28rem;
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.72rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__metric strong {
     display:block;
@@ -1472,7 +1473,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-top:.24rem;
     color:#c5d6ec !important;
     -webkit-text-fill-color:#c5d6ec !important;
-    font-size:.66rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__metric.is-accent strong {
     color:var(--fw-cyan) !important;
@@ -1498,12 +1499,12 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__live-status strong {
     color:#ffffff !important;
     -webkit-text-fill-color:#ffffff !important;
-    font-size:.84rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__live-status span {
     color:#c8d9ee !important;
     -webkit-text-fill-color:#c8d9ee !important;
-    font-size:.69rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__live-status b {
     color:#55e6ff !important;
@@ -1554,7 +1555,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     overflow:hidden;
     color:var(--fw-text) !important;
     -webkit-text-fill-color:var(--fw-text) !important;
-    font-size:.96rem;
+    font-size:1rem;
     line-height:1.35;
     text-overflow:ellipsis;
     white-space:nowrap;
@@ -1562,7 +1563,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__card-title span {
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.69rem;
+    font-size:1rem;
     letter-spacing:.04em;
 }
 .ws-fund-watchboard__badge {
@@ -1575,7 +1576,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     border:1px solid rgba(70,126,255,.3);
     border-radius:4px;
     background:rgba(47,123,255,.12);
-    font-size:.64rem;
+    font-size:1rem;
     text-overflow:ellipsis;
     white-space:nowrap;
 }
@@ -1594,7 +1595,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     display:block;
     color:#c6d6eb !important;
     -webkit-text-fill-color:#c6d6eb !important;
-    font-size:.61rem;
+    font-size:1rem;
     font-weight:700;
 }
 .ws-fund-watchboard__live strong {
@@ -1616,7 +1617,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__live > span {
     color:#c9d9ee !important;
     -webkit-text-fill-color:#c9d9ee !important;
-    font-size:.61rem;
+    font-size:1rem;
     line-height:1.45;
     text-align:right;
 }
@@ -1643,7 +1644,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     display:block;
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.59rem;
+    font-size:1rem;
     font-weight:700;
 }
 .ws-fund-watchboard__confirmed-nav strong {
@@ -1651,7 +1652,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-top:.08rem;
     color:#f5f9ff !important;
     -webkit-text-fill-color:#f5f9ff !important;
-    font-size:.88rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__confirmed-nav .is-up strong {
     color:#ff6b7d !important;
@@ -1667,7 +1668,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     color:#b8cae2 !important;
     -webkit-text-fill-color:#b8cae2 !important;
     border-top:1px solid rgba(70,126,255,.14);
-    font-size:.59rem;
+    font-size:1rem;
     text-align:center;
     white-space:nowrap;
 }
@@ -1684,7 +1685,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-bottom:.28rem;
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.66rem;
+    font-size:1rem;
     font-weight:600;
 }
 .ws-fund-watchboard__ratio.is-low {
@@ -1712,7 +1713,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     display:block;
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.61rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__card-metrics strong {
     display:block;
@@ -1720,7 +1721,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-top:.1rem;
     color:#e9f2ff !important;
     -webkit-text-fill-color:#e9f2ff !important;
-    font-size:.77rem;
+    font-size:1rem;
     text-overflow:ellipsis;
     white-space:nowrap;
 }
@@ -1735,7 +1736,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-top:.06rem;
     color:#dce8ff !important;
     -webkit-text-fill-color:#dce8ff !important;
-    font-size:.76rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__changes .is-positive strong {
     color:var(--fw-green) !important;
@@ -1754,7 +1755,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     padding-top:.52rem;
     color:#b8cae2;
     border-top:1px solid rgba(70,126,255,.13);
-    font-size:.63rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__date span {
     color:#d9e6f7 !important;
@@ -1784,7 +1785,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__focus-kicker {
     color:var(--fw-cyan) !important;
     -webkit-text-fill-color:var(--fw-cyan) !important;
-    font-size:.7rem;
+    font-size:1rem;
     font-weight:800;
     letter-spacing:.12em;
 }
@@ -1797,7 +1798,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__focus-code {
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.74rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__focus-main {
     display:grid;
@@ -1830,7 +1831,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     text-align:center;
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.61rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__ring strong {
     display:block;
@@ -1849,7 +1850,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     padding-bottom:.32rem;
     border-bottom:1px solid rgba(70,126,255,.12);
     color:var(--fw-muted);
-    font-size:.68rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__fact > span {
     color:var(--fw-muted) !important;
@@ -1858,7 +1859,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__fact strong {
     color:#f4f8ff !important;
     -webkit-text-fill-color:#f4f8ff !important;
-    font-size:.7rem;
+    font-size:1rem;
     text-align:right;
 }
 .ws-fund-watchboard__fact strong.is-up {
@@ -1883,12 +1884,12 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__holdings-head strong {
     color:var(--fw-text) !important;
     -webkit-text-fill-color:var(--fw-text) !important;
-    font-size:.92rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__holdings-head span {
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.65rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__table-wrap {
     overflow-x:auto;
@@ -1899,7 +1900,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     width:100%;
     min-width:760px;
     border-collapse:collapse;
-    font-size:.68rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__holdings th {
     padding:.56rem .6rem;
@@ -1950,7 +1951,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     border:1px solid rgba(255,63,85,.3);
     border-radius:7px;
     background:rgba(255,63,85,.08);
-    font-size:.68rem;
+    font-size:1rem;
 }
 .st-key-fund_watchlist_card_grid {
     margin-top:.35rem;
@@ -1995,7 +1996,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 }
 .st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] [data-testid="stCheckbox"] label {
     color:#dce8ff;
-    font-size:.76rem;
+    font-size:1rem;
     font-weight:700;
 }
 .st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] [data-testid="stCheckbox"] label * {
@@ -6738,7 +6739,7 @@ def draw_metric_card(title: str, value: str, delta: str, delta_pct: str = None) 
     " onmouseover="this.style.transform='scale(1.02)'; this.style.boxShadow='0 4px 6px rgba(0, 0, 0, 0.1)'"
        onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 1px 3px rgba(0, 0, 0, 0.08)'">
         <div style="
-            font-size: 0.875rem;
+            font-size: 1rem;
             font-weight: 600;
             color: {THEME_MUTED};
             text-transform: uppercase;
@@ -6752,7 +6753,7 @@ def draw_metric_card(title: str, value: str, delta: str, delta_pct: str = None) 
             margin-bottom: 0.5rem;
         ">{value}</div>
         <div style="
-            font-size: 0.875rem;
+            font-size: 1rem;
             font-weight: 600;
             color: {color};
         ">{delta_display}</div>
@@ -6866,7 +6867,7 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
             xanchor="center",
             x=0.5,
             bgcolor="rgba(255, 255, 255, 0)",
-            font=dict(size=11)
+            font=dict(size=MIN_FONT_SIZE)
         ),
         height=500,
         template='plotly_white',
@@ -7077,7 +7078,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
             xanchor='center',
             x=0.5,
             bgcolor='rgba(255, 255, 255, 0)',
-            font=dict(size=11)
+            font=dict(size=MIN_FONT_SIZE)
         ),
         height=500,
         template='plotly_white',
@@ -7109,7 +7110,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
             xanchor="left",
             yanchor="bottom",
             xshift=6,
-            font=dict(size=11, color=THEME_TEXT),
+            font=dict(size=MIN_FONT_SIZE, color=THEME_TEXT),
             bgcolor="rgba(255, 255, 255, 0.72)",
             bordercolor=THEME_BORDER_SOFT,
             borderwidth=1,
@@ -7195,7 +7196,7 @@ def create_volume_total_line(df: pd.DataFrame) -> go.Figure:
             xanchor='center',
             x=0.5,
             bgcolor='rgba(255, 255, 255, 0)',
-            font=dict(size=11)
+            font=dict(size=MIN_FONT_SIZE)
         ),
         height=500,
         template='plotly_white',
@@ -11320,7 +11321,7 @@ def create_change_curve_chart(
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.25,
             xanchor='center', x=0.5,
-            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+            bgcolor='rgba(255,255,255,0)', font=dict(size=MIN_FONT_SIZE)
         ),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -11434,7 +11435,7 @@ def create_change_bar_chart(
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.25,
             xanchor='center', x=0.5,
-            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+            bgcolor='rgba(255,255,255,0)', font=dict(size=MIN_FONT_SIZE)
         ),
         margin=dict(l=20, r=20, t=60, b=20),
         bargap=0.18,
@@ -11516,7 +11517,7 @@ def create_macro_line_chart(
         legend=dict(
             orientation="h", yanchor="bottom", y=-0.25,
             xanchor="center", x=0.5,
-            bgcolor="rgba(255,255,255,0)", font=dict(size=11)
+            bgcolor="rgba(255,255,255,0)", font=dict(size=MIN_FONT_SIZE)
         ),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -11769,7 +11770,7 @@ def render_etf_trend_tab():
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.2,
             xanchor='center', x=0.5,
-            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+            bgcolor='rgba(255,255,255,0)', font=dict(size=MIN_FONT_SIZE)
         ),
         height=500,
         template='plotly_white',
@@ -14689,7 +14690,7 @@ def render_security_search_tab():
                         legend=dict(
                             orientation='h', yanchor='bottom', y=1.02,
                             xanchor='left', x=0,
-                            font=dict(size=12),
+                            font=dict(size=MIN_FONT_SIZE),
                         ),
                         barmode='overlay',
                     )
@@ -15755,7 +15756,7 @@ def render_wide_index_tab():
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.28,
             xanchor='center', x=0.5,
-            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+            bgcolor='rgba(255,255,255,0)', font=dict(size=MIN_FONT_SIZE)
         ),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -16028,7 +16029,7 @@ def render_industry_etf_tab():
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.28,
             xanchor='center', x=0.5,
-            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+            bgcolor='rgba(255,255,255,0)', font=dict(size=MIN_FONT_SIZE)
         ),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -20451,7 +20452,7 @@ def render_moneyflow_tab():
                                     xanchor="left",
                                     yanchor="middle",
                                     align="left",
-                                    font=dict(size=12, color=THEME_TEXT),
+                                    font=dict(size=MIN_FONT_SIZE, color=THEME_TEXT),
                                     bgcolor="rgba(255,255,255,0.0)",
                                     borderwidth=0,
                                 ))

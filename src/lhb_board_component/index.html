@@ -54,7 +54,7 @@
 
     .board-meta {
       color: var(--muted);
-      font-size: 12px;
+      font-size: 14px;
       font-weight: 650;
       line-height: 1;
     }
@@ -322,7 +322,7 @@
       const node = createSvgElement("text", {
         x,
         y,
-        "font-size": options.size || 12,
+        "font-size": Math.max(14, Number(options.size) || 14),
         class: options.className || "",
       });
       node.textContent = truncate(label, options.maxChars || 12);

@@ -1,10 +1,12 @@
 import unittest
+import re
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, unquote, urlparse
 from pathlib import Path
 
 from src.apple_theme import (
     APPLE_THEME_TOKENS,
+    MIN_FONT_SIZE,
     SYSTEM_FONT_FAMILY,
     build_apple_plotly_template,
     build_author_tracker_apple_css,
@@ -76,6 +78,35 @@ class TrackerUiPayloadTests(unittest.TestCase):
         )
         for path in standalone_renderers:
             self.assertIn(expected, path.read_text(encoding="utf-8", errors="ignore"))
+
+    def test_text_font_sizes_do_not_fall_below_minimum(self):
+        self.assertEqual(MIN_FONT_SIZE, 14)
+        css = build_global_apple_theme_css()
+        self.assertIn("--ws-font-size-min: 14px", css)
+        self.assertIn("font-size: max(var(--ws-font-size-min), 1em) !important", css)
+        sources = [Path("app.py")]
+        sources.extend(Path("src").rglob("*.py"))
+        sources.extend(Path("src").rglob("*.html"))
+
+        undersized = []
+        fixed_size_pattern = re.compile(r"font-size\s*:\s*(\d*\.?\d+)\s*(px|rem)", re.IGNORECASE)
+        clamp_pattern = re.compile(r"font-size\s*:\s*clamp\(\s*(\d*\.?\d+)\s*rem", re.IGNORECASE)
+        plotly_font_pattern = re.compile(r"font=dict\([^\r\n]*?\bsize=(\d+)")
+        for path in sources:
+            source = path.read_text(encoding="utf-8", errors="ignore")
+            for match in fixed_size_pattern.finditer(source):
+                value = float(match.group(1))
+                pixels = value if match.group(2).lower() == "px" else value * MIN_FONT_SIZE
+                if 0 < pixels < MIN_FONT_SIZE:
+                    undersized.append(f"{path}:{match.group(0)}")
+            for match in clamp_pattern.finditer(source):
+                if 0 < float(match.group(1)) < 1:
+                    undersized.append(f"{path}:{match.group(0)}")
+            for match in plotly_font_pattern.finditer(source):
+                if 0 < int(match.group(1)) < MIN_FONT_SIZE:
+                    undersized.append(f"{path}:{match.group(0)}")
+
+        self.assertEqual(undersized, [])
 
     def test_build_global_apple_theme_css_includes_primary_interaction_selectors(self):
         css = build_global_apple_theme_css()
@@ -153,6 +184,8 @@ class TrackerUiPayloadTests(unittest.TestCase):
 
         self.assertEqual(template.layout.font.family, SYSTEM_FONT_FAMILY)
         self.assertEqual(template.layout.title.font.family, SYSTEM_FONT_FAMILY)
+        self.assertEqual(template.layout.font.size, MIN_FONT_SIZE)
+        self.assertEqual(template.layout.xaxis.tickfont.size, MIN_FONT_SIZE)
         self.assertEqual(template.layout.paper_bgcolor, "#FFFFFF")
         self.assertEqual(template.layout.plot_bgcolor, "#FFFFFF")
         self.assertEqual(template.layout.colorway[0], "#0F69FF")

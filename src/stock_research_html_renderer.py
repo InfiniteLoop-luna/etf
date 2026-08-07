@@ -579,7 +579,7 @@ def render_stock_research_html(
     body.light-mode .top-nav {{ background: rgba(255, 255, 255, 0.92); }}
     .brand {{ display: flex; flex-direction: column; gap: 2px; min-width: 160px; }}
     .brand strong {{ font-size: 16px; }}
-    .brand span {{ color: var(--muted); font-size: 12px; font-family: Consolas, monospace; }}
+    .brand span {{ color: var(--muted); font-size: 14px; font-family: Consolas, monospace; }}
     .nav-links {{ display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }}
     .nav-links a, .theme-toggle {{
       color: var(--accent);
@@ -588,7 +588,7 @@ def render_stock_research_html(
       background: rgba(255,255,255,0.04);
       border-radius: 16px;
       padding: 5px 11px;
-      font-size: 12px;
+      font-size: 14px;
       cursor: pointer;
     }}
     .nav-links a.active, .nav-links a:hover, .theme-toggle:hover {{
@@ -610,7 +610,7 @@ def render_stock_research_html(
       box-shadow: var(--shadow);
     }}
     body.light-mode .hero {{ background: linear-gradient(105deg, #fff9f0 0%, #ffffff 72%); }}
-    .eyebrow {{ color: var(--muted); font-size: 13px; margin: 0 0 6px; }}
+    .eyebrow {{ color: var(--muted); font-size: 14px; margin: 0 0 6px; }}
     h1 {{ font-size: 30px; line-height: 1.25; margin: 0 0 12px; letter-spacing: 0; }}
     h2 {{ font-size: 19px; margin: 0 0 14px; letter-spacing: 0; }}
     h3 {{ font-size: 15px; margin: 0 0 8px; letter-spacing: 0; }}
@@ -625,7 +625,7 @@ def render_stock_research_html(
       border-radius: 999px;
       background: var(--surface-2);
       color: var(--ink);
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 700;
     }}
     .badge.verdict {{ background: var(--accent-soft); color: var(--accent); }}
@@ -666,7 +666,7 @@ def render_stock_research_html(
       box-shadow: var(--shadow);
     }}
     .metric-label, .metric-card small, .muted {{ color: var(--muted); }}
-    .metric-label {{ display: block; font-size: 12px; margin-bottom: 6px; }}
+    .metric-label {{ display: block; font-size: 14px; margin-bottom: 6px; }}
     .metric-card strong {{ display: block; font-size: 20px; margin-bottom: 5px; }}
     .grid-2 {{ display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr); gap: 16px; }}
     .grid-3 {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }}
@@ -689,7 +689,7 @@ def render_stock_research_html(
       background: var(--surface-2);
       border-radius: 8px;
     }}
-    table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+    table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
     th, td {{ padding: 9px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }}
     th {{ color: var(--muted); text-align: left; width: 34%; font-weight: 600; }}
     td {{ color: var(--ink); }}
@@ -700,7 +700,7 @@ def render_stock_research_html(
     .step-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }}
     .step-card {{ border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: #fbfcfd; }}
     body:not(.light-mode) .step-card, body:not(.light-mode) .evidence-card {{ background: var(--surface-2); }}
-    .step-card span {{ color: var(--accent); font-size: 12px; font-weight: 700; }}
+    .step-card span {{ color: var(--accent); font-size: 14px; font-weight: 700; }}
     .evidence-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }}
     .evidence-card {{ border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: #fbfcfd; }}
     .evidence-card h3 {{ display: flex; justify-content: space-between; gap: 8px; align-items: center; }}
@@ -709,25 +709,25 @@ def render_stock_research_html(
       background: var(--surface-2);
       border-radius: 999px;
       padding: 2px 8px;
-      font-size: 11px;
+      font-size: 14px;
       font-weight: 700;
     }}
-    .evidence-card li strong {{ display: block; font-size: 13px; }}
-    .evidence-card li small {{ display: block; color: var(--muted); font-size: 12px; }}
+    .evidence-card li strong {{ display: block; font-size: 14px; }}
+    .evidence-card li small {{ display: block; color: var(--muted); font-size: 14px; }}
     .score-bar {{ display: grid; grid-template-columns: 88px minmax(120px, 1fr) 44px minmax(78px, auto); align-items: center; gap: 8px; margin: 8px 0; }}
-    .score-label {{ color: var(--muted); font-size: 12px; text-align: right; }}
+    .score-label {{ color: var(--muted); font-size: 14px; text-align: right; }}
     .score-track {{ height: 9px; background: var(--surface-2); border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }}
     .score-fill {{ height: 100%; border-radius: 8px; }}
     .score-num {{ font-weight: 800; color: var(--ink); text-align: center; font-family: Consolas, monospace; }}
-    .score-bar small {{ color: var(--muted); font-size: 11px; }}
+    .score-bar small {{ color: var(--muted); font-size: 14px; }}
     .chain-svg {{ background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow: hidden; }}
     .chain-svg svg {{ width: 100%; height: auto; display: block; }}
     .svg-box {{ fill: var(--surface); stroke: var(--border); stroke-width: 2; }}
     .svg-box.core {{ stroke: var(--accent); }}
     .svg-line {{ stroke: var(--accent); stroke-width: 2.5; }}
     .svg-hdr {{ fill: var(--ink); font-size: 15px; font-weight: 800; }}
-    .svg-sub {{ fill: var(--muted); font-size: 12px; }}
-    .footer {{ color: var(--muted); font-size: 12px; margin-top: 18px; }}
+    .svg-sub {{ fill: var(--muted); font-size: 14px; }}
+    .footer {{ color: var(--muted); font-size: 14px; margin-top: 18px; }}
     details {{ margin-top: 16px; }}
     summary {{ cursor: pointer; color: var(--accent); font-weight: 700; }}
     pre {{
