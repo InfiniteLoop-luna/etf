@@ -1073,6 +1073,8 @@ html body .stApp [data-testid="stAppViewContainer"] .main a[href*="iphone_mode"]
 }}
 
 [data-baseweb="select"] > div,
+.stTextInput [data-baseweb="input"],
+.stTextInput [data-baseweb="base-input"],
 .stTextInput input,
 .stNumberInput input,
 .stDateInput input,
@@ -1082,12 +1084,14 @@ html body .stApp [data-testid="stAppViewContainer"] .main a[href*="iphone_mode"]
     color: var(--ws-text-main) !important;
     background: var(--ws-bg-surface) !important;
     border: 1px solid var(--ws-border-strong) !important;
-    border-radius: var(--ws-radius-md) !important;
+    border-radius: 8px !important;
     box-shadow: none !important;
     font-size: 0.82rem;
 }}
 
 [data-baseweb="select"] > div:focus-within,
+.stTextInput [data-baseweb="input"]:focus-within,
+.stTextInput [data-baseweb="base-input"]:focus-within,
 .stTextInput input:focus,
 .stNumberInput input:focus,
 .stDateInput input:focus,
@@ -1106,9 +1110,17 @@ html body .stApp [data-testid="stAppViewContainer"] .main a[href*="iphone_mode"]
 }}
 
 [data-baseweb="checkbox"] [aria-checked="true"],
-[data-baseweb="toggle"] [aria-checked="true"] {{
+[data-baseweb="toggle"] [aria-checked="true"],
+[data-baseweb="radio"] [aria-checked="true"],
+[data-testid="stRadio"] [role="radio"][aria-checked="true"],
+[role="radiogroup"] [role="radio"][aria-checked="true"] {{
     background-color: var(--ws-color-primary) !important;
     border-color: var(--ws-color-primary) !important;
+}}
+
+input[type="radio"],
+input[type="checkbox"] {{
+    accent-color: var(--ws-color-primary) !important;
 }}
 
 .stMetric,
@@ -1456,8 +1468,15 @@ button[kind="primary"],
 [data-testid="stSidebar"] [class*="st-key-sidebar-search-query"] input {{
     min-height: 36px !important;
     height: 36px !important;
-    border-radius: 9999px !important;
+    border-radius: 8px !important;
     background: var(--ws-bg-surface) !important;
+}}
+
+[class*="st-key-security_search_keyword"] input,
+[class*="st-key-security-search-keyword"] input,
+[class*="st-key-security_search_keyword"] [data-baseweb="input"],
+[class*="st-key-security-search-keyword"] [data-baseweb="input"] {{
+    border-radius: 8px !important;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button,
@@ -1497,6 +1516,8 @@ button[kind="primary"],
 }}
 
 [data-baseweb="select"] > div,
+.stTextInput [data-baseweb="input"],
+.stTextInput [data-baseweb="base-input"],
 .stTextInput input,
 .stNumberInput input,
 .stDateInput input,
@@ -1506,11 +1527,13 @@ button[kind="primary"],
     color: var(--ws-text-main) !important;
     background: var(--ws-bg-surface) !important;
     border-color: var(--ws-border-soft) !important;
-    border-radius: var(--ws-radius-md) !important;
+    border-radius: 8px !important;
     box-shadow: none !important;
 }}
 
 [data-baseweb="select"] > div:focus-within,
+.stTextInput [data-baseweb="input"]:focus-within,
+.stTextInput [data-baseweb="base-input"]:focus-within,
 .stTextInput input:focus,
 .stNumberInput input:focus,
 .stDateInput input:focus,
