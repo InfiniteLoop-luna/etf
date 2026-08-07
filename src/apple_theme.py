@@ -2775,4 +2775,318 @@ html body [data-baseweb="textarea"] textarea:focus {
     box-shadow: none !important;
     outline: none !important;
 }
+
+/* Fund watchboard: high-contrast neutral palette.
+   The legacy component ships with light text for a dark terminal. These final
+   rules deliberately restate every semantic text tier after the shared light
+   theme is applied, so no pale terminal color leaks onto a white surface. */
+.ws-fund-watchboard {
+    --fw-bg: #F6F7F9;
+    --fw-panel: #FFFFFF;
+    --fw-panel-strong: #FFFFFF;
+    --fw-line: #D8E0EA;
+    --fw-line-soft: #E7ECF2;
+    --fw-cyan: #245EDB;
+    --fw-blue: #245EDB;
+    --fw-red: #C83A50;
+    --fw-green: #167A5A;
+    --fw-text: #182230;
+    --fw-muted: #667085;
+    color: var(--fw-text) !important;
+    background: var(--fw-bg) !important;
+    border-color: var(--fw-line) !important;
+    border-radius: 16px !important;
+}
+
+.ws-fund-watchboard__card,
+.ws-fund-watchboard__focus,
+.ws-fund-watchboard__live-status {
+    --fw-bg: #F6F7F9;
+    --fw-panel: #FFFFFF;
+    --fw-panel-strong: #FFFFFF;
+    --fw-line: #D8E0EA;
+    --fw-line-soft: #E7ECF2;
+    --fw-cyan: #245EDB;
+    --fw-blue: #245EDB;
+    --fw-red: #C83A50;
+    --fw-green: #167A5A;
+    --fw-text: #182230;
+    --fw-muted: #667085;
+    color: #182230 !important;
+}
+
+.ws-fund-watchboard__metric,
+.ws-fund-watchboard__live-status,
+.ws-fund-watchboard__card,
+.ws-fund-watchboard__focus,
+.ws-fund-watchboard__table-wrap,
+.ws-fund-watchboard__empty,
+.st-key-fund_watchlist_card_grid,
+.st-key-fund_watchlist_table_wrap,
+.st-key-fund_watchlist_add_panel,
+.st-key-fund_watchlist_toolbar,
+.st-key-fund_watchlist_table_batch_controls,
+.st-key-fund_watchlist_table_focus_controls {
+    color: var(--fw-text, #182230) !important;
+    background: #FFFFFF !important;
+    border-color: #D8E0EA !important;
+    border-radius: 12px !important;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04) !important;
+}
+
+.st-key-fund_watchlist_card_grid {
+    padding: 0.8rem !important;
+    background: #F6F7F9 !important;
+}
+
+.ws-fund-watchboard__card {
+    min-height: 390px;
+    padding: 0.9rem;
+    transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.ws-fund-watchboard__card:hover {
+    transform: translateY(-2px);
+    border-color: #AFC2E8 !important;
+    box-shadow: 0 10px 24px rgba(24, 34, 48, 0.08) !important;
+}
+
+.ws-fund-watchboard__card.is-active {
+    border-color: #245EDB !important;
+    box-shadow: 0 0 0 2px rgba(36, 94, 219, 0.12) !important;
+}
+
+.ws-fund-watchboard__metric,
+.ws-fund-watchboard__live,
+.ws-fund-watchboard__confirmed-nav,
+.ws-fund-watchboard__card-metrics div,
+.ws-fund-watchboard__fact,
+.ws-fund-watchboard__table-wrap {
+    background: #F7F9FB !important;
+    border-color: #E3E9F0 !important;
+}
+
+.ws-fund-watchboard__eyebrow,
+.ws-fund-watchboard__metric label,
+.ws-fund-watchboard__metric span,
+.ws-fund-watchboard__card-title span,
+.ws-fund-watchboard__live small,
+.ws-fund-watchboard__live > span,
+.ws-fund-watchboard__confirmed-nav small,
+.ws-fund-watchboard__confirmed-nav > span,
+.ws-fund-watchboard__ratio small,
+.ws-fund-watchboard__card-metrics label,
+.ws-fund-watchboard__changes label,
+.ws-fund-watchboard__date,
+.ws-fund-watchboard__focus-code,
+.ws-fund-watchboard__fact > span,
+.ws-fund-watchboard__ring span,
+.ws-fund-watchboard__holdings-head span {
+    color: #667085 !important;
+    -webkit-text-fill-color: #667085 !important;
+}
+
+.ws-fund-watchboard__eyebrow strong,
+.ws-fund-watchboard__focus-kicker {
+    color: #245EDB !important;
+    -webkit-text-fill-color: #245EDB !important;
+}
+
+.ws-fund-watchboard__metric strong,
+.ws-fund-watchboard__card-title strong,
+.ws-fund-watchboard__live-status strong,
+.ws-fund-watchboard__confirmed-nav strong,
+.ws-fund-watchboard__card-metrics strong,
+.ws-fund-watchboard__changes strong,
+.ws-fund-watchboard__date span,
+.ws-fund-watchboard__focus h3,
+.ws-fund-watchboard__fact strong,
+.ws-fund-watchboard__holdings-head strong,
+.ws-fund-watchboard__ring strong {
+    color: #182230 !important;
+    -webkit-text-fill-color: #182230 !important;
+}
+
+.ws-fund-watchboard__live-status span {
+    color: #667085 !important;
+    -webkit-text-fill-color: #667085 !important;
+}
+
+.ws-fund-watchboard__live-status b {
+    color: #245EDB !important;
+    -webkit-text-fill-color: #245EDB !important;
+}
+
+.ws-fund-watchboard__metric label,
+.ws-fund-watchboard__card-title span,
+.ws-fund-watchboard__live small,
+.ws-fund-watchboard__confirmed-nav small,
+.ws-fund-watchboard__ratio small,
+.ws-fund-watchboard__card-metrics label,
+.ws-fund-watchboard__changes label,
+.ws-fund-watchboard__date,
+.ws-fund-watchboard__fact,
+.ws-fund-watchboard__holdings-head span {
+    font-size: 1rem !important;
+    line-height: 1.35 !important;
+}
+
+.ws-fund-watchboard__metric span,
+.ws-fund-watchboard__live > span,
+.ws-fund-watchboard__confirmed-nav > span {
+    font-size: 1rem !important;
+    line-height: 1.4 !important;
+}
+
+.ws-fund-watchboard__card-title strong {
+    font-size: 1rem !important;
+    font-weight: 750 !important;
+}
+
+.ws-fund-watchboard__metric strong {
+    font-size: clamp(1.15rem, 2vw, 1.45rem) !important;
+}
+
+.ws-fund-watchboard__live {
+    display: grid;
+    grid-template-columns: minmax(72px, 0.85fr) minmax(0, 1.15fr);
+    align-items: center;
+    min-height: 68px;
+    padding: 0.58rem 0.65rem;
+}
+
+.ws-fund-watchboard__live strong {
+    color: #182230 !important;
+    -webkit-text-fill-color: #182230 !important;
+    font-size: 1.08rem !important;
+}
+
+.ws-fund-watchboard__live > span {
+    min-width: 0;
+    text-align: right;
+}
+
+.ws-fund-watchboard__live.is-freshness {
+    grid-template-columns: minmax(126px, 0.92fr) minmax(0, 1.08fr);
+    align-items: start;
+}
+
+.ws-fund-watchboard__live.is-freshness strong {
+    font-size: 1rem !important;
+}
+
+.ws-fund-watchboard__live.is-up {
+    background: #FFF4F5 !important;
+    border-color: #F2CDD3 !important;
+}
+
+.ws-fund-watchboard__live.is-down {
+    background: #F1F9F5 !important;
+    border-color: #C9E7DA !important;
+}
+
+.ws-fund-watchboard__live.is-up strong,
+.ws-fund-watchboard__confirmed-nav .is-up strong,
+.ws-fund-watchboard__fact strong.is-up,
+.ws-fund-watchboard__holdings td.is-up,
+.ws-fund-watchboard__ratio.is-high,
+.ws-fund-watchboard__changes .is-negative strong {
+    color: #C83A50 !important;
+    -webkit-text-fill-color: #C83A50 !important;
+}
+
+.ws-fund-watchboard__live.is-down strong,
+.ws-fund-watchboard__confirmed-nav .is-down strong,
+.ws-fund-watchboard__fact strong.is-down,
+.ws-fund-watchboard__holdings td.is-down,
+.ws-fund-watchboard__ratio.is-low,
+.ws-fund-watchboard__changes .is-positive strong {
+    color: #167A5A !important;
+    -webkit-text-fill-color: #167A5A !important;
+}
+
+.ws-fund-watchboard__ratio {
+    color: #245EDB !important;
+    -webkit-text-fill-color: #245EDB !important;
+    font-size: 1.45rem !important;
+}
+
+.ws-fund-watchboard__confirmed-nav > span {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal !important;
+}
+
+.ws-fund-watchboard__badge {
+    color: #245EDB !important;
+    -webkit-text-fill-color: #245EDB !important;
+    background: #EEF4FF !important;
+    border-color: #D7E4FF !important;
+    border-radius: 999px !important;
+    font-size: 1rem !important;
+    font-weight: 650 !important;
+}
+
+.ws-fund-watchboard__card-metrics strong,
+.ws-fund-watchboard__changes strong,
+.ws-fund-watchboard__confirmed-nav strong {
+    font-size: 1rem !important;
+}
+
+.ws-fund-watchboard__ring {
+    background: conic-gradient(#245EDB var(--ratio), #E3E9F0 0) !important;
+    box-shadow: none !important;
+}
+
+.ws-fund-watchboard__ring::before {
+    background: #FFFFFF !important;
+    box-shadow: inset 0 0 0 1px #E3E9F0 !important;
+}
+
+.ws-fund-watchboard__holdings th {
+    color: #475467 !important;
+    -webkit-text-fill-color: #475467 !important;
+    background: #F2F5F8 !important;
+    border-color: #E3E9F0 !important;
+}
+
+.ws-fund-watchboard__holdings td {
+    color: #344054 !important;
+    -webkit-text-fill-color: #344054 !important;
+    background: #FFFFFF !important;
+    border-color: #E7ECF2 !important;
+}
+
+.st-key-fund_watchlist_add_panel h4,
+.st-key-fund_watchlist_add_panel p,
+.st-key-fund_watchlist_add_panel label,
+.st-key-fund_watchlist_add_panel [data-testid="stCaptionContainer"],
+.st-key-fund_watchlist_toolbar label,
+.st-key-fund_watchlist_toolbar label p,
+.st-key-fund_watchlist_toolbar [data-testid="stCaptionContainer"],
+.st-key-fund_watchlist_table_batch_controls label,
+.st-key-fund_watchlist_table_focus_controls label {
+    color: #475467 !important;
+    -webkit-text-fill-color: #475467 !important;
+}
+
+.st-key-fund_watchlist_add_panel h4 {
+    color: #182230 !important;
+    -webkit-text-fill-color: #182230 !important;
+}
+
+@media (max-width: 900px) {
+    .ws-fund-watchboard__live {
+        grid-template-columns: minmax(76px, 0.8fr) minmax(0, 1.2fr);
+    }
+}
+
+@media (max-width: 620px) {
+    .ws-fund-watchboard,
+    .st-key-fund_watchlist_card_grid {
+        padding: 0.65rem !important;
+    }
+}
 """

@@ -334,6 +334,19 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn("background: #FFFFFF !important", css)
         self.assertIn("border-radius: 4px !important", css)
 
+    def test_fund_watchboard_final_palette_restates_readable_text_tiers(self):
+        css = build_terminal_component_overrides_css()
+        final_palette = css[css.rfind("/* Fund watchboard: high-contrast neutral palette.") :]
+
+        self.assertIn("--fw-text: #182230", final_palette)
+        self.assertIn("--fw-muted: #667085", final_palette)
+        self.assertIn("background: #F7F9FB !important", final_palette)
+        self.assertIn(".ws-fund-watchboard__card-title span", final_palette)
+        self.assertIn(".ws-fund-watchboard__live > span", final_palette)
+        self.assertIn("color: #C83A50 !important", final_palette)
+        self.assertIn("color: #167A5A !important", final_palette)
+        self.assertIn("-webkit-line-clamp: 2", final_palette)
+
     def test_security_search_embeds_scope_radio_inside_keyword_shell(self):
         css = build_terminal_component_overrides_css()
         app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
