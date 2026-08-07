@@ -6250,13 +6250,13 @@ def create_security_kline_chart(
             close=close_values,
             customdata=chart_df[["hover_pct_text", "hover_change_text"]],
             hovertemplate=(
-                "%{x|%Y-%m-%d}"
-                "<br>开: %{open:,.2f}"
-                "<br>高: %{high:,.2f}"
-                "<br>低: %{low:,.2f}"
-                "<br>收: %{close:,.2f}"
-                "<br>涨跌额: %{customdata[1]}"
-                "<br>涨跌幅: %{customdata[0]}"
+                "日期: %{x|%Y-%m-%d}"
+                "<br>开盘: %{open:,.2f}"
+                "<br>最高: %{high:,.2f}"
+                "<br>最低: %{low:,.2f}"
+                "<br>收盘: %{close:,.2f}"
+                "<br>当天涨跌额: %{customdata[1]}"
+                "<br>当天涨跌幅: %{customdata[0]}"
                 "<extra></extra>"
             ),
             increasing_line_color=THEME_UP,
