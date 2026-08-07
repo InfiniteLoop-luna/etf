@@ -8,18 +8,18 @@ class SidebarTreeThemeTest(unittest.TestCase):
         css = build_global_apple_theme_css()
 
         expected_selectors = [
-            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-tree"] > div',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-tree"]',
             '[data-testid="stSidebar"] .ws-sidebar-page-description',
             '[data-testid="stSidebar"] .ws-sidebar-search-result-meta',
             '[data-testid="stSidebar"] .ws-sidebar-empty',
-            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button',
-            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button',
-            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button',
-            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button',
-            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button',
-            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] > div button',
-            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] > div button',
-            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] > div button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] button',
         ]
 
         for selector in expected_selectors:
@@ -30,6 +30,10 @@ class SidebarTreeThemeTest(unittest.TestCase):
         self.assertIn('[data-testid="stMarkdownContainer"]', css)
         self.assertIn('background: var(--ws-sidebar-active-bg)', css)
         self.assertIn('border-left: 2px solid var(--ws-sidebar-accent)', css)
+        self.assertIn('[data-testid="stSidebarContent"]', css)
+        self.assertIn('display: none !important', css)
+        self.assertNotIn('[class*="st-key-ws-sidebar-module-"] > div button', css)
+        self.assertNotIn('[class*="st-key-ws-sidebar-page-"] > div button', css)
 
 
 if __name__ == "__main__":

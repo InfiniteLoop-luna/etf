@@ -388,7 +388,8 @@ header {{
     border-right: 1px solid var(--ws-sidebar-line) !important;
 }}
 
-[data-testid="stSidebar"] > div:first-child {{
+[data-testid="stSidebar"] > div:first-child,
+[data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
     box-sizing: border-box !important;
     width: 100% !important;
     padding-top: 0 !important;
@@ -579,7 +580,8 @@ button[aria-label="Close sidebar"] {{
     accent-color: var(--ws-sidebar-accent) !important;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-tree"] > div {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-tree"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-tree"] [data-testid="stVerticalBlock"] {{
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -609,10 +611,10 @@ button[aria-label="Close sidebar"] {{
     border-radius: 0;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] button {{
     width: 100%;
     min-height: var(--ws-sidebar-row-height);
     justify-content: flex-start;
@@ -628,7 +630,7 @@ button[aria-label="Close sidebar"] {{
     white-space: normal;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button {{
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -637,8 +639,8 @@ button[aria-label="Close sidebar"] {{
     font-weight: 600 !important;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button [data-testid="stMarkdownContainer"],
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button [data-testid="stMarkdownContainer"] {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button [data-testid="stMarkdownContainer"],
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button [data-testid="stMarkdownContainer"] {{
     flex: 0 1 auto !important;
     width: auto !important;
     min-width: 0 !important;
@@ -646,15 +648,15 @@ button[aria-label="Close sidebar"] {{
     text-align: left !important;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button p,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button p {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button p,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button p {{
     width: auto !important;
     margin: 0 !important;
     color: inherit !important;
     text-align: left !important;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button::before {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button::before {{
     content: "";
     flex: 0 0 18px;
     width: 18px;
@@ -664,7 +666,7 @@ button[aria-label="Close sidebar"] {{
     -webkit-mask: url("/app/static/icons/activity.svg") center / 16px 16px no-repeat;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button::after {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button::after {{
     content: "";
     flex: 0 0 14px;
     width: 14px;
@@ -677,36 +679,36 @@ button[aria-label="Close sidebar"] {{
     transition: transform 120ms ease;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-decision"] > div button::before {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-decision"] button::before {{
     mask-image: url("/app/static/icons/briefcase-business.svg");
     -webkit-mask-image: url("/app/static/icons/briefcase-business.svg");
 }}
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-stock"] > div button::before {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-stock"] button::before {{
     mask-image: url("/app/static/icons/chart-candlestick.svg");
     -webkit-mask-image: url("/app/static/icons/chart-candlestick.svg");
 }}
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-fund"] > div button::before {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-fund"] button::before {{
     mask-image: url("/app/static/icons/landmark.svg");
     -webkit-mask-image: url("/app/static/icons/landmark.svg");
 }}
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-money"] > div button::before {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-money"] button::before {{
     mask-image: url("/app/static/icons/badge-dollar-sign.svg");
     -webkit-mask-image: url("/app/static/icons/badge-dollar-sign.svg");
 }}
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-macro"] > div button::before {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-macro"] button::before {{
     mask-image: url("/app/static/icons/globe.svg");
     -webkit-mask-image: url("/app/static/icons/globe.svg");
 }}
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-data"] > div button::before {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-data"] button::before {{
     mask-image: url("/app/static/icons/database.svg");
     -webkit-mask-image: url("/app/static/icons/database.svg");
 }}
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-favorite"] > div button::before {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-favorite"] button::before {{
     mask-image: url("/app/static/icons/star.svg");
     -webkit-mask-image: url("/app/static/icons/star.svg");
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button {{
     width: 100%;
     min-height: 29px;
     justify-content: flex-start;
@@ -723,65 +725,65 @@ button[aria-label="Close sidebar"] {{
     white-space: normal;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button img {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button img {{
     display: none !important;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button img,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button img,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button img,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button img {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button img,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] button img,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button img,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] button img {{
     width: 15px;
     height: 15px;
     margin-right: 0.42rem;
     opacity: 0.78;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] > div button:hover,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] > div button:hover,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] > div button:hover,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] > div button:hover {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button:hover,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button:hover,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] button:hover,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button:hover {{
     color: var(--ws-sidebar-accent-hover) !important;
     background: var(--ws-sidebar-hover-bg) !important;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] > div button {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] button {{
     color: var(--ws-sidebar-text) !important;
     background: transparent !important;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] > div button::after {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-expanded"] button::after {{
     transform: rotate(90deg);
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] button {{
     color: var(--ws-sidebar-accent) !important;
     background: var(--ws-sidebar-active-bg) !important;
     border-color: transparent !important;
     box-shadow: none !important;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::before,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::after {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] button::before,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] button::after {{
     color: var(--ws-sidebar-accent);
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::before {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] button::before {{
     background: var(--ws-sidebar-accent);
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] > div button::after {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"][class*="-current"] button::after {{
     background: var(--ws-sidebar-accent);
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] > div button img,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] > div button img {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] button img,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] button img {{
     filter: brightness(0) saturate(100%) invert(13%) sepia(99%) saturate(5048%) hue-rotate(275deg) brightness(71%) contrast(121%);
     opacity: 1;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] > div button,
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] > div button {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-active"] button,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"][class*="-current"] button {{
     color: var(--ws-sidebar-accent) !important;
     background: transparent !important;
     font-weight: 600 !important;
@@ -796,7 +798,7 @@ button[aria-label="Close sidebar"] {{
     display: none;
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] > div button {{
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] button {{
     color: var(--ws-sidebar-accent) !important;
     background: var(--ws-sidebar-active-bg) !important;
     border-color: var(--ws-sidebar-line) !important;
