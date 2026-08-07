@@ -6091,6 +6091,45 @@ def _normalize_adjustment_mode(value: str | None) -> str:
     return 'none'
 
 
+def _apply_intraday_adjustment(
+    intraday_df: pd.DataFrame,
+    *,
+    kline_df: pd.DataFrame | None,
+    trade_date: str,
+    adjustment_mode: str,
+) -> pd.DataFrame:
+    mode = _normalize_adjustment_mode(adjustment_mode)
+    if mode not in {"qfq", "hfq"} or intraday_df is None or intraday_df.empty or kline_df is None or kline_df.empty:
+        return intraday_df
+
+    adjusted_close_col = f"{mode}_close"
+    if adjusted_close_col not in kline_df.columns:
+        return intraday_df
+
+    trade_ts = pd.to_datetime(trade_date, errors="coerce")
+    if pd.isna(trade_ts):
+        return intraday_df
+
+    day_row = kline_df.loc[kline_df["trade_date"] == trade_ts].copy()
+    if day_row.empty:
+        return intraday_df
+
+    raw_close = pd.to_numeric(day_row["close"], errors="coerce").iloc[-1]
+    adj_close = pd.to_numeric(day_row[adjusted_close_col], errors="coerce").iloc[-1]
+    if pd.isna(raw_close) or pd.isna(adj_close) or float(raw_close) == 0:
+        return intraday_df
+
+    scale = float(adj_close) / float(raw_close)
+    if not np.isfinite(scale) or scale <= 0:
+        return intraday_df
+
+    adjusted_df = intraday_df.copy()
+    for col in ["open", "high", "low", "close"]:
+        if col in adjusted_df.columns:
+            adjusted_df[col] = pd.to_numeric(adjusted_df[col], errors="coerce") * scale
+    return adjusted_df
+
+
 def create_security_kline_chart(
     df: pd.DataFrame,
     prefix: str,
@@ -15338,28 +15377,41 @@ def render_security_search_tab():
                         elif intraday_df is None or intraday_df.empty:
                             st.info("该交易日暂无可展示的分时数据。")
                         else:
+                            intraday_adjustment_mode = {"不复权": "none", "前复权": "qfq", "后复权": "hfq"}.get(kline_adj_mode_label, "qfq")
+                            adjusted_intraday_df = _apply_intraday_adjustment(
+                                intraday_df,
+                                kline_df=kline_df,
+                                trade_date=effective_intraday_date,
+                                adjustment_mode=intraday_adjustment_mode,
+                            )
                             intraday_reference_close = None
+                            reference_close_col = "close" if intraday_adjustment_mode == "none" else f"{intraday_adjustment_mode}_close"
                             selected_intraday_ts = pd.to_datetime(effective_intraday_date, errors="coerce")
                             if kline_df is not None and not kline_df.empty and not pd.isna(selected_intraday_ts):
                                 previous_close_series = pd.to_numeric(
-                                    kline_df.loc[kline_df["trade_date"] < selected_intraday_ts, "close"],
+                                    kline_df.loc[kline_df["trade_date"] < selected_intraday_ts, reference_close_col],
                                     errors="coerce",
                                 ).dropna()
+                                if previous_close_series.empty and reference_close_col != "close":
+                                    previous_close_series = pd.to_numeric(
+                                        kline_df.loc[kline_df["trade_date"] < selected_intraday_ts, "close"],
+                                        errors="coerce",
+                                    ).dropna()
                                 if not previous_close_series.empty:
                                     intraday_reference_close = float(previous_close_series.iloc[-1])
 
                             intraday_chart = create_security_intraday_chart(
-                                intraday_df,
-                                title=f"{title_name} — {effective_intraday_date} 分时图",
+                                adjusted_intraday_df,
+                                title=f"{title_name} — {effective_intraday_date} 分时图（{'前复权' if intraday_adjustment_mode == 'qfq' else '后复权' if intraday_adjustment_mode == 'hfq' else '不复权'}）",
                                 reference_close=intraday_reference_close,
                             )
                             if intraday_chart is not None:
                                 st.plotly_chart(intraday_chart, use_container_width=True)
                             metric_intraday_cols = st.columns(4)
                             metric_intraday_cols[0].metric("分钟数", f"{len(intraday_df):,}")
-                            metric_intraday_cols[1].metric("日内开盘", format_optional_number(intraday_df['open'].iloc[0]))
-                            metric_intraday_cols[2].metric("日内收盘", format_optional_number(intraday_df['close'].iloc[-1]))
-                            metric_intraday_cols[3].metric("日内振幅", format_optional_number(intraday_df['high'].max() - intraday_df['low'].min()))
+                            metric_intraday_cols[1].metric("日内开盘", format_optional_number(adjusted_intraday_df['open'].iloc[0]))
+                            metric_intraday_cols[2].metric("日内收盘", format_optional_number(adjusted_intraday_df['close'].iloc[-1]))
+                            metric_intraday_cols[3].metric("日内振幅", format_optional_number(adjusted_intraday_df['high'].max() - adjusted_intraday_df['low'].min()))
 
         with tab_valuation:
             st.caption("展示静态市盈率、动态市盈率与股息率曲线")
