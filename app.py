@@ -141,8 +141,9 @@ from src.sidebar_navigation import (
     get_page_labels,
     get_recent_visits,
     record_recent_visit,
-    resolve_expanded_module_id,
+    resolve_expanded_module_ids,
     search_sidebar_pages,
+    toggle_expanded_module_id,
 )
 from src.factor_workbench import (
     FACTOR_WORKBENCH_PAGE_LABEL,
@@ -3886,19 +3887,19 @@ def hydrate_security_jump_from_query_params() -> None:
     if open_tab == "security":
         # 方案B：通过 sidebar 一级导航 + 股票子导航完成跳转
         st.session_state["sidebar_nav_group"] = "股票"
-        st.session_state["sidebar_expanded_module_id"] = "stock"
+        _expand_sidebar_module("stock")
         st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
         st.session_state["jump_to_security_tab"] = True
 
     if open_tab == "stock_object":
         st.session_state["sidebar_nav_group"] = "股票"
-        st.session_state["sidebar_expanded_module_id"] = "stock"
+        _expand_sidebar_module("stock")
         st.session_state["stock_subpage"] = STOCK_OBJECT_PAGE_LABEL
         st.session_state["stock_object_prefill_query"] = security_query
 
     if open_tab == "fund_object":
         st.session_state["sidebar_nav_group"] = "基金"
-        st.session_state["sidebar_expanded_module_id"] = "fund"
+        _expand_sidebar_module("fund")
         st.session_state["etf_subpage"] = ETF_FUND_OBJECT_PAGE_LABEL
         st.session_state["iphone_group_radio"] = "基金"
         st.session_state["iphone_page_etf"] = ETF_FUND_OBJECT_PAGE_LABEL
@@ -3914,7 +3915,7 @@ def trigger_security_tab_jump_if_needed() -> None:
         return
 
     st.session_state["sidebar_nav_group"] = "股票"
-    st.session_state["sidebar_expanded_module_id"] = "stock"
+    _expand_sidebar_module("stock")
     st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
     st.session_state["jump_to_security_tab"] = False
 
@@ -3932,6 +3933,50 @@ def _consume_pending_sidebar_search_reset() -> None:
         st.session_state["sidebar_search_query"] = ""
 
 
+def _get_sidebar_expanded_module_ids(active_page_id: str) -> tuple[str, ...]:
+    requested_module_ids = st.session_state.get("sidebar_expanded_module_ids")
+    if requested_module_ids is None:
+        legacy_module_id = st.session_state.get("sidebar_expanded_module_id")
+        requested_module_ids = [legacy_module_id] if legacy_module_id else None
+
+    expanded_module_ids = resolve_expanded_module_ids(
+        active_page_id,
+        requested_module_ids,
+    )
+    st.session_state["sidebar_expanded_module_ids"] = list(expanded_module_ids)
+    return expanded_module_ids
+
+
+def _expand_sidebar_module(module_id: str) -> None:
+    requested_module_ids = st.session_state.get("sidebar_expanded_module_ids")
+    if requested_module_ids is None:
+        legacy_module_id = st.session_state.get("sidebar_expanded_module_id")
+        requested_module_ids = [legacy_module_id] if legacy_module_id else []
+
+    active_page_id = get_module_by_id(module_id).pages[0].id
+    expanded_module_ids = list(
+        resolve_expanded_module_ids(active_page_id, requested_module_ids)
+    )
+    if module_id not in expanded_module_ids:
+        expanded_module_ids.append(module_id)
+    st.session_state["sidebar_expanded_module_ids"] = expanded_module_ids
+    st.session_state["sidebar_expanded_module_id"] = module_id
+
+
+def _toggle_sidebar_module_expansion(module_id: str) -> None:
+    expanded_module_ids = toggle_expanded_module_id(
+        st.session_state.get("sidebar_expanded_module_ids", []),
+        module_id,
+    )
+    st.session_state["sidebar_expanded_module_ids"] = list(expanded_module_ids)
+
+
+def _toggle_sidebar_recent_expansion() -> None:
+    st.session_state["sidebar_recent_expanded"] = not bool(
+        st.session_state.get("sidebar_recent_expanded", True)
+    )
+
+
 def _resolve_desktop_sidebar_selection():
     module_labels = get_module_labels()
     selected_module_label = st.session_state.get("sidebar_nav_group")
@@ -3939,7 +3984,7 @@ def _resolve_desktop_sidebar_selection():
         selected_module_label = "股票" if "股票" in module_labels else module_labels[0]
         st.session_state["sidebar_nav_group"] = selected_module_label
         if selected_module_label == "股票":
-            st.session_state["sidebar_expanded_module_id"] = "stock"
+            _expand_sidebar_module("stock")
 
     selected_module = get_module_by_label(selected_module_label)
     page_labels = get_page_labels(selected_module.label)
@@ -3967,7 +4012,7 @@ def _navigate_desktop_sidebar_to(
 
     st.session_state["sidebar_nav_group"] = module.label
     st.session_state[module.session_key] = page.label
-    st.session_state["sidebar_expanded_module_id"] = module.id
+    _expand_sidebar_module(module.id)
     if clear_search:
         st.session_state["sidebar_search_query_pending_reset"] = True
 
@@ -4005,13 +4050,10 @@ def consume_pending_fund_watchlist_navigation() -> None:
     st.session_state["iphone_page_etf"] = ETF_FUND_WATCHLIST_PAGE_LABEL
 
 
+@st.fragment
 def render_desktop_sidebar_navigation() -> tuple[str, str]:
     selected_module, selected_page = _resolve_desktop_sidebar_selection()
-    expanded_module_id = resolve_expanded_module_id(
-        selected_page.id,
-        st.session_state.get("sidebar_expanded_module_id"),
-    )
-    st.session_state["sidebar_expanded_module_id"] = expanded_module_id
+    expanded_module_ids = set(_get_sidebar_expanded_module_ids(selected_page.id))
     record_recent_visit(st.session_state, selected_module.id, selected_page.id)
     recent_visits = get_recent_visits(st.session_state)
 
@@ -4117,19 +4159,19 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                 )
                 for module in ordered_modules:
                     is_current_module = module.id == selected_module.id
-                    is_expanded_module = module.id == expanded_module_id
+                    is_expanded_module = module.id in expanded_module_ids
                     module_key = _build_sidebar_element_key(
                         f"ws-sidebar-module-{module.id}",
                         "current" if is_current_module else "",
                         "expanded" if is_expanded_module else "",
                     )
-                    if st.button(
+                    st.button(
                         module.label,
                         key=module_key,
                         use_container_width=True,
-                    ):
-                        st.session_state["sidebar_expanded_module_id"] = module.id
-                        st.rerun()
+                        on_click=_toggle_sidebar_module_expansion,
+                        args=(module.id,),
+                    )
 
                     if not is_expanded_module:
                         continue
@@ -4155,13 +4197,12 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
             "ws-sidebar-recent-toggle",
             "expanded" if recent_expanded else "collapsed",
         )
-        if sidebar_middle.button(
+        sidebar_middle.button(
             "最近访问",
             key=recent_toggle_key,
             use_container_width=True,
-        ):
-            st.session_state["sidebar_recent_expanded"] = not recent_expanded
-            st.rerun()
+            on_click=_toggle_sidebar_recent_expansion,
+        )
 
         if recent_expanded:
             if recent_visits:
@@ -13344,7 +13385,7 @@ def queue_security_search_navigation(ts_code: str, security_type: str) -> None:
     st.session_state["pending_security_search_keyword"] = code
     st.session_state["pending_security_search_type"] = "股票" if normalized_type == "stock" else "指数"
     st.session_state["sidebar_nav_group"] = "股票"
-    st.session_state["sidebar_expanded_module_id"] = "stock"
+    _expand_sidebar_module("stock")
     st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
     st.session_state["jump_to_security_tab"] = True
 

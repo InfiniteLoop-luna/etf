@@ -65,7 +65,7 @@ class TrackerUiPayloadTests(unittest.TestCase):
 
     def test_global_theme_uses_system_font_stack(self):
         css = build_global_apple_theme_css()
-        expected = '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif'
+        expected = '"Microsoft YaHei", sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif'
 
         self.assertEqual(SYSTEM_FONT_FAMILY, expected)
         self.assertIn(f"--ws-font-sans: {expected}", css)
@@ -183,9 +183,12 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn("grid-template-rows: 32px 20px", brand_rule)
         self.assertIn("grid-row: 1", brand_rule)
         self.assertIn("grid-row: 2", brand_rule)
+        self.assertIn("grid-column: 1 / -1", brand_rule)
         self.assertIn("padding: 0 !important", brand_rule)
         self.assertIn("white-space: nowrap", brand_rule)
         self.assertIn("text-transform: none", brand_rule)
+        self.assertIn('[data-testid="stSidebar"]:not([aria-expanded="false"]) [data-testid="stSidebarCollapseButton"]', brand_rule)
+        self.assertIn("right: 2px !important", brand_rule)
 
     def test_sidebar_favorite_stars_use_high_visibility_yellow(self):
         css = build_global_apple_theme_css()

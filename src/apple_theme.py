@@ -3,7 +3,7 @@ from __future__ import annotations
 import plotly.graph_objects as go
 
 
-SYSTEM_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif'
+SYSTEM_FONT_FAMILY = '"Microsoft YaHei", sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif'
 MIN_FONT_SIZE = 14
 
 
@@ -1626,6 +1626,14 @@ button[kind="primary"],
     opacity: 1 !important;
 }}
 
+[data-testid="stSidebar"]:not([aria-expanded="false"]) [data-testid="stSidebarCollapseButton"] {{
+    position: absolute !important;
+    top: 8px !important;
+    right: 2px !important;
+    left: auto !important;
+    margin: 0 !important;
+}}
+
 [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {{
     height: 100% !important;
     min-height: 0 !important;
@@ -1720,7 +1728,7 @@ button[kind="primary"],
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-brand p {{
-    grid-column: 2;
+    grid-column: 1 / -1;
     grid-row: 2;
     align-self: start;
     min-width: 0;
