@@ -29,6 +29,9 @@ def _build_db_url():
     return build_db_url()
 
 
+def _get_engine():
+    return create_engine(_build_db_url(), pool_pre_ping=True)
+
 
 
 def _init_tushare_client():
