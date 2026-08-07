@@ -6422,7 +6422,7 @@ def create_security_kline_chart(
     fig.update_layout(
         template="wealthspark_balanced",
         height=620,
-        hovermode="x unified",
+        hovermode="closest",
         clickmode="event+select",
         dragmode=False,
         showlegend=True,
