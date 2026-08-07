@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 ICON_ASSET_ROOT = "app/static/icons"
 ICON_ASSET_DIRECTORY = Path(__file__).resolve().parents[1] / "static" / "icons"
-ICON_RENDERER_REVISION = "streamlit-base-path-v2"
+ICON_RENDERER_REVISION = "streamlit-base-path-v3"
 
 # Emoji remain valid internal labels for backward-compatible navigation and
 # persisted state. At render time they are replaced with local Lucide SVGs.
@@ -390,12 +390,37 @@ def _wrap_table_callable(original: Callable[..., Any], argument_index: int) -> C
     return wrapped
 
 
+def _mark_renderer_wrapper(wrapper: Callable[..., Any]) -> Callable[..., Any]:
+    setattr(wrapper, "_wealthspark_svg_icon_wrapper", True)
+    setattr(wrapper, "_wealthspark_svg_icons_revision", ICON_RENDERER_REVISION)
+    return wrapper
+
+
+def _unwrap_renderer_callable(original: Any) -> Any:
+    while callable(original) and hasattr(original, "__wrapped__"):
+        code = getattr(original, "__code__", None)
+        is_renderer_wrapper = bool(
+            getattr(original, "_wealthspark_svg_icon_wrapper", False)
+        ) or bool(
+            code
+            and code.co_name == "wrapped"
+            and Path(code.co_filename).resolve() == Path(__file__).resolve()
+        )
+        if not is_renderer_wrapper:
+            break
+        original = original.__wrapped__
+    return original
+
+
 def _install_wrappers(target: Any, *, bound_module: bool) -> None:
     if (
         getattr(target, "_wealthspark_svg_icons_revision", None)
         == ICON_RENDERER_REVISION
     ):
         return
+
+    def original_callable(name: str) -> Any:
+        return _unwrap_renderer_callable(getattr(target, name, None))
 
     argument_index = 0 if bound_module else 1
     label_methods = (
@@ -422,9 +447,13 @@ def _install_wrappers(target: Any, *, bound_module: bool) -> None:
         "toast",
     )
     for name in label_methods:
-        original = getattr(target, name, None)
+        original = original_callable(name)
         if callable(original):
-            setattr(target, name, _wrap_label_callable(original, argument_index))
+            setattr(
+                target,
+                name,
+                _mark_renderer_wrapper(_wrap_label_callable(original, argument_index)),
+            )
 
     for name, option_transform in (
         ("radio", replace_emoji_icons),
@@ -432,12 +461,14 @@ def _install_wrappers(target: Any, *, bound_module: bool) -> None:
         ("multiselect", strip_emoji_icons),
         ("select_slider", strip_emoji_icons),
     ):
-        original = getattr(target, name, None)
+        original = original_callable(name)
         if callable(original):
             setattr(
                 target,
                 name,
-                _wrap_choice_callable(original, argument_index, option_transform),
+                _mark_renderer_wrapper(
+                    _wrap_choice_callable(original, argument_index, option_transform)
+                ),
             )
 
     for name, wrapper in (
@@ -446,14 +477,22 @@ def _install_wrappers(target: Any, *, bound_module: bool) -> None:
         ("metric", _wrap_metric_callable),
         ("text", _wrap_plain_text_callable),
     ):
-        original = getattr(target, name, None)
+        original = original_callable(name)
         if callable(original):
-            setattr(target, name, wrapper(original, argument_index))
+            setattr(
+                target,
+                name,
+                _mark_renderer_wrapper(wrapper(original, argument_index)),
+            )
 
     for name in ("dataframe", "table"):
-        original = getattr(target, name, None)
+        original = original_callable(name)
         if callable(original):
-            setattr(target, name, _wrap_table_callable(original, argument_index))
+            setattr(
+                target,
+                name,
+                _mark_renderer_wrapper(_wrap_table_callable(original, argument_index)),
+            )
 
     for name, icon_name, alt in (
         ("info", "info", "信息"),
@@ -461,12 +500,14 @@ def _install_wrappers(target: Any, *, bound_module: bool) -> None:
         ("warning", "triangle-alert", "警告"),
         ("error", "circle-x", "错误"),
     ):
-        original = getattr(target, name, None)
+        original = original_callable(name)
         if callable(original):
             setattr(
                 target,
                 name,
-                _wrap_alert_callable(original, icon_name, alt, argument_index),
+                _mark_renderer_wrapper(
+                    _wrap_alert_callable(original, icon_name, alt, argument_index)
+                ),
             )
 
     setattr(target, "_wealthspark_svg_icons_installed", True)
@@ -485,7 +526,10 @@ def install_streamlit_svg_icon_renderer(streamlit_module: Any) -> None:
         getattr(original_dialog, "_wealthspark_svg_icons_revision", None)
         != ICON_RENDERER_REVISION
     ):
-        wrapped_dialog = _wrap_label_callable(original_dialog, 0)
+        original_dialog = _unwrap_renderer_callable(original_dialog)
+        wrapped_dialog = _mark_renderer_wrapper(
+            _wrap_label_callable(original_dialog, 0)
+        )
         setattr(wrapped_dialog, "_wealthspark_svg_icons_installed", True)
         setattr(
             wrapped_dialog,

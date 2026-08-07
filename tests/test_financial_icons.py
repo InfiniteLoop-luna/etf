@@ -1,4 +1,5 @@
 from base64 import b64decode
+from functools import wraps
 from pathlib import Path
 import re
 from types import SimpleNamespace
@@ -96,15 +97,35 @@ def test_all_icon_generators_use_document_relative_static_paths():
 def test_icon_renderer_upgrades_an_existing_legacy_wrapper():
     emoji = next(iter(EMOJI_ICON_MAP))
 
+    def original_button(label):
+        return label
+
+    @wraps(original_button)
     def legacy_button(label):
         return label.replace(
             emoji,
             "![legacy](/app/static/icons/search.svg)",
         )
+    legacy_button._wealthspark_svg_icon_wrapper = True
+
+    def original_info(body):
+        return body
+
+    @wraps(original_info)
+    def legacy_info(body):
+        return f"![legacy](/app/static/icons/info.svg) {body}"
+    legacy_info._wealthspark_svg_icon_wrapper = True
+
+    @wraps(legacy_info)
+    def current_info(body):
+        return legacy_info(f"![current](data:image/svg+xml;base64,AAAA) {body}")
+    current_info._wealthspark_svg_icon_wrapper = True
 
     legacy_target = SimpleNamespace(
         _wealthspark_svg_icons_installed=True,
+        _wealthspark_svg_icons_revision="streamlit-base-path-v2",
         button=legacy_button,
+        info=current_info,
     )
 
     _install_wrappers(legacy_target, bound_module=True)
@@ -112,7 +133,10 @@ def test_icon_renderer_upgrades_an_existing_legacy_wrapper():
     rendered = legacy_target.button(f"{emoji} Search")
     assert "data:image/svg+xml;base64," in rendered
     assert "/app/static/icons/" not in rendered
-    assert legacy_target._wealthspark_svg_icons_revision == "streamlit-base-path-v2"
+    rendered_info = legacy_target.info("No selection")
+    assert "data:image/svg+xml;base64," in rendered_info
+    assert "/app/static/icons/" not in rendered_info
+    assert legacy_target._wealthspark_svg_icons_revision == "streamlit-base-path-v3"
 
 
 def test_streamlit_entry_reloads_icon_renderer_for_hot_deploys():
