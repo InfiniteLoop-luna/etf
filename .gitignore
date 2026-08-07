@@ -103,11 +103,8 @@ wealthspark-*.html
 /tasks/etf-prediction-upgrade/outputs/runtime/
 /tasks/etf-prediction-upgrade/outputs/reco-candidate-score-snapshots/
 
-# Runtime status / summary artifacts
-/data/funding_freshness_summary.json
-/data/update_activity_summary.json
-/data/data_task_status_summary.json
-/data/manual_refresh_status.json
+# Runtime recommendation artifacts
+/data/recommendations/*.json
 
 # Local ETF share cache artifacts
 /data/etf_share_cache.meta.json
