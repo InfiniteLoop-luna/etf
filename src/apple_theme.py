@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import plotly.graph_objects as go
 
+from src.financial_icons import icon_asset_data_uri
+
 
 SYSTEM_FONT_FAMILY = '"Microsoft YaHei", sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif'
 MIN_FONT_SIZE = 14
@@ -186,6 +188,20 @@ def build_author_tracker_apple_css() -> str:
 
 def build_global_apple_theme_css() -> str:
     tokens = get_apple_theme_tokens()
+    mask_icons = {
+        icon_name: icon_asset_data_uri(icon_name)
+        for icon_name in (
+            "activity",
+            "badge-dollar-sign",
+            "briefcase-business",
+            "chart-candlestick",
+            "chevron-right",
+            "database",
+            "globe",
+            "landmark",
+            "star",
+        )
+    }
     return f"""
 :root {{
     --ws-bg-base: {tokens["bg_base"]};
@@ -880,8 +896,8 @@ button[aria-label="Open sidebar"]:hover {{
     height: 14px;
     content: "";
     background-color: currentColor;
-    -webkit-mask: url("app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
-    mask: url("app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
+    -webkit-mask: url("{mask_icons['chevron-right']}") center / 14px 14px no-repeat;
+    mask: url("{mask_icons['chevron-right']}") center / 14px 14px no-repeat;
     transform: translateY(-50%);
     transform-origin: center;
     transition: transform 140ms ease;
@@ -916,8 +932,8 @@ button[aria-label="Open sidebar"]:hover {{
     width: 18px;
     height: 18px;
     background: #64748B;
-    mask: url("app/static/icons/activity.svg") center / 16px 16px no-repeat;
-    -webkit-mask: url("app/static/icons/activity.svg") center / 16px 16px no-repeat;
+    mask: url("{mask_icons['activity']}") center / 16px 16px no-repeat;
+    -webkit-mask: url("{mask_icons['activity']}") center / 16px 16px no-repeat;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button::after {{
@@ -927,40 +943,40 @@ button[aria-label="Open sidebar"]:hover {{
     height: 14px;
     margin-left: auto;
     background: #7B8798;
-    mask: url("app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
-    -webkit-mask: url("app/static/icons/chevron-right.svg") center / 14px 14px no-repeat;
+    mask: url("{mask_icons['chevron-right']}") center / 14px 14px no-repeat;
+    -webkit-mask: url("{mask_icons['chevron-right']}") center / 14px 14px no-repeat;
     transform-origin: center;
     transition: transform 120ms ease;
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-decision"] button::before {{
-    mask-image: url("app/static/icons/briefcase-business.svg");
-    -webkit-mask-image: url("app/static/icons/briefcase-business.svg");
+    mask-image: url("{mask_icons['briefcase-business']}");
+    -webkit-mask-image: url("{mask_icons['briefcase-business']}");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-stock"] button::before {{
-    mask-image: url("app/static/icons/chart-candlestick.svg");
-    -webkit-mask-image: url("app/static/icons/chart-candlestick.svg");
+    mask-image: url("{mask_icons['chart-candlestick']}");
+    -webkit-mask-image: url("{mask_icons['chart-candlestick']}");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-fund"] button::before {{
-    mask-image: url("app/static/icons/landmark.svg");
-    -webkit-mask-image: url("app/static/icons/landmark.svg");
+    mask-image: url("{mask_icons['landmark']}");
+    -webkit-mask-image: url("{mask_icons['landmark']}");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-money"] button::before {{
-    mask-image: url("app/static/icons/badge-dollar-sign.svg");
-    -webkit-mask-image: url("app/static/icons/badge-dollar-sign.svg");
+    mask-image: url("{mask_icons['badge-dollar-sign']}");
+    -webkit-mask-image: url("{mask_icons['badge-dollar-sign']}");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-macro"] button::before {{
-    mask-image: url("app/static/icons/globe.svg");
-    -webkit-mask-image: url("app/static/icons/globe.svg");
+    mask-image: url("{mask_icons['globe']}");
+    -webkit-mask-image: url("{mask_icons['globe']}");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-data"] button::before {{
-    mask-image: url("app/static/icons/database.svg");
-    -webkit-mask-image: url("app/static/icons/database.svg");
+    mask-image: url("{mask_icons['database']}");
+    -webkit-mask-image: url("{mask_icons['database']}");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-favorite"] button::before {{
     background: #F5B400 !important;
-    mask-image: url("app/static/icons/star.svg");
-    -webkit-mask-image: url("app/static/icons/star.svg");
+    mask-image: url("{mask_icons['star']}");
+    -webkit-mask-image: url("{mask_icons['star']}");
 }}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-my_favorite"] button img[src$="/star.svg"] {{

@@ -11,6 +11,7 @@ from src.financial_icons import (
     EMOJI_ICON_MAP,
     _install_wrappers,
     _sanitize_table_data,
+    icon_asset_data_uri,
     replace_emoji_icons,
     replace_emoji_icons_html,
     strip_emoji_icons,
@@ -71,13 +72,19 @@ def test_every_mapped_icon_asset_is_packaged_with_the_app():
 def test_sidebar_module_icons_use_svg_masks_instead_of_character_glyphs():
     css = build_global_apple_theme_css()
 
-    assert 'mask-image: url("app/static/icons/chart-candlestick.svg")' in css
-    assert 'mask-image: url("app/static/icons/landmark.svg")' in css
-    assert 'mask-image: url("app/static/icons/database.svg")' in css
-    assert 'mask: url("app/static/icons/chevron-right.svg")' in css
-    assert 'url("/app/static/icons/' not in css
+    assert f'mask-image: url("{icon_asset_data_uri("chart-candlestick")}")' in css
+    assert f'mask-image: url("{icon_asset_data_uri("landmark")}")' in css
+    assert f'mask-image: url("{icon_asset_data_uri("database")}")' in css
+    assert f'mask: url("{icon_asset_data_uri("chevron-right")}")' in css
+    assert 'url("app/static/icons/' not in css
     assert 'content: "\\25A1"' not in css
     assert 'content: "\\203A"' not in css
+
+
+def test_streamlit_frontend_version_is_pinned_to_cloud_runtime():
+    requirements = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+    assert "streamlit==1.61.1" in requirements.splitlines()
 
 
 def test_html_icon_generators_inline_svg_for_direct_and_proxied_deployments():

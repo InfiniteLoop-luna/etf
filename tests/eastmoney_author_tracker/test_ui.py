@@ -229,7 +229,7 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn('"sidebar_recent_expanded"', app_source)
         self.assertIn('"ws-sidebar-recent-toggle"', app_source)
         self.assertIn('[class*="st-key-ws-sidebar-recent-toggle-"] button::after', css)
-        self.assertIn('url("app/static/icons/chevron-right.svg")', css)
+        self.assertIn('mask: url("data:image/svg+xml;base64,', css)
         self.assertIn('[class*="st-key-ws-sidebar-recent-toggle-expanded"] button::after', css)
         self.assertIn('[class*="st-key-ws-sidebar-recent-link-"] button > div', css)
         self.assertIn("justify-content: flex-start !important", css)
