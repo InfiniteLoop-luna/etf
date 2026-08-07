@@ -151,6 +151,8 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn('[data-testid="stSidebar"] [data-testid="stSidebarHeader"]', css)
         self.assertIn("position: absolute !important", css)
         self.assertIn("pointer-events: auto", css)
+        sidebar_content_rule = css[css.rfind('[data-testid="stSidebar"] [data-testid="stSidebarContent"] {') :]
+        self.assertIn("padding-right: 0 !important", sidebar_content_rule)
 
     def test_sidebar_section_labels_clear_the_following_control(self):
         css = build_global_apple_theme_css()

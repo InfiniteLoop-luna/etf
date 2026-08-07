@@ -1504,6 +1504,7 @@ button[kind="primary"],
 [data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
     height: 100% !important;
     min-height: 0 !important;
+    padding-right: 0 !important;
     overflow: hidden !important;
 }}
 
