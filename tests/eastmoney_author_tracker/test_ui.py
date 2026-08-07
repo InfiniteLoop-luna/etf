@@ -232,6 +232,21 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn("background: #FFFFFF !important", css)
         self.assertIn("border-radius: 4px !important", css)
 
+    def test_security_search_embeds_scope_radio_inside_keyword_shell(self):
+        css = build_terminal_component_overrides_css()
+        app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+        start = app_source.index("def render_security_search_tab():")
+        end = app_source.index("\ndef ", start + 1)
+        search_source = app_source[start:end]
+
+        self.assertIn('key="ws-security-searchbox"', search_source)
+        self.assertIn('st.columns([2.4, 2.6]', search_source)
+        self.assertGreaterEqual(search_source.count('label_visibility="collapsed"'), 2)
+        self.assertIn('[class*="st-key-ws-security-searchbox"]', css)
+        self.assertIn("grid-template-columns: max-content minmax(0, 1fr) !important", css)
+        self.assertIn('[data-testid="stRadioOption"][data-selected="true"]', css)
+        self.assertIn("border-left: 1px solid var(--ws-border-soft) !important", css)
+
     def test_app_py_no_longer_uses_legacy_cold_blue_theme_literals(self):
         app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 

@@ -2369,6 +2369,119 @@ html body [data-baseweb="textarea"] textarea {
     outline: none !important;
 }
 
+/* Search scope and keyword share one Google-style search shell. */
+html body [class*="st-key-ws-security-searchbox"] {
+    box-sizing: border-box !important;
+    min-width: 0 !important;
+    min-height: 42px !important;
+    display: grid !important;
+    grid-template-columns: max-content minmax(0, 1fr) !important;
+    align-items: center !important;
+    gap: 0 !important;
+    padding: 3px !important;
+    background: var(--ws-bg-surface) !important;
+    border: 1px solid var(--ws-border-soft) !important;
+    border-radius: 10px !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+html body [class*="st-key-ws-security-searchbox"]:focus-within {
+    border-color: var(--ws-color-primary) !important;
+    box-shadow: 0 0 0 3px rgba(15, 105, 255, 0.14) !important;
+}
+
+html body [class*="st-key-ws-security-searchbox"] > [data-testid="stElementContainer"] {
+    min-width: 0 !important;
+    width: 100% !important;
+}
+
+html body [class*="st-key-ws-security-searchbox"] > [data-testid="stElementContainer"]:first-child {
+    width: auto !important;
+}
+
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stWidgetLabel"] {
+    display: none !important;
+}
+
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stRadio"],
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stRadioGroup"] {
+    min-width: 0 !important;
+    min-height: 34px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 2px !important;
+    margin: 0 !important;
+    padding: 0 4px 0 0 !important;
+    white-space: nowrap;
+}
+
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stRadioOption"] {
+    box-sizing: border-box !important;
+    min-height: 32px !important;
+    display: flex !important;
+    align-items: center !important;
+    padding: 0 9px !important;
+    color: var(--ws-text-muted) !important;
+    background: transparent !important;
+    border-radius: 7px !important;
+    cursor: pointer;
+}
+
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stRadioOption"]:hover {
+    color: var(--ws-color-primary) !important;
+    background: var(--ws-surface-soft) !important;
+}
+
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stRadioOption"][data-selected="true"] {
+    color: var(--ws-color-primary) !important;
+    background: var(--ws-color-primary-soft) !important;
+}
+
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stRadioOption"] > div > div > div:first-child {
+    display: none !important;
+}
+
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stRadioOption"] [data-testid="stMarkdownContainer"],
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stRadioOption"] [data-testid="stMarkdownContainer"] p {
+    margin: 0 !important;
+    color: inherit !important;
+    font-family: var(--ws-font-sans) !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    line-height: 1 !important;
+    white-space: nowrap;
+}
+
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stTextInput"],
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stTextInputRootElement"] {
+    min-width: 0 !important;
+    width: 100% !important;
+}
+
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stTextInputRootElement"] {
+    min-height: 34px !important;
+    height: 34px !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-left: 1px solid var(--ws-border-soft) !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stTextInputRootElement"]:focus-within {
+    border-color: var(--ws-border-soft) !important;
+    box-shadow: none !important;
+}
+
+html body [class*="st-key-ws-security-searchbox"] [data-testid="stTextInputRootElement"] input {
+    min-width: 0 !important;
+    width: 100% !important;
+    padding-right: 12px !important;
+    padding-left: 12px !important;
+}
+
 html body [data-testid="stTextInputRootElement"]:focus-within,
 html body [data-testid="stNumberInputContainer"]:focus-within,
 html body .stDateInput [data-baseweb="input"]:focus-within,

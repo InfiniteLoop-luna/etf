@@ -14318,20 +14318,22 @@ def render_security_search_tab():
     if "security_search_keyword" not in st.session_state:
         st.session_state["security_search_keyword"] = ""
 
-    control_cols = st.columns([1, 1.4, 2.6])
+    control_cols = st.columns([2.4, 2.6], vertical_alignment="bottom")
     with control_cols[0]:
-        security_type_label = st.radio(
-            "检索类型",
-            options=["全部", "股票", "指数"],
-            horizontal=True,
-            key="security_search_type"
-        )
-    with control_cols[1]:
-        keyword = st.text_input(
-            "关键字",
-            placeholder="输入代码、简称或拼音",
-            key="security_search_keyword"
-        ).strip()
+        with st.container(key="ws-security-searchbox"):
+            security_type_label = st.radio(
+                "检索类型",
+                options=["全部", "股票", "指数"],
+                horizontal=True,
+                key="security_search_type",
+                label_visibility="collapsed",
+            )
+            keyword = st.text_input(
+                "关键字",
+                placeholder="输入代码、简称或拼音",
+                key="security_search_keyword",
+                label_visibility="collapsed",
+            ).strip()
     type_mapping = {"全部": "all", "股票": "stock", "指数": "index"}
 
     if not keyword:
@@ -14349,7 +14351,7 @@ def render_security_search_tab():
         return
 
     option_labels = [format_security_option(row) for _, row in candidate_df.iterrows()]
-    with control_cols[2]:
+    with control_cols[1]:
         selected_label = st.selectbox(
             "匹配结果",
             options=option_labels,
