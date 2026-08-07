@@ -3,6 +3,7 @@
 
 # Version: 2.0 - Fixed data_only issue for formula cells
 import os
+import importlib
 import json
 import time
 from html import escape
@@ -197,7 +198,7 @@ from src.apple_theme import (
     build_terminal_component_overrides_css,
     get_apple_theme_tokens,
 )
-from src.financial_icons import install_streamlit_svg_icon_renderer
+from src import financial_icons
 from src.page_shell import (
     PageStatus,
     build_page_status,
@@ -305,7 +306,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-install_streamlit_svg_icon_renderer(streamlit_module=st)
+financial_icons = importlib.reload(financial_icons)
+financial_icons.install_streamlit_svg_icon_renderer(streamlit_module=st)
 
 terminal_plotly_template = build_apple_plotly_template()
 pio.templates["wealthspark_terminal"] = terminal_plotly_template

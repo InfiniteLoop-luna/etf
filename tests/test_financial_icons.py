@@ -1,12 +1,14 @@
 from base64 import b64decode
 from pathlib import Path
 import re
+from types import SimpleNamespace
 
 import pandas as pd
 
 from src.apple_theme import build_global_apple_theme_css
 from src.financial_icons import (
     EMOJI_ICON_MAP,
+    _install_wrappers,
     _sanitize_table_data,
     replace_emoji_icons,
     replace_emoji_icons_html,
@@ -89,3 +91,31 @@ def test_all_icon_generators_use_document_relative_static_paths():
     assert 'src="/app/static/icons/' not in app_source
     assert 'src="/app/static/icons/' not in status_html
     assert 'src="/app/static/icons/' not in loading_html
+
+
+def test_icon_renderer_upgrades_an_existing_legacy_wrapper():
+    emoji = next(iter(EMOJI_ICON_MAP))
+
+    def legacy_button(label):
+        return label.replace(
+            emoji,
+            "![legacy](/app/static/icons/search.svg)",
+        )
+
+    legacy_target = SimpleNamespace(
+        _wealthspark_svg_icons_installed=True,
+        button=legacy_button,
+    )
+
+    _install_wrappers(legacy_target, bound_module=True)
+
+    rendered = legacy_target.button(f"{emoji} Search")
+    assert "data:image/svg+xml;base64," in rendered
+    assert "/app/static/icons/" not in rendered
+    assert legacy_target._wealthspark_svg_icons_revision == "streamlit-base-path-v2"
+
+
+def test_streamlit_entry_reloads_icon_renderer_for_hot_deploys():
+    app_source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8", errors="ignore")
+
+    assert "importlib.reload(financial_icons)" in app_source

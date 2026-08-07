@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 ICON_ASSET_ROOT = "app/static/icons"
 ICON_ASSET_DIRECTORY = Path(__file__).resolve().parents[1] / "static" / "icons"
+ICON_RENDERER_REVISION = "streamlit-base-path-v2"
 
 # Emoji remain valid internal labels for backward-compatible navigation and
 # persisted state. At render time they are replaced with local Lucide SVGs.
@@ -390,7 +391,10 @@ def _wrap_table_callable(original: Callable[..., Any], argument_index: int) -> C
 
 
 def _install_wrappers(target: Any, *, bound_module: bool) -> None:
-    if getattr(target, "_wealthspark_svg_icons_installed", False):
+    if (
+        getattr(target, "_wealthspark_svg_icons_revision", None)
+        == ICON_RENDERER_REVISION
+    ):
         return
 
     argument_index = 0 if bound_module else 1
@@ -466,6 +470,7 @@ def _install_wrappers(target: Any, *, bound_module: bool) -> None:
             )
 
     setattr(target, "_wealthspark_svg_icons_installed", True)
+    setattr(target, "_wealthspark_svg_icons_revision", ICON_RENDERER_REVISION)
 
 
 def install_streamlit_svg_icon_renderer(streamlit_module: Any) -> None:
@@ -476,7 +481,15 @@ def install_streamlit_svg_icon_renderer(streamlit_module: Any) -> None:
     _install_wrappers(streamlit_module, bound_module=True)
 
     original_dialog = getattr(streamlit_module, "dialog", None)
-    if callable(original_dialog) and not getattr(original_dialog, "_wealthspark_svg_icons_installed", False):
+    if callable(original_dialog) and (
+        getattr(original_dialog, "_wealthspark_svg_icons_revision", None)
+        != ICON_RENDERER_REVISION
+    ):
         wrapped_dialog = _wrap_label_callable(original_dialog, 0)
         setattr(wrapped_dialog, "_wealthspark_svg_icons_installed", True)
+        setattr(
+            wrapped_dialog,
+            "_wealthspark_svg_icons_revision",
+            ICON_RENDERER_REVISION,
+        )
         streamlit_module.dialog = wrapped_dialog
