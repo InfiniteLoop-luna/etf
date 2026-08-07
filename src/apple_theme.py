@@ -642,10 +642,33 @@ button[aria-label="Close sidebar"] {{
     font-weight: 600 !important;
 }}
 
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button > div,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button > div {{
+    display: flex !important;
+    flex: 1 1 auto !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    width: auto !important;
+    min-width: 0 !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button > div > span,
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button > div > span {{
+    display: flex !important;
+    flex: 1 1 auto !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}}
+
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button [data-testid="stMarkdownContainer"],
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button [data-testid="stMarkdownContainer"] {{
-    flex: 0 1 auto !important;
-    width: auto !important;
+    display: flex !important;
+    flex: 1 1 auto !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
     min-width: 0 !important;
     margin: 0 !important;
     margin-right: auto !important;
@@ -654,7 +677,10 @@ button[aria-label="Close sidebar"] {{
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button p,
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button p {{
-    width: auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
     margin: 0 !important;
     color: inherit !important;
     text-align: left !important;

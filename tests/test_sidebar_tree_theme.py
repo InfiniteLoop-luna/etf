@@ -14,6 +14,8 @@ class SidebarTreeThemeTest(unittest.TestCase):
             '[data-testid="stSidebar"] .ws-sidebar-empty',
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-"] button',
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button > div',
+            '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button > div > span',
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-search-result-"] button',
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-recent-link-"] button',
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-favorite-"] button',
@@ -35,6 +37,7 @@ class SidebarTreeThemeTest(unittest.TestCase):
         self.assertIn('text-align: left !important', css)
         self.assertIn('margin-right: auto !important', css)
         self.assertIn('display: inline-block !important', css)
+        self.assertIn('flex: 1 1 auto !important', css)
         self.assertNotIn('[class*="st-key-ws-sidebar-module-"] > div button', css)
         self.assertNotIn('[class*="st-key-ws-sidebar-page-"] > div button', css)
 
