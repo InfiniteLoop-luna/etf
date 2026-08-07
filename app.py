@@ -4061,8 +4061,10 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
     sidebar_header.markdown(
         """
         <div class="ws-sidebar-brand">
-            <span class="ws-sidebar-brand-kicker">W</span>
-            <h2>WealthSpark</h2>
+            <div class="ws-sidebar-brand-main">
+                <span class="ws-sidebar-brand-kicker">W</span>
+                <h2>WealthSpark</h2>
+            </div>
             <p>Professional Terminal</p>
         </div>
         """,

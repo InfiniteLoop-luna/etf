@@ -178,17 +178,21 @@ class TrackerUiPayloadTests(unittest.TestCase):
 
     def test_sidebar_brand_uses_clean_two_row_lockup(self):
         css = build_global_apple_theme_css()
+        app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
         brand_rule = css[css.rfind('[data-testid="stSidebar"] .ws-sidebar-brand {') :]
 
-        self.assertIn("grid-template-rows: 32px 20px", brand_rule)
-        self.assertIn("grid-row: 1", brand_rule)
-        self.assertIn("grid-row: 2", brand_rule)
-        self.assertIn("grid-column: 1 / -1", brand_rule)
+        self.assertIn('<div class="ws-sidebar-brand-main">', app_source)
+        self.assertIn("flex-direction: column", brand_rule)
+        self.assertIn("align-items: stretch", brand_rule)
+        self.assertIn("width: 100% !important", brand_rule)
+        self.assertIn('[data-testid="stSidebar"] .ws-sidebar-brand-main {', brand_rule)
+        self.assertIn("min-height: 32px", brand_rule)
+        self.assertIn("width: 100%", brand_rule)
         self.assertIn("padding: 0 !important", brand_rule)
         self.assertIn("white-space: nowrap", brand_rule)
         self.assertIn("text-transform: none", brand_rule)
         self.assertIn('[data-testid="stSidebar"]:not([aria-expanded="false"]) [data-testid="stSidebarCollapseButton"]', brand_rule)
-        self.assertIn("right: 2px !important", brand_rule)
+        self.assertIn("right: -0.35rem !important", brand_rule)
 
     def test_sidebar_favorite_stars_use_high_visibility_yellow(self):
         css = build_global_apple_theme_css()

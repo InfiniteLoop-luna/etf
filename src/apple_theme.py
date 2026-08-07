@@ -1577,15 +1577,24 @@ button[kind="primary"],
 
 [data-testid="stSidebar"] .ws-sidebar-brand {{
     min-height: 58px;
-    display: grid;
-    grid-template-columns: 32px minmax(0, 1fr);
-    grid-template-rows: 32px 20px;
-    column-gap: 0.5rem;
-    row-gap: 0;
-    align-items: center;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    box-sizing: border-box;
+    width: 100% !important;
     margin: 0 0 var(--ws-space-3);
-    padding: 0.25rem 0.25rem 0.75rem;
+    padding: 0.25rem 2rem 0.75rem 0.25rem;
     border-bottom: 1px solid var(--ws-sidebar-line);
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-brand-main {{
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 32px;
 }}
 
 /* Keep the shell ends fixed while the navigation body scrolls independently. */
@@ -1629,7 +1638,7 @@ button[kind="primary"],
 [data-testid="stSidebar"]:not([aria-expanded="false"]) [data-testid="stSidebarCollapseButton"] {{
     position: absolute !important;
     top: 8px !important;
-    right: 2px !important;
+    right: -0.35rem !important;
     left: auto !important;
     margin: 0 !important;
 }}
@@ -1702,8 +1711,7 @@ button[kind="primary"],
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-brand-kicker {{
-    grid-column: 1;
-    grid-row: 1;
+    flex: 0 0 32px;
     align-self: center;
     width: 32px;
     height: 32px;
@@ -1712,8 +1720,7 @@ button[kind="primary"],
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-brand h2 {{
-    grid-column: 2;
-    grid-row: 1;
+    flex: 1 1 auto;
     align-self: center;
     min-width: 0;
     margin: 0;
@@ -1728,9 +1735,11 @@ button[kind="primary"],
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-brand p {{
-    grid-column: 1 / -1;
-    grid-row: 2;
+    display: block;
+    flex: 0 0 20px;
     align-self: start;
+    box-sizing: border-box;
+    width: 100%;
     min-width: 0;
     margin: 0 !important;
     padding: 0 !important;
