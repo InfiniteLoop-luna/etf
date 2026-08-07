@@ -80,18 +80,17 @@ def test_sidebar_module_icons_use_svg_masks_instead_of_character_glyphs():
     assert 'content: "\\203A"' not in css
 
 
-def test_all_icon_generators_use_document_relative_static_paths():
+def test_html_icon_generators_inline_svg_for_direct_and_proxied_deployments():
     app_source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8", errors="ignore")
     status_html = build_page_status_bar_html(PageStatus())
     loading_html = build_page_loading_mask_html()
 
-    assert 'src="app/static/icons/user-round.svg"' in app_source
-    assert 'src="app/static/icons/calendar-days.svg"' in status_html
-    assert 'src="app/static/icons/info.svg"' in status_html
-    assert 'src="app/static/icons/refresh-cw.svg"' in loading_html
-    assert 'src="/app/static/icons/' not in app_source
-    assert 'src="/app/static/icons/' not in status_html
-    assert 'src="/app/static/icons/' not in loading_html
+    assert 'financial_icons.icon_asset_data_uri("user-round")' in app_source
+    assert 'src="app/static/icons/' not in app_source
+    assert status_html.count('src="data:image/svg+xml;base64,') == 2
+    assert loading_html.count('src="data:image/svg+xml;base64,') == 1
+    assert 'src="app/static/icons/' not in status_html
+    assert 'src="app/static/icons/' not in loading_html
 
 
 def test_icon_renderer_upgrades_an_existing_legacy_wrapper():

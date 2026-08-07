@@ -2304,10 +2304,11 @@ def logout_app_user() -> None:
 
 @st.dialog("用户登录", dismissible=False, icon=":material/account_circle:")
 def render_user_login_dialog() -> None:
+    login_icon = financial_icons.icon_asset_data_uri("user-round")
     st.markdown(
-        """
+        f"""
         <div class="ws-login-dialog-intro">
-            <img src="app/static/icons/user-round.svg" alt="">
+            <img src="{login_icon}" alt="">
             <div>
                 <strong>登录 WealthSpark</strong>
                 <span>输入用户名以加载你的自选、股票池和收藏页面。</span>

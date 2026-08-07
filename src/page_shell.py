@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from html import escape
 from typing import Any, Callable, Mapping, TypeVar
 
+from src.financial_icons import icon_asset_data_uri
 
-ICON_ROOT = "app/static/icons"
 T = TypeVar("T")
 
 
@@ -83,16 +83,18 @@ def build_page_status_bar_html(status: PageStatus) -> str:
         quote=True,
     )
     freshness_title = escape(status.freshness_detail, quote=True)
+    calendar_icon = icon_asset_data_uri("calendar-days")
+    freshness_icon = icon_asset_data_uri(tone_icon)
 
     return f"""
 <div class="ws-page-status-bar" role="status" aria-live="polite">
     <span class="ws-page-status-bar__item" title="{update_title}">
-        <img src="{ICON_ROOT}/calendar-days.svg" alt="">
+        <img src="{calendar_icon}" alt="">
         <span>数据 {escape(status.update_date)}</span>
     </span>
     <span class="ws-page-status-bar__divider" aria-hidden="true"></span>
     <span class="ws-page-status-bar__item ws-page-status-bar__item--{status.freshness_tone}" title="{freshness_title}">
-        <img src="{ICON_ROOT}/{tone_icon}.svg" alt="">
+        <img src="{freshness_icon}" alt="">
         <span>{escape(status.freshness_label)}</span>
     </span>
     <span class="ws-page-status-bar__meta">{escape(status.update_source)} · {escape(status.update_timestamp)}</span>
@@ -101,11 +103,12 @@ def build_page_status_bar_html(status: PageStatus) -> str:
 
 
 def build_page_loading_mask_html() -> str:
+    loading_icon = icon_asset_data_uri("refresh-cw")
     return f"""
 <div class="ws-page-loading-mask" role="status" aria-live="polite" aria-label="页面加载中">
     <span class="ws-page-loading-mask__indicator">
         <span class="ws-page-loading-mask__spinner" aria-hidden="true">
-            <img src="{ICON_ROOT}/refresh-cw.svg" alt="">
+            <img src="{loading_icon}" alt="">
         </span>
         <span>加载中</span>
     </span>
