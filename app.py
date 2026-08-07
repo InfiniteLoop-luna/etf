@@ -15339,29 +15339,18 @@ def render_security_search_tab():
                             st.info("该交易日暂无可展示的分时数据。")
                         else:
                             intraday_reference_close = None
-                            intraday_adjustment_mode = {"不复权": "none", "前复权": "qfq", "后复权": "hfq"}.get(kline_adj_mode_label, "qfq")
-                            reference_close_col = "close"
-                            if intraday_adjustment_mode in {"qfq", "hfq"}:
-                                candidate_reference_col = f"{intraday_adjustment_mode}_close"
-                                if kline_df is not None and candidate_reference_col in kline_df.columns:
-                                    reference_close_col = candidate_reference_col
                             selected_intraday_ts = pd.to_datetime(effective_intraday_date, errors="coerce")
                             if kline_df is not None and not kline_df.empty and not pd.isna(selected_intraday_ts):
                                 previous_close_series = pd.to_numeric(
-                                    kline_df.loc[kline_df["trade_date"] < selected_intraday_ts, reference_close_col],
+                                    kline_df.loc[kline_df["trade_date"] < selected_intraday_ts, "close"],
                                     errors="coerce",
                                 ).dropna()
-                                if previous_close_series.empty and reference_close_col != "close":
-                                    previous_close_series = pd.to_numeric(
-                                        kline_df.loc[kline_df["trade_date"] < selected_intraday_ts, "close"],
-                                        errors="coerce",
-                                    ).dropna()
                                 if not previous_close_series.empty:
                                     intraday_reference_close = float(previous_close_series.iloc[-1])
 
                             intraday_chart = create_security_intraday_chart(
                                 intraday_df,
-                                title=f"{title_name} — {effective_intraday_date} 分时图（{'前复权' if intraday_adjustment_mode == 'qfq' else '后复权' if intraday_adjustment_mode == 'hfq' else '不复权'}）",
+                                title=f"{title_name} — {effective_intraday_date} 分时图",
                                 reference_close=intraday_reference_close,
                             )
                             if intraday_chart is not None:
