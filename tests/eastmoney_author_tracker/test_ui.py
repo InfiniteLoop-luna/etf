@@ -152,6 +152,14 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn("position: absolute !important", css)
         self.assertIn("pointer-events: auto", css)
 
+    def test_sidebar_section_labels_clear_the_following_control(self):
+        css = build_global_apple_theme_css()
+
+        selector = '[data-testid="stMarkdownContainer"]:has(> .ws-sidebar-block)'
+        section_label_override = css[css.index(selector) :]
+        self.assertIn(selector, css)
+        self.assertIn("margin-bottom: 0 !important", section_label_override)
+
     def test_build_global_apple_theme_css_includes_strong_legacy_overrides(self):
         css = build_global_apple_theme_css()
 

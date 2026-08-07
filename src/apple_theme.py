@@ -602,6 +602,10 @@ button[aria-label="Open sidebar"]:hover {{
     border-bottom: 0;
 }}
 
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"]:has(> .ws-sidebar-block) {{
+    margin-bottom: 0 !important;
+}}
+
 [data-testid="stSidebar"] .ws-sidebar-block-title {{
     color: var(--ws-text-muted) !important;
     font-family: var(--ws-font-data);
