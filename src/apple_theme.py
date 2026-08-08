@@ -3264,6 +3264,19 @@ html body [data-baseweb="textarea"] textarea:focus {
 }
 
 /* Fund watchlist cards: restore complete legacy dark terminal styling. */
+.st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"] {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: stretch !important;
+    gap: 0.72rem !important;
+}
+
+.st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    flex: 1 1 560px !important;
+    width: auto !important;
+    min-width: min(100%, 560px) !important;
+}
+
 .ws-fund-watchboard__card {
     --fw-cyan: #22d7ff;
     --fw-blue: #2f7bff;
@@ -3449,9 +3462,11 @@ html body [data-baseweb="textarea"] textarea:focus {
     -webkit-text-fill-color: #b8cae2 !important;
     border-top: 1px solid rgba(70, 126, 255, 0.14) !important;
     font-size: 1rem !important;
-    line-height: normal !important;
+    line-height: 1.35 !important;
     text-align: center !important;
-    white-space: nowrap !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
     -webkit-box-orient: initial !important;
     -webkit-line-clamp: unset !important;
 }

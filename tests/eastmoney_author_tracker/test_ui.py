@@ -395,7 +395,30 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr)) !important", dark_cards)
         self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr)) !important", dark_cards)
         self.assertIn("overflow: visible !important", dark_cards)
-        self.assertIn("white-space: nowrap !important", dark_cards)
+        self.assertIn("white-space: normal !important", dark_cards)
+
+    def test_fund_watchlist_cards_use_wrapping_horizontal_flex_without_empty_columns(self):
+        css = build_terminal_component_overrides_css()
+        app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+        render_start = app_source.index("def render_fund_watchlist_cards(")
+        render_end = app_source.index("\ndef ", render_start + 1)
+        render_source = app_source[render_start:render_end]
+        dark_cards = css[
+            css.index(
+                "/* Fund watchlist cards: restore complete legacy dark terminal styling. */"
+            ) :
+        ]
+
+        self.assertIn("cols = st.columns(len(items))", render_source)
+        self.assertNotIn("st.columns(3)", render_source)
+        self.assertIn(
+            '.st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"]',
+            dark_cards,
+        )
+        self.assertIn("flex-wrap: wrap !important", dark_cards)
+        self.assertIn("flex: 1 1 560px !important", dark_cards)
+        self.assertIn("white-space: normal !important", dark_cards)
+        self.assertIn("overflow-wrap: anywhere !important", dark_cards)
 
     def test_fund_watchboard_final_palette_restates_readable_text_tiers(self):
         css = build_terminal_component_overrides_css()

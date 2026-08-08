@@ -18440,26 +18440,25 @@ def render_fund_watchlist_cards(items: list[dict], *, focus_code: str) -> None:
     st.session_state["fund_watchlist_batch_last_view"] = "看板"
 
     with st.container(key="fund_watchlist_card_grid"):
-        for start_idx in range(0, len(items), 3):
-            cols = st.columns(3)
-            for offset, item in enumerate(items[start_idx : start_idx + 3]):
-                with cols[offset]:
-                    with st.container(key=f"fund_watchlist_card_wrap_{item['safe_code']}"):
-                        st.html(_build_fund_watchlist_card_html(item, focus_code))
-                        if st.button(
-                            f"查看 {item['fund_name']} 详情",
-                            key=f"fund_watchlist_card_button_{item['safe_code']}",
-                            use_container_width=True,
-                        ):
-                            if is_batch_mode:
-                                selection_key = f"fund_watchlist_batch_sel_{item['safe_code']}"
-                                st.session_state[selection_key] = not bool(st.session_state.get(selection_key, False))
-                            else:
-                                st.session_state["fund_watchlist_focus_code"] = item["fund_code"]
-                            st.rerun()
-
+        cols = st.columns(len(items))
+        for offset, item in enumerate(items):
+            with cols[offset]:
+                with st.container(key=f"fund_watchlist_card_wrap_{item['safe_code']}"):
+                    st.html(_build_fund_watchlist_card_html(item, focus_code))
+                    if st.button(
+                        f"查看 {item['fund_name']} 详情",
+                        key=f"fund_watchlist_card_button_{item['safe_code']}",
+                        use_container_width=True,
+                    ):
                         if is_batch_mode:
-                            st.checkbox("选择此基金", key=f"fund_watchlist_batch_sel_{item['safe_code']}")
+                            selection_key = f"fund_watchlist_batch_sel_{item['safe_code']}"
+                            st.session_state[selection_key] = not bool(st.session_state.get(selection_key, False))
+                        else:
+                            st.session_state["fund_watchlist_focus_code"] = item["fund_code"]
+                        st.rerun()
+
+                    if is_batch_mode:
+                        st.checkbox("选择此基金", key=f"fund_watchlist_batch_sel_{item['safe_code']}")
 
 
 def render_fund_watchlist_table(items: list[dict], *, focus_code: str) -> str:
