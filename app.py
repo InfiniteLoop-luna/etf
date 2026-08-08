@@ -17367,6 +17367,47 @@ FUND_MONITOR_FIELD_LABELS = {
 }
 
 
+def _fund_monitor_value_format(metric_key: str) -> str:
+    if metric_key == "fund_count":
+        return ",.0f"
+    if metric_key == "unit_nav":
+        return ",.4f"
+    return ",.2f"
+
+
+def create_fund_monitor_chart(
+    data_frame: pd.DataFrame,
+    *,
+    metric_key: str,
+    title: str,
+    area: bool = False,
+    line_dash: Optional[str] = None,
+) -> go.Figure:
+    chart_options = {
+        "data_frame": data_frame,
+        "x": "month",
+        "y": "value",
+        "color": "category_name",
+        "markers": True,
+        "text": "value",
+        "title": title,
+    }
+    if line_dash:
+        chart_options["line_dash"] = line_dash
+
+    chart_factory = px.area if area else px.line
+    figure = chart_factory(**chart_options)
+    figure.update_traces(
+        mode="lines+markers+text",
+        texttemplate=f"%{{y:{_fund_monitor_value_format(metric_key)}}}",
+        textposition="top center",
+        textfont={"size": 14},
+        marker={"size": 7},
+        cliponaxis=False,
+    )
+    return figure
+
+
 def _sort_fund_categories(names: list[str]) -> list[str]:
     unique_names = list(dict.fromkeys(name for name in names if name))
     return sorted(
@@ -17738,12 +17779,9 @@ def render_fund_monitor_tab():
         else:
             total_trend_df = build_fund_monitor_trend_df(filtered_df, value_field=metric_field)
             st.plotly_chart(
-                px.line(
+                create_fund_monitor_chart(
                     total_trend_df,
-                    x="month",
-                    y="value",
-                    color="category_name",
-                    markers=True,
+                    metric_key=metric_field,
                     title=f'{FUND_MONITOR_METRIC_LABELS[metric_field]}趋势',
                 ),
                 use_container_width=True,
@@ -17753,12 +17791,11 @@ def render_fund_monitor_tab():
             if not structure_df.empty:
                 public_trend_df = build_fund_monitor_trend_df(structure_df, value_field=metric_field)
                 st.plotly_chart(
-                    px.area(
+                    create_fund_monitor_chart(
                         public_trend_df,
-                        x="month",
-                        y="value",
-                        color="category_name",
+                        metric_key=metric_field,
                         title=f'公募结构趋势（{FUND_MONITOR_METRIC_LABELS[metric_field]}）',
+                        area=True,
                     ),
                     use_container_width=True,
                 )
@@ -17777,13 +17814,10 @@ def render_fund_monitor_tab():
                 st.info("当前筛选范围内暂无可展示的同比 / 环比曲线。")
             else:
                 st.plotly_chart(
-                    px.line(
+                    create_fund_monitor_chart(
                         change_trend_df,
-                        x="month",
-                        y="value",
-                        color="category_name",
+                        metric_key=change_metric_key,
                         line_dash="change_type",
-                        markers=True,
                         title=f'{FUND_CHANGE_TREND_FIELD_LABELS[change_metric_key]}同比 / 环比曲线',
                     ),
                     use_container_width=True,
