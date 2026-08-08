@@ -44,13 +44,30 @@ def test_render_desktop_sidebar_navigation_uses_tree_search_and_recent_visits():
     function_source = _get_function_source("render_desktop_sidebar_navigation")
 
     assert "sidebar_search_query" in function_source
-    assert "sidebar_expanded_module_id" in function_source
+    assert "sidebar_expanded_module_ids" in function_source
     assert "search_sidebar_pages(search_query)" in function_source
     assert "get_recent_visits(st.session_state)" in function_source
-    assert "resolve_expanded_module_id(" in function_source
+    assert "_get_sidebar_expanded_module_ids(" in function_source
     assert "SIDEBAR_MODULES" in function_source
-    assert 'st.container(key="ws-sidebar-tree")' in function_source
+    assert 'sidebar_middle.container(key="ws-sidebar-tree")' in function_source
     assert '"current" if is_active_page else ""' in function_source
+
+
+def test_sidebar_module_expansion_is_fragment_scoped_without_full_app_rerun():
+    function_node = next(
+        node
+        for node in APP_AST.body
+        if isinstance(node, ast.FunctionDef) and node.name == "render_desktop_sidebar_navigation"
+    )
+    function_source = _get_function_source("render_desktop_sidebar_navigation")
+    decorators = [ast.unparse(decorator) for decorator in function_node.decorator_list]
+
+    assert "st.fragment" in decorators
+    assert "on_click=_toggle_sidebar_module_expansion" in function_source
+    module_toggle = function_source.split("for module in ordered_modules:", 1)[1].split(
+        "for page in module.pages:", 1
+    )[0]
+    assert "st.rerun()" not in module_toggle
 
 
 def test_render_desktop_sidebar_navigation_removes_legacy_quick_jump_and_shortcuts():
@@ -66,8 +83,8 @@ def test_security_deep_links_expand_the_stock_module():
     hydrate_source = _get_function_source("hydrate_security_jump_from_query_params")
     trigger_source = _get_function_source("trigger_security_tab_jump_if_needed")
 
-    assert 'st.session_state["sidebar_expanded_module_id"] = "stock"' in hydrate_source
-    assert 'st.session_state["sidebar_expanded_module_id"] = "stock"' in trigger_source
+    assert '_expand_sidebar_module("stock")' in hydrate_source
+    assert '_expand_sidebar_module("stock")' in trigger_source
 
 
 def test_app_py_does_not_keep_legacy_sidebar_token_block():
@@ -115,4 +132,27 @@ def test_clicking_recent_visit_clears_search_and_navigates_without_error():
     assert any(
         button.key.startswith("ws-sidebar-page-company_screener-active-current")
         for button in after_click.button
+    )
+
+
+def test_recent_visits_can_collapse_without_changing_the_selected_page():
+    app_test = AppTest.from_string(SIDEBAR_INTERACTION_SCRIPT)
+    initial_run = app_test.run(timeout=10)
+    recent_toggle = next(
+        button
+        for button in initial_run.button
+        if button.key.startswith("ws-sidebar-recent-toggle-expanded")
+    )
+
+    after_collapse = recent_toggle.click().run(timeout=10)
+
+    assert len(after_collapse.exception) == 0
+    assert after_collapse.session_state["sidebar_recent_expanded"] is False
+    assert not any(
+        button.key.startswith("ws-sidebar-recent-link-")
+        for button in after_collapse.button
+    )
+    assert any(
+        "selected=决策/" in markdown.value
+        for markdown in after_collapse.markdown
     )

@@ -1,13 +1,19 @@
 import unittest
+import re
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, unquote, urlparse
 from pathlib import Path
 
+from streamlit import config as streamlit_config
+
 from src.apple_theme import (
     APPLE_THEME_TOKENS,
+    MIN_FONT_SIZE,
+    SYSTEM_FONT_FAMILY,
     build_apple_plotly_template,
     build_author_tracker_apple_css,
     build_global_apple_theme_css,
+    build_terminal_component_overrides_css,
     get_apple_theme_tokens,
 )
 from src.eastmoney_author_tracker.ui import (
@@ -44,18 +50,85 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertEqual(tokens["primary_hover"], APPLE_THEME_TOKENS["primary_hover"])
         self.assertEqual(tokens["primary_strong"], APPLE_THEME_TOKENS["primary_strong"])
 
-    def test_build_global_apple_theme_css_contains_professional_gold_core_tokens(self):
+    def test_build_global_apple_theme_css_contains_terminal_core_tokens(self):
         css = build_global_apple_theme_css()
 
-        self.assertIn("--ws-bg-base: #F4F7F6", css)
+        self.assertIn("--ws-bg-base: #F7F9FF", css)
         self.assertIn("--ws-bg-surface: #FFFFFF", css)
-        self.assertIn("--ws-bg-dark: #1B263B", css)
-        self.assertIn("--ws-color-primary: #D4AF37", css)
-        self.assertIn("--ws-color-up: #E63946", css)
-        self.assertIn("--ws-color-down: #2A9D8F", css)
+        self.assertIn("--ws-bg-dark: #2A3138", css)
+        self.assertIn("--ws-color-primary: #0F69FF", css)
+        self.assertIn("--ws-color-up: #037B66", css)
+        self.assertIn("--ws-color-down: #D11022", css)
         self.assertIn('[data-testid="stSidebar"]', css)
         self.assertIn('[data-testid="stDataFrame"]', css)
         self.assertIn(".stMetric", css)
+
+    def test_global_theme_uses_system_font_stack(self):
+        css = build_global_apple_theme_css()
+        expected = '"Microsoft YaHei", sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif'
+
+        self.assertEqual(SYSTEM_FONT_FAMILY, expected)
+        self.assertIn(f"--ws-font-sans: {expected}", css)
+        self.assertIn(f"--ws-font-heading: {expected}", css)
+        self.assertIn('input,\ntextarea,\nselect,', css)
+        self.assertIn('font-family: var(--ws-font-sans) !important', css)
+
+        standalone_renderers = (
+            Path("src/lhb_board_component/index.html"),
+            Path("src/stock_analysis_template_report.py"),
+            Path("src/stock_research_html_renderer.py"),
+        )
+        for path in standalone_renderers:
+            self.assertIn(expected, path.read_text(encoding="utf-8", errors="ignore"))
+
+    def test_text_font_sizes_do_not_fall_below_minimum(self):
+        self.assertEqual(MIN_FONT_SIZE, 14)
+        css = build_global_apple_theme_css()
+        self.assertIn("--ws-font-size-min: 14px", css)
+        self.assertIn("font-size: max(var(--ws-font-size-min), 1em) !important", css)
+        sources = [Path("app.py")]
+        sources.extend(Path("src").rglob("*.py"))
+        sources.extend(Path("src").rglob("*.html"))
+
+        undersized = []
+        fixed_size_pattern = re.compile(r"font-size\s*:\s*(\d*\.?\d+)\s*(px|rem)", re.IGNORECASE)
+        clamp_pattern = re.compile(r"font-size\s*:\s*clamp\(\s*(\d*\.?\d+)\s*rem", re.IGNORECASE)
+        plotly_font_pattern = re.compile(r"font=dict\([^\r\n]*?\bsize=(\d+)")
+        for path in sources:
+            source = path.read_text(encoding="utf-8", errors="ignore")
+            for match in fixed_size_pattern.finditer(source):
+                value = float(match.group(1))
+                pixels = value if match.group(2).lower() == "px" else value * MIN_FONT_SIZE
+                if 0 < pixels < MIN_FONT_SIZE:
+                    undersized.append(f"{path}:{match.group(0)}")
+            for match in clamp_pattern.finditer(source):
+                if 0 < float(match.group(1)) < 1:
+                    undersized.append(f"{path}:{match.group(0)}")
+            for match in plotly_font_pattern.finditer(source):
+                if 0 < int(match.group(1)) < MIN_FONT_SIZE:
+                    undersized.append(f"{path}:{match.group(0)}")
+
+        self.assertEqual(undersized, [])
+
+    def test_all_table_surfaces_use_single_borders_and_readable_type(self):
+        css = build_global_apple_theme_css()
+        final_table_rules = css[css.rfind('/* Unified table surfaces */') :]
+
+        self.assertEqual(streamlit_config.get_option("theme.baseFontSize"), 16)
+        self.assertEqual(streamlit_config.get_option("theme.dataframeBorderColor"), "#D2D2D7")
+        self.assertEqual(streamlit_config.get_option("theme.dataframeHeaderBackgroundColor"), "#F8F9FB")
+        self.assertIn("html {", final_table_rules)
+        self.assertIn("font-size: 16px !important", final_table_rules)
+        self.assertIn('[data-testid="stDataFrame"] {', final_table_rules)
+        self.assertIn("border: 0 !important", final_table_rules)
+        self.assertIn("padding: 0 !important", final_table_rules)
+        self.assertIn('[data-testid="stDataFrameResizable"] {', final_table_rules)
+        self.assertIn("border: 1px solid var(--ws-border-soft) !important", final_table_rules)
+        self.assertIn("border-radius: 8px !important", final_table_rules)
+        self.assertIn('div[data-testid="stTable"] table', final_table_rules)
+        self.assertIn("font-size: 14px !important", final_table_rules)
+        self.assertIn("border-collapse: separate", final_table_rules)
+        self.assertIn(".ws-fund-watchboard__holdings table", final_table_rules)
 
     def test_build_global_apple_theme_css_includes_primary_interaction_selectors(self):
         css = build_global_apple_theme_css()
@@ -69,6 +142,106 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn(".ws-page-toolbar", css)
         self.assertIn("st-key-ws-page-toolbar", css)
 
+    def test_sidebar_tree_uses_compact_directory_hierarchy(self):
+        css = build_global_apple_theme_css()
+
+        self.assertIn("--ws-sidebar-width: 230px", css)
+        self.assertIn("--ws-sidebar-row-height: 34px", css)
+        self.assertIn("--ws-sidebar-row-gap: 2px", css)
+        self.assertIn("--ws-sidebar-accent: #365CCB", css)
+        self.assertIn("--ws-sidebar-active-bg: #E9EEF7", css)
+        self.assertIn('[class*="st-key-ws-sidebar-module-"] button::before', css)
+        self.assertIn('[class*="st-key-ws-sidebar-module-"] button::after', css)
+        self.assertIn("width: calc(100% - 1.55rem)", css)
+        self.assertIn("border-left: 1px solid var(--ws-sidebar-line)", css)
+        self.assertIn(".ws-sidebar-page-description {", css)
+        self.assertIn("display: none", css)
+        self.assertIn('[class*="-expanded"] button', css)
+        self.assertIn('[class*="-active"] button', css)
+
+    def test_sidebar_keeps_header_and_footer_fixed_while_middle_scrolls(self):
+        css = build_global_apple_theme_css()
+        app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertIn('key="ws-sidebar-header"', app_source)
+        self.assertIn('key="ws-sidebar-middle"', app_source)
+        self.assertIn('key="ws-sidebar-footer"', app_source)
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr) auto !important", css)
+        self.assertIn('[class*="st-key-ws-sidebar-middle"]', css)
+        self.assertIn("overflow-y: auto !important", css)
+        self.assertIn('[class*="st-key-ws-sidebar-footer"]', css)
+        self.assertIn('[data-testid="stSidebar"] [data-testid="stSidebarHeader"]', css)
+        self.assertIn("position: absolute !important", css)
+        self.assertIn("pointer-events: auto", css)
+        sidebar_content_rule = css[css.rfind('[data-testid="stSidebar"] [data-testid="stSidebarContent"] {') :]
+        self.assertIn("padding-right: 0 !important", sidebar_content_rule)
+
+    def test_sidebar_brand_uses_clean_two_row_lockup(self):
+        css = build_global_apple_theme_css()
+        app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+        brand_rule = css[css.rfind('[data-testid="stSidebar"] .ws-sidebar-brand {') :]
+        subtitle_rule = brand_rule[brand_rule.find('[data-testid="stSidebar"] .ws-sidebar-brand p {') :]
+        subtitle_rule = subtitle_rule[: subtitle_rule.find("\n}") + 2]
+
+        self.assertIn('<div class="ws-sidebar-brand-main">', app_source)
+        self.assertIn("flex-direction: column", brand_rule)
+        self.assertIn("align-items: stretch", brand_rule)
+        self.assertIn("width: 100% !important", brand_rule)
+        self.assertIn('[data-testid="stSidebar"] .ws-sidebar-brand-main {', brand_rule)
+        self.assertIn("min-height: 32px", brand_rule)
+        self.assertIn("width: 100%", brand_rule)
+        self.assertIn("display: flex", subtitle_rule)
+        self.assertIn("align-items: center", subtitle_rule)
+        self.assertIn("font-size: 14px", subtitle_rule)
+        self.assertIn("font-style: italic", subtitle_rule)
+        self.assertIn("transform: scale(0.86)", subtitle_rule)
+        self.assertIn("transform-origin: left center", subtitle_rule)
+        self.assertIn("padding: 0 !important", brand_rule)
+        self.assertIn("white-space: nowrap", brand_rule)
+        self.assertIn("text-transform: none", brand_rule)
+        self.assertIn('[data-testid="stSidebar"]:not([aria-expanded="false"]) [data-testid="stSidebarCollapseButton"]', brand_rule)
+        self.assertIn("right: -0.35rem !important", brand_rule)
+
+    def test_sidebar_favorite_stars_use_high_visibility_yellow(self):
+        css = build_global_apple_theme_css()
+        favorite_rule = css[css.rfind('[class*="st-key-ws-sidebar-module-favorite"] button::before') :]
+
+        self.assertIn("background: #F5B400 !important", favorite_rule)
+        self.assertIn('[class*="st-key-ws-sidebar-page-my_favorite"] button img[src$="/star.svg"]', css)
+        self.assertIn("opacity: 1 !important", favorite_rule)
+        self.assertIn("filter:", favorite_rule)
+        self.assertIn("contrast(103%) !important", favorite_rule)
+
+    def test_collapsed_sidebar_controls_share_one_centered_rail_grid(self):
+        css = build_global_apple_theme_css()
+        collapsed_rule = css[css.rfind('[data-testid="stSidebar"][aria-expanded="false"] {') :]
+
+        self.assertIn('[data-testid="stSidebarCollapseButton"] button', collapsed_rule)
+        self.assertIn("left: 6px !important", collapsed_rule)
+        self.assertIn("width: 36px !important", collapsed_rule)
+        self.assertIn("margin: 0 !important", collapsed_rule)
+        self.assertIn("scrollbar-gutter: auto", collapsed_rule)
+
+    def test_recent_sidebar_group_is_collapsible_and_left_aligned(self):
+        css = build_global_apple_theme_css()
+        app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertIn('"sidebar_recent_expanded"', app_source)
+        self.assertIn('"ws-sidebar-recent-toggle"', app_source)
+        self.assertIn('[class*="st-key-ws-sidebar-recent-toggle-"] button::after', css)
+        self.assertIn('mask: url("data:image/svg+xml;base64,', css)
+        self.assertIn('[class*="st-key-ws-sidebar-recent-toggle-expanded"] button::after', css)
+        self.assertIn('[class*="st-key-ws-sidebar-recent-link-"] button > div', css)
+        self.assertIn("justify-content: flex-start !important", css)
+
+    def test_sidebar_section_labels_clear_the_following_control(self):
+        css = build_global_apple_theme_css()
+
+        selector = '[data-testid="stMarkdownContainer"]:has(> .ws-sidebar-block)'
+        section_label_override = css[css.index(selector) :]
+        self.assertIn(selector, css)
+        self.assertIn("margin-bottom: 0 !important", section_label_override)
+
     def test_build_global_apple_theme_css_includes_strong_legacy_overrides(self):
         css = build_global_apple_theme_css()
 
@@ -78,14 +251,16 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn('[data-testid="stSidebar"] [role="radiogroup"]', css)
         self.assertIn('.block-container h1 *', css)
 
-    def test_build_global_apple_theme_css_uses_professional_gold_shell_structure(self):
+    def test_build_global_apple_theme_css_uses_terminal_shell_structure(self):
         css = build_global_apple_theme_css()
 
+        self.assertIn("background: var(--ws-bg-surface) !important", css)
         self.assertIn("background: var(--ws-bg-base) !important", css)
-        self.assertIn("background: var(--ws-bg-dark) !important", css)
         self.assertIn("var(--ws-bg-surface)", css)
         self.assertIn("var(--ws-color-primary)", css)
-        self.assertIn("box-shadow: 0 4px 20px rgba(27, 38, 59, 0.04)", css)
+        self.assertNotIn(".ws-terminal-header", css)
+        self.assertNotIn(".ws-page-intro", css)
+        self.assertNotIn("radial-gradient(ellipse", css)
 
     def test_build_global_apple_theme_css_adds_shell_finish_details(self):
         css = build_global_apple_theme_css()
@@ -94,23 +269,198 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn(".ws-ai-signal", css)
         self.assertIn(".main .block-container", css)
         self.assertIn('[data-testid="stSidebar"] [aria-checked="true"]', css)
-        self.assertIn("linear-gradient(135deg, var(--ws-color-primary)", css)
+        self.assertIn("background: var(--ws-color-primary) !important", css)
 
-    def test_build_apple_plotly_template_uses_professional_gold_palette(self):
+    def test_right_side_pages_use_one_responsive_apple_panel(self):
+        css = build_global_apple_theme_css()
+        page_shell = css[css.rfind("/* Unified Apple page panel */") :]
+
+        self.assertIn('[data-testid="stMain"] {', page_shell)
+        self.assertIn('[data-testid="stMainBlockContainer"] {', page_shell)
+        self.assertIn("max-width: 1800px !important", page_shell)
+        self.assertNotIn("max-width: 1320px !important", css)
+        self.assertIn("background: var(--ws-bg-base) !important", page_shell)
+        self.assertIn("background: var(--ws-bg-surface) !important", page_shell)
+        self.assertIn("border: 1px solid rgba(15, 23, 42, 0.06) !important", page_shell)
+        self.assertIn("border-radius: 18px !important", page_shell)
+        self.assertIn("height: auto !important", page_shell)
+        self.assertIn("flex: 0 0 auto !important", page_shell)
+        self.assertIn("box-shadow:", page_shell)
+        self.assertIn("min-height: calc(100dvh - 64px) !important", page_shell)
+        self.assertIn("@media (max-width: 768px)", page_shell)
+        self.assertIn('.stApp:has([data-testid="stSidebar"][aria-expanded="false"]) [data-testid="stMain"]', page_shell)
+        self.assertIn("margin-left: var(--ws-sidebar-collapsed-width) !important", page_shell)
+        self.assertIn("width: calc(100% - var(--ws-sidebar-collapsed-width)) !important", page_shell)
+        self.assertIn("border-radius: 14px !important", page_shell)
+
+    def test_global_alerts_are_borderless_centered_page_states(self):
+        css = build_global_apple_theme_css()
+        final_alert_override = css[css.rfind('[data-testid="stAlertContainer"] {') :]
+
+        self.assertIn('justify-content: center !important', final_alert_override)
+        self.assertIn('background: transparent !important', final_alert_override)
+        self.assertIn('border: 0 !important', final_alert_override)
+        self.assertIn('box-shadow: none !important', final_alert_override)
+        self.assertIn('> [data-testid^="stAlertContent"]', final_alert_override)
+        self.assertIn('[data-testid="stIconMaterial"]', final_alert_override)
+        self.assertIn('display: none !important', final_alert_override)
+        self.assertIn('text-align: center !important', final_alert_override)
+
+    def test_build_apple_plotly_template_uses_terminal_palette(self):
         template = build_apple_plotly_template()
 
-        self.assertEqual(template.layout.paper_bgcolor, "#F4F7F6")
+        self.assertEqual(template.layout.font.family, SYSTEM_FONT_FAMILY)
+        self.assertEqual(template.layout.title.font.family, SYSTEM_FONT_FAMILY)
+        self.assertEqual(template.layout.font.size, MIN_FONT_SIZE)
+        self.assertEqual(template.layout.xaxis.tickfont.size, MIN_FONT_SIZE)
+        self.assertEqual(template.layout.paper_bgcolor, "#FFFFFF")
         self.assertEqual(template.layout.plot_bgcolor, "#FFFFFF")
-        self.assertEqual(template.layout.colorway[0], "#1B263B")
-        self.assertEqual(template.layout.colorway[1], "#D4AF37")
+        self.assertEqual(template.layout.colorway[0], "#0F69FF")
+        self.assertEqual(template.layout.colorway[1], "#0052D0")
+        self.assertEqual(template.layout.colorway[2], "#037B66")
+
+    def test_terminal_component_overrides_cover_custom_watchboards(self):
+        css = build_terminal_component_overrides_css()
+
+        self.assertIn(".ws-watchboard-shell", css)
+        self.assertIn(".ws-fund-watchboard", css)
+        self.assertIn('[data-testid="stTextInputRootElement"]', css)
+        self.assertIn('[data-testid="stTextAreaRootElement"]', css)
+        self.assertIn('[data-testid="stTimeInputTimeDisplay"]', css)
+        self.assertIn('.react-aria-ComboBox', css)
+        self.assertIn('min-height: 96px !important', css)
+        self.assertIn('background: transparent !important', css)
+        self.assertIn('box-sizing: border-box !important', css)
+        self.assertIn("background: #FFFFFF !important", css)
+        self.assertIn("border-radius: 4px !important", css)
+
+    def test_terminal_overrides_restore_complete_legacy_dark_stock_cards_last(self):
+        css = build_terminal_component_overrides_css()
+        light_palette_index = css.index("/* Fund watchboard: high-contrast neutral palette.")
+        dark_cards_index = css.index(
+            "/* Stock watchlist cards: restore complete legacy dark terminal styling. */"
+        )
+        fund_cards_index = css.index(
+            "/* Fund watchlist cards: restore complete legacy dark terminal styling. */"
+        )
+        dark_cards = css[dark_cards_index:fund_cards_index]
+        white_surface_rules = [
+            rule
+            for rule in css.split("}")
+            if "background: #FFFFFF !important" in rule
+        ]
+
+        self.assertGreater(dark_cards_index, light_palette_index)
+        self.assertTrue(white_surface_rules)
+        self.assertTrue(
+            all(".ws-watchboard-stock-card" not in rule for rule in white_surface_rules)
+        )
+        self.assertIn(
+            "linear-gradient(180deg, rgba(5, 17, 39, 0.93), rgba(2, 9, 24, 0.96))",
+            dark_cards,
+        )
+        self.assertIn("min-height: 104px !important", dark_cards)
+        self.assertIn("padding: 0.42rem 0.46rem !important", dark_cards)
+        self.assertIn("--wb-muted: #93a9ca", dark_cards)
+        self.assertIn("color: #f6fbff !important", dark_cards)
+        self.assertIn("font-weight: 900 !important", dark_cards)
+        self.assertIn("font-size: clamp(1.04rem, 1.55vw, 1.34rem) !important", dark_cards)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr)) !important", dark_cards)
+        self.assertIn("background: #122954 !important", dark_cards)
+        self.assertIn("color: #9db8e6 !important", dark_cards)
+
+    def test_terminal_overrides_restore_complete_legacy_dark_fund_cards_last(self):
+        css = build_terminal_component_overrides_css()
+        light_palette_index = css.index("/* Fund watchboard: high-contrast neutral palette.")
+        dark_cards_index = css.index(
+            "/* Fund watchlist cards: restore complete legacy dark terminal styling. */"
+        )
+        dark_cards = css[dark_cards_index:]
+
+        self.assertGreater(dark_cards_index, light_palette_index)
+        self.assertIn(".ws-fund-watchboard__card {", dark_cards)
+        self.assertIn("--fw-text: #f5f9ff", dark_cards)
+        self.assertIn(
+            "linear-gradient(145deg, rgba(9, 29, 64, 0.96), rgba(3, 13, 32, 0.98))",
+            dark_cards,
+        )
+        self.assertIn(".ws-fund-watchboard__card .ws-fund-watchboard__live", dark_cards)
+        self.assertIn("display: flex !important", dark_cards)
+        self.assertIn("margin: 0.72rem 0 0.55rem !important", dark_cards)
+        self.assertIn("font-size: 1.12rem !important", dark_cards)
+        self.assertIn("background: rgba(3, 12, 30, 0.66) !important", dark_cards)
+        self.assertIn("background: rgba(3, 12, 30, 0.58) !important", dark_cards)
+        self.assertIn("color: #e9f2ff !important", dark_cards)
+        self.assertIn("font-size: 1.52rem !important", dark_cards)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr)) !important", dark_cards)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr)) !important", dark_cards)
+        self.assertIn("overflow: visible !important", dark_cards)
+        self.assertIn("white-space: normal !important", dark_cards)
+
+    def test_fund_watchlist_cards_use_wrapping_horizontal_flex_without_empty_columns(self):
+        css = build_terminal_component_overrides_css()
+        app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+        render_start = app_source.index("def render_fund_watchlist_cards(")
+        render_end = app_source.index("\ndef ", render_start + 1)
+        render_source = app_source[render_start:render_end]
+        dark_cards = css[
+            css.index(
+                "/* Fund watchlist cards: restore complete legacy dark terminal styling. */"
+            ) :
+        ]
+
+        self.assertIn("cols = st.columns(len(items))", render_source)
+        self.assertNotIn("st.columns(3)", render_source)
+        self.assertIn(
+            '.st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"]',
+            dark_cards,
+        )
+        self.assertIn("flex-wrap: wrap !important", dark_cards)
+        self.assertIn("flex: 1 1 560px !important", dark_cards)
+        self.assertIn("white-space: normal !important", dark_cards)
+        self.assertIn("overflow-wrap: anywhere !important", dark_cards)
+
+    def test_fund_watchboard_final_palette_restates_readable_text_tiers(self):
+        css = build_terminal_component_overrides_css()
+        final_palette = css[css.rfind("/* Fund watchboard: high-contrast neutral palette.") :]
+
+        self.assertIn("--fw-text: #182230", final_palette)
+        self.assertIn("--fw-muted: #667085", final_palette)
+        self.assertIn("background: #F7F9FB !important", final_palette)
+        self.assertIn(".ws-fund-watchboard__card-title span", final_palette)
+        self.assertIn(".ws-fund-watchboard__live > span", final_palette)
+        self.assertIn("color: #C83A50 !important", final_palette)
+        self.assertIn("color: #167A5A !important", final_palette)
+        self.assertIn("-webkit-line-clamp: 2", final_palette)
+
+    def test_security_search_embeds_scope_radio_inside_keyword_shell(self):
+        css = build_terminal_component_overrides_css()
+        app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+        start = app_source.index("def render_security_search_tab():")
+        end = app_source.index("\ndef ", start + 1)
+        search_source = app_source[start:end]
+
+        self.assertIn('key="ws-security-searchbox"', search_source)
+        self.assertIn('st.columns([2.4, 2.6]', search_source)
+        self.assertGreaterEqual(search_source.count('label_visibility="collapsed"'), 2)
+        self.assertIn('[class*="st-key-ws-security-searchbox"]', css)
+        self.assertIn("grid-template-columns: max-content minmax(0, 1fr) !important", css)
+        self.assertIn('[data-testid="stRadioOption"][data-selected="true"]', css)
+        self.assertIn("border-left: 1px solid var(--ws-border-soft) !important", css)
 
     def test_app_py_no_longer_uses_legacy_cold_blue_theme_literals(self):
         app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
 
+        self.assertNotIn("Inter, PingFang SC, sans-serif", app_source)
         self.assertNotIn("rgba(248, 250, 252, 0.92)", app_source)
         self.assertNotIn("rgba(241, 245, 249, 0.58)", app_source)
         self.assertNotIn("rgba(236, 241, 247, 0.84)", app_source)
         self.assertNotIn("linear-gradient(180deg, #F8FAFC 0%, #EEF4FF 48%, #E2E8F0 100%)", app_source)
+
+    def test_app_does_not_render_current_location_breadcrumb(self):
+        app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertNotIn("当前位置：", app_source)
 
     def test_build_author_tracker_apple_css_contains_tracker_hooks(self):
         css = build_author_tracker_apple_css()
@@ -119,10 +469,10 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn(".ws-tracker-section", css)
         self.assertIn(".ws-evidence-gallery", css)
 
-    def test_tracker_direction_colors_follow_professional_gold_semantics(self):
-        self.assertEqual(DIRECTION_COLORS["bullish"], "#E63946")
-        self.assertEqual(DIRECTION_COLORS["exit_signal"], "#2A9D8F")
-        self.assertEqual(DIRECTION_COLORS["neutral"], "#6E7C8C")
+    def test_tracker_direction_colors_follow_terminal_semantics(self):
+        self.assertEqual(DIRECTION_COLORS["bullish"], "#037B66")
+        self.assertEqual(DIRECTION_COLORS["exit_signal"], "#D11022")
+        self.assertEqual(DIRECTION_COLORS["neutral"], "#718096")
 
     def test_build_dashboard_payload_splits_cycles_and_keeps_metadata(self):
         rows = [

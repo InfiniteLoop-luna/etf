@@ -2149,7 +2149,7 @@ def render_stock_analysis_template_html(
       margin: 0;
       background: var(--bg);
       color: var(--ink);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-family: "Microsoft YaHei", sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
       line-height: 1.7;
     }}
     .report-shell {{
@@ -2194,7 +2194,7 @@ def render_stock_analysis_template_html(
       width: 100%;
       border-collapse: collapse;
       margin: 10px 0 18px;
-      font-size: 13px;
+      font-size: 14px;
     }}
     th, td {{
       border: 1px solid var(--line);
@@ -2239,7 +2239,7 @@ def render_stock_analysis_template_html(
     .holder-trade-summary span {{
       display: block;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 14px;
     }}
     .holder-trade-summary strong {{
       display: block;
@@ -2275,11 +2275,11 @@ def render_stock_analysis_template_html(
     }}
     .axis-label, .tick-label {{
       fill: var(--muted);
-      font-size: 11px;
+      font-size: 14px;
     }}
     .holder-label {{
       fill: var(--ink);
-      font-size: 11px;
+      font-size: 14px;
     }}
     .bar-positive {{
       fill: #2f7bbd;
@@ -2311,7 +2311,7 @@ def render_stock_analysis_template_html(
       gap: 12px;
       margin-top: 8px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 14px;
     }}
     .chart-legend i {{
       display: inline-block;
@@ -2328,7 +2328,7 @@ def render_stock_analysis_template_html(
     .chart-caption, .chart-source {{
       margin: 6px 0 0;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 14px;
     }}
     .chart-empty {{
       min-height: 160px;
@@ -2342,7 +2342,7 @@ def render_stock_analysis_template_html(
     .footer-note {{
       margin-top: 20px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 14px;
       text-align: center;
     }}
     @media print {{

@@ -12,7 +12,9 @@ from src.sidebar_navigation import (
     get_recent_visits,
     record_recent_visit,
     resolve_expanded_module_id,
+    resolve_expanded_module_ids,
     search_sidebar_pages,
+    toggle_expanded_module_id,
 )
 
 
@@ -153,7 +155,7 @@ class SidebarNavigationTests(unittest.TestCase):
         self.assertEqual(session_state["sidebar_recent_pages"], visits)
 
     def test_public_label_apis_remain_navigation_compatible(self):
-        self.assertEqual(get_module_labels(), ["Favorite", "基金", "股票", "资金", "宏观", "决策"])
+        self.assertEqual(get_module_labels(), ["Favorite", "基金", "股票", "资金", "数据", "宏观", "决策"])
         self.assertEqual(
             get_default_shortcuts(),
             ["💼 今日机会清单", "🔎 个股/指数查询", "💹 资金流向"],
@@ -188,6 +190,32 @@ class SidebarNavigationTests(unittest.TestCase):
         self.assertEqual(
             resolve_expanded_module_id("security_search", "not-a-module"),
             "stock",
+        )
+
+    def test_sidebar_expansion_state_supports_multiple_modules(self):
+        expanded = resolve_expanded_module_ids(
+            "security_search",
+            ["stock", "decision", "stock", "not-a-module"],
+        )
+
+        self.assertEqual(expanded, ("stock", "decision"))
+        self.assertEqual(
+            toggle_expanded_module_id(expanded, "fund"),
+            ("stock", "decision", "fund"),
+        )
+        self.assertEqual(
+            toggle_expanded_module_id(expanded, "stock"),
+            ("decision",),
+        )
+        self.assertEqual(
+            toggle_expanded_module_id(None, "fund"),
+            ("fund",),
+        )
+
+    def test_sidebar_expansion_defaults_to_the_active_page_module(self):
+        self.assertEqual(
+            resolve_expanded_module_ids("security_search", None),
+            ("stock",),
         )
 
 

@@ -308,7 +308,7 @@ def render_hotmoney_tree_html(
 }}
 .ws-hotmoney-tree-root span {{
     margin-top: 0.35rem;
-    font-size: 0.92rem;
+    font-size: 1rem;
     font-weight: 700;
     opacity: 0.94;
 }}
@@ -362,7 +362,7 @@ def render_hotmoney_tree_html(
 }}
 .ws-hotmoney-hm-node small {{
     margin-top: 0.22rem;
-    font-size: 0.76rem;
+    font-size: 1rem;
     opacity: 0.9;
 }}
 .ws-hotmoney-stock-list {{
@@ -402,7 +402,7 @@ def render_hotmoney_tree_html(
     display: flex;
     align-items: center;
     padding: 0 0.75rem;
-    font-size: 0.95rem;
+    font-size: 1rem;
     font-weight: 800;
     white-space: nowrap;
     overflow: hidden;
@@ -440,7 +440,7 @@ def render_hotmoney_tree_html(
     display: flex;
     align-items: center;
     padding: 0 0.72rem;
-    font-size: 0.93rem;
+    font-size: 1rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

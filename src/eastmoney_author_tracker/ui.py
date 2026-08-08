@@ -48,11 +48,11 @@ CLOSE_REASON_LABELS = {
     "manual_split": "人工拆分",
 }
 DIRECTION_COLORS = {
-    "bullish": "#E63946",
-    "trim_signal": "#F4A261",
-    "exit_signal": "#2A9D8F",
-    "bearish": "#7D6B91",
-    "neutral": "#6E7C8C",
+    "bullish": "#037B66",
+    "trim_signal": "#8A5A00",
+    "exit_signal": "#D11022",
+    "bearish": "#D11022",
+    "neutral": "#718096",
 }
 TREND_DATE_COL = "\u65e5\u671f"
 TREND_WIN_RATE_COL = "\u80dc\u7387%"
@@ -409,7 +409,7 @@ def _build_marker_df(event_rows: list[dict[str, Any]], price_df: pd.DataFrame) -
                 "动作": _format_direction(row.get("direction")),
                 "来源": _format_source(row.get("source_type")),
                 "marker_text": f"#{row.get('event_sequence')} {_format_direction(row.get('direction'))}",
-                "color": DIRECTION_COLORS.get(str(row.get("direction") or "").strip(), "#475569"),
+                "color": DIRECTION_COLORS.get(str(row.get("direction") or "").strip(), "#718096"),
                 "证据": _truncate_text(_coalesce_evidence_text(row), max_len=24),
             }
         )

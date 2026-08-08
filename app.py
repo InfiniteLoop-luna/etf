@@ -3,6 +3,7 @@
 
 # Version: 2.0 - Fixed data_only issue for formula cells
 import os
+import importlib
 import json
 import time
 from html import escape
@@ -141,8 +142,9 @@ from src.sidebar_navigation import (
     get_page_labels,
     get_recent_visits,
     record_recent_visit,
-    resolve_expanded_module_id,
+    resolve_expanded_module_ids,
     search_sidebar_pages,
+    toggle_expanded_module_id,
 )
 from src.factor_workbench import (
     FACTOR_WORKBENCH_PAGE_LABEL,
@@ -188,10 +190,24 @@ from src.ml_reco_candidate_scores import (
 )
 from src.apple_theme import (
     APPLE_THEME_TOKENS,
+    MIN_FONT_SIZE,
+    SYSTEM_FONT_FAMILY,
     build_apple_plotly_template,
     build_author_tracker_apple_css,
     build_global_apple_theme_css,
+    build_terminal_component_overrides_css,
     get_apple_theme_tokens,
+)
+from src import financial_icons
+from src.page_shell import (
+    PageStatus,
+    build_page_status,
+    build_page_status_bar_html,
+    render_with_page_loading_mask,
+)
+from src.browser_user_storage import (
+    parse_browser_storage_result,
+    render_browser_user_storage,
 )
 
 from src.ml_stock_train_v1 import (
@@ -290,37 +306,38 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-apple_plotly_template = build_apple_plotly_template()
-pio.templates["wealthspark_apple"] = apple_plotly_template
-pio.templates["wealthspark_balanced"] = apple_plotly_template
-pio.templates["plotly_white"] = apple_plotly_template
-pio.templates.default = "wealthspark_apple"
+financial_icons = importlib.reload(financial_icons)
+financial_icons.install_streamlit_svg_icon_renderer(streamlit_module=st)
+
+terminal_plotly_template = build_apple_plotly_template()
+pio.templates["wealthspark_terminal"] = terminal_plotly_template
+pio.templates["wealthspark_stripi"] = terminal_plotly_template
+pio.templates["wealthspark_balanced"] = terminal_plotly_template
+pio.templates["plotly_white"] = terminal_plotly_template
+pio.templates.default = "wealthspark_terminal"
 
 THEME = get_apple_theme_tokens(APPLE_THEME_TOKENS)
 THEME_PRIMARY = THEME["primary"]
-THEME_PRIMARY_HOVER = THEME["primary_hover"]
-THEME_PRIMARY_STRONG = THEME["primary_strong"]
 THEME_NAVY = THEME["bg_dark"]
 THEME_SURFACE = THEME["bg_surface"]
 THEME_TEXT = THEME["text_main"]
 THEME_MUTED = THEME["text_muted"]
 THEME_BORDER_SOFT = THEME["border_soft"]
-THEME_SHADOW = THEME["shadow"]
 THEME_UP = THEME["color_up"]
 THEME_DOWN = THEME["color_down"]
 THEME_WARN = THEME["color_warn"]
 THEME_NEUTRAL = THEME["color_neutral"]
-THEME_PURPLE = THEME["color_purple"]
+THEME_ACCENT_ALT = THEME["color_accent_alt"]
 CHART_BG = THEME_SURFACE
-CHART_PAPER_BG = THEME["bg_base"]
-CHART_GRID_COLOR = "rgba(27, 38, 59, 0.08)"
-CHART_AXIS_COLOR = "rgba(27, 38, 59, 0.12)"
-CHART_ZERO_LINE_COLOR = "rgba(27, 38, 59, 0.18)"
-CHART_UP_FILL = "rgba(230, 57, 70, 0.20)"
-CHART_DOWN_FILL = "rgba(42, 157, 143, 0.20)"
-CHART_NAVY_SOFT_FILL = "rgba(27, 38, 59, 0.10)"
-CHART_GOLD_SOFT_FILL = "rgba(212, 175, 55, 0.12)"
-CHART_SERIES = [THEME_NAVY, THEME_PRIMARY, "#4F6785", "#5B8E7D", "#C28C4E", THEME_PURPLE]
+CHART_PAPER_BG = THEME_SURFACE
+CHART_GRID_COLOR = "rgba(212, 219, 228, 0.62)"
+CHART_AXIS_COLOR = "rgba(184, 192, 202, 0.82)"
+CHART_ZERO_LINE_COLOR = "rgba(74, 68, 85, 0.28)"
+CHART_UP_FILL = "rgba(3, 123, 102, 0.16)"
+CHART_DOWN_FILL = "rgba(209, 16, 34, 0.14)"
+CHART_NAVY_SOFT_FILL = "rgba(42, 49, 56, 0.08)"
+CHART_PRIMARY_SOFT_FILL = "rgba(15, 105, 255, 0.10)"
+CHART_SERIES = [THEME_PRIMARY, THEME["secondary"], THEME_UP, THEME_DOWN, THEME_WARN, THEME_ACCENT_ALT]
 TIME_SERIES_HOVER_RIGHT_MARGIN = 160
 TIME_SERIES_HOVER_DISTANCE = 60
 TIME_SERIES_HOVER_TARGET_WIDTH = 42
@@ -402,7 +419,7 @@ def apply_time_series_hover_affordance(
             y=[y0, y1],
             mode="lines",
             name="latest-day-hover-target",
-            line=dict(color="rgba(212, 175, 55, 0.01)", width=TIME_SERIES_HOVER_TARGET_WIDTH),
+            line=dict(color="rgba(15, 105, 255, 0.01)", width=TIME_SERIES_HOVER_TARGET_WIDTH),
             hovertemplate="<extra></extra>",
             showlegend=False,
         ))
@@ -430,7 +447,7 @@ def apply_time_series_hover_affordance(
             xanchor="left",
             yanchor="bottom",
             xshift=6,
-            font=dict(size=11, color=THEME_TEXT),
+            font=dict(size=MIN_FONT_SIZE, color=THEME_TEXT),
             bgcolor="rgba(255, 255, 255, 0.72)",
             bordercolor=THEME_BORDER_SOFT,
             borderwidth=1,
@@ -438,7 +455,7 @@ def apply_time_series_hover_affordance(
         )
     return fig
 
-# Legacy inline CSS retired; shared Professional Gold theme is injected below.
+# Shared terminal theme is injected below.
 
 # 数据文件路径
 DATA_FILE = "主要ETF基金份额变动情况.xlsx"
@@ -464,10 +481,10 @@ HOTMONEY_SECTION_WRAPPER_CSS = """
     align-items: center;
     gap: 0.35rem;
     padding: 0.22rem 0.72rem;
-    border-radius: 999px;
+    border-radius: 4px;
     background: var(--ws-color-primary-soft);
     color: var(--ws-color-primary);
-    font-size: 0.76rem;
+    font-size: 1rem;
     font-weight: 700;
     letter-spacing: 0.02em;
     margin-bottom: 0.45rem;
@@ -482,7 +499,7 @@ HOTMONEY_SECTION_WRAPPER_CSS = """
 }
 .ws-hotmoney-section .ws-hotmoney-note {
     color: var(--ws-text-soft);
-    font-size: 0.83rem;
+    font-size: 1rem;
     margin-top: -0.05rem;
     margin-bottom: 0.15rem;
     line-height: 1.6;
@@ -564,7 +581,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 }
 .ws-watchboard-title span {
     color: var(--wb-muted);
-    font-size: 0.95rem;
+    font-size: 1rem;
     white-space: nowrap;
 }
 .ws-watchboard-chip,
@@ -619,7 +636,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 }
 .ws-watchboard-symbol {
     color: var(--wb-muted);
-    font-size: 0.88rem;
+    font-size: 1rem;
     margin-bottom: 0.2rem;
 }
 .ws-watchboard-bigprice {
@@ -686,14 +703,14 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-stat label {
     display: block;
     color: var(--wb-muted);
-    font-size: 0.78rem;
+    font-size: 1rem;
     margin-bottom: 0.12rem;
     white-space: nowrap;
 }
 .ws-watchboard-stat strong {
     display: block;
     color: var(--wb-text);
-    font-size: clamp(0.9rem, 1.18vw, 1.08rem);
+    font-size: clamp(1rem, 1.18vw, 1.08rem);
     line-height: 1.15;
     white-space: normal;
     overflow-wrap: anywhere;
@@ -783,7 +800,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     top: var(--label-top);
     transform: translateY(-50%);
     color: #8fa8ce;
-    font-size: 0.78rem;
+    font-size: 1rem;
     line-height: 1;
 }
 .ws-watchboard-area {
@@ -833,7 +850,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     position: absolute;
     bottom: 0.2rem;
     color: #d6e5ff;
-    font-size: 0.82rem;
+    font-size: 1rem;
 }
 .ws-watchboard-x-label.is-start {
     left: 6.4%;
@@ -856,12 +873,12 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-foot label {
     display: block;
     color: var(--wb-muted);
-    font-size: 0.78rem;
+    font-size: 1rem;
 }
 .ws-watchboard-foot strong {
     display: block;
     color: var(--wb-text);
-    font-size: 0.96rem;
+    font-size: 1rem;
     margin-top: 0.12rem;
     white-space: normal;
     overflow-wrap: anywhere;
@@ -898,7 +915,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-score-donut span {
     display: block;
     color: #d8e6ff;
-    font-size: 0.78rem;
+    font-size: 1rem;
     font-weight: 650;
     text-align: center;
 }
@@ -912,7 +929,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     align-items: center;
     gap: 0.45rem;
     color: #d9e7ff;
-    font-size: 0.88rem;
+    font-size: 1rem;
 }
 .ws-score-track {
     height: 7px;
@@ -957,7 +974,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     margin: 0.38rem 0 0 0;
     color: #c3d2ec;
     line-height: 1.62;
-    font-size: 0.95rem;
+    font-size: 1rem;
 }
 .ws-watchboard-strip {
     display: grid;
@@ -990,7 +1007,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 }
 .ws-watchboard-mini-code {
     color: var(--wb-muted);
-    font-size: 0.76rem;
+    font-size: 1rem;
     white-space: nowrap;
 }
 .ws-watchboard-mini-price {
@@ -1009,7 +1026,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 }
 .ws-watchboard-mini-score {
     color: #98b5ed;
-    font-size: 0.82rem;
+    font-size: 1rem;
 }
 .ws-watchboard-shell.is-compact {
     padding: 0.52rem;
@@ -1033,13 +1050,13 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-compact-title strong {
     display: block;
     color: var(--wb-text);
-    font-size: clamp(0.95rem, 1.5vw, 1.16rem);
+    font-size: clamp(1rem, 1.5vw, 1.16rem);
     line-height: 1.1;
 }
 .ws-watchboard-compact-title span {
     display: block;
     color: var(--wb-muted);
-    font-size: 0.72rem;
+    font-size: 1rem;
     margin-top: 0.12rem;
     white-space: nowrap;
     overflow: hidden;
@@ -1055,7 +1072,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     border: 1px solid var(--wb-line-soft);
     background: rgba(3, 13, 33, 0.78);
     color: #c9dcff;
-    font-size: 0.76rem;
+    font-size: 1rem;
     font-weight: 700;
     white-space: nowrap;
 }
@@ -1077,14 +1094,14 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-summary-pill label {
     display: block;
     color: var(--wb-muted);
-    font-size: 0.64rem;
+    font-size: 1rem;
     line-height: 1.1;
 }
 .ws-watchboard-summary-pill strong {
     display: block;
     margin-top: 0.1rem;
     color: var(--wb-text);
-    font-size: 0.84rem;
+    font-size: 1rem;
     line-height: 1.18;
     white-space: nowrap;
     overflow: hidden;
@@ -1200,7 +1217,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
     align-items: center;
     gap: 0.35rem;
     color: #dce8ff;
-    font-size: 0.78rem;
+    font-size: 1rem;
     font-weight: 700;
 }
 .st-key-watchlist_card_grid div[class*="st-key-watchlist_card_wrap_"] [data-testid="stCheckbox"] input {
@@ -1220,7 +1237,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-stock-name {
     min-width: 0;
     color: #f6fbff;
-    font-size: 0.82rem;
+    font-size: 1rem;
     font-weight: 900;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.68), 0 0 10px rgba(118, 198, 255, 0.24);
     white-space: nowrap;
@@ -1230,7 +1247,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-stock-code {
     flex: 0 0 auto;
     color: #8ea8d2;
-    font-size: 0.6rem;
+    font-size: 1rem;
 }
 .ws-watchboard-stock-price {
     color: var(--accent);
@@ -1242,7 +1259,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 }
 .ws-watchboard-stock-ret {
     color: var(--accent);
-    font-size: 0.72rem;
+    font-size: 1rem;
     font-weight: 800;
     white-space: nowrap;
 }
@@ -1258,13 +1275,13 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-stock-metric label {
     display: block;
     color: var(--wb-muted);
-    font-size: 0.56rem;
+    font-size: 1rem;
     line-height: 1;
 }
 .ws-watchboard-stock-metric strong {
     display: block;
     color: #edf5ff;
-    font-size: 0.66rem;
+    font-size: 1rem;
     line-height: 1.15;
     margin-top: 0.08rem;
     white-space: nowrap;
@@ -1288,7 +1305,7 @@ WATCHLIST_CYBER_DASHBOARD_CSS = """
 .ws-watchboard-stock-foot {
     margin-top: 0.28rem;
     color: #9db8e6;
-    font-size: 0.6rem;
+    font-size: 1rem;
     line-height: 1.1;
 }
 .ws-watchboard-stock-signal {
@@ -1413,13 +1430,13 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-bottom:.8rem;
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.78rem;
+    font-size:1rem;
     letter-spacing:.04em;
 }
 .ws-fund-watchboard__eyebrow strong {
     color:var(--fw-cyan) !important;
     -webkit-text-fill-color:var(--fw-cyan) !important;
-    font-size:.82rem;
+    font-size:1rem;
     letter-spacing:.1em;
 }
 .ws-fund-watchboard__summary {
@@ -1442,7 +1459,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-bottom:.28rem;
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.72rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__metric strong {
     display:block;
@@ -1459,7 +1476,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-top:.24rem;
     color:#c5d6ec !important;
     -webkit-text-fill-color:#c5d6ec !important;
-    font-size:.66rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__metric.is-accent strong {
     color:var(--fw-cyan) !important;
@@ -1485,12 +1502,12 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__live-status strong {
     color:#ffffff !important;
     -webkit-text-fill-color:#ffffff !important;
-    font-size:.84rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__live-status span {
     color:#c8d9ee !important;
     -webkit-text-fill-color:#c8d9ee !important;
-    font-size:.69rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__live-status b {
     color:#55e6ff !important;
@@ -1541,7 +1558,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     overflow:hidden;
     color:var(--fw-text) !important;
     -webkit-text-fill-color:var(--fw-text) !important;
-    font-size:.96rem;
+    font-size:1rem;
     line-height:1.35;
     text-overflow:ellipsis;
     white-space:nowrap;
@@ -1549,7 +1566,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__card-title span {
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.69rem;
+    font-size:1rem;
     letter-spacing:.04em;
 }
 .ws-fund-watchboard__badge {
@@ -1560,9 +1577,9 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     color:#e1ecff !important;
     -webkit-text-fill-color:#e1ecff !important;
     border:1px solid rgba(70,126,255,.3);
-    border-radius:999px;
+    border-radius:4px;
     background:rgba(47,123,255,.12);
-    font-size:.64rem;
+    font-size:1rem;
     text-overflow:ellipsis;
     white-space:nowrap;
 }
@@ -1581,7 +1598,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     display:block;
     color:#c6d6eb !important;
     -webkit-text-fill-color:#c6d6eb !important;
-    font-size:.61rem;
+    font-size:1rem;
     font-weight:700;
 }
 .ws-fund-watchboard__live strong {
@@ -1603,7 +1620,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__live > span {
     color:#c9d9ee !important;
     -webkit-text-fill-color:#c9d9ee !important;
-    font-size:.61rem;
+    font-size:1rem;
     line-height:1.45;
     text-align:right;
 }
@@ -1630,7 +1647,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     display:block;
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.59rem;
+    font-size:1rem;
     font-weight:700;
 }
 .ws-fund-watchboard__confirmed-nav strong {
@@ -1638,7 +1655,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-top:.08rem;
     color:#f5f9ff !important;
     -webkit-text-fill-color:#f5f9ff !important;
-    font-size:.88rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__confirmed-nav .is-up strong {
     color:#ff6b7d !important;
@@ -1654,7 +1671,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     color:#b8cae2 !important;
     -webkit-text-fill-color:#b8cae2 !important;
     border-top:1px solid rgba(70,126,255,.14);
-    font-size:.59rem;
+    font-size:1rem;
     text-align:center;
     white-space:nowrap;
 }
@@ -1671,7 +1688,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-bottom:.28rem;
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.66rem;
+    font-size:1rem;
     font-weight:600;
 }
 .ws-fund-watchboard__ratio.is-low {
@@ -1699,7 +1716,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     display:block;
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.61rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__card-metrics strong {
     display:block;
@@ -1707,7 +1724,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-top:.1rem;
     color:#e9f2ff !important;
     -webkit-text-fill-color:#e9f2ff !important;
-    font-size:.77rem;
+    font-size:1rem;
     text-overflow:ellipsis;
     white-space:nowrap;
 }
@@ -1722,7 +1739,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     margin-top:.06rem;
     color:#dce8ff !important;
     -webkit-text-fill-color:#dce8ff !important;
-    font-size:.76rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__changes .is-positive strong {
     color:var(--fw-green) !important;
@@ -1741,7 +1758,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     padding-top:.52rem;
     color:#b8cae2;
     border-top:1px solid rgba(70,126,255,.13);
-    font-size:.63rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__date span {
     color:#d9e6f7 !important;
@@ -1771,7 +1788,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__focus-kicker {
     color:var(--fw-cyan) !important;
     -webkit-text-fill-color:var(--fw-cyan) !important;
-    font-size:.7rem;
+    font-size:1rem;
     font-weight:800;
     letter-spacing:.12em;
 }
@@ -1784,7 +1801,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__focus-code {
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.74rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__focus-main {
     display:grid;
@@ -1817,7 +1834,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     text-align:center;
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.61rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__ring strong {
     display:block;
@@ -1836,7 +1853,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     padding-bottom:.32rem;
     border-bottom:1px solid rgba(70,126,255,.12);
     color:var(--fw-muted);
-    font-size:.68rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__fact > span {
     color:var(--fw-muted) !important;
@@ -1845,7 +1862,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__fact strong {
     color:#f4f8ff !important;
     -webkit-text-fill-color:#f4f8ff !important;
-    font-size:.7rem;
+    font-size:1rem;
     text-align:right;
 }
 .ws-fund-watchboard__fact strong.is-up {
@@ -1870,12 +1887,12 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__holdings-head strong {
     color:var(--fw-text) !important;
     -webkit-text-fill-color:var(--fw-text) !important;
-    font-size:.92rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__holdings-head span {
     color:var(--fw-muted) !important;
     -webkit-text-fill-color:var(--fw-muted) !important;
-    font-size:.65rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__table-wrap {
     overflow-x:auto;
@@ -1886,7 +1903,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     width:100%;
     min-width:760px;
     border-collapse:collapse;
-    font-size:.68rem;
+    font-size:1rem;
 }
 .ws-fund-watchboard__holdings th {
     padding:.56rem .6rem;
@@ -1937,7 +1954,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     border:1px solid rgba(255,63,85,.3);
     border-radius:7px;
     background:rgba(255,63,85,.08);
-    font-size:.68rem;
+    font-size:1rem;
 }
 .st-key-fund_watchlist_card_grid {
     margin-top:.35rem;
@@ -1982,7 +1999,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 }
 .st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] [data-testid="stCheckbox"] label {
     color:#dce8ff;
-    font-size:.76rem;
+    font-size:1rem;
     font-weight:700;
 }
 .st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] [data-testid="stCheckbox"] label * {
@@ -2018,12 +2035,16 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     color:#dbe8f8 !important;
     -webkit-text-fill-color:#dbe8f8 !important;
 }
-.st-key-fund_watchlist_add_panel .stTextInput input,
+.st-key-fund_watchlist_add_panel [data-testid="stTextInputRootElement"],
 .st-key-fund_watchlist_add_panel [data-baseweb="select"] > div {
     border-color:rgba(151,188,255,.72) !important;
     background:#f7faff !important;
     color:#13213b !important;
     -webkit-text-fill-color:#13213b !important;
+}
+.st-key-fund_watchlist_add_panel .stTextInput input {
+    border:0 !important;
+    background:transparent !important;
 }
 .st-key-fund_watchlist_add_panel .stTextInput input::placeholder {
     color:#6c7c93 !important;
@@ -2172,40 +2193,14 @@ def clear_pro_access() -> None:
 
 
 def get_logged_in_username() -> str:
-    session_username = normalize_username(st.session_state.get("logged_in_username", ""))
-    if session_username:
-        return session_username
-    return normalize_username(get_query_param_value("app_user").strip())
+    return normalize_username(st.session_state.get("logged_in_username", ""))
 
 
 def is_user_logged_in() -> bool:
     return bool(get_logged_in_username())
 
 
-def login_app_user(username: str) -> bool:
-    normalized_username = normalize_username(username)
-    st.session_state["logged_in_username"] = normalized_username
-    try:
-        if normalized_username:
-            st.query_params["app_user"] = normalized_username
-        elif "app_user" in st.query_params:
-            del st.query_params["app_user"]
-    except Exception:
-        pass
-    
-    if normalized_username:
-        try:
-            engine = get_security_intraday_engine_cached()
-            if engine is not None:
-                preload_watchlist_reports_bg(normalized_username, engine)
-        except Exception as e:
-            logger.warning(f"Failed to start preload background task: {e}")
-            
-    return bool(normalized_username)
-
-
-def logout_app_user() -> None:
-    st.session_state["logged_in_username"] = ""
+def _clear_legacy_user_query_param() -> None:
     try:
         if "app_user" in st.query_params:
             del st.query_params["app_user"]
@@ -2213,32 +2208,167 @@ def logout_app_user() -> None:
         pass
 
 
+def _queue_browser_username_sync(action: str, username: str = "") -> None:
+    request_number = int(st.session_state.get("user_storage_request_number", 0)) + 1
+    session_id = st.session_state.setdefault(
+        "user_storage_session_id",
+        str(time.time_ns()),
+    )
+    st.session_state["user_storage_request_number"] = request_number
+    st.session_state["pending_user_storage_action"] = {
+        "action": action,
+        "request_id": f"user-storage-{session_id}-{request_number}",
+        "username": str(username or ""),
+    }
+
+
+def _preload_user_workspace_bg(username: str) -> None:
+    if not username:
+        return
+    try:
+        engine = get_security_intraday_engine_cached()
+        if engine is not None:
+            preload_watchlist_reports_bg(username, engine)
+    except Exception as exc:
+        logger.warning("Failed to start preload background task: %s", exc)
+
+
+def sync_logged_in_username_from_browser() -> None:
+    if not st.session_state.get("user_storage_hydrated", False):
+        action = "read"
+        session_id = st.session_state.setdefault(
+            "user_storage_session_id",
+            str(time.time_ns()),
+        )
+        request_id = f"hydrate-user-storage-{session_id}"
+        payload = render_browser_user_storage(action=action, request_id=request_id)
+        result = parse_browser_storage_result(
+            payload,
+            expected_action=action,
+            expected_request_id=request_id,
+        )
+        if result is None:
+            st.stop()
+
+        stored_username = normalize_username(result.username) if result.ok else ""
+        st.session_state["logged_in_username"] = stored_username
+        st.session_state["user_storage_hydrated"] = True
+        st.session_state["user_storage_error"] = result.error if not result.ok else ""
+        _clear_legacy_user_query_param()
+        _preload_user_workspace_bg(stored_username)
+
+        if result.ok and result.username and result.username != stored_username:
+            _queue_browser_username_sync("write", stored_username)
+        st.rerun()
+
+    pending_action = st.session_state.get("pending_user_storage_action")
+    if not isinstance(pending_action, dict):
+        render_browser_user_storage(action="idle", request_id="idle-user-storage")
+        return
+
+    action = str(pending_action.get("action") or "idle")
+    request_id = str(pending_action.get("request_id") or "")
+    payload = render_browser_user_storage(
+        action=action,
+        request_id=request_id,
+        username=str(pending_action.get("username") or ""),
+    )
+    result = parse_browser_storage_result(
+        payload,
+        expected_action=action,
+        expected_request_id=request_id,
+    )
+    if result is not None:
+        st.session_state.pop("pending_user_storage_action", None)
+        st.session_state["user_storage_error"] = result.error if not result.ok else ""
+    elif action == "remove":
+        st.stop()
+
+
+def login_app_user(username: str) -> bool:
+    normalized_username = normalize_username(username)
+    st.session_state["logged_in_username"] = normalized_username
+    _clear_legacy_user_query_param()
+    if normalized_username:
+        _queue_browser_username_sync("write", normalized_username)
+        _preload_user_workspace_bg(normalized_username)
+
+    return bool(normalized_username)
+
+
+def logout_app_user() -> None:
+    st.session_state["logged_in_username"] = ""
+    _clear_legacy_user_query_param()
+    _queue_browser_username_sync("remove")
+
+
+@st.dialog("用户登录", dismissible=False, icon=":material/account_circle:")
+def render_user_login_dialog() -> None:
+    login_icon = financial_icons.icon_asset_data_uri("user-round")
+    st.markdown(
+        f"""
+        <div class="ws-login-dialog-intro">
+            <img src="{login_icon}" alt="">
+            <div>
+                <strong>登录 WealthSpark</strong>
+                <span>输入用户名以加载你的自选、股票池和收藏页面。</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.form("app_user_login_form", clear_on_submit=False):
+        username_input = st.text_input(
+            "用户名",
+            placeholder="请输入用户名",
+            key="app_login_username_input",
+            autocomplete="username",
+        )
+        submitted = st.form_submit_button(
+            "登录",
+            type="primary",
+            icon=":material/login:",
+            use_container_width=True,
+        )
+    if submitted:
+        login_value = st.session_state.get("app_login_username_input", username_input)
+        if login_app_user(login_value):
+            st.rerun()
+        st.error("用户名不能为空")
+
+    if st.session_state.get("user_storage_error"):
+        st.warning("浏览器存储不可用，本次登录只会在当前页面会话中保留。")
+    else:
+        st.caption("用户名会保存在当前浏览器，下次打开时将自动登录。")
+
+
 def render_user_login_status() -> None:
+    sync_logged_in_username_from_browser()
+    if not get_logged_in_username():
+        render_user_login_dialog()
+
+
+def render_user_session_menu(key_suffix: str) -> None:
     current_username = get_logged_in_username()
-    with st.expander("👤 用户登录", expanded=not bool(current_username)):
-        if current_username:
-            status_cols = st.columns([3, 1])
-            status_cols[0].success(f"当前登录用户：{current_username}")
-            if status_cols[1].button("退出登录", key="btn_user_logout"):
-                logout_app_user()
-                st.rerun()
-            st.caption("当前版本为轻量登录：只需要用户名，不校验密码。")
-        else:
-            with st.form("app_user_login_form", clear_on_submit=False):
-                username_input = st.text_input(
-                    "用户名",
-                    placeholder="输入用户名后登录",
-                    key="app_login_username_input",
-                )
-                submitted = st.form_submit_button("登录", type="primary")
-            if submitted:
-                login_value = st.session_state.get("app_login_username_input", username_input)
-                if login_app_user(login_value):
-                    st.success(f"登录成功，欢迎你：{get_logged_in_username()}")
-                    st.rerun()
-                else:
-                    st.error("用户名不能为空")
-            st.caption("登录后可使用自选管理，并在个股查询页把股票加入自选。")
+    if not current_username:
+        return
+
+    with st.popover(
+        current_username,
+        icon=":material/account_circle:",
+        use_container_width=True,
+        key=f"user-session-menu-{key_suffix}",
+    ):
+        st.caption("当前登录用户")
+        st.markdown(f"**{escape(current_username)}**")
+        if st.button(
+            "退出登录",
+            key=f"btn-user-logout-{key_suffix}",
+            icon=":material/logout:",
+            use_container_width=True,
+        ):
+            logout_app_user()
+            st.rerun()
 
 
 def parse_watchlist_input(raw: str) -> list[str]:
@@ -3760,19 +3890,19 @@ def hydrate_security_jump_from_query_params() -> None:
     if open_tab == "security":
         # 方案B：通过 sidebar 一级导航 + 股票子导航完成跳转
         st.session_state["sidebar_nav_group"] = "股票"
-        st.session_state["sidebar_expanded_module_id"] = "stock"
+        _expand_sidebar_module("stock")
         st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
         st.session_state["jump_to_security_tab"] = True
 
     if open_tab == "stock_object":
         st.session_state["sidebar_nav_group"] = "股票"
-        st.session_state["sidebar_expanded_module_id"] = "stock"
+        _expand_sidebar_module("stock")
         st.session_state["stock_subpage"] = STOCK_OBJECT_PAGE_LABEL
         st.session_state["stock_object_prefill_query"] = security_query
 
     if open_tab == "fund_object":
         st.session_state["sidebar_nav_group"] = "基金"
-        st.session_state["sidebar_expanded_module_id"] = "fund"
+        _expand_sidebar_module("fund")
         st.session_state["etf_subpage"] = ETF_FUND_OBJECT_PAGE_LABEL
         st.session_state["iphone_group_radio"] = "基金"
         st.session_state["iphone_page_etf"] = ETF_FUND_OBJECT_PAGE_LABEL
@@ -3788,7 +3918,7 @@ def trigger_security_tab_jump_if_needed() -> None:
         return
 
     st.session_state["sidebar_nav_group"] = "股票"
-    st.session_state["sidebar_expanded_module_id"] = "stock"
+    _expand_sidebar_module("stock")
     st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
     st.session_state["jump_to_security_tab"] = False
 
@@ -3806,6 +3936,50 @@ def _consume_pending_sidebar_search_reset() -> None:
         st.session_state["sidebar_search_query"] = ""
 
 
+def _get_sidebar_expanded_module_ids(active_page_id: str) -> tuple[str, ...]:
+    requested_module_ids = st.session_state.get("sidebar_expanded_module_ids")
+    if requested_module_ids is None:
+        legacy_module_id = st.session_state.get("sidebar_expanded_module_id")
+        requested_module_ids = [legacy_module_id] if legacy_module_id else None
+
+    expanded_module_ids = resolve_expanded_module_ids(
+        active_page_id,
+        requested_module_ids,
+    )
+    st.session_state["sidebar_expanded_module_ids"] = list(expanded_module_ids)
+    return expanded_module_ids
+
+
+def _expand_sidebar_module(module_id: str) -> None:
+    requested_module_ids = st.session_state.get("sidebar_expanded_module_ids")
+    if requested_module_ids is None:
+        legacy_module_id = st.session_state.get("sidebar_expanded_module_id")
+        requested_module_ids = [legacy_module_id] if legacy_module_id else []
+
+    active_page_id = get_module_by_id(module_id).pages[0].id
+    expanded_module_ids = list(
+        resolve_expanded_module_ids(active_page_id, requested_module_ids)
+    )
+    if module_id not in expanded_module_ids:
+        expanded_module_ids.append(module_id)
+    st.session_state["sidebar_expanded_module_ids"] = expanded_module_ids
+    st.session_state["sidebar_expanded_module_id"] = module_id
+
+
+def _toggle_sidebar_module_expansion(module_id: str) -> None:
+    expanded_module_ids = toggle_expanded_module_id(
+        st.session_state.get("sidebar_expanded_module_ids", []),
+        module_id,
+    )
+    st.session_state["sidebar_expanded_module_ids"] = list(expanded_module_ids)
+
+
+def _toggle_sidebar_recent_expansion() -> None:
+    st.session_state["sidebar_recent_expanded"] = not bool(
+        st.session_state.get("sidebar_recent_expanded", True)
+    )
+
+
 def _resolve_desktop_sidebar_selection():
     module_labels = get_module_labels()
     selected_module_label = st.session_state.get("sidebar_nav_group")
@@ -3813,7 +3987,7 @@ def _resolve_desktop_sidebar_selection():
         selected_module_label = "股票" if "股票" in module_labels else module_labels[0]
         st.session_state["sidebar_nav_group"] = selected_module_label
         if selected_module_label == "股票":
-            st.session_state["sidebar_expanded_module_id"] = "stock"
+            _expand_sidebar_module("stock")
 
     selected_module = get_module_by_label(selected_module_label)
     page_labels = get_page_labels(selected_module.label)
@@ -3841,7 +4015,7 @@ def _navigate_desktop_sidebar_to(
 
     st.session_state["sidebar_nav_group"] = module.label
     st.session_state[module.session_key] = page.label
-    st.session_state["sidebar_expanded_module_id"] = module.id
+    _expand_sidebar_module(module.id)
     if clear_search:
         st.session_state["sidebar_search_query_pending_reset"] = True
 
@@ -3881,71 +4055,43 @@ def consume_pending_fund_watchlist_navigation() -> None:
 
 def render_desktop_sidebar_navigation() -> tuple[str, str]:
     selected_module, selected_page = _resolve_desktop_sidebar_selection()
-    expanded_module_id = resolve_expanded_module_id(
-        selected_page.id,
-        st.session_state.get("sidebar_expanded_module_id"),
-    )
-    st.session_state["sidebar_expanded_module_id"] = expanded_module_id
+    expanded_module_ids = set(_get_sidebar_expanded_module_ids(selected_page.id))
     record_recent_visit(st.session_state, selected_module.id, selected_page.id)
     recent_visits = get_recent_visits(st.session_state)
 
-    st.sidebar.markdown(
+    sidebar_header = st.sidebar.container(key="ws-sidebar-header")
+    sidebar_header.markdown(
         """
         <div class="ws-sidebar-brand">
-            <span class="ws-sidebar-brand-kicker">WealthSpark</span>
-            <h2>桌面导航</h2>
-            <p>通过搜索、模块树和最近访问在桌面端快速切换页面。</p>
+            <div class="ws-sidebar-brand-main">
+                <span class="ws-sidebar-brand-kicker">W</span>
+                <h2>WealthSpark</h2>
+            </div>
+            <p>Professional Terminal</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
     with st.sidebar:
+        sidebar_middle = st.container(key="ws-sidebar-middle")
         _consume_pending_sidebar_search_reset()
-        current_username = get_logged_in_username()
-        if current_username:
-            favorite_df = pd.DataFrame()
-            try:
-                favorite_df = list_favorite_pages(current_username)
-            except Exception:
-                favorite_df = pd.DataFrame()
-            if favorite_df is not None and not favorite_df.empty:
-                st.markdown(
-                    """
-                    <div class="ws-sidebar-block">
-                        <div class="ws-sidebar-block-title">⭐ My Favorite</div>
-                        <p class="ws-sidebar-block-copy">你收藏的页面快捷入口。</p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                for fav_index, fav in enumerate(favorite_df.head(6).to_dict("records")):
-                    label = str(fav.get("page_label") or "").strip() or str(fav.get("page_id") or "")
-                    if st.button(
-                        label,
-                        key=f"ws-sidebar-favorite-{fav.get('module_id')}-{fav.get('page_id')}-{fav_index}",
-                        use_container_width=True,
-                    ):
-                        _navigate_any_mode_to(str(fav.get("module_id") or ""), str(fav.get("page_id") or ""))
-                        st.rerun()
-
-        st.markdown(
+        sidebar_middle.markdown(
             """
             <div class="ws-sidebar-block">
-                <div class="ws-sidebar-block-title">搜索与导航</div>
-                <p class="ws-sidebar-block-copy">搜索页面，或在模块树中展开当前工作区。</p>
+                <div class="ws-sidebar-block-title">导航目录</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        search_query = st.text_input(
+        search_query = sidebar_middle.text_input(
             "搜索页面",
             key="sidebar_search_query",
             placeholder="搜索模块、页面或描述…",
             label_visibility="collapsed",
         ).strip()
 
-        with st.container(key="ws-sidebar-tree"):
+        with sidebar_middle.container(key="ws-sidebar-tree"):
             if search_query:
                 search_results = search_sidebar_pages(search_query)
                 if search_results:
@@ -3964,7 +4110,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                         st.markdown(
                             (
                                 '<span class="ws-sidebar-search-result-meta">'
-                                f'{escape(result.module_label)} · {escape(result.description)}'
+                                f'{escape(result.module_label)}'
                                 "</span>"
                             ),
                             unsafe_allow_html=True,
@@ -3975,21 +4121,34 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                         unsafe_allow_html=True,
                     )
             else:
-                for module in SIDEBAR_MODULES:
+                module_order = {
+                    "decision": 0,
+                    "stock": 1,
+                    "fund": 2,
+                    "money": 3,
+                    "macro": 4,
+                    "data": 5,
+                    "favorite": 6,
+                }
+                ordered_modules = sorted(
+                    SIDEBAR_MODULES,
+                    key=lambda item: module_order.get(item.id, len(module_order)),
+                )
+                for module in ordered_modules:
                     is_current_module = module.id == selected_module.id
-                    is_expanded_module = module.id == expanded_module_id
+                    is_expanded_module = module.id in expanded_module_ids
                     module_key = _build_sidebar_element_key(
                         f"ws-sidebar-module-{module.id}",
                         "current" if is_current_module else "",
                         "expanded" if is_expanded_module else "",
                     )
-                    if st.button(
-                        f'{"▾" if is_expanded_module else "▸"} {module.label}',
+                    st.button(
+                        module.label,
                         key=module_key,
                         use_container_width=True,
-                    ):
-                        st.session_state["sidebar_expanded_module_id"] = module.id
-                        st.rerun()
+                        on_click=_toggle_sidebar_module_expansion,
+                        args=(module.id,),
+                    )
 
                     if not is_expanded_module:
                         continue
@@ -4010,43 +4169,49 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                         ):
                             _navigate_desktop_sidebar_to(module.id, page.id)
                             st.rerun()
-                        if is_active_page:
-                            st.markdown(
-                                (
-                                    '<span class="ws-sidebar-page-description">'
-                                    f"{escape(page.description)}"
-                                    "</span>"
-                                ),
-                                unsafe_allow_html=True,
-                            )
-
-        st.markdown(
-            """
-            <div class="ws-sidebar-block">
-                <div class="ws-sidebar-block-title">最近访问</div>
-                <p class="ws-sidebar-block-copy">保留最近浏览页面，作为次级快捷入口。</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        recent_expanded = bool(st.session_state.get("sidebar_recent_expanded", True))
+        recent_toggle_key = _build_sidebar_element_key(
+            "ws-sidebar-recent-toggle",
+            "expanded" if recent_expanded else "collapsed",
         )
-        if recent_visits:
-            for recent_index, recent_item in enumerate(recent_visits):
-                if st.button(
-                    f'{recent_item["module_label"]} / {recent_item["page_label"]}',
-                    key=f'ws-sidebar-recent-link-{recent_item["page_id"]}-{recent_index}',
-                    use_container_width=True,
-                ):
-                    _navigate_desktop_sidebar_to(
-                        recent_item["module_id"],
-                        recent_item["page_id"],
-                        clear_search=True,
-                    )
-                    st.rerun()
-        else:
+        sidebar_middle.button(
+            "最近访问",
+            key=recent_toggle_key,
+            use_container_width=True,
+            on_click=_toggle_sidebar_recent_expansion,
+        )
+
+        if recent_expanded:
+            if recent_visits:
+                with sidebar_middle.container(key="ws-sidebar-recent-list"):
+                    for recent_index, recent_item in enumerate(recent_visits):
+                        if st.button(
+                            f'{recent_item["module_label"]} / {recent_item["page_label"]}',
+                            key=f'ws-sidebar-recent-link-{recent_item["page_id"]}-{recent_index}',
+                            use_container_width=True,
+                        ):
+                            _navigate_desktop_sidebar_to(
+                                recent_item["module_id"],
+                                recent_item["page_id"],
+                                clear_search=True,
+                            )
+                            st.rerun()
+            else:
+                sidebar_middle.markdown(
+                    '<span class="ws-sidebar-empty">最近访问会显示在这里。</span>',
+                    unsafe_allow_html=True,
+                )
+
+        with st.container(key="ws-sidebar-footer"):
             st.markdown(
-                '<span class="ws-sidebar-empty">最近访问会显示在这里。</span>',
+                """
+                <div class="ws-sidebar-block ws-sidebar-block--account">
+                    <div class="ws-sidebar-block-title">账户</div>
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
+            render_user_session_menu("desktop")
 
     return selected_module.label, selected_page.label
 
@@ -4621,7 +4786,7 @@ def render_single_stock_hotmoney_tracker(latest_dt):
             template="wealthspark_balanced",
             paper_bgcolor=CHART_PAPER_BG,
             plot_bgcolor=CHART_BG,
-            font=dict(family="Inter, PingFang SC, sans-serif"),
+            font=dict(family=SYSTEM_FONT_FAMILY),
             height=360,
             margin=dict(l=45, r=45, t=55, b=45),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
@@ -4674,7 +4839,7 @@ def render_single_stock_hotmoney_tracker(latest_dt):
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=360,
                 margin=dict(l=45, r=25, t=55, b=45),
                 xaxis_title="",
@@ -4714,7 +4879,7 @@ def render_single_stock_hotmoney_tracker(latest_dt):
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=max(360, len(pivot) * 28),
                 margin=dict(l=150, r=25, t=55, b=55),
                 xaxis_title="",
@@ -4745,7 +4910,7 @@ def render_single_stock_hotmoney_tracker(latest_dt):
             template="wealthspark_balanced",
             paper_bgcolor=CHART_PAPER_BG,
             plot_bgcolor=CHART_BG,
-            font=dict(family="Inter, PingFang SC, sans-serif"),
+            font=dict(family=SYSTEM_FONT_FAMILY),
             height=max(330, len(plot_actor) * 28),
             margin=dict(l=145, r=55, t=55, b=30),
             xaxis_title="净买卖(亿)",
@@ -4770,7 +4935,7 @@ def render_single_stock_hotmoney_tracker(latest_dt):
             template="wealthspark_balanced",
             paper_bgcolor=CHART_PAPER_BG,
             plot_bgcolor=CHART_BG,
-            font=dict(family="Inter, PingFang SC, sans-serif"),
+            font=dict(family=SYSTEM_FONT_FAMILY),
             height=320,
             margin=dict(l=45, r=35, t=55, b=45),
             xaxis_title="",
@@ -5070,7 +5235,10 @@ def render_lhb_monitor_tab():
         st.session_state["lhb_refresh_nonce"] = int(st.session_state.get("lhb_refresh_nonce", 0)) + 1
 
     if not st.session_state.get("lhb_loaded_once", False):
-        st.info("当前页面尚未拉取龙虎榜数据。")
+        st.markdown(
+            '<div class="ws-empty-selection-state">当前没有选择</div>',
+            unsafe_allow_html=True,
+        )
         return
 
     normalized_code = _normalize_lhb_ts_code_input(stock_code_input)
@@ -5289,7 +5457,7 @@ def render_lhb_monitor_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=390,
                 margin=dict(l=45, r=25, t=55, b=45),
                 xaxis_title="",
@@ -5317,7 +5485,7 @@ def render_lhb_monitor_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     height=max(390, len(reason_plot) * 28),
                     margin=dict(l=150, r=35, t=55, b=30),
                     xaxis_title="次数",
@@ -5382,7 +5550,7 @@ def render_lhb_monitor_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=max(380, len(plot_df) * 28),
                 margin=dict(l=150, r=55, t=55, b=35),
                 xaxis_title="合计净买入(亿)",
@@ -5465,7 +5633,7 @@ def render_lhb_monitor_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     height=330,
                     margin=dict(l=45, r=25, t=55, b=45),
                     yaxis_title="亿元",
@@ -5520,7 +5688,7 @@ def render_lhb_monitor_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=max(360, len(plot_inst) * 28),
                 margin=dict(l=150, r=55, t=55, b=35),
                 xaxis_title="净买入(亿)",
@@ -5573,11 +5741,11 @@ def format_historical_st_badge(value) -> str:
 
 def style_historical_st_badge_column(column: pd.Series) -> list[str]:
     badge_style = (
-        'background-color: #F6E7B8; '
-        'color: #1B263B; '
+        'background-color: #E7F0FF; '
+        'color: #0757D9; '
         'font-weight: 700; '
-        f'border: 1px solid {THEME_PRIMARY}; '
-        'border-radius: 999px; '
+        'border: 1px solid transparent; '
+        'border-radius: 4px; '
         'text-align: center; '
         'white-space: nowrap;'
     )
@@ -5609,7 +5777,7 @@ def render_security_jump_table(display_df: pd.DataFrame, help_text: str, code_co
             '查询': st.column_config.LinkColumn(
                 '查询',
                 help='点击后跳转到个股/指数查询',
-                display_text='🔎 查询'
+                display_text='查询'
             ),
             '标签': st.column_config.TextColumn(
                 '标签',
@@ -6291,7 +6459,7 @@ def create_security_kline_chart(
                 base=[selected_body_bottom],
                 width=[selected_body_width_ms],
                 marker=dict(
-                    color=CHART_GOLD_SOFT_FILL,
+                    color=CHART_PRIMARY_SOFT_FILL,
                     line=dict(color=THEME_PRIMARY, width=2.4),
                 ),
                 hoverinfo="skip",
@@ -6315,7 +6483,7 @@ def create_security_kline_chart(
             col=1,
         )
 
-    ma_colors = [THEME_NAVY, THEME_PURPLE, THEME_WARN, THEME_DOWN, THEME_UP, "#6FA3B8"]
+    ma_colors = [THEME_NAVY, THEME_ACCENT_ALT, THEME_WARN, THEME_DOWN, THEME_UP, "#6FA3B8"]
     for idx, w in enumerate(ma_windows):
         ma_col = f"ma{w}"
         if ma_col not in chart_df.columns:
@@ -6360,7 +6528,7 @@ def create_security_kline_chart(
         if not volume_ma_windows:
             volume_ma_windows = [5, 10]
 
-        vol_ma_colors = ["#4F6785", THEME_PURPLE, "#C28C4E", "#5B8E7D"]
+        vol_ma_colors = ["#4F6785", THEME_ACCENT_ALT, "#C28C4E", "#5B8E7D"]
         for idx, w in enumerate(volume_ma_windows):
             vol_ma_col = f"vol_ma{w}"
             chart_df[vol_ma_col] = pd.to_numeric(chart_df[volume_used], errors="coerce").rolling(window=w).mean()
@@ -6413,7 +6581,7 @@ def create_security_kline_chart(
                 y=_series_to_plotly_list(chart_df["dea"]),
                 mode="lines",
                 name="DEA",
-                line=dict(color=THEME_PURPLE, width=1.5),
+                line=dict(color=THEME_ACCENT_ALT, width=1.5),
                 hovertemplate="%{x|%Y-%m-%d}<br>DEA: %{y:,.3f}<extra></extra>",
             ),
             row=3, col=1,
@@ -6611,7 +6779,7 @@ def create_metric_line_chart(
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     apply_time_series_hover_affordance(fig, chart_df[x_col], chart_df[y_col])
@@ -6658,7 +6826,7 @@ def create_financial_bar_chart(
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     fig.update_xaxes(showgrid=False)
@@ -6708,7 +6876,7 @@ def draw_metric_card(title: str, value: str, delta: str, delta_pct: str = None) 
     " onmouseover="this.style.transform='scale(1.02)'; this.style.boxShadow='0 4px 6px rgba(0, 0, 0, 0.1)'"
        onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 1px 3px rgba(0, 0, 0, 0.08)'">
         <div style="
-            font-size: 0.875rem;
+            font-size: 1rem;
             font-weight: 600;
             color: {THEME_MUTED};
             text-transform: uppercase;
@@ -6722,7 +6890,7 @@ def draw_metric_card(title: str, value: str, delta: str, delta_pct: str = None) 
             margin-bottom: 0.5rem;
         ">{value}</div>
         <div style="
-            font-size: 0.875rem;
+            font-size: 1rem;
             font-weight: 600;
             color: {color};
         ">{delta_display}</div>
@@ -6747,8 +6915,8 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
     """
     # 专业金融调色盘
     color_palette = [
-        THEME_NAVY, THEME_PURPLE, "#C28C4E", "#5B8E7D", "#B86A84",
-        THEME_PRIMARY, "#6FA3B8", THEME_UP, "#8AA05A", THEME_PURPLE
+        THEME_NAVY, THEME_ACCENT_ALT, "#C28C4E", "#5B8E7D", "#607D9B",
+        THEME_PRIMARY, "#6FA3B8", THEME_UP, "#8AA05A", THEME_ACCENT_ALT
     ]
 
     fig = go.Figure()
@@ -6836,13 +7004,13 @@ def create_line_chart(filtered_df: pd.DataFrame, metric_name: str, is_aggregate:
             xanchor="center",
             x=0.5,
             bgcolor="rgba(255, 255, 255, 0)",
-            font=dict(size=11)
+            font=dict(size=MIN_FONT_SIZE)
         ),
         height=500,
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     if fig.data:
@@ -6981,7 +7149,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
         '沪市主板': THEME_NAVY,
         '深市主板': "#5B8E7D",
         '创业板': "#C28C4E",
-        '科创板': THEME_PURPLE,
+        '科创板': THEME_ACCENT_ALT,
     }
 
     trade_dates = (
@@ -7024,7 +7192,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
             y=[0, latest_total_amount],
             mode="lines",
             name="latest-day-hover-target",
-            line=dict(color="rgba(212, 175, 55, 0.01)", width=42),
+            line=dict(color="rgba(83, 58, 253, 0.01)", width=42),
             hovertemplate="<extra></extra>",
             showlegend=False,
         ))
@@ -7047,13 +7215,13 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
             xanchor='center',
             x=0.5,
             bgcolor='rgba(255, 255, 255, 0)',
-            font=dict(size=11)
+            font=dict(size=MIN_FONT_SIZE)
         ),
         height=500,
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=VOLUME_STACKED_HOVER_RIGHT_MARGIN, t=60, b=20)
     )
 
@@ -7079,7 +7247,7 @@ def create_volume_stacked_bar(df: pd.DataFrame) -> go.Figure:
             xanchor="left",
             yanchor="bottom",
             xshift=6,
-            font=dict(size=11, color=THEME_TEXT),
+            font=dict(size=MIN_FONT_SIZE, color=THEME_TEXT),
             bgcolor="rgba(255, 255, 255, 0.72)",
             bordercolor=THEME_BORDER_SOFT,
             borderwidth=1,
@@ -7165,13 +7333,13 @@ def create_volume_total_line(df: pd.DataFrame) -> go.Figure:
             xanchor='center',
             x=0.5,
             bgcolor='rgba(255, 255, 255, 0)',
-            font=dict(size=11)
+            font=dict(size=MIN_FONT_SIZE)
         ),
         height=500,
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     apply_time_series_hover_affordance(fig, daily_total['trade_date'], daily_total['amount'])
@@ -7365,68 +7533,34 @@ def render_volume_tab():
 
 
 # 主应用
-def main():
+def _render_application_page() -> PageStatus:
     """主应用逻辑"""
+    render_user_login_status()
     hydrate_security_jump_from_query_params()
     consume_pending_fund_watchlist_navigation()
 
     # ===== iPhone only mode (no sidebar dependency) =====
     iphone_mode = get_query_param_value("iphone_mode").strip() == "1"
 
-    if iphone_mode:
-        st.title("WealthSpark")
-        st.caption("iPhone 模式")
-    else:
-        st.title("WealthSpark 决策看板")
-        st.caption("趋势 × 资金流 × 情绪，一页看懂今日机会")
-        st.caption("📌 Version 4.5 - 新增策略收益趋势图与累计收益曲线（规则/模型/混合）(2026-04-20)")
-
-    # 显示最后更新时间
+    update_summary = {}
+    funding_freshness = {}
+    refresh_nonce = int(st.session_state.get("data_health_refresh_nonce", 0))
     try:
-        update_summary = load_update_activity_summary_cached(int(st.session_state.get("data_health_refresh_nonce", 0)))
-        update_meta = update_summary.get("last_update") or {}
+        update_summary = load_update_activity_summary_cached(refresh_nonce)
         funding_freshness = update_summary.get("funding_freshness") or {}
-        display_update_date = update_meta.get("effective_update_date") or update_meta.get("update_date") or "未知"
-        display_update_ts = update_meta.get("effective_last_update") or update_meta.get("last_update") or "未知"
-        update_source = update_meta.get("source") or "last_update.json"
-        if iphone_mode:
-            st.caption(f"📅 更新: {display_update_date}")
-        else:
-            st.info(f"📅 数据最后更新: {display_update_date} (记录时间: {display_update_ts} / 来源: {update_source})")
-    except Exception:
-        funding_freshness = {}
+    except Exception as exc:
+        logger.warning("Failed to load page update status: %s", exc)
 
     try:
         if not funding_freshness:
-            funding_freshness = load_funding_freshness_summary_cached(int(st.session_state.get("data_health_refresh_nonce", 0)))
-        freshness_items = funding_freshness.get("items") or []
-        stale_items = [item for item in freshness_items if not item.get("ok")]
-        target_date = funding_freshness.get("target_date") or "-"
-        if not stale_items:
-            if iphone_mode:
-                st.caption(f"✅ 资金链新鲜度正常（目标 {target_date}）")
-            else:
-                st.success(f"✅ 资金链新鲜度正常（目标 {target_date}）")
-        else:
-            stale_text = "、".join(f"{item.get('key')}={item.get('latest_date') or '-'}" for item in stale_items[:6])
-            if iphone_mode:
-                st.caption(f"⚠️ 资金链存在滞后（目标 {target_date}）：{stale_text}")
-            else:
-                st.warning(f"⚠️ 资金链存在滞后（目标 {target_date}）：{stale_text}")
-    except Exception:
-        pass
+            funding_freshness = load_funding_freshness_summary_cached(refresh_nonce)
+    except Exception as exc:
+        logger.warning("Failed to load page funding freshness: %s", exc)
+
+    page_status = build_page_status(update_summary, funding_freshness)
 
     # 处理外部跳转请求（例如从榜单点击跳到个股查询）
     trigger_security_tab_jump_if_needed()
-
-    if not iphone_mode:
-        st.markdown(
-            '<div style="margin:0.25rem 0 0.75rem 0;"><a href="?iphone_mode=1" '
-            'style="display:inline-block;padding:0.45rem 0.8rem;border-radius:999px;'
-            f'background:linear-gradient(135deg,{THEME_PRIMARY} 0%, {THEME_PRIMARY_STRONG} 100%);'
-            f'color:{THEME_NAVY};text-decoration:none;font-weight:700;box-shadow:{THEME_SHADOW};">📱 iPhone模式</a></div>',
-            unsafe_allow_html=True,
-        )
 
     if iphone_mode:
         st.markdown(
@@ -7443,17 +7577,17 @@ def main():
                 padding: 1rem 1rem 3rem 1rem !important;
             }
             div[data-testid="stExpander"] {
-                border: 1px solid rgba(27, 38, 59, 0.08) !important;
-                border-radius: 14px !important;
-                background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248, 250, 248, 0.98) 100%) !important;
+                border: 1px solid #E0E4E9 !important;
+                border-radius: 4px !important;
+                background: #FFFFFF !important;
                 overflow: hidden !important;
-                box-shadow: 0 8px 24px rgba(37, 99, 235, 0.08) !important;
+                box-shadow: none !important;
                 margin-bottom: 1rem !important;
             }
             div[data-testid="stExpander"] details summary {
                 padding: 0.85rem 1rem !important;
-                font-weight: 700 !important;
-                color: #1B263B !important;
+                font-weight: 400 !important;
+                color: #151C23 !important;
             }
             div[data-testid="stExpanderDetails"] {
                 padding: 0.2rem 1rem 1rem 1rem !important;
@@ -7471,7 +7605,7 @@ def main():
             unsafe_allow_html=True,
         )
 
-        render_user_login_status()
+        render_user_session_menu("iphone")
 
         mobile_group = st.radio(
             "模块",
@@ -7486,7 +7620,6 @@ def main():
                 FAVORITE_PAGE_OPTIONS,
                 key="iphone_page_favorite",
             )
-            st.caption(f"当前位置：Favorite / {mobile_page}")
             if mobile_page == FAVORITE_MY_FAVORITE_PAGE_LABEL:
                 render_my_favorite_tab()
             else:
@@ -7498,7 +7631,6 @@ def main():
                 DECISION_PAGE_OPTIONS,
                 key="iphone_page_decision",
             )
-            st.caption(f"当前位置：决策 / {mobile_page}")
             if mobile_page == "💼 今日机会清单":
                 render_commercial_mvp_tab()
             elif mobile_page == "⭐ 每日趋势推荐":
@@ -7514,7 +7646,6 @@ def main():
                 ETF_PAGE_OPTIONS,
                 key="iphone_page_etf",
             )
-            st.caption(f"当前位置：基金 / {mobile_page}")
             if mobile_page == ETF_MAIN_PAGE_LABEL:
                 render_etf_tab()
             elif mobile_page == ETF_RATIO_PAGE_LABEL:
@@ -7539,7 +7670,6 @@ def main():
                 STOCK_PAGE_OPTIONS,
                 key="iphone_page_stock",
             )
-            st.caption(f"当前位置：股票 / {mobile_page}")
             if mobile_page == STOCK_OBJECT_PAGE_LABEL:
                 render_stock_object_page()
             elif mobile_page == STOCK_SECURITY_SEARCH_LABEL:
@@ -7567,7 +7697,6 @@ def main():
                 MONEY_PAGE_OPTIONS,
                 key="iphone_page_money",
             )
-            st.caption(f"当前位置：资金 / {mobile_page}")
             if mobile_page == MONEY_FLOW_PAGE_LABEL:
                 render_moneyflow_tab()
             elif mobile_page == MONEY_MARGIN_PAGE_LABEL:
@@ -7589,7 +7718,6 @@ def main():
                 MACRO_PAGE_OPTIONS,
                 key="iphone_page_macro",
             )
-            st.caption(f"当前位置：宏观 / {mobile_page}")
             if mobile_page == "🌏 宏观经济":
                 render_macro_tab()
             elif mobile_page == "🏦 本外币存款":
@@ -7599,12 +7727,10 @@ def main():
             else:
                 render_fund_monitor_tab()
 
-        st.stop()
+        return page_status
 
     # ===== 方案B进阶版：desktop sidebar 导航壳层 =====
     selected_module, selected_page = render_desktop_sidebar_navigation()
-    render_user_login_status()
-    st.caption(f"当前位置：{selected_module} / {selected_page}")
 
     decision_module_label = get_module_label_for_page(DECISION_TODAY_PAGE_LABEL)
     fund_module_label = get_module_label_for_page(ETF_MAIN_PAGE_LABEL)
@@ -7709,6 +7835,24 @@ def main():
             render_index_monitor_tab()
         else:
             render_macro_tab()
+
+    # Local dashboard modules inject their own CSS while rendering. This final
+    # pass keeps those modules aligned with the shared terminal design system.
+    st.markdown(
+        f"<style>{build_terminal_component_overrides_css()}</style>",
+        unsafe_allow_html=True,
+    )
+
+    return page_status
+
+
+def main() -> None:
+    page_status = render_with_page_loading_mask(st, _render_application_page)
+
+    st.markdown(
+        build_page_status_bar_html(page_status),
+        unsafe_allow_html=True,
+    )
 
 
 
@@ -8577,7 +8721,7 @@ def render_daily_trend_reco_tab():
                 '查询': st.column_config.LinkColumn(
                     '查询',
                     help='点击后跳转到个股/指数查询',
-                    display_text='🔎 查看'
+                    display_text='查看'
                 )
             }
         )
@@ -8599,7 +8743,7 @@ def render_daily_trend_reco_tab():
                 '查询': st.column_config.LinkColumn(
                     '查询',
                     help='点击后跳转到个股/指数查询',
-                    display_text='🔎 查看'
+                    display_text='查看'
                 )
             }
         )
@@ -8971,7 +9115,7 @@ def render_hotmoney_tab():
             template="wealthspark_balanced",
             paper_bgcolor=CHART_PAPER_BG,
             plot_bgcolor=CHART_BG,
-            font=dict(family="Inter, PingFang SC, sans-serif"),
+            font=dict(family=SYSTEM_FONT_FAMILY),
             height=max(340, len(show) * 20),
             margin=dict(l=120, r=30, t=55, b=20),
             yaxis=dict(autorange="reversed"),
@@ -9044,7 +9188,7 @@ def render_hotmoney_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=max(340, len(show) * 20),
                 margin=dict(l=120, r=30, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -9097,7 +9241,7 @@ def render_hotmoney_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=max(340, len(show) * 20),
                 margin=dict(l=120, r=30, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
@@ -9205,7 +9349,7 @@ def render_hotmoney_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 height=max(340, len(plot_df) * 24),
                 margin=dict(l=140, r=55, t=55, b=30),
                 xaxis_title="净买卖绝对额合计(亿)",
@@ -9279,7 +9423,7 @@ def render_hotmoney_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         height=330,
                         margin=dict(l=45, r=25, t=55, b=45),
                         yaxis_title="净买卖(亿)",
@@ -9328,7 +9472,7 @@ def render_hotmoney_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         height=max(330, len(pivot) * 28),
                         margin=dict(l=100, r=25, t=55, b=45),
                         xaxis_title="",
@@ -9440,7 +9584,7 @@ def render_limitup_monitor_tab():
         template="wealthspark_balanced",
         paper_bgcolor=CHART_PAPER_BG,
         plot_bgcolor=CHART_BG,
-        font=dict(family="Inter, PingFang SC, sans-serif"),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         height=360,
         margin=dict(l=30, r=30, t=55, b=30),
         xaxis_title="日期",
@@ -9511,7 +9655,7 @@ def render_limitup_monitor_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     height=300,
                     margin=dict(l=25, r=25, t=50, b=25),
                     xaxis_title="标签",
@@ -9552,7 +9696,7 @@ def render_limitup_monitor_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     height=300,
                     margin=dict(l=25, r=25, t=50, b=25),
                     xaxis_title="出现次数",
@@ -9889,7 +10033,7 @@ def render_factor_workbench_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     height=360,
                     xaxis_title="股票",
                     yaxis_title="总分",
@@ -10074,7 +10218,7 @@ def build_company_screener_result_action_df(
         action_df["标签"] = results_df["has_ever_st"].map(lambda value: "曾经ST" if bool(value) else "")
     else:
         action_df["标签"] = ""
-    action_df["已在自选"] = action_df["代码"].map(lambda code: "✅ 已在自选" if code in existing_codes else "")
+    action_df["已在自选"] = action_df["代码"].map(lambda code: "已在自选" if code in existing_codes else "")
     return action_df
 
 
@@ -10449,7 +10593,7 @@ def render_company_screener_tab():
     pending_screener_action = st.session_state.pop("company_screener_pending_action", None)
     if pending_screener_action == "select_all":
         action_df = action_df.copy()
-        action_df["选择"] = action_df["已在自选"] != "✅ 已在自选"
+        action_df["选择"] = action_df["已在自选"] != "已在自选"
         st.session_state[action_df_cache_key] = action_df
     elif pending_screener_action == "clear_all":
         action_df = action_df.copy()
@@ -10467,7 +10611,7 @@ def render_company_screener_tab():
             "查询": st.column_config.LinkColumn(
                 "查询",
                 help="点击后跳转到个股/指数查询",
-                display_text="🔎 查询",
+                display_text="查询",
             ),
             "标签": st.column_config.TextColumn("标签", width="small"),
             "已在自选": st.column_config.TextColumn("已在自选", width="small"),
@@ -10480,7 +10624,7 @@ def render_company_screener_tab():
     
     selected_company_rows = edited_action_df[edited_action_df["选择"]].to_dict(orient="records") if not edited_action_df.empty else []
     selected_count = len(selected_company_rows)
-    can_select_all = bool(action_df[action_df["已在自选"] != "✅ 已在自选"].shape[0])
+    can_select_all = bool(action_df[action_df["已在自选"] != "已在自选"].shape[0])
     action_cols = st.columns([1.15, 1.15, 1.45, 1.55, 2.1])
     if action_cols[0].button("全选未入自选", key="company_screener_watchlist_select_all", disabled=not can_select_all):
         st.session_state["company_screener_pending_action"] = "select_all"
@@ -11234,9 +11378,9 @@ def create_change_curve_chart(
     positive_max = chart_df.loc[chart_df[value_col] > 0, value_col].max() if not chart_df.empty else None
     negative_min = chart_df.loc[chart_df[value_col] < 0, value_col].min() if not chart_df.empty else None
     if pd.notna(positive_max):
-        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor="rgba(230, 57, 70, 0.05)", line_width=0)
+        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor="rgba(3, 123, 102, 0.05)", line_width=0)
     if pd.notna(negative_min):
-        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor="rgba(42, 157, 143, 0.05)", line_width=0)
+        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor="rgba(209, 16, 34, 0.05)", line_width=0)
 
     if series_col is None:
         custom_cols = [col for col in [pct_col, extra_col] if col and col in chart_df.columns]
@@ -11257,12 +11401,12 @@ def create_change_curve_chart(
             line=dict(width=2.4, color=THEME_WARN, shape='spline'),
             marker=dict(size=5, color=THEME_WARN),
             fill='tozeroy',
-            fillcolor=CHART_GOLD_SOFT_FILL,
+            fillcolor=CHART_PRIMARY_SOFT_FILL,
             customdata=custom_data,
             hovertemplate=hover_template
         ))
     else:
-        palette = color_palette or [THEME_NAVY, THEME_PURPLE, "#C28C4E", "#5B8E7D", "#B86A84"]
+        palette = color_palette or [THEME_NAVY, THEME_ACCENT_ALT, "#C28C4E", "#5B8E7D", "#607D9B"]
         ordered_names = series_names or chart_df[series_col].dropna().unique().tolist()
         for idx, name in enumerate(ordered_names):
             line_df = chart_df[chart_df[series_col] == name]
@@ -11303,11 +11447,11 @@ def create_change_curve_chart(
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.25,
             xanchor='center', x=0.5,
-            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+            bgcolor='rgba(255,255,255,0)', font=dict(size=MIN_FONT_SIZE)
         ),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -11345,9 +11489,9 @@ def create_change_bar_chart(
     positive_max = chart_df.loc[chart_df[value_col] > 0, value_col].max() if not chart_df.empty else None
     negative_min = chart_df.loc[chart_df[value_col] < 0, value_col].min() if not chart_df.empty else None
     if pd.notna(positive_max):
-        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor="rgba(230, 57, 70, 0.05)", line_width=0)
+        fig.add_hrect(y0=0, y1=float(positive_max), fillcolor="rgba(3, 123, 102, 0.05)", line_width=0)
     if pd.notna(negative_min):
-        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor="rgba(42, 157, 143, 0.05)", line_width=0)
+        fig.add_hrect(y0=float(negative_min), y1=0, fillcolor="rgba(209, 16, 34, 0.05)", line_width=0)
 
     if series_col is None:
         colors = [
@@ -11417,11 +11561,11 @@ def create_change_bar_chart(
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.25,
             xanchor='center', x=0.5,
-            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+            bgcolor='rgba(255,255,255,0)', font=dict(size=MIN_FONT_SIZE)
         ),
         margin=dict(l=20, r=20, t=60, b=20),
         bargap=0.18,
@@ -11471,7 +11615,7 @@ def create_macro_line_chart(
     yaxis_title: str
 ) -> go.Figure:
     fig = go.Figure()
-    palette = [THEME_NAVY, THEME_UP, "#5B8E7D", THEME_WARN, THEME_PURPLE]
+    palette = [THEME_NAVY, THEME_UP, "#5B8E7D", THEME_WARN, THEME_ACCENT_ALT]
     chart_df = df.sort_values("trade_date").copy()
 
     for idx, (column, label) in enumerate(series):
@@ -11499,11 +11643,11 @@ def create_macro_line_chart(
         template="wealthspark_balanced",
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family="Inter, PingFang SC, sans-serif"),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         legend=dict(
             orientation="h", yanchor="bottom", y=-0.25,
             xanchor="center", x=0.5,
-            bgcolor="rgba(255,255,255,0)", font=dict(size=11)
+            bgcolor="rgba(255,255,255,0)", font=dict(size=MIN_FONT_SIZE)
         ),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -11756,13 +11900,13 @@ def render_etf_trend_tab():
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.2,
             xanchor='center', x=0.5,
-            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+            bgcolor='rgba(255,255,255,0)', font=dict(size=MIN_FONT_SIZE)
         ),
         height=500,
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     apply_time_series_hover_affordance(fig, chart_data['trade_date'], chart_data[metric_col])
@@ -11931,7 +12075,7 @@ def _render_top10_shareholder_panel(top10_holders, top10_floatholders, stock_tit
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=140, r=40, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
             )
@@ -11983,7 +12127,7 @@ def _render_top10_shareholder_panel(top10_holders, top10_floatholders, stock_tit
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=140, r=40, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
             )
@@ -12104,7 +12248,7 @@ def _render_security_fund_holding_panel(selected_code: str, title_name: str, per
             template="wealthspark_balanced",
             paper_bgcolor=CHART_PAPER_BG,
             plot_bgcolor=CHART_BG,
-            font=dict(family="Inter, PingFang SC, sans-serif"),
+            font=dict(family=SYSTEM_FONT_FAMILY),
             margin=dict(l=120, r=40, t=55, b=20),
             yaxis=dict(autorange="reversed"),
         )
@@ -12661,7 +12805,7 @@ def build_watchlist_dimension_scores(row: pd.Series) -> list[tuple[str, int, str
         ("资金面", _watchlist_score_value(capital_score), "#ff4055"),
         ("技术面", _watchlist_score_value(technical_score), "#2f7bff"),
         ("基本面", _watchlist_score_value(basic_score), "#49f2e0"),
-        ("消息面", _watchlist_score_value(sentiment_score), "#d66cff"),
+        ("消息面", _watchlist_score_value(sentiment_score), "#3F8FA3"),
         ("量化模型", _watchlist_score_value(model_score), "#ff9b73"),
     ]
 
@@ -13324,7 +13468,7 @@ def queue_security_search_navigation(ts_code: str, security_type: str) -> None:
     st.session_state["pending_security_search_keyword"] = code
     st.session_state["pending_security_search_type"] = "股票" if normalized_type == "stock" else "指数"
     st.session_state["sidebar_nav_group"] = "股票"
-    st.session_state["sidebar_expanded_module_id"] = "stock"
+    _expand_sidebar_module("stock")
     st.session_state["stock_subpage"] = STOCK_SECURITY_SEARCH_LABEL
     st.session_state["jump_to_security_tab"] = True
 
@@ -14088,7 +14232,7 @@ def render_stock_pool_table(filtered_df: pd.DataFrame) -> None:
             "个股详情": st.column_config.LinkColumn(
                 "个股详情",
                 help="点击后跳转到个股/指数查询",
-                display_text="🔎 查看",
+                display_text="查看",
             ),
             "名称": st.column_config.TextColumn("名称", width="medium"),
             "代码": st.column_config.TextColumn("代码", width="small"),
@@ -14297,20 +14441,22 @@ def render_security_search_tab():
     if "security_search_keyword" not in st.session_state:
         st.session_state["security_search_keyword"] = ""
 
-    control_cols = st.columns([1, 1.4, 2.6])
+    control_cols = st.columns([2.4, 2.6], vertical_alignment="bottom")
     with control_cols[0]:
-        security_type_label = st.radio(
-            "检索类型",
-            options=["全部", "股票", "指数"],
-            horizontal=True,
-            key="security_search_type"
-        )
-    with control_cols[1]:
-        keyword = st.text_input(
-            "关键字",
-            placeholder="输入代码、简称或拼音",
-            key="security_search_keyword"
-        ).strip()
+        with st.container(key="ws-security-searchbox"):
+            security_type_label = st.radio(
+                "检索类型",
+                options=["全部", "股票", "指数"],
+                horizontal=True,
+                key="security_search_type",
+                label_visibility="collapsed",
+            )
+            keyword = st.text_input(
+                "关键字",
+                placeholder="输入代码、简称或拼音",
+                key="security_search_keyword",
+                label_visibility="collapsed",
+            ).strip()
     type_mapping = {"全部": "all", "股票": "stock", "指数": "index"}
 
     if not keyword:
@@ -14328,7 +14474,7 @@ def render_security_search_tab():
         return
 
     option_labels = [format_security_option(row) for _, row in candidate_df.iterrows()]
-    with control_cols[2]:
+    with control_cols[1]:
         selected_label = st.selectbox(
             "匹配结果",
             options=option_labels,
@@ -14653,8 +14799,8 @@ def render_security_search_tab():
                             y=holder_ts_df['holder_num'],
                             mode='lines+markers',
                             name='股东人数趋势',
-                            line=dict(width=2, shape='spline', color=THEME_PURPLE, dash='dot'),
-                            marker=dict(size=6, color=THEME_PURPLE),
+                            line=dict(width=2, shape='spline', color=THEME_ACCENT_ALT, dash='dot'),
+                            marker=dict(size=6, color=THEME_ACCENT_ALT),
                             hovertemplate='%{x|%Y-%m-%d}<br>股东人数: %{y:,.0f}<extra></extra>',
                         ),
                         secondary_y=True,
@@ -14671,12 +14817,12 @@ def render_security_search_tab():
                         template='plotly_white',
                         plot_bgcolor=CHART_BG,
                         paper_bgcolor=CHART_PAPER_BG,
-                        font=dict(family='Inter, PingFang SC, sans-serif'),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         margin=dict(l=20, r=20, t=55, b=20),
                         legend=dict(
                             orientation='h', yanchor='bottom', y=1.02,
                             xanchor='left', x=0,
-                            font=dict(size=12),
+                            font=dict(size=MIN_FONT_SIZE),
                         ),
                         barmode='overlay',
                     )
@@ -15146,7 +15292,7 @@ def render_security_search_tab():
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         margin=dict(l=20, r=20, t=60, b=20)
     )
     apply_time_series_hover_affordance(fig, chart_df['trade_date'], chart_df['metric_value'])
@@ -15420,7 +15566,7 @@ def render_security_search_tab():
             st.caption("展示静态市盈率、动态市盈率与股息率曲线")
             valuation_metrics = [
                 ('静态市盈率曲线', 'pe', '静态市盈率PE', 1.0, 2, THEME_NAVY),
-                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, THEME_PURPLE),
+                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, THEME_ACCENT_ALT),
                 ('股息率曲线', 'dv_ratio', '股息率(%)', 1.0, 2, THEME_WARN),
             ]
             valuation_cols = st.columns(2)
@@ -15445,7 +15591,7 @@ def render_security_search_tab():
             st.caption("财务柱状图按报告期展示，默认与上方时间范围联动")
             financial_metrics = [
                 ('营业总收入柱状图', 'total_revenue', '营业总收入(亿元)', 100000000.0, 2, THEME_NAVY, "#4F6785"),
-                ('净利润柱状图', 'net_profit', '净利润(亿元)', 100000000.0, 2, THEME_PURPLE, THEME_DOWN),
+                ('净利润柱状图', 'net_profit', '净利润(亿元)', 100000000.0, 2, THEME_ACCENT_ALT, THEME_DOWN),
                 ('扣非净利润柱状图', 'profit_dedt', '扣非净利润(亿元)', 100000000.0, 2, THEME_WARN, THEME_DOWN),
             ]
             financial_cols = st.columns(3)
@@ -15499,7 +15645,7 @@ def render_security_search_tab():
             st.caption("展示指数静态市盈率与动态市盈率曲线")
             valuation_metrics = [
                 ('静态市盈率曲线', 'pe', '静态市盈率PE', 1.0, 2, THEME_NAVY),
-                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, THEME_PURPLE),
+                ('动态市盈率曲线', 'pe_ttm', '动态市盈率PE_TTM', 1.0, 2, THEME_ACCENT_ALT),
             ]
             valuation_cols = st.columns(2)
             for index, (title, column, yaxis_title, scale, digits, color) in enumerate(valuation_metrics):
@@ -15732,7 +15878,7 @@ def render_wide_index_tab():
 
     fig = go.Figure()
     color_palette = [
-        THEME_NAVY, THEME_PURPLE, "#C28C4E", "#5B8E7D", "#B86A84",
+        THEME_NAVY, THEME_ACCENT_ALT, "#C28C4E", "#5B8E7D", "#607D9B",
         THEME_PRIMARY, "#6FA3B8", THEME_UP, "#8AA05A", "#4F6785",
         THEME_DOWN, THEME_WARN
     ]
@@ -15762,11 +15908,11 @@ def render_wide_index_tab():
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.28,
             xanchor='center', x=0.5,
-            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+            bgcolor='rgba(255,255,255,0)', font=dict(size=MIN_FONT_SIZE)
         ),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -16004,7 +16150,7 @@ def render_industry_etf_tab():
 
     chart_df = ts_df.sort_values(['benchmark_index_name', 'trade_date']).copy()
     color_palette = [
-        THEME_NAVY, THEME_PURPLE, "#C28C4E", "#5B8E7D", "#B86A84",
+        THEME_NAVY, THEME_ACCENT_ALT, "#C28C4E", "#5B8E7D", "#607D9B",
         THEME_PRIMARY, "#6FA3B8", THEME_UP, "#8AA05A", "#4F6785",
         THEME_DOWN, THEME_WARN
     ]
@@ -16035,11 +16181,11 @@ def render_industry_etf_tab():
         template='plotly_white',
         plot_bgcolor=CHART_BG,
         paper_bgcolor=CHART_PAPER_BG,
-        font=dict(family='Inter, PingFang SC, sans-serif'),
+        font=dict(family=SYSTEM_FONT_FAMILY),
         legend=dict(
             orientation='h', yanchor='bottom', y=-0.28,
             xanchor='center', x=0.5,
-            bgcolor='rgba(255,255,255,0)', font=dict(size=11)
+            bgcolor='rgba(255,255,255,0)', font=dict(size=MIN_FONT_SIZE)
         ),
         margin=dict(l=20, r=20, t=60, b=20)
     )
@@ -18424,26 +18570,25 @@ def render_fund_watchlist_cards(items: list[dict], *, focus_code: str) -> None:
     st.session_state["fund_watchlist_batch_last_view"] = "看板"
 
     with st.container(key="fund_watchlist_card_grid"):
-        for start_idx in range(0, len(items), 3):
-            cols = st.columns(3)
-            for offset, item in enumerate(items[start_idx : start_idx + 3]):
-                with cols[offset]:
-                    with st.container(key=f"fund_watchlist_card_wrap_{item['safe_code']}"):
-                        st.html(_build_fund_watchlist_card_html(item, focus_code))
-                        if st.button(
-                            f"查看 {item['fund_name']} 详情",
-                            key=f"fund_watchlist_card_button_{item['safe_code']}",
-                            use_container_width=True,
-                        ):
-                            if is_batch_mode:
-                                selection_key = f"fund_watchlist_batch_sel_{item['safe_code']}"
-                                st.session_state[selection_key] = not bool(st.session_state.get(selection_key, False))
-                            else:
-                                st.session_state["fund_watchlist_focus_code"] = item["fund_code"]
-                            st.rerun()
-
+        cols = st.columns(len(items))
+        for offset, item in enumerate(items):
+            with cols[offset]:
+                with st.container(key=f"fund_watchlist_card_wrap_{item['safe_code']}"):
+                    st.html(_build_fund_watchlist_card_html(item, focus_code))
+                    if st.button(
+                        f"查看 {item['fund_name']} 详情",
+                        key=f"fund_watchlist_card_button_{item['safe_code']}",
+                        use_container_width=True,
+                    ):
                         if is_batch_mode:
-                            st.checkbox("选择此基金", key=f"fund_watchlist_batch_sel_{item['safe_code']}")
+                            selection_key = f"fund_watchlist_batch_sel_{item['safe_code']}"
+                            st.session_state[selection_key] = not bool(st.session_state.get(selection_key, False))
+                        else:
+                            st.session_state["fund_watchlist_focus_code"] = item["fund_code"]
+                        st.rerun()
+
+                    if is_batch_mode:
+                        st.checkbox("选择此基金", key=f"fund_watchlist_batch_sel_{item['safe_code']}")
 
 
 def render_fund_watchlist_table(items: list[dict], *, focus_code: str) -> str:
@@ -18766,14 +18911,9 @@ def _fund_watchlist_fragment_passthrough(func):
     return func
 
 
-_fund_watchlist_live_fragment = (
-    st.fragment(run_every="60s")
-    if hasattr(st, "fragment")
-    else _fund_watchlist_fragment_passthrough
-)
 
 
-@_fund_watchlist_live_fragment
+@_fund_watchlist_fragment_passthrough
 def render_fund_watchlist_live_dashboard(items: list[dict], current_username: str) -> None:
     market_state = get_fund_intraday_market_state()
     dashboard_items = items
@@ -19095,7 +19235,7 @@ def render_fund_hot_stocks_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=120, r=40, t=60, b=20),
                 yaxis=dict(autorange="reversed"),
             )
@@ -19130,7 +19270,7 @@ def render_fund_hot_stocks_tab():
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "跳转": st.column_config.LinkColumn("跳转", display_text="🔎 查询")
+                    "跳转": st.column_config.LinkColumn("跳转", display_text="查询")
                 },
             )
 
@@ -19334,7 +19474,7 @@ def render_fund_hot_stocks_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=120, r=40, t=60, b=20),
                 yaxis=dict(autorange="reversed"),
             )
@@ -19394,7 +19534,7 @@ def render_fund_hot_stocks_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     margin=dict(l=120, r=40, t=55, b=20),
                     yaxis=dict(autorange="reversed"),
                 )
@@ -19455,7 +19595,7 @@ def render_fund_hot_stocks_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     height=420,
                     margin=dict(l=50, r=50, t=55, b=30),
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
@@ -19706,7 +19846,7 @@ def render_fund_hot_stocks_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=120, r=40, t=55, b=20),
                 yaxis=dict(autorange="reversed"),
             )
@@ -19870,7 +20010,7 @@ def render_moneyflow_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=100, r=60, t=60, b=20),
                 yaxis=dict(autorange="reversed"),
             )
@@ -19912,7 +20052,7 @@ def render_moneyflow_tab():
                     "跳转": st.column_config.LinkColumn(
                         "跳转",
                         help='点击后跳转到个股/指数查询',
-                        display_text='🔎 查询'
+                        display_text='查询'
                     )
                 }
             )
@@ -20050,7 +20190,7 @@ def render_moneyflow_tab():
                     y=elg_net,
                     mode="lines",
                     name="超大单净额",
-                    line=dict(color=THEME_PURPLE, width=2),
+                    line=dict(color=THEME_ACCENT_ALT, width=2),
                     hovertemplate="%{x|%Y-%m-%d}<br>超大单净额: %{y:,.0f} 万元<extra></extra>",
                 ))
 
@@ -20070,7 +20210,7 @@ def render_moneyflow_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=20, r=20, t=60, b=20),
                 legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
             )
@@ -20110,7 +20250,7 @@ def render_moneyflow_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     margin=dict(l=20, r=20, t=60, b=20),
                     hovermode="x unified",
                     legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
@@ -20166,7 +20306,7 @@ def render_moneyflow_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         margin=dict(l=20, r=20, t=60, b=20),
                     )
                     apply_time_series_hover_affordance(fig_ths, _ths["trade_date"], _ths["net_amount"])
@@ -20209,7 +20349,7 @@ def render_moneyflow_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         margin=dict(l=20, r=20, t=60, b=20),
                     )
                     apply_time_series_hover_affordance(fig_dc, _dc["trade_date"], _dc["net_amount"])
@@ -20279,7 +20419,7 @@ def render_moneyflow_tab():
                 template="wealthspark_balanced",
                 paper_bgcolor=CHART_PAPER_BG,
                 plot_bgcolor=CHART_BG,
-                font=dict(family="Inter, PingFang SC, sans-serif"),
+                font=dict(family=SYSTEM_FONT_FAMILY),
                 margin=dict(l=20, r=20, t=60, b=20),
             )
             st.plotly_chart(fig_scatter, use_container_width=True)
@@ -20318,7 +20458,7 @@ def render_moneyflow_tab():
                     "跳转": st.column_config.LinkColumn(
                         "跳转",
                         help='点击后跳转到个股/指数查询',
-                        display_text='🔎 查询'
+                        display_text='查询'
                     )
                 }
             )
@@ -20397,7 +20537,7 @@ def render_moneyflow_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         height=560,
                         margin=dict(l=30, r=30, t=60, b=30),
                         xaxis_title="净流入（亿元）",
@@ -20462,7 +20602,7 @@ def render_moneyflow_tab():
                                     xanchor="left",
                                     yanchor="middle",
                                     align="left",
-                                    font=dict(size=12, color=THEME_TEXT),
+                                    font=dict(size=MIN_FONT_SIZE, color=THEME_TEXT),
                                     bgcolor="rgba(255,255,255,0.0)",
                                     borderwidth=0,
                                 ))
@@ -20485,7 +20625,7 @@ def render_moneyflow_tab():
                             template="wealthspark_balanced",
                             paper_bgcolor=CHART_PAPER_BG,
                             plot_bgcolor=CHART_BG,
-                            font=dict(family="Inter, PingFang SC, sans-serif"),
+                            font=dict(family=SYSTEM_FONT_FAMILY),
                             height=720,
                             margin=dict(l=30, r=260, t=80, b=30),
                             xaxis_title="日期",
@@ -20555,7 +20695,7 @@ def render_moneyflow_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         margin=dict(l=20, r=20, t=50, b=20),
                         yaxis=dict(autorange="reversed"),
                     )
@@ -20598,7 +20738,7 @@ def render_moneyflow_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         margin=dict(l=20, r=20, t=50, b=20),
                         yaxis=dict(autorange="reversed"),
                     )
@@ -20687,7 +20827,7 @@ def render_moneyflow_tab():
                     y=north_ma5,
                     mode="lines",
                     name="5日均线",
-                    line=dict(color=THEME_PURPLE, width=2.5),
+                    line=dict(color=THEME_ACCENT_ALT, width=2.5),
                     hovertemplate="%{x|%Y-%m-%d}<br>5日均线: %{y:,.2f} 亿<extra></extra>",
                 ))
 
@@ -20700,7 +20840,7 @@ def render_moneyflow_tab():
                     template="wealthspark_balanced",
                     paper_bgcolor=CHART_PAPER_BG,
                     plot_bgcolor=CHART_BG,
-                    font=dict(family="Inter, PingFang SC, sans-serif"),
+                    font=dict(family=SYSTEM_FONT_FAMILY),
                     margin=dict(l=20, r=20, t=60, b=20),
                     legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
                 )
@@ -20737,7 +20877,7 @@ def render_moneyflow_tab():
                         template="wealthspark_balanced",
                         paper_bgcolor=CHART_PAPER_BG,
                         plot_bgcolor=CHART_BG,
-                        font=dict(family="Inter, PingFang SC, sans-serif"),
+                        font=dict(family=SYSTEM_FONT_FAMILY),
                         margin=dict(l=20, r=20, t=60, b=20),
                         hovermode="x unified",
                         legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),

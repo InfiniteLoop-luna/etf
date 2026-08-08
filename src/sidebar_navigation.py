@@ -488,3 +488,47 @@ def resolve_expanded_module_id(active_page_id: str, requested_module_id: str | N
     if requested_module_id in MODULE_BY_ID:
         return requested_module_id
     return get_module_id_for_page_id(active_page_id)
+
+
+def resolve_expanded_module_ids(
+    active_page_id: str,
+    requested_module_ids: object,
+) -> tuple[str, ...]:
+    if requested_module_ids is None:
+        return (get_module_id_for_page_id(active_page_id),)
+
+    if isinstance(requested_module_ids, str):
+        candidates = [requested_module_ids]
+    elif isinstance(requested_module_ids, (list, tuple, set, frozenset)):
+        candidates = list(requested_module_ids)
+    else:
+        candidates = []
+
+    expanded: list[str] = []
+    for module_id in candidates:
+        if module_id in MODULE_BY_ID and module_id not in expanded:
+            expanded.append(module_id)
+    return tuple(expanded)
+
+
+def toggle_expanded_module_id(
+    expanded_module_ids: object,
+    module_id: str,
+) -> tuple[str, ...]:
+    if module_id not in MODULE_BY_ID:
+        raise KeyError(f"Unknown module {module_id!r}")
+
+    if expanded_module_ids is None:
+        expanded = []
+    else:
+        expanded = list(
+            resolve_expanded_module_ids(
+                MODULE_BY_ID[module_id].pages[0].id,
+                expanded_module_ids,
+            )
+        )
+    if module_id in expanded:
+        expanded.remove(module_id)
+    else:
+        expanded.append(module_id)
+    return tuple(expanded)

@@ -1,15 +1,19 @@
 [theme]
-primaryColor = "#FF4B4B"
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F0F2F6"
-textColor = "#262730"
+primaryColor = "#0066CC"
+backgroundColor = "#F5F5F7"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1D1D1F"
 font = "sans serif"
+baseFontSize = 16
+dataframeBorderColor = "#D2D2D7"
+dataframeHeaderBackgroundColor = "#F8F9FB"
 
 [server]
 headless = true
 port = 8501
 enableCORS = false
 enableXsrfProtection = true
+enableStaticServing = true
 
 [browser]
 gatherUsageStats = false

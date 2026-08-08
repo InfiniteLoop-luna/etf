@@ -8,7 +8,7 @@ Pillow>=10.0.0
 pytesseract>=0.3.10
 beautifulsoup4>=4.12.0
 pyyaml>=6.0
-streamlit>=1.30.0
+streamlit==1.61.1
 streamlit-plotly-events>=0.0.6
 plotly>=5.18.0
 pandas>=2.0.0
