@@ -397,7 +397,7 @@ class TrackerUiPayloadTests(unittest.TestCase):
         self.assertIn("overflow: visible !important", dark_cards)
         self.assertIn("white-space: normal !important", dark_cards)
 
-    def test_fund_watchlist_cards_use_wrapping_horizontal_flex_without_empty_columns(self):
+    def test_fund_watchlist_cards_use_fixed_two_column_grid_without_stretching_odd_last_card(self):
         css = build_terminal_component_overrides_css()
         app_source = Path("app.py").read_text(encoding="utf-8", errors="ignore")
         render_start = app_source.index("def render_fund_watchlist_cards(")
@@ -415,8 +415,14 @@ class TrackerUiPayloadTests(unittest.TestCase):
             '.st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"]',
             dark_cards,
         )
-        self.assertIn("flex-wrap: wrap !important", dark_cards)
-        self.assertIn("flex: 1 1 560px !important", dark_cards)
+        self.assertIn("display: grid !important", dark_cards)
+        self.assertIn(
+            "grid-template-columns: repeat(2, minmax(0, 1fr)) !important",
+            dark_cards,
+        )
+        self.assertIn("width: 100% !important", dark_cards)
+        self.assertIn("grid-template-columns: minmax(0, 1fr) !important", dark_cards)
+        self.assertNotIn("flex: 1 1 560px !important", dark_cards)
         self.assertIn("white-space: normal !important", dark_cards)
         self.assertIn("overflow-wrap: anywhere !important", dark_cards)
 

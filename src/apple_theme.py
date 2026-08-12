@@ -3265,16 +3265,21 @@ html body [data-baseweb="textarea"] textarea:focus {
 
 /* Fund watchlist cards: restore complete legacy dark terminal styling. */
 .st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"] {
-    display: flex !important;
-    flex-wrap: wrap !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     align-items: stretch !important;
     gap: 0.72rem !important;
 }
 
 .st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-    flex: 1 1 560px !important;
-    width: auto !important;
-    min-width: min(100%, 560px) !important;
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+@media (max-width: 900px) {
+    .st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"] {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
 }
 
 .ws-fund-watchboard__card {
