@@ -174,6 +174,8 @@ def _evaluate_simple_formula(ws, formula: str, row: int, col: int):
     import re
 
     try:
+        missing_reference = False
+
         # 移除开头的等号
         formula = formula.lstrip('=')
 
@@ -181,6 +183,7 @@ def _evaluate_simple_formula(ws, formula: str, row: int, col: int):
         cell_pattern = r'([A-Z]+)(\d+)'
 
         def replace_cell_ref(match):
+            nonlocal missing_reference
             col_letter = match.group(1)
             row_num = int(match.group(2))
 
@@ -195,6 +198,7 @@ def _evaluate_simple_formula(ws, formula: str, row: int, col: int):
 
             # 返回值
             if cell_value is None:
+                missing_reference = True
                 return '0'
             elif isinstance(cell_value, (int, float)):
                 return str(cell_value)
@@ -205,6 +209,7 @@ def _evaluate_simple_formula(ws, formula: str, row: int, col: int):
         sum_pattern = r'SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)'
 
         def replace_sum(match):
+            nonlocal missing_reference
             start_col = match.group(1)
             start_row = int(match.group(2))
             end_col = match.group(3)
@@ -221,6 +226,8 @@ def _evaluate_simple_formula(ws, formula: str, row: int, col: int):
                     cell_value = ws.cell(r, c).value
                     if cell_value is not None and isinstance(cell_value, (int, float)):
                         total += cell_value
+                    else:
+                        missing_reference = True
 
             return str(total)
 
@@ -229,6 +236,11 @@ def _evaluate_simple_formula(ws, formula: str, row: int, col: int):
 
         # 替换单元格引用
         formula = re.sub(cell_pattern, replace_cell_ref, formula)
+
+        # 缺失原始值不能被伪装成真实的 0。让调用方跳过该派生记录，
+        # 直到总市值/单位市值等源单元格被成功补齐。
+        if missing_reference:
+            return None
 
         # 评估数学表达式
         result = eval(formula)

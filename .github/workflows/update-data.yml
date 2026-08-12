@@ -34,6 +34,12 @@ jobs:
       run: |
         CI=true GITHUB_ACTIONS=true python main.py
 
+    - name: Repair and validate recent ETF Excel gaps
+      env:
+        TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+      run: |
+        CI=true GITHUB_ACTIONS=true PYTHONPATH=. python scripts/repair_etf_excel_gaps.py --lookback-days 45
+
     - name: Build ETF share cache
       run: |
         PYTHONPATH=. python scripts/build_etf_share_cache.py
