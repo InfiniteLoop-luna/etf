@@ -254,21 +254,4 @@ button[aria-label="Close sidebar"]:hover {{
     color: #4DB7FF !important;
 }}
 
-/* Theme switcher styling */
-[data-testid="stSidebar"] [class*="st-key-ws-theme-switcher"] {{
-    margin-top: 0.5rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid {s["sidebar_line"]};
-}}
-
-[data-testid="stSidebar"] [class*="st-key-ws-theme-switcher"] button {{
-    color: rgba(255, 255, 255, 0.82) !important;
-    background: rgba(255, 255, 255, 0.12) !important;
-    border-color: rgba(255, 255, 255, 0.2) !important;
-}}
-
-[data-testid="stSidebar"] [class*="st-key-ws-theme-switcher"] button:hover {{
-    color: {s["sidebar_text"]} !important;
-    background: rgba(255, 255, 255, 0.22) !important;
-}}
 """

@@ -656,47 +656,6 @@ button[aria-label="Open sidebar"]:hover {{
     border-top: 1px solid var(--ws-sidebar-line);
 }}
 
-/* ── Theme Switcher ── */
-[data-testid="stSidebar"] [class*="st-key-ws-theme-switcher"] {{
-    margin-top: 0.6rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid var(--ws-sidebar-line);
-}}
-
-[data-testid="stSidebar"] [class*="st-key-ws-theme-switcher"] [data-testid="stHorizontalBlock"] {{
-    gap: 0.35rem !important;
-}}
-
-[data-testid="stSidebar"] [class*="st-key-ws-theme-btn-"] button {{
-    box-sizing: border-box !important;
-    height: 30px !important;
-    min-height: 30px !important;
-    max-height: 30px !important;
-    padding: 0 0.5rem !important;
-    color: var(--ws-sidebar-text) !important;
-    background: transparent !important;
-    border: 1px solid var(--ws-sidebar-line) !important;
-    border-radius: var(--ws-radius-sm) !important;
-    box-shadow: none !important;
-    font-size: var(--ws-font-size-min) !important;
-    font-weight: 600 !important;
-    transition: background 0.15s ease, border-color 0.15s ease;
-}}
-
-[data-testid="stSidebar"] [class*="st-key-ws-theme-btn-"] button:hover {{
-    background: var(--ws-sidebar-hover-bg) !important;
-    border-color: var(--ws-sidebar-accent) !important;
-}}
-
-[data-testid="stSidebar"] [class*="st-key-ws-theme-btn-"] button:disabled {{
-    color: var(--ws-sidebar-accent) !important;
-    background: var(--ws-sidebar-active-bg) !important;
-    border-color: var(--ws-sidebar-accent) !important;
-    opacity: 1 !important;
-    cursor: default;
-}}
-
-
 [class*="st-key-user-session-menu-"] button {{
     box-sizing: border-box !important;
     height: var(--ws-sidebar-row-height);

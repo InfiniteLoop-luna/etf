@@ -131,6 +131,7 @@ from src.navigation_config import (
     STOCK_SECURITY_SEARCH_LABEL,
     STOCK_TECH_PICKER_LABEL,
     STOCK_USER_WATCHLIST_LABEL,
+    THEME_CENTER_PAGE_LABEL,
 )
 from src.sidebar_navigation import (
     SIDEBAR_MODULES,
@@ -4135,6 +4136,7 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                     "macro": 4,
                     "data": 5,
                     "favorite": 6,
+                    "theme": 7,
                 }
                 ordered_modules = sorted(
                     SIDEBAR_MODULES,
@@ -4209,31 +4211,6 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                 )
 
         with st.container(key="ws-sidebar-footer"):
-            # ── Theme Switcher ──
-            _current_theme_id = get_active_theme_id()
-            _available_themes = list_available_themes()
-            with st.container(key="ws-theme-switcher"):
-                st.markdown(
-                    """
-                    <div class="ws-sidebar-block">
-                        <div class="ws-sidebar-block-title">主题</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                _theme_cols = st.columns(len(_available_themes))
-                for _t_idx, _t_info in enumerate(_available_themes):
-                    _is_active = _t_info["id"] == _current_theme_id
-                    _btn_label = f"{'✓ ' if _is_active else ''}{_t_info['name']}"
-                    if _theme_cols[_t_idx].button(
-                        _btn_label,
-                        key=f"ws-theme-btn-{_t_info['id']}",
-                        use_container_width=True,
-                        disabled=_is_active,
-                    ):
-                        set_active_theme_id(_t_info["id"])
-                        st.rerun()
-
             st.markdown(
                 """
                 <div class="ws-sidebar-block ws-sidebar-block--account">
@@ -4245,6 +4222,47 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
             render_user_session_menu("desktop")
 
     return selected_module.label, selected_page.label
+
+
+def render_theme_center_page() -> None:
+    """Render theme selection as a dedicated page instead of a fixed sidebar control."""
+    st.subheader("🎨 主题中心")
+    st.caption("选择你喜欢的界面风格。设置会保留在当前链接中，刷新页面后仍然生效。")
+
+    current_theme_id = get_active_theme_id()
+    themes = list_available_themes()
+    theme_descriptions = {
+        "apple": "克制、清晰的专业终端风格，适合长时间查看行情与数据。",
+        "doraemon": "明快的蓝色与柔和背景，界面更轻松、更有活力。",
+    }
+
+    columns = st.columns(min(2, max(1, len(themes))))
+    for index, theme in enumerate(themes):
+        theme_id = theme["id"]
+        is_active = theme_id == current_theme_id
+        colors = theme.get("preview_colors", [])
+        swatches = "".join(
+            f'<span style="display:inline-block;width:34px;height:34px;background:{escape(color)};'
+            'border:1px solid rgba(0,0,0,.08);border-radius:9px;margin-right:8px"></span>'
+            for color in colors
+        )
+        with columns[index % len(columns)]:
+            with st.container(border=True, key=f"theme-center-card-{theme_id}"):
+                status = "当前使用" if is_active else "可选主题"
+                st.markdown(f"### {escape(theme['name'])}")
+                st.caption(f"{theme.get('name_en', theme_id)} · {status}")
+                st.markdown(swatches, unsafe_allow_html=True)
+                st.write(theme_descriptions.get(theme_id, "切换整站的配色与视觉风格。"))
+                if st.button(
+                    "✓ 当前主题" if is_active else "应用此主题",
+                    key=f"theme-center-apply-{theme_id}",
+                    type="primary" if not is_active else "secondary",
+                    disabled=is_active,
+                    use_container_width=True,
+                ):
+                    set_active_theme_id(theme_id)
+                    st.rerun()
+
 
 def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
     if df is None or df.empty:
@@ -7770,6 +7788,7 @@ def _render_application_page() -> PageStatus:
     money_module_label = get_module_label_for_page(MONEY_FLOW_PAGE_LABEL)
     data_module_label = get_module_label_for_page(DATA_HEALTH_PAGE_LABEL)
     macro_module_label = get_module_label_for_page(MACRO_MAIN_PAGE_LABEL)
+    theme_module_label = get_module_label_for_page(THEME_CENTER_PAGE_LABEL)
 
     if selected_module == decision_module_label:
         if selected_page == DECISION_TODAY_PAGE_LABEL:
@@ -7866,6 +7885,9 @@ def _render_application_page() -> PageStatus:
             render_index_monitor_tab()
         else:
             render_macro_tab()
+
+    elif selected_module == theme_module_label:
+        render_theme_center_page()
 
     # Local dashboard modules inject their own CSS while rendering. This final
     # pass keeps those modules aligned with the shared terminal design system.

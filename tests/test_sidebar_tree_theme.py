@@ -1,6 +1,7 @@
 import unittest
 
 from src.apple_theme import build_global_apple_theme_css
+from src.sidebar_navigation import get_module_by_id, search_sidebar_pages
 
 
 class SidebarTreeThemeTest(unittest.TestCase):
@@ -47,12 +48,24 @@ class SidebarTreeThemeTest(unittest.TestCase):
         self.assertIn('[class*="st-key-ws-sidebar-recent-list"]', css)
         self.assertIn('[class*="st-key-ws-sidebar-favorite-list"]', css)
         self.assertNotIn("min-height: 29px", css)
+        self.assertNotIn("st-key-ws-theme-switcher", css)
+        self.assertNotIn("st-key-ws-theme-btn-", css)
 
         page_icon_rule = css.split(
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button img {',
             1,
         )[1].split('\n}', 1)[0]
         self.assertNotIn('display: none', page_icon_rule)
+
+    def test_theme_center_is_a_dedicated_sidebar_module(self) -> None:
+        module = get_module_by_id("theme")
+        self.assertEqual(module.label, "主题")
+        self.assertEqual(len(module.pages), 1)
+        self.assertEqual(module.pages[0].id, "theme_center")
+        self.assertEqual(module.pages[0].label, "🎨 主题中心")
+
+        results = search_sidebar_pages("主题")
+        self.assertTrue(any(item.page_id == "theme_center" for item in results))
 
 
 if __name__ == "__main__":

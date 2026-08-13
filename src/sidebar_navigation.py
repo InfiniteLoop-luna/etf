@@ -37,6 +37,19 @@ class SidebarSearchResult:
 
 SIDEBAR_MODULES = (
     SidebarModule(
+        id="theme",
+        label="主题",
+        session_key="theme_subpage",
+        pages=(
+            SidebarPage(
+                "theme_center",
+                "🎨 主题中心",
+                "集中预览和切换界面主题",
+                "light",
+            ),
+        ),
+    ),
+    SidebarModule(
         id="favorite",
         label="Favorite",
         session_key="favorite_subpage",
