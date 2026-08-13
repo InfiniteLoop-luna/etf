@@ -200,10 +200,12 @@ from src.apple_theme import (
     get_apple_theme_tokens,
 )
 from src.theme_registry import (
+    clear_user_theme_session,
     get_active_theme_id,
     get_theme_extra_css,
     list_available_themes,
     set_active_theme_id,
+    sync_theme_for_logged_in_user,
 )
 from src import financial_icons
 from src.page_shell import (
@@ -2259,6 +2261,7 @@ def sync_logged_in_username_from_browser() -> None:
 
         stored_username = normalize_username(result.username) if result.ok else ""
         st.session_state["logged_in_username"] = stored_username
+        sync_theme_for_logged_in_user(stored_username)
         st.session_state["user_storage_hydrated"] = True
         st.session_state["user_storage_error"] = result.error if not result.ok else ""
         _clear_legacy_user_query_param()
@@ -2298,6 +2301,7 @@ def login_app_user(username: str) -> bool:
     _clear_legacy_user_query_param()
     if normalized_username:
         _queue_browser_username_sync("write", normalized_username)
+        sync_theme_for_logged_in_user(normalized_username)
         _preload_user_workspace_bg(normalized_username)
 
     return bool(normalized_username)
@@ -2305,6 +2309,7 @@ def login_app_user(username: str) -> bool:
 
 def logout_app_user() -> None:
     st.session_state["logged_in_username"] = ""
+    clear_user_theme_session()
     _clear_legacy_user_query_param()
     _queue_browser_username_sync("remove")
 
@@ -4260,7 +4265,8 @@ def render_theme_center_page() -> None:
                     disabled=is_active,
                     use_container_width=True,
                 ):
-                    set_active_theme_id(theme_id)
+                    if not set_active_theme_id(theme_id, get_logged_in_username()):
+                        st.error("主题已在当前页面应用，但保存到用户配置失败，请稍后重试。")
                     st.rerun()
 
 

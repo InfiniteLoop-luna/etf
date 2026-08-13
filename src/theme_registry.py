@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import streamlit as st
 
+
+logger = logging.getLogger(__name__)
 
 THEME_META: dict[str, dict[str, Any]] = {
     "apple": {
@@ -14,61 +17,122 @@ THEME_META: dict[str, dict[str, Any]] = {
     "doraemon": {
         "name": "哆啦A梦",
         "name_en": "Doraemon",
-        "preview_colors": ["#4DB7FF", "#F5FAFF", "#FFFFFF", "#FF6B6B", "#FFD23F"],
+        "preview_colors": ["#11A9EE", "#E5F3FE", "#FFFFFF", "#F46968", "#FCCD3D"],
     },
 }
 
 _DEFAULT_THEME_ID = "apple"
 _SESSION_KEY = "active_theme_id"
 _QUERY_PARAM_KEY = "theme"
+_USER_THEME_HYDRATED_KEY = "user_theme_hydrated_for"
 
 
-def _read_persisted_theme_id() -> str | None:
-    """Read the theme ID from the URL query params (persistent across reloads)."""
+def is_valid_theme_id(theme_id: object) -> bool:
+    return str(theme_id or "") in THEME_META
+
+
+def _read_query_theme_id() -> str | None:
     try:
-        params = st.query_params
-        value = params.get(_QUERY_PARAM_KEY) or None
-        if value and value in THEME_META:
-            return value
+        value = st.query_params.get(_QUERY_PARAM_KEY) or None
+        return str(value) if is_valid_theme_id(value) else None
     except Exception:
-        pass
-    return None
+        return None
 
 
-def get_active_theme_id() -> str:
-    """Return the current theme ID from session state, query params, or default."""
+def _write_query_theme_id(theme_id: str) -> None:
     try:
-        # 1. Session state takes priority (set during this session)
-        theme_id = st.session_state.get(_SESSION_KEY)
-        if theme_id and theme_id in THEME_META:
-            return theme_id
-
-        # 2. Fall back to URL query param (persisted from previous session)
-        persisted = _read_persisted_theme_id()
-        if persisted:
-            st.session_state[_SESSION_KEY] = persisted
-            return persisted
-
-        # 3. Default
-        return _DEFAULT_THEME_ID
-    except Exception:
-        return _DEFAULT_THEME_ID
-
-
-def set_active_theme_id(theme_id: str) -> None:
-    """Set the active theme and persist to URL query params."""
-    if theme_id not in THEME_META:
-        raise ValueError(f"Unknown theme_id: {theme_id!r}")
-    try:
-        st.session_state[_SESSION_KEY] = theme_id
-        # Persist to URL so the theme survives page refreshes
         st.query_params[_QUERY_PARAM_KEY] = theme_id
     except Exception:
         pass
 
 
+def get_active_theme_id() -> str:
+    """Return current session/query theme; user hydration happens after login is known."""
+    try:
+        theme_id = st.session_state.get(_SESSION_KEY)
+        if is_valid_theme_id(theme_id):
+            return str(theme_id)
+
+        query_theme = _read_query_theme_id()
+        if query_theme:
+            st.session_state[_SESSION_KEY] = query_theme
+            return query_theme
+
+        return _DEFAULT_THEME_ID
+    except Exception:
+        return _DEFAULT_THEME_ID
+
+
+def set_active_theme_id(theme_id: str, username: str = "") -> bool:
+    """Set the active theme and persist it for a logged-in user when provided."""
+    if not is_valid_theme_id(theme_id):
+        raise ValueError(f"Unknown theme_id: {theme_id!r}")
+
+    st.session_state[_SESSION_KEY] = theme_id
+    _write_query_theme_id(theme_id)
+
+    normalized_username = str(username or "").strip()
+    if not normalized_username:
+        return True
+
+    try:
+        from src.user_preference_store import set_user_theme
+
+        saved = set_user_theme(normalized_username, theme_id)
+        if saved:
+            st.session_state[_USER_THEME_HYDRATED_KEY] = normalized_username
+        return bool(saved)
+    except Exception as exc:
+        logger.warning("Failed to save theme preference for %s: %s", normalized_username, exc)
+        return False
+
+
+def sync_theme_for_logged_in_user(username: str) -> str:
+    """Hydrate a user's saved theme once per Streamlit session.
+
+    A saved database preference wins in every newly opened page. If the user has
+    no saved preference yet, an explicit theme query is promoted to the account;
+    otherwise the default is used and stored for future pages.
+    """
+    normalized_username = str(username or "").strip()
+    if not normalized_username:
+        return get_active_theme_id()
+
+    if st.session_state.get(_USER_THEME_HYDRATED_KEY) == normalized_username:
+        return get_active_theme_id()
+
+    try:
+        from src.user_preference_store import get_user_theme, set_user_theme
+
+        saved_theme = get_user_theme(normalized_username)
+        if is_valid_theme_id(saved_theme):
+            resolved = str(saved_theme)
+        else:
+            resolved = _read_query_theme_id() or get_active_theme_id()
+            if not is_valid_theme_id(resolved):
+                resolved = _DEFAULT_THEME_ID
+            set_user_theme(normalized_username, resolved)
+
+        st.session_state[_SESSION_KEY] = resolved
+        st.session_state[_USER_THEME_HYDRATED_KEY] = normalized_username
+        _write_query_theme_id(resolved)
+        return resolved
+    except Exception as exc:
+        logger.warning("Failed to hydrate theme preference for %s: %s", normalized_username, exc)
+        return get_active_theme_id()
+
+
+def clear_user_theme_session() -> None:
+    st.session_state.pop(_USER_THEME_HYDRATED_KEY, None)
+    st.session_state.pop(_SESSION_KEY, None)
+    try:
+        if _QUERY_PARAM_KEY in st.query_params:
+            del st.query_params[_QUERY_PARAM_KEY]
+    except Exception:
+        pass
+
+
 def _load_presets() -> dict[str, dict]:
-    """Lazy-load theme token dictionaries to avoid circular imports."""
     from src.apple_theme import APPLE_THEME_DEFAULT_TOKENS
     from src.doraemon_theme import DORAEMON_THEME_TOKENS
 
@@ -79,21 +143,17 @@ def _load_presets() -> dict[str, dict]:
 
 
 def get_active_theme_tokens() -> dict:
-    """Return the full token dictionary for the active theme."""
     theme_id = get_active_theme_id()
     presets = _load_presets()
     return presets.get(theme_id, presets[_DEFAULT_THEME_ID])
 
 
 def list_available_themes() -> list[dict]:
-    """Return metadata for all registered themes."""
-    return [{"id": tid, **meta} for tid, meta in THEME_META.items()]
+    return [{"id": theme_id, **meta} for theme_id, meta in THEME_META.items()]
 
 
 def get_theme_extra_css() -> str:
-    """Return any theme-specific CSS beyond the base global stylesheet."""
-    theme_id = get_active_theme_id()
-    if theme_id == "doraemon":
+    if get_active_theme_id() == "doraemon":
         from src.doraemon_theme import build_doraemon_extra_css
 
         return build_doraemon_extra_css()
