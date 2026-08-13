@@ -27,6 +27,21 @@ class FundWatchlistCardLayoutTest(unittest.TestCase):
         self.assertIn("st.columns(cards_per_row)", function_source)
         self.assertNotIn("st.columns(len(items))", function_source)
 
+    def test_streamlit_row_is_forced_to_three_responsive_columns(self) -> None:
+        self.assertIn(
+            '.st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"]',
+            self.source,
+        )
+        self.assertIn(
+            'grid-template-columns:repeat(3,minmax(0,1fr)) !important',
+            self.source,
+        )
+        self.assertIn(
+            'grid-template-columns:repeat(2,minmax(0,1fr)) !important',
+            self.source,
+        )
+        self.assertIn('grid-template-columns:1fr !important', self.source)
+
     def test_card_overlay_height_matches_compact_card_height(self) -> None:
         self.assertIn("min-height:500px", self.source)
         self.assertIn("margin-bottom:-500px", self.source)

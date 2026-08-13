@@ -1973,6 +1973,14 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     background:linear-gradient(180deg,rgba(6,17,40,.94),rgba(2,6,21,.96));
     box-shadow:inset 0 0 30px rgba(47,123,255,.07);
 }
+.st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"] {
+    grid-template-columns:repeat(3,minmax(0,1fr)) !important;
+    gap:.72rem !important;
+}
+.st-key-fund_watchlist_card_grid [data-testid="stColumn"] {
+    width:auto !important;
+    min-width:0 !important;
+}
 .st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] {
     position:relative;
     min-height:500px;
@@ -2145,6 +2153,11 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     color:#13213b !important;
     -webkit-text-fill-color:#13213b !important;
 }
+@media (max-width:1200px) {
+    .st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"] {
+        grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+    }
+}
 @media (max-width:900px) {
     .ws-fund-watchboard__summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ws-fund-watchboard__cards { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -2153,6 +2166,9 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 @media (max-width:620px) {
     .ws-fund-watchboard { padding:.72rem; }
     .ws-fund-watchboard__cards { grid-template-columns:1fr; }
+    .st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"] {
+        grid-template-columns:1fr !important;
+    }
     .ws-fund-watchboard__focus { padding:.75rem; }
     .ws-fund-watchboard__focus-main { grid-template-columns:1fr; }
     .ws-fund-watchboard__ring { margin:0 auto; }
