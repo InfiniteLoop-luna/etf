@@ -6,7 +6,9 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from src.apple_theme import build_apple_plotly_template
 from src.nasdaq_sector_data import PERIOD_TO_DAYS, load_or_refresh_snapshot
+from src.theme_registry import get_active_theme_id
 
 
 NASDAQ_SECTOR_PAGE_CSS = """
@@ -16,6 +18,21 @@ NASDAQ_SECTOR_PAGE_CSS = """
 .ws-us-market-card span{display:block;color:var(--ws-text-muted);font-size:.88rem}.ws-us-market-card strong{display:block;margin-top:.2rem;color:var(--ws-text-main);font-size:1.25rem}.ws-us-market-card small{color:var(--ws-text-soft)}
 .ws-us-sector-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin:.4rem 0 1rem}.ws-us-sector-tile{padding:.8rem;border:1px solid var(--ws-border-soft);border-radius:var(--ws-radius-lg);background:var(--tile-bg);box-shadow:var(--ws-shadow)}
 .ws-us-sector-tile h4{margin:0!important;font-size:1rem!important}.ws-us-sector-tile strong{display:block;margin:.35rem 0;color:var(--tile-color);font-size:1.35rem}.ws-us-sector-tile span,.ws-us-sector-tile small{display:block;color:var(--ws-text-muted)}
+.ws-us-theme-marker{display:none}.st-key-nasdaq-sector-toolbar{margin:.55rem 0 .75rem;padding:.7rem .8rem;border-radius:var(--ws-radius-lg)}
+/* Apple: restrained, flat, precise. */
+.stApp:has(.ws-us-theme-marker--apple) .st-key-nasdaq-sector-toolbar{background:#fff;border:1px solid #D2D2D7;box-shadow:none}
+.stApp:has(.ws-us-theme-marker--apple) .ws-us-market-card{background:#fff;border-color:#D2D2D7;border-radius:11px;box-shadow:none}
+.stApp:has(.ws-us-theme-marker--apple) .ws-us-market-card:first-child{border-top:3px solid #0066CC}
+.stApp:has(.ws-us-theme-marker--apple) .ws-us-sector-tile{border-color:#D2D2D7;border-radius:11px;box-shadow:none}
+.stApp:has(.ws-us-theme-marker--apple) .ws-us-sector-tile:hover{border-color:#0066CC}
+/* Doraemon: airy blue canvas, rounded floating cards, red nose/yellow bell accents. */
+.stApp:has(.ws-us-theme-marker--doraemon) .st-key-nasdaq-sector-toolbar{background:#F0F8FF;border:1px solid #CFE7F6;box-shadow:0 8px 22px rgba(42,136,192,.08)}
+.stApp:has(.ws-us-theme-marker--doraemon) .ws-us-market-card{position:relative;background:#fff;border-color:#CFE7F6;border-radius:20px;box-shadow:0 8px 24px rgba(42,136,192,.09)}
+.stApp:has(.ws-us-theme-marker--doraemon) .ws-us-market-card:first-child{border-top:5px solid #11A9EE}
+.stApp:has(.ws-us-theme-marker--doraemon) .ws-us-market-card:nth-child(3)::after{position:absolute;top:12px;right:14px;width:10px;height:10px;background:#F46968;border-radius:50%;content:""}
+.stApp:has(.ws-us-theme-marker--doraemon) .ws-us-market-card:nth-child(4)::after{position:absolute;top:11px;right:13px;width:12px;height:12px;background:#FCCD3D;border:1px solid #D4A91E;border-radius:50%;content:""}
+.stApp:has(.ws-us-theme-marker--doraemon) .ws-us-sector-tile{border-color:#CFE7F6;border-radius:20px;box-shadow:0 8px 22px rgba(42,136,192,.08);transition:transform .15s ease,box-shadow .15s ease}
+.stApp:has(.ws-us-theme-marker--doraemon) .ws-us-sector-tile:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(42,136,192,.14)}
 @media(max-width:1100px){.ws-us-sector-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:800px){.ws-us-market-strip,.ws-us-sector-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.ws-us-market-strip,.ws-us-sector-grid{grid-template-columns:1fr}}
@@ -95,15 +112,18 @@ def _stock_view(stock_df: pd.DataFrame, sector: str, period: str) -> pd.DataFram
 
 
 def render_nasdaq_sector_page() -> None:
+    theme_id = get_active_theme_id()
     st.markdown(NASDAQ_SECTOR_PAGE_CSS, unsafe_allow_html=True)
+    st.html(f'<span class="ws-us-theme-marker ws-us-theme-marker--{escape(theme_id)}"></span>')
     st.subheader("🌐 纳斯达克板块与龙头")
     st.caption("以纳斯达克核心成长股为观察池，按交易主题聚合板块表现；板块收益采用核心代表股加权，不等同于官方行业指数。")
 
-    toolbar = st.columns([1.2, 1, 4])
-    with toolbar[0]:
-        period = st.selectbox("观察周期", list(PERIOD_TO_DAYS), index=0, key="nasdaq_sector_period")
-    with toolbar[1]:
-        force_refresh = st.button("刷新数据", use_container_width=True, key="nasdaq_sector_refresh")
+    with st.container(key="nasdaq-sector-toolbar"):
+        toolbar = st.columns([1.2, 1, 4])
+        with toolbar[0]:
+            period = st.selectbox("观察周期", list(PERIOD_TO_DAYS), index=0, key="nasdaq_sector_period")
+        with toolbar[1]:
+            force_refresh = st.button("刷新数据", use_container_width=True, key="nasdaq_sector_refresh")
 
     try:
         with st.spinner("正在加载纳斯达克板块快照……"):
@@ -166,7 +186,12 @@ def render_nasdaq_sector_page() -> None:
             color_continuous_midpoint=0,
             labels={"return_pct": f"{period}涨跌(%)", "sector": "板块"},
         )
-        fig.update_layout(height=455, coloraxis_showscale=False, margin=dict(l=10, r=15, t=10, b=25))
+        fig.update_layout(
+            template=build_apple_plotly_template(),
+            height=455,
+            coloraxis_showscale=False,
+            margin=dict(l=10, r=15, t=10, b=25),
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("#### 板块龙头")
