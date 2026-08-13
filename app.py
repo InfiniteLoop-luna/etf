@@ -4156,8 +4156,8 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                     "money": 3,
                     "macro": 4,
                     "data": 5,
-                    "favorite": 6,
-                    "overseas": 7,
+                    "overseas": 6,
+                    "favorite": 7,
                     "theme": 8,
                 }
                 ordered_modules = sorted(
