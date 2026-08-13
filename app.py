@@ -2153,12 +2153,10 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     color:#13213b !important;
     -webkit-text-fill-color:#13213b !important;
 }
-@media (max-width:1200px) {
+@media (max-width:900px) {
     .st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"] {
         grid-template-columns:repeat(2,minmax(0,1fr)) !important;
     }
-}
-@media (max-width:900px) {
     .ws-fund-watchboard__summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ws-fund-watchboard__cards { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ws-fund-watchboard__focus { grid-template-columns:1fr; }
