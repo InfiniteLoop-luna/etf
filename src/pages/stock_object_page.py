@@ -96,6 +96,47 @@ IMPORTANT_NOTICE_TYPES = {
     "持股变动",
 }
 
+STOCK_OBJECT_DATE_COLUMNS = (
+    "日期",
+    "发布时间",
+    "公告日期",
+    "报告日期",
+    "交易日期",
+    "trade_date",
+    "end_date",
+    "ann_date",
+    "f_ann_date",
+    "update_time",
+    "created_at",
+)
+
+
+def _sort_latest_first(
+    df: pd.DataFrame,
+    date_columns: tuple[str, ...] = STOCK_OBJECT_DATE_COLUMNS,
+) -> pd.DataFrame:
+    """Sort a dated stock-object feed newest-first without changing display values."""
+    if df is None or df.empty:
+        return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+
+    date_column = next((column for column in date_columns if column in df.columns), None)
+    if not date_column:
+        return df.copy()
+
+    work = df.copy()
+    work["__stock_object_sort_time"] = pd.to_datetime(
+        work[date_column],
+        errors="coerce",
+        format="mixed",
+    )
+    work = work.sort_values(
+        "__stock_object_sort_time",
+        ascending=False,
+        na_position="last",
+        kind="mergesort",
+    )
+    return work.drop(columns=["__stock_object_sort_time"]).reset_index(drop=True)
+
 
 def _build_recent_summary(event_df: pd.DataFrame, days: int = 7) -> tuple[pd.DataFrame, dict[str, int]]:
     if event_df is None or event_df.empty or "日期" not in event_df.columns:
@@ -105,8 +146,9 @@ def _build_recent_summary(event_df: pd.DataFrame, days: int = 7) -> tuple[pd.Dat
     work["排序时间"] = pd.to_datetime(work["日期"], errors="coerce", format="mixed")
     cutoff = pd.Timestamp.now().normalize() - pd.Timedelta(days=max(1, int(days)) - 1)
     recent = work[work["排序时间"].notna() & (work["排序时间"] >= cutoff)].copy()
+    recent = recent.sort_values("排序时间", ascending=False, kind="mergesort")
     counts = recent["类型"].value_counts().to_dict() if "类型" in recent.columns else {}
-    return recent, counts
+    return recent.drop(columns=["排序时间"], errors="ignore").reset_index(drop=True), counts
 
 
 def _pick_important_events(event_df: pd.DataFrame, limit: int = 8) -> pd.DataFrame:
@@ -145,9 +187,16 @@ def _pick_important_events(event_df: pd.DataFrame, limit: int = 8) -> pd.DataFra
         return score
 
     work["重要度"] = work.apply(_score, axis=1)
-    work = work.sort_values(["重要度", "排序时间"], ascending=[False, False], na_position="last")
     work = work[work["重要度"] >= 4]
-    return work.head(limit).drop(columns=["重要度", "排序时间"], errors="ignore")
+    # The section is already filtered by importance; present the surviving
+    # events chronologically so the newest actionable item is always first.
+    work = work.sort_values(
+        ["排序时间", "重要度"],
+        ascending=[False, False],
+        na_position="last",
+        kind="mergesort",
+    )
+    return work.head(limit).drop(columns=["重要度", "排序时间"], errors="ignore").reset_index(drop=True)
 
 
 def _render_recent_summary(event_df: pd.DataFrame) -> None:
@@ -201,7 +250,7 @@ def _render_event_table(df: pd.DataFrame, *, height: int = 520) -> None:
         st.info("暂无可展示数据。")
         return
 
-    display_df = df.copy()
+    display_df = _sort_latest_first(df)
     if "链接" in display_df.columns:
         display_df["链接"] = display_df["链接"].astype("string").fillna("").astype(str)
     st.dataframe(
@@ -562,7 +611,8 @@ def render_stock_object_page() -> None:
             st.info("近 180 天没有龙虎榜记录。")
         else:
             show_cols = [c for c in ["trade_date", "name", "reason", "l_amount_yi", "net_amount_yi", "pct_change"] if c in top_list.columns]
-            st.dataframe(top_list[show_cols].head(200), use_container_width=True, hide_index=True, height=420)
+            sorted_top_list = _sort_latest_first(top_list, ("trade_date", "日期"))
+            st.dataframe(sorted_top_list[show_cols].head(200), use_container_width=True, hide_index=True, height=420)
 
     with tab_fund:
         try:
@@ -594,7 +644,10 @@ def render_stock_object_page() -> None:
             st.info("该报告期暂无基金持仓披露数据。")
         else:
             st.caption(f"基金持仓记录：{len(holding_df):,}（季度披露，非实时）")
-            display_df = holding_df.copy()
+            display_df = _sort_latest_first(
+                holding_df,
+                ("end_date", "报告期", "ann_date", "f_ann_date", "公告日期"),
+            )
             if "fund_code" in display_df.columns:
                 display_df["基金详情"] = display_df["fund_code"].astype("string").fillna("").astype(str).map(
                     lambda code: (
