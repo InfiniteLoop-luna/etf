@@ -26,7 +26,7 @@ from app import (
 
 class NavigationConfigTests(unittest.TestCase):
     def test_overseas_nasdaq_page_is_registered(self):
-        self.assertEqual(OVERSEAS_NASDAQ_SECTORS_PAGE_LABEL, "🇺🇸 纳斯达克板块")
+        self.assertEqual(OVERSEAS_NASDAQ_SECTORS_PAGE_LABEL, "🌐 纳斯达克板块")
 
     def setUp(self):
         st.session_state.clear()

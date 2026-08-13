@@ -43,7 +43,7 @@ SIDEBAR_MODULES = (
         pages=(
             SidebarPage(
                 "nasdaq_sectors",
-                "🇺🇸 纳斯达克板块",
+                "🌐 纳斯达克板块",
                 "纳斯达克成长板块涨幅与龙头股票",
                 "standard",
             ),

@@ -51,7 +51,7 @@ def _render_market_strip(snapshot: dict, sector_df: pd.DataFrame) -> None:
         f'<div class="ws-us-market-card"><span>{escape(label)}</span><strong>{escape(value)}</strong><small>{escape(detail)}</small></div>'
         for label, value, detail in cards
     )
-    st.markdown(f'<div class="ws-us-market-strip">{html}</div>', unsafe_allow_html=True)
+    st.html(f'<div class="ws-us-market-strip">{html}</div>')
 
 
 def _render_sector_heatmap(sector_df: pd.DataFrame) -> None:
@@ -68,7 +68,7 @@ def _render_sector_heatmap(sector_df: pd.DataFrame) -> None:
             </div>
             """
         )
-    st.markdown(f'<div class="ws-us-sector-grid">{"".join(tiles)}</div>', unsafe_allow_html=True)
+    st.html(f'<div class="ws-us-sector-grid">{"".join(tiles)}</div>')
 
 
 def _stock_view(stock_df: pd.DataFrame, sector: str, period: str) -> pd.DataFrame:
@@ -96,7 +96,7 @@ def _stock_view(stock_df: pd.DataFrame, sector: str, period: str) -> pd.DataFram
 
 def render_nasdaq_sector_page() -> None:
     st.markdown(NASDAQ_SECTOR_PAGE_CSS, unsafe_allow_html=True)
-    st.subheader("🇺🇸 纳斯达克板块与龙头")
+    st.subheader("🌐 纳斯达克板块与龙头")
     st.caption("以纳斯达克核心成长股为观察池，按交易主题聚合板块表现；板块收益采用核心代表股加权，不等同于官方行业指数。")
 
     toolbar = st.columns([1.2, 1, 4])
