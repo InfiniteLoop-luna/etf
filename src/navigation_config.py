@@ -9,7 +9,6 @@ FAVORITE_PAGE_OPTIONS = get_page_labels("Favorite")
 MONEY_PAGE_OPTIONS = get_page_labels("资金")
 DATA_PAGE_OPTIONS = get_page_labels("数据")
 MACRO_PAGE_OPTIONS = get_page_labels("宏观")
-THEME_PAGE_OPTIONS = get_page_labels("主题")
 OVERSEAS_PAGE_OPTIONS = get_page_labels("海外")
 
 
@@ -63,5 +62,4 @@ MACRO_MAIN_PAGE_LABEL = _page_label("宏观", "macro")
 MACRO_DEPOSIT_PAGE_LABEL = _page_label("宏观", "deposit")
 MACRO_INDEX_MONITOR_PAGE_LABEL = _page_label("宏观", "index_monitor")
 
-THEME_CENTER_PAGE_LABEL = _page_label("主题", "theme_center")
 OVERSEAS_NASDAQ_SECTORS_PAGE_LABEL = _page_label("海外", "nasdaq_sectors")

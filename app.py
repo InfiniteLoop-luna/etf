@@ -132,7 +132,6 @@ from src.navigation_config import (
     STOCK_SECURITY_SEARCH_LABEL,
     STOCK_TECH_PICKER_LABEL,
     STOCK_USER_WATCHLIST_LABEL,
-    THEME_CENTER_PAGE_LABEL,
 )
 from src.sidebar_navigation import (
     SIDEBAR_MODULES,
@@ -2381,14 +2380,54 @@ def render_user_session_menu(key_suffix: str) -> None:
     if not current_username:
         return
 
+    current_theme_id = get_active_theme_id()
     with st.popover(
         current_username,
         icon=":material/account_circle:",
         use_container_width=True,
         key=f"user-session-menu-{key_suffix}",
     ):
-        st.caption("当前登录用户")
-        st.markdown(f"**{escape(current_username)}**")
+        avatar_label = escape(current_username[:1].upper())
+        st.markdown(
+            f"""
+            <div class="ws-account-menu-profile">
+                <span class="ws-account-menu-avatar" aria-hidden="true">{avatar_label}</span>
+                <span class="ws-account-menu-identity">
+                    <strong>{escape(current_username)}</strong>
+                    <small>当前登录账户</small>
+                </span>
+            </div>
+            <div class="ws-account-menu-section-title">主题设置</div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        for theme in list_available_themes():
+            theme_id = str(theme["id"])
+            is_active = theme_id == current_theme_id
+            theme_key = "-".join(
+                filter(
+                    None,
+                    (
+                        "btn-user-theme",
+                        theme_id,
+                        key_suffix,
+                        "active" if is_active else "",
+                    ),
+                )
+            )
+            if st.button(
+                str(theme["name"]),
+                key=theme_key,
+                icon=":material/check:" if is_active else ":material/palette:",
+                use_container_width=True,
+            ):
+                if not is_active:
+                    if not set_active_theme_id(theme_id, current_username):
+                        st.toast("主题已切换，但账户偏好保存失败。", icon="⚠️")
+                    st.rerun()
+
+        st.markdown('<div class="ws-account-menu-divider"></div>', unsafe_allow_html=True)
         if st.button(
             "退出登录",
             key=f"btn-user-logout-{key_suffix}",
@@ -4158,7 +4197,6 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                     "data": 5,
                     "overseas": 6,
                     "favorite": 7,
-                    "theme": 8,
                 }
                 ordered_modules = sorted(
                     SIDEBAR_MODULES,
@@ -4233,58 +4271,9 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                 )
 
         with st.container(key="ws-sidebar-footer"):
-            st.markdown(
-                """
-                <div class="ws-sidebar-block ws-sidebar-block--account">
-                    <div class="ws-sidebar-block-title">账户</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
             render_user_session_menu("desktop")
 
     return selected_module.label, selected_page.label
-
-
-def render_theme_center_page() -> None:
-    """Render theme selection as a dedicated page instead of a fixed sidebar control."""
-    st.subheader("🎨 主题中心")
-    st.caption("选择你喜欢的界面风格。设置会保留在当前链接中，刷新页面后仍然生效。")
-
-    current_theme_id = get_active_theme_id()
-    themes = list_available_themes()
-    theme_descriptions = {
-        "apple": "克制、清晰的专业终端风格，适合长时间查看行情与数据。",
-        "doraemon": "明快的蓝色与柔和背景，界面更轻松、更有活力。",
-    }
-
-    columns = st.columns(min(2, max(1, len(themes))))
-    for index, theme in enumerate(themes):
-        theme_id = theme["id"]
-        is_active = theme_id == current_theme_id
-        colors = theme.get("preview_colors", [])
-        swatches = "".join(
-            f'<span style="display:inline-block;width:34px;height:34px;background:{escape(color)};'
-            'border:1px solid rgba(0,0,0,.08);border-radius:9px;margin-right:8px"></span>'
-            for color in colors
-        )
-        with columns[index % len(columns)]:
-            with st.container(border=True, key=f"theme-center-card-{theme_id}"):
-                status = "当前使用" if is_active else "可选主题"
-                st.markdown(f"### {escape(theme['name'])}")
-                st.caption(f"{theme.get('name_en', theme_id)} · {status}")
-                st.markdown(swatches, unsafe_allow_html=True)
-                st.write(theme_descriptions.get(theme_id, "切换整站的配色与视觉风格。"))
-                if st.button(
-                    "✓ 当前主题" if is_active else "应用此主题",
-                    key=f"theme-center-apply-{theme_id}",
-                    type="primary" if not is_active else "secondary",
-                    disabled=is_active,
-                    use_container_width=True,
-                ):
-                    if not set_active_theme_id(theme_id, get_logged_in_username()):
-                        st.error("主题已在当前页面应用，但保存到用户配置失败，请稍后重试。")
-                    st.rerun()
 
 
 def render_tech_picker_jump_table(df: pd.DataFrame) -> None:
@@ -7811,7 +7800,6 @@ def _render_application_page() -> PageStatus:
     money_module_label = get_module_label_for_page(MONEY_FLOW_PAGE_LABEL)
     data_module_label = get_module_label_for_page(DATA_HEALTH_PAGE_LABEL)
     macro_module_label = get_module_label_for_page(MACRO_MAIN_PAGE_LABEL)
-    theme_module_label = get_module_label_for_page(THEME_CENTER_PAGE_LABEL)
     overseas_module_label = get_module_label_for_page(OVERSEAS_NASDAQ_SECTORS_PAGE_LABEL)
 
     if selected_module == decision_module_label:
@@ -7915,9 +7903,6 @@ def _render_application_page() -> PageStatus:
             render_nasdaq_sector_page()
         else:
             render_nasdaq_sector_page()
-
-    elif selected_module == theme_module_label:
-        render_theme_center_page()
 
     # Local dashboard modules inject their own CSS while rendering. This final
     # pass keeps those modules aligned with the shared terminal design system.

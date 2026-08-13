@@ -650,21 +650,15 @@ button[aria-label="Open sidebar"]:hover {{
     text-transform: uppercase;
 }}
 
-[data-testid="stSidebar"] .ws-sidebar-block--account {{
-    margin-top: 1rem;
-    padding-top: 0.7rem;
-    border-top: 1px solid var(--ws-sidebar-line);
-}}
-
 [class*="st-key-user-session-menu-"] button {{
     box-sizing: border-box !important;
-    height: var(--ws-sidebar-row-height);
-    min-height: var(--ws-sidebar-row-height);
-    max-height: var(--ws-sidebar-row-height);
+    height: 38px;
+    min-height: 38px;
+    max-height: 38px;
     justify-content: flex-start !important;
     color: var(--ws-sidebar-text) !important;
     background: transparent !important;
-    border: 1px solid var(--ws-sidebar-line) !important;
+    border: 0 !important;
     border-radius: var(--ws-radius-sm) !important;
     box-shadow: none !important;
 }}
@@ -672,6 +666,101 @@ button[aria-label="Open sidebar"]:hover {{
 [class*="st-key-user-session-menu-"] button:hover {{
     color: var(--ws-sidebar-accent-hover) !important;
     background: var(--ws-sidebar-hover-bg) !important;
+}}
+
+[data-baseweb="popover"]:has(.ws-account-menu-profile) {{
+    min-width: 272px;
+}}
+
+[data-baseweb="popover"]:has(.ws-account-menu-profile) [data-testid="stVerticalBlock"] {{
+    gap: 2px !important;
+}}
+
+.ws-account-menu-profile {{
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 0.65rem;
+    align-items: center;
+    margin: 0 0 0.55rem;
+    padding: 0.2rem 0.25rem 0.7rem;
+    border-bottom: 1px solid var(--ws-border-soft);
+}}
+
+.ws-account-menu-avatar {{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    color: var(--ws-text-inverse) !important;
+    background: var(--ws-color-primary);
+    border-radius: 50%;
+    font-size: 0.82rem;
+    font-weight: 750;
+}}
+
+.ws-account-menu-identity,
+.ws-account-menu-identity strong,
+.ws-account-menu-identity small {{
+    display: block;
+    min-width: 0;
+}}
+
+.ws-account-menu-identity strong {{
+    overflow: hidden;
+    color: var(--ws-text-main) !important;
+    font-size: 0.94rem;
+    font-weight: 700;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}}
+
+.ws-account-menu-identity small {{
+    margin-top: 0.08rem;
+    color: var(--ws-text-muted) !important;
+    font-size: 0.76rem;
+    line-height: 1.25;
+}}
+
+.ws-account-menu-section-title {{
+    margin: 0.15rem 0.4rem 0.25rem;
+    color: var(--ws-text-muted) !important;
+    font-size: 0.74rem;
+    font-weight: 650;
+}}
+
+.ws-account-menu-divider {{
+    height: 1px;
+    margin: 0.45rem 0 0.35rem;
+    background: var(--ws-border-soft);
+}}
+
+[class*="st-key-btn-user-theme-"] button,
+[class*="st-key-btn-user-logout-"] button {{
+    min-height: 36px !important;
+    justify-content: flex-start !important;
+    color: var(--ws-text-main) !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: var(--ws-radius-sm) !important;
+    box-shadow: none !important;
+}}
+
+[class*="st-key-btn-user-theme-"] button:hover {{
+    color: var(--ws-color-primary-hover) !important;
+    background: var(--ws-surface-alt) !important;
+}}
+
+[class*="st-key-btn-user-theme-"][class*="-active"] button {{
+    color: var(--ws-color-primary-hover) !important;
+    background: var(--ws-color-primary-soft) !important;
+    font-weight: 650 !important;
+}}
+
+[class*="st-key-btn-user-logout-"] button:hover {{
+    color: var(--ws-color-down) !important;
+    background: color-mix(in srgb, var(--ws-color-down) 8%, transparent) !important;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-block-copy,
@@ -994,10 +1083,6 @@ button[aria-label="Open sidebar"]:hover {{
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-favorite"] button::before {{
     background: #F5B400 !important;
-    mask-image: url("{mask_icons['star']}");
-    -webkit-mask-image: url("{mask_icons['star']}");
-}}
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-theme"] button::before {{
     mask-image: url("{mask_icons['star']}");
     -webkit-mask-image: url("{mask_icons['star']}");
 }}
@@ -1747,12 +1832,6 @@ button[kind="primary"],
     border-top: 1px solid var(--ws-sidebar-line);
 }}
 
-[data-testid="stSidebar"] [class*="st-key-ws-sidebar-footer"] .ws-sidebar-block--account {{
-    margin: 0 0 0.35rem;
-    padding: 0 0.35rem;
-    border-top: 0;
-}}
-
 [data-testid="stSidebar"] .ws-sidebar-brand-kicker {{
     flex: 0 0 32px;
     align-self: center;
@@ -1996,7 +2075,6 @@ button[kind="primary"],
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-macro"] button:hover::after {{ content: "Macro"; }}
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-data"] button:hover::after {{ content: "Data"; }}
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-favorite"] button:hover::after {{ content: "Favorites"; }}
-[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-theme"] button:hover::after {{ content: "Themes"; }}
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-overseas"] button:hover::after {{ content: "Global markets"; }}
 
 [data-testid="collapsedControl"] {{
