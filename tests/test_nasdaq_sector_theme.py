@@ -24,6 +24,13 @@ class NasdaqSectorThemeTest(unittest.TestCase):
         self.assertIn("background:#F46968", self.source)
         self.assertIn("background:#FCCD3D", self.source)
 
+    def test_a_share_mapping_has_both_theme_styles(self) -> None:
+        self.assertIn(".ws-cn-map-card", self.source)
+        self.assertIn(".ws-us-theme-marker--apple) .ws-cn-map-card", self.source)
+        self.assertIn(".ws-us-theme-marker--doraemon) .ws-cn-map-card", self.source)
+        self.assertIn("background:#F46968", self.source)
+        self.assertIn("background:#FCCD3D", self.source)
+
     def test_plotly_chart_rebuilds_template_for_current_theme(self) -> None:
         self.assertIn("build_apple_plotly_template", self.source)
         self.assertIn("template=build_apple_plotly_template()", self.source)

@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 from html import escape
+from urllib.parse import quote
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
 from src.apple_theme import build_apple_plotly_template
+from src.nasdaq_a_share_mapping import (
+    add_user_mapping,
+    list_combined_mappings,
+    list_user_mappings,
+    remove_user_mapping,
+)
 from src.nasdaq_sector_data import PERIOD_TO_DAYS, load_or_refresh_snapshot
+from src.security_data_cache import load_security_search
 from src.theme_registry import get_active_theme_id
 
 
@@ -33,6 +41,14 @@ NASDAQ_SECTOR_PAGE_CSS = """
 .stApp:has(.ws-us-theme-marker--doraemon) .ws-us-market-card:nth-child(4)::after{position:absolute;top:11px;right:13px;width:12px;height:12px;background:#FCCD3D;border:1px solid #D4A91E;border-radius:50%;content:""}
 .stApp:has(.ws-us-theme-marker--doraemon) .ws-us-sector-tile{border-color:#CFE7F6;border-radius:20px;box-shadow:0 8px 22px rgba(42,136,192,.08);transition:transform .15s ease,box-shadow .15s ease}
 .stApp:has(.ws-us-theme-marker--doraemon) .ws-us-sector-tile:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(42,136,192,.14)}
+.ws-cn-map-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;margin:.55rem 0 .85rem}.ws-cn-map-card{position:relative;padding:.78rem .85rem;border:1px solid var(--ws-border-soft);border-radius:var(--ws-radius-lg);background:var(--ws-bg-surface);box-shadow:var(--ws-shadow)}
+.ws-cn-map-card h4{margin:0!important;font-size:1rem!important}.ws-cn-map-card code{color:var(--ws-color-primary);background:var(--ws-color-primary-soft);border-radius:5px;padding:.08rem .28rem}.ws-cn-map-card p{margin:.42rem 0 .25rem!important}.ws-cn-map-card small{color:var(--ws-text-muted)}.ws-cn-map-source{position:absolute;top:.65rem;right:.7rem;color:var(--ws-text-soft);font-size:.78rem}
+.st-key-nasdaq-a-share-add{margin:.65rem 0;padding:.75rem .85rem;border-radius:var(--ws-radius-lg)}
+.stApp:has(.ws-us-theme-marker--apple) .ws-cn-map-card,.stApp:has(.ws-us-theme-marker--apple) .st-key-nasdaq-a-share-add{border-color:#D2D2D7;border-radius:11px;box-shadow:none}.stApp:has(.ws-us-theme-marker--apple) .ws-cn-map-card:hover{border-color:#0066CC}
+.stApp:has(.ws-us-theme-marker--doraemon) .ws-cn-map-card,.stApp:has(.ws-us-theme-marker--doraemon) .st-key-nasdaq-a-share-add{border-color:#CFE7F6;border-radius:20px;box-shadow:0 8px 22px rgba(42,136,192,.08)}.stApp:has(.ws-us-theme-marker--doraemon) .st-key-nasdaq-a-share-add{background:#F0F8FF}.stApp:has(.ws-us-theme-marker--doraemon) .ws-cn-map-card::before{position:absolute;top:.72rem;left:-5px;width:9px;height:9px;background:#F46968;border-radius:50%;content:""}.stApp:has(.ws-us-theme-marker--doraemon) .ws-cn-map-card:nth-child(even)::before{background:#FCCD3D;border:1px solid #D4A91E}
+@media(max-width:1100px){.ws-us-sector-grid,.ws-cn-map-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:800px){.ws-cn-map-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.ws-cn-map-grid{grid-template-columns:1fr}}
 @media(max-width:1100px){.ws-us-sector-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:800px){.ws-us-market-strip,.ws-us-sector-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.ws-us-market-strip,.ws-us-sector-grid{grid-template-columns:1fr}}
@@ -109,6 +125,63 @@ def _stock_view(stock_df: pd.DataFrame, sector: str, period: str) -> pd.DataFram
             "trade_date": "交易日",
         }
     )[["代码", "公司", "收盘价", f"{period}涨跌(%)", "成交量/20日均量", "龙头分", "交易日"]]
+
+
+def _render_a_share_mapping_cards(mapping_df: pd.DataFrame) -> None:
+    if mapping_df is None or mapping_df.empty:
+        st.info("当前板块尚未配置A股映射，可在下方手工添加。")
+        return
+    cards = []
+    for row in mapping_df.to_dict("records"):
+        link = (
+            f"?security_query={quote(str(row.get('ts_code') or ''))}"
+            "&security_type=stock&open_tab=stock_object"
+            f"&jump_nonce=nasdaq-cn-map-{quote(str(row.get('ts_code') or ''))}"
+        )
+        source_label = "我的" if row.get("source") == "user" else "系统"
+        cards.append(
+            f'''<a href="{link}" class="ws-cn-map-card" target="_self">
+                <span class="ws-cn-map-source">{source_label}</span>
+                <h4>{escape(str(row.get('name') or '-'))}</h4>
+                <code>{escape(str(row.get('ts_code') or '-'))}</code>
+                <p>{escape(str(row.get('theme') or '关联方向'))}</p>
+                <small>{escape(str(row.get('reason') or '用户自定义映射'))}</small>
+            </a>'''
+        )
+    st.html(f'<div class="ws-cn-map-grid">{"".join(cards)}</div>')
+
+
+def _render_a_share_add_panel(username: str, sector: str) -> None:
+    if not username:
+        st.caption("登录后可把A股股票添加到当前纳斯达克板块，并跟随账号永久保存。")
+        return
+    with st.expander("➕ 手工添加A股映射", expanded=False):
+        with st.container(key="nasdaq-a-share-add"):
+            keyword = st.text_input("搜索A股", placeholder="输入代码、简称或拼音", key=f"nasdaq_cn_keyword_{sector}").strip()
+            candidates = pd.DataFrame()
+            if keyword:
+                try:
+                    candidates = load_security_search(keyword, "stock", limit=20)
+                except Exception as exc:
+                    st.warning(f"搜索A股失败：{exc}")
+            if not candidates.empty:
+                candidates = candidates.copy()
+                candidates["label"] = candidates.apply(lambda row: f"{row.get('name') or '-'}（{row.get('ts_code') or '-'}）", axis=1)
+                selected_label = st.selectbox("匹配股票", candidates["label"].tolist(), key=f"nasdaq_cn_candidate_{sector}")
+                selected = candidates[candidates["label"] == selected_label].iloc[0]
+                theme = st.text_input("关联方向", value=str(selected.get("industry") or sector), key=f"nasdaq_cn_theme_{sector}")
+                reason = st.text_input("关联理由", placeholder="例如：高速光模块核心龙头", key=f"nasdaq_cn_reason_{sector}")
+                if st.button("添加到当前板块", type="primary", key=f"nasdaq_cn_add_{sector}"):
+                    if add_user_mapping(username, sector, str(selected.get("ts_code") or ""), str(selected.get("name") or ""), theme, reason):
+                        st.success("已保存到你的A股映射。")
+                        st.rerun()
+                    st.error("保存失败，请检查登录状态和股票信息。")
+            user_df = list_user_mappings(username, sector)
+            if not user_df.empty:
+                remove_code = st.selectbox("移除我的映射", user_df["ts_code"].tolist(), format_func=lambda code: next((f"{row['name']}（{code}）" for row in user_df.to_dict('records') if row['ts_code'] == code), code), key=f"nasdaq_cn_remove_select_{sector}")
+                if st.button("移除选中股票", key=f"nasdaq_cn_remove_{sector}"):
+                    remove_user_mapping(username, sector, remove_code)
+                    st.rerun()
 
 
 def render_nasdaq_sector_page() -> None:
@@ -216,3 +289,13 @@ def render_nasdaq_sector_page() -> None:
             f"当前综合龙头：{leader['公司']}（{leader['代码']}） · 龙头分 {leader['龙头分']:.1f}。"
             "龙头分综合核心代表权重、周期涨幅和成交量活跃度，仅用于板块内部排序。"
         )
+
+    st.markdown("#### A股关联")
+    username = str(st.session_state.get("logged_in_username") or "").strip()
+    try:
+        mapping_df = list_combined_mappings(username, focus_sector)
+    except Exception as exc:
+        st.warning(f"加载A股映射失败：{exc}")
+        mapping_df = pd.DataFrame()
+    _render_a_share_mapping_cards(mapping_df)
+    _render_a_share_add_panel(username, focus_sector)
