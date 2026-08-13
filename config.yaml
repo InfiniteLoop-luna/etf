@@ -1,5 +1,10 @@
 # ETF数据更新程序配置文件
 
+# 主题配置（可选）
+# active: apple | doraemon
+theme:
+  active: "apple"
+
 # Excel文件路径
 excel_file: "主要ETF基金份额变动情况.xlsx"
 

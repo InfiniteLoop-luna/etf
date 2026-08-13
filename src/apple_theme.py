@@ -49,11 +49,30 @@ APPLE_THEME_TOKENS = dict(APPLE_THEME_DEFAULT_TOKENS)
 
 
 def get_apple_theme_tokens(overrides: dict | None = None) -> dict:
+    # Layer 1: Start from immutable defaults
     tokens = dict(APPLE_THEME_DEFAULT_TOKENS)
-    source = APPLE_THEME_TOKENS if overrides is None else overrides
-    if isinstance(source, dict):
-        tokens.update({key: value for key, value in source.items() if value is not None})
+
+    # Layer 2: Apply active theme from the registry (Doraemon, Apple, etc.)
+    try:
+        from src.theme_registry import get_active_theme_tokens
+        registry_tokens = get_active_theme_tokens()
+        tokens.update({k: v for k, v in registry_tokens.items() if v is not None})
+    except Exception:
+        pass
+
+    # Layer 3: Apply APPLE_THEME_TOKENS global mutations (backward compat —
+    # tests and extensions may patch the global dict directly)
+    if APPLE_THEME_TOKENS is not APPLE_THEME_DEFAULT_TOKENS:
+        for k, v in APPLE_THEME_TOKENS.items():
+            if v is not None and v != APPLE_THEME_DEFAULT_TOKENS.get(k):
+                tokens[k] = v
+
+    # Layer 4: Explicit caller overrides always win
+    if overrides is not None and overrides is not APPLE_THEME_TOKENS:
+        tokens.update({k: v for k, v in overrides.items() if v is not None})
+
     return tokens
+
 
 
 def build_apple_plotly_template() -> go.layout.Template:
@@ -636,6 +655,47 @@ button[aria-label="Open sidebar"]:hover {{
     padding-top: 0.7rem;
     border-top: 1px solid var(--ws-sidebar-line);
 }}
+
+/* ── Theme Switcher ── */
+[data-testid="stSidebar"] [class*="st-key-ws-theme-switcher"] {{
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--ws-sidebar-line);
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-theme-switcher"] [data-testid="stHorizontalBlock"] {{
+    gap: 0.35rem !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-theme-btn-"] button {{
+    box-sizing: border-box !important;
+    height: 30px !important;
+    min-height: 30px !important;
+    max-height: 30px !important;
+    padding: 0 0.5rem !important;
+    color: var(--ws-sidebar-text) !important;
+    background: transparent !important;
+    border: 1px solid var(--ws-sidebar-line) !important;
+    border-radius: var(--ws-radius-sm) !important;
+    box-shadow: none !important;
+    font-size: var(--ws-font-size-min) !important;
+    font-weight: 600 !important;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-theme-btn-"] button:hover {{
+    background: var(--ws-sidebar-hover-bg) !important;
+    border-color: var(--ws-sidebar-accent) !important;
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-theme-btn-"] button:disabled {{
+    color: var(--ws-sidebar-accent) !important;
+    background: var(--ws-sidebar-active-bg) !important;
+    border-color: var(--ws-sidebar-accent) !important;
+    opacity: 1 !important;
+    cursor: default;
+}}
+
 
 [class*="st-key-user-session-menu-"] button {{
     box-sizing: border-box !important;

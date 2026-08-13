@@ -198,6 +198,12 @@ from src.apple_theme import (
     build_terminal_component_overrides_css,
     get_apple_theme_tokens,
 )
+from src.theme_registry import (
+    get_active_theme_id,
+    get_theme_extra_css,
+    list_available_themes,
+    set_active_theme_id,
+)
 from src import financial_icons
 from src.page_shell import (
     PageStatus,
@@ -460,7 +466,7 @@ def apply_time_series_hover_affordance(
 # 数据文件路径
 DATA_FILE = "主要ETF基金份额变动情况.xlsx"
 st.markdown(
-    f"<style>{build_global_apple_theme_css()}{build_author_tracker_apple_css()}</style>",
+    f"<style>{build_global_apple_theme_css()}{build_author_tracker_apple_css()}{get_theme_extra_css()}</style>",
     unsafe_allow_html=True,
 )
 
@@ -4203,6 +4209,31 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                 )
 
         with st.container(key="ws-sidebar-footer"):
+            # ── Theme Switcher ──
+            _current_theme_id = get_active_theme_id()
+            _available_themes = list_available_themes()
+            with st.container(key="ws-theme-switcher"):
+                st.markdown(
+                    """
+                    <div class="ws-sidebar-block">
+                        <div class="ws-sidebar-block-title">主题</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                _theme_cols = st.columns(len(_available_themes))
+                for _t_idx, _t_info in enumerate(_available_themes):
+                    _is_active = _t_info["id"] == _current_theme_id
+                    _btn_label = f"{'✓ ' if _is_active else ''}{_t_info['name']}"
+                    if _theme_cols[_t_idx].button(
+                        _btn_label,
+                        key=f"ws-theme-btn-{_t_info['id']}",
+                        use_container_width=True,
+                        disabled=_is_active,
+                    ):
+                        set_active_theme_id(_t_info["id"])
+                        st.rerun()
+
             st.markdown(
                 """
                 <div class="ws-sidebar-block ws-sidebar-block--account">
