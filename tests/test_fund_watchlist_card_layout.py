@@ -5,13 +5,16 @@ import unittest
 from pathlib import Path
 
 
-APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
+ROOT = Path(__file__).resolve().parents[1]
+APP_PATH = ROOT / "app.py"
+THEME_PATH = ROOT / "src" / "apple_theme.py"
 
 
 class FundWatchlistCardLayoutTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = APP_PATH.read_text(encoding="utf-8")
+        cls.theme_source = THEME_PATH.read_text(encoding="utf-8")
         cls.tree = ast.parse(cls.source)
 
     def test_watchlist_cards_are_chunked_into_three_columns(self) -> None:
@@ -41,6 +44,14 @@ class FundWatchlistCardLayoutTest(unittest.TestCase):
             self.source,
         )
         self.assertIn('grid-template-columns:1fr !important', self.source)
+        self.assertIn(
+            'grid-template-columns: repeat(3, minmax(0, 1fr)) !important',
+            self.theme_source,
+        )
+        self.assertNotIn(
+            '/* Fund watchlist cards: restore complete legacy dark terminal styling. */',
+            self.theme_source,
+        )
 
     def test_card_overlay_height_matches_compact_card_height(self) -> None:
         self.assertIn("min-height:500px", self.source)

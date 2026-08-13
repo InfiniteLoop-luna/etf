@@ -3287,10 +3287,10 @@ html body [data-baseweb="textarea"] textarea:focus {
     text-overflow: ellipsis !important;
 }
 
-/* Fund watchlist cards: restore complete legacy dark terminal styling. */
+/* Fund watchlist cards: dense desktop grid, readable tablet/mobile fallback. */
 .st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"] {
     display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
     align-items: stretch !important;
     gap: 0.72rem !important;
 }
@@ -3301,6 +3301,12 @@ html body [data-baseweb="textarea"] textarea:focus {
 }
 
 @media (max-width: 900px) {
+    .st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"] {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 620px) {
     .st-key-fund_watchlist_card_grid [data-testid="stHorizontalBlock"] {
         grid-template-columns: minmax(0, 1fr) !important;
     }
@@ -3315,8 +3321,8 @@ html body [data-baseweb="textarea"] textarea:focus {
     --fw-muted: #c6d6eb;
     --fw-line: rgba(70, 126, 255, 0.38);
     --fw-line-soft: rgba(70, 126, 255, 0.2);
-    min-height: 390px !important;
-    padding: 0.92rem !important;
+    min-height: 500px !important;
+    padding: 0.72rem !important;
     color: var(--fw-text) !important;
     border: 1px solid var(--fw-line-soft) !important;
     background: linear-gradient(145deg, rgba(9, 29, 64, 0.96), rgba(3, 13, 32, 0.98)) !important;
@@ -3397,10 +3403,10 @@ html body [data-baseweb="textarea"] textarea:focus {
     align-items: center !important;
     justify-content: space-between !important;
     grid-template-columns: none !important;
-    gap: 0.75rem !important;
+    gap: 0.55rem !important;
     min-height: 0 !important;
-    margin: 0.72rem 0 0.55rem !important;
-    padding: 0.58rem 0.65rem !important;
+    margin: 0.52rem 0 0.42rem !important;
+    padding: 0.46rem 0.55rem !important;
     border: 1px solid rgba(34, 215, 255, 0.24) !important;
     background: linear-gradient(135deg, rgba(10, 48, 78, 0.72), rgba(4, 19, 42, 0.82)) !important;
     border-radius: 8px !important;
@@ -3455,9 +3461,9 @@ html body [data-baseweb="textarea"] textarea:focus {
     display: grid !important;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     align-items: center !important;
-    gap: 0.42rem 0.6rem !important;
-    margin: -0.1rem 0 0.55rem !important;
-    padding: 0.5rem 0.65rem !important;
+    gap: 0.32rem 0.45rem !important;
+    margin: -0.04rem 0 0.42rem !important;
+    padding: 0.4rem 0.52rem !important;
     border: 1px solid rgba(70, 126, 255, 0.22) !important;
     background: rgba(3, 12, 30, 0.66) !important;
     border-radius: 8px !important;
@@ -3501,7 +3507,7 @@ html body [data-baseweb="textarea"] textarea:focus {
 }
 
 .ws-fund-watchboard__card .ws-fund-watchboard__ratio {
-    margin: 0.82rem 0 0.7rem !important;
+    margin: 0.58rem 0 0.5rem !important;
     color: var(--fw-cyan) !important;
     -webkit-text-fill-color: var(--fw-cyan) !important;
     font-size: 1.52rem !important;
@@ -3518,12 +3524,12 @@ html body [data-baseweb="textarea"] textarea:focus {
 .ws-fund-watchboard__card .ws-fund-watchboard__card-metrics {
     display: grid !important;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 0.45rem !important;
+    gap: 0.36rem !important;
 }
 
 .ws-fund-watchboard__card .ws-fund-watchboard__card-metrics div {
     min-width: 0 !important;
-    padding: 0.48rem 0.55rem !important;
+    padding: 0.38rem 0.46rem !important;
     border: 1px solid rgba(70, 126, 255, 0.15) !important;
     background: rgba(3, 12, 30, 0.58) !important;
     border-radius: 7px !important;
@@ -3550,8 +3556,8 @@ html body [data-baseweb="textarea"] textarea:focus {
 .ws-fund-watchboard__card .ws-fund-watchboard__changes {
     display: grid !important;
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 0.38rem !important;
-    margin-top: 0.55rem !important;
+    gap: 0.3rem !important;
+    margin-top: 0.42rem !important;
 }
 
 .ws-fund-watchboard__card .ws-fund-watchboard__changes strong {
@@ -3569,8 +3575,8 @@ html body [data-baseweb="textarea"] textarea:focus {
     align-items: center !important;
     justify-content: space-between !important;
     gap: 0.5rem !important;
-    margin-top: 0.62rem !important;
-    padding-top: 0.52rem !important;
+    margin-top: 0.45rem !important;
+    padding-top: 0.4rem !important;
     color: #b8cae2 !important;
     -webkit-text-fill-color: #b8cae2 !important;
     border-top: 1px solid rgba(70, 126, 255, 0.13) !important;
