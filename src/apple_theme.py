@@ -723,11 +723,10 @@ button[aria-label="Open sidebar"]:hover {{
     line-height: 1.25;
 }}
 
-.ws-account-menu-section-title {{
-    margin: 0.15rem 0.4rem 0.25rem;
-    color: var(--ws-text-muted) !important;
-    font-size: 0.74rem;
-    font-weight: 650;
+.ws-account-menu-submenu {{
+    margin: 0.1rem 0 0.25rem 0.6rem;
+    padding-left: 0.45rem;
+    border-left: 2px solid var(--ws-border-soft);
 }}
 
 .ws-account-menu-divider {{
@@ -736,6 +735,7 @@ button[aria-label="Open sidebar"]:hover {{
     background: var(--ws-border-soft);
 }}
 
+[class*="st-key-btn-user-theme-menu-"] button,
 [class*="st-key-btn-user-theme-"] button,
 [class*="st-key-btn-user-logout-"] button {{
     min-height: 36px !important;
@@ -747,6 +747,7 @@ button[aria-label="Open sidebar"]:hover {{
     box-shadow: none !important;
 }}
 
+[class*="st-key-btn-user-theme-menu-"] button:hover,
 [class*="st-key-btn-user-theme-"] button:hover {{
     color: var(--ws-color-primary-hover) !important;
     background: var(--ws-surface-alt) !important;

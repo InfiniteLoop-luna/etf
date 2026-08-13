@@ -2381,6 +2381,7 @@ def render_user_session_menu(key_suffix: str) -> None:
         return
 
     current_theme_id = get_active_theme_id()
+    theme_menu_key = f"account_theme_menu_open_{key_suffix}"
     with st.popover(
         current_username,
         icon=":material/account_circle:",
@@ -2397,35 +2398,47 @@ def render_user_session_menu(key_suffix: str) -> None:
                     <small>当前登录账户</small>
                 </span>
             </div>
-            <div class="ws-account-menu-section-title">主题设置</div>
             """,
             unsafe_allow_html=True,
         )
 
-        for theme in list_available_themes():
-            theme_id = str(theme["id"])
-            is_active = theme_id == current_theme_id
-            theme_key = "-".join(
-                filter(
-                    None,
-                    (
-                        "btn-user-theme",
-                        theme_id,
-                        key_suffix,
-                        "active" if is_active else "",
-                    ),
+        theme_menu_open = bool(st.session_state.get(theme_menu_key, False))
+        if st.button(
+            "主题设置",
+            key=f"btn-user-theme-menu-{key_suffix}",
+            icon=":material/expand_more:" if theme_menu_open else ":material/chevron_right:",
+            use_container_width=True,
+        ):
+            st.session_state[theme_menu_key] = not theme_menu_open
+            st.rerun()
+
+        if theme_menu_open:
+            st.markdown('<div class="ws-account-menu-submenu">', unsafe_allow_html=True)
+            for theme in list_available_themes():
+                theme_id = str(theme["id"])
+                is_active = theme_id == current_theme_id
+                theme_key = "-".join(
+                    filter(
+                        None,
+                        (
+                            "btn-user-theme",
+                            theme_id,
+                            key_suffix,
+                            "active" if is_active else "",
+                        ),
+                    )
                 )
-            )
-            if st.button(
-                str(theme["name"]),
-                key=theme_key,
-                icon=":material/check:" if is_active else ":material/palette:",
-                use_container_width=True,
-            ):
-                if not is_active:
-                    if not set_active_theme_id(theme_id, current_username):
-                        st.toast("主题已切换，但账户偏好保存失败。", icon="⚠️")
-                    st.rerun()
+                if st.button(
+                    str(theme["name"]),
+                    key=theme_key,
+                    icon=":material/check:" if is_active else ":material/palette:",
+                    use_container_width=True,
+                ):
+                    if not is_active:
+                        if not set_active_theme_id(theme_id, current_username):
+                            st.toast("主题已切换，但账户偏好保存失败。", icon="⚠️")
+                        st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="ws-account-menu-divider"></div>', unsafe_allow_html=True)
         if st.button(

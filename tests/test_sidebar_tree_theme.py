@@ -54,8 +54,10 @@ class SidebarTreeThemeTest(unittest.TestCase):
         self.assertNotIn("st-key-ws-theme-switcher", css)
         self.assertNotIn("st-key-ws-theme-btn-", css)
         self.assertIn(".ws-account-menu-profile", css)
+        self.assertIn('[class*="st-key-btn-user-theme-menu-"] button', css)
         self.assertIn('[class*="st-key-btn-user-theme-"] button', css)
         self.assertIn('[class*="st-key-btn-user-theme-"][class*="-active"] button', css)
+        self.assertIn('.ws-account-menu-submenu', css)
 
         page_icon_rule = css.split(
             '[data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-"] button img {',
@@ -73,6 +75,8 @@ class SidebarTreeThemeTest(unittest.TestCase):
             "def parse_watchlist_input", 1
         )[0]
         self.assertIn("主题设置", menu_source)
+        self.assertIn("theme_menu_open", menu_source)
+        self.assertIn("btn-user-theme-menu-", menu_source)
         self.assertIn("list_available_themes()", menu_source)
         self.assertIn('"btn-user-theme"', menu_source)
         self.assertIn("set_active_theme_id(theme_id, current_username)", menu_source)
