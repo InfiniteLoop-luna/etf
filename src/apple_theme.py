@@ -997,6 +997,10 @@ button[aria-label="Open sidebar"]:hover {{
     mask-image: url("{mask_icons['star']}");
     -webkit-mask-image: url("{mask_icons['star']}");
 }}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-theme"] button::before {{
+    mask-image: url("{mask_icons['star']}");
+    -webkit-mask-image: url("{mask_icons['star']}");
+}}
 
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-page-my_favorite"] button img[src$="/star.svg"] {{
     opacity: 1 !important;
@@ -1988,6 +1992,7 @@ button[kind="primary"],
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-macro"] button:hover::after {{ content: "Macro"; }}
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-data"] button:hover::after {{ content: "Data"; }}
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-favorite"] button:hover::after {{ content: "Favorites"; }}
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-theme"] button:hover::after {{ content: "Themes"; }}
 
 [data-testid="collapsedControl"] {{
     position: fixed !important;

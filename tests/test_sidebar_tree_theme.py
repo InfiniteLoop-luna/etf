@@ -48,6 +48,8 @@ class SidebarTreeThemeTest(unittest.TestCase):
         self.assertIn('[class*="st-key-ws-sidebar-recent-list"]', css)
         self.assertIn('[class*="st-key-ws-sidebar-favorite-list"]', css)
         self.assertNotIn("min-height: 29px", css)
+        self.assertIn('st-key-ws-sidebar-module-theme', css)
+        self.assertIn('content: "Themes"', css)
         self.assertNotIn("st-key-ws-theme-switcher", css)
         self.assertNotIn("st-key-ws-theme-btn-", css)
 
