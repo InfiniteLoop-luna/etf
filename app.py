@@ -123,6 +123,7 @@ from src.navigation_config import (
     MONEY_LIMITUP_PAGE_LABEL,
     MONEY_PAGE_OPTIONS,
     MONEY_VOLUME_PAGE_LABEL,
+    OVERSEAS_NASDAQ_SECTORS_PAGE_LABEL,
     STOCK_COMPANY_SCREENER_LABEL,
     STOCK_LHB_PAGE_LABEL,
     STOCK_OBJECT_PAGE_LABEL,
@@ -274,6 +275,7 @@ from src.user_stock_pool_store import (
     upsert_stock_pool_item,
 )
 from src.pages.stock_object_page import render_stock_object_page
+from src.pages.nasdaq_sector_page import render_nasdaq_sector_page
 from src.pages.fund_object_page import render_fund_object_page
 from src.pages.margin_page import render_margin_page
 from src.security_data_cache import (
@@ -4155,7 +4157,8 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                     "macro": 4,
                     "data": 5,
                     "favorite": 6,
-                    "theme": 7,
+                    "overseas": 7,
+                    "theme": 8,
                 }
                 ordered_modules = sorted(
                     SIDEBAR_MODULES,
@@ -7809,6 +7812,7 @@ def _render_application_page() -> PageStatus:
     data_module_label = get_module_label_for_page(DATA_HEALTH_PAGE_LABEL)
     macro_module_label = get_module_label_for_page(MACRO_MAIN_PAGE_LABEL)
     theme_module_label = get_module_label_for_page(THEME_CENTER_PAGE_LABEL)
+    overseas_module_label = get_module_label_for_page(OVERSEAS_NASDAQ_SECTORS_PAGE_LABEL)
 
     if selected_module == decision_module_label:
         if selected_page == DECISION_TODAY_PAGE_LABEL:
@@ -7905,6 +7909,12 @@ def _render_application_page() -> PageStatus:
             render_index_monitor_tab()
         else:
             render_macro_tab()
+
+    elif selected_module == overseas_module_label:
+        if selected_page == OVERSEAS_NASDAQ_SECTORS_PAGE_LABEL:
+            render_nasdaq_sector_page()
+        else:
+            render_nasdaq_sector_page()
 
     elif selected_module == theme_module_label:
         render_theme_center_page()

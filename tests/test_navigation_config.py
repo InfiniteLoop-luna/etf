@@ -12,6 +12,7 @@ from src.navigation_config import (
     FAVORITE_PAGE_OPTIONS,
     MONEY_MARGIN_PAGE_LABEL,
     MONEY_PAGE_OPTIONS,
+    OVERSEAS_NASDAQ_SECTORS_PAGE_LABEL,
     STOCK_PAGE_OPTIONS,
 )
 from app import (
@@ -24,6 +25,9 @@ from app import (
 
 
 class NavigationConfigTests(unittest.TestCase):
+    def test_overseas_nasdaq_page_is_registered(self):
+        self.assertEqual(OVERSEAS_NASDAQ_SECTORS_PAGE_LABEL, "🇺🇸 纳斯达克板块")
+
     def setUp(self):
         st.session_state.clear()
 

@@ -37,6 +37,19 @@ class SidebarSearchResult:
 
 SIDEBAR_MODULES = (
     SidebarModule(
+        id="overseas",
+        label="海外",
+        session_key="overseas_subpage",
+        pages=(
+            SidebarPage(
+                "nasdaq_sectors",
+                "🇺🇸 纳斯达克板块",
+                "纳斯达克成长板块涨幅与龙头股票",
+                "standard",
+            ),
+        ),
+    ),
+    SidebarModule(
         id="theme",
         label="主题",
         session_key="theme_subpage",
