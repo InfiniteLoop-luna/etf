@@ -8,6 +8,9 @@ import json
 import time
 from html import escape
 from hmac import compare_digest
+
+APP_IMPORT_START_TIME = time.perf_counter()
+
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
@@ -22,6 +25,7 @@ except Exception:
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import logging
+from contextlib import contextmanager
 from typing import Optional, List, Union
 from urllib.parse import quote
 from src.data_loader import load_etf_data
@@ -309,6 +313,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+PERF_LOG_ENABLED = os.getenv("WEALTHSPARK_PERF_LOG", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _perf_log(label: str, start_time: float, **details) -> None:
+    """Print lightweight page timing to the Streamlit/server console."""
+    if not PERF_LOG_ENABLED:
+        return
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+    detail_text = " ".join(
+        f"{key}={value}"
+        for key, value in details.items()
+        if value is not None and value != ""
+    )
+    suffix = f" {detail_text}" if detail_text else ""
+    print(f"[PERF] {label} {elapsed_ms:.1f}ms{suffix}", flush=True)
+
+
+@contextmanager
+def _perf_span(label: str, **details):
+    start_time = time.perf_counter()
+    try:
+        yield
+    finally:
+        _perf_log(label, start_time, **details)
+
 # 页面配置
 st.set_page_config(
     page_title="WealthSpark 决策看板",
@@ -325,6 +354,8 @@ pio.templates["wealthspark_stripi"] = terminal_plotly_template
 pio.templates["wealthspark_balanced"] = terminal_plotly_template
 pio.templates["plotly_white"] = terminal_plotly_template
 pio.templates.default = "wealthspark_terminal"
+
+_perf_log("app.import_ready", APP_IMPORT_START_TIME)
 
 THEME = get_apple_theme_tokens(APPLE_THEME_TOKENS)
 THEME_PRIMARY = THEME["primary"]
@@ -7609,9 +7640,12 @@ def render_volume_tab():
 # 主应用
 def _render_application_page() -> PageStatus:
     """主应用逻辑"""
-    render_user_login_status()
-    hydrate_security_jump_from_query_params()
-    consume_pending_fund_watchlist_navigation()
+    page_start_time = time.perf_counter()
+    with _perf_span("page.login_status"):
+        render_user_login_status()
+    with _perf_span("page.navigation_hydration"):
+        hydrate_security_jump_from_query_params()
+        consume_pending_fund_watchlist_navigation()
 
     # ===== iPhone only mode (no sidebar dependency) =====
     iphone_mode = get_query_param_value("iphone_mode").strip() == "1"
@@ -7619,24 +7653,28 @@ def _render_application_page() -> PageStatus:
     update_summary = {}
     funding_freshness = {}
     refresh_nonce = int(st.session_state.get("data_health_refresh_nonce", 0))
-    try:
-        update_summary = load_update_activity_summary_cached(refresh_nonce)
-        funding_freshness = update_summary.get("funding_freshness") or {}
-    except Exception as exc:
-        logger.warning("Failed to load page update status: %s", exc)
+    with _perf_span("page.status_summary", refresh_nonce=refresh_nonce):
+        try:
+            update_summary = load_update_activity_summary_cached(refresh_nonce)
+            funding_freshness = update_summary.get("funding_freshness") or {}
+        except Exception as exc:
+            logger.warning("Failed to load page update status: %s", exc)
 
-    try:
-        if not funding_freshness:
-            funding_freshness = load_funding_freshness_summary_cached(refresh_nonce)
-    except Exception as exc:
-        logger.warning("Failed to load page funding freshness: %s", exc)
+        try:
+            if not funding_freshness:
+                funding_freshness = load_funding_freshness_summary_cached(refresh_nonce)
+        except Exception as exc:
+            logger.warning("Failed to load page funding freshness: %s", exc)
 
-    page_status = build_page_status(update_summary, funding_freshness)
+    with _perf_span("page.status_build"):
+        page_status = build_page_status(update_summary, funding_freshness)
 
     # 处理外部跳转请求（例如从榜单点击跳到个股查询）
-    trigger_security_tab_jump_if_needed()
+    with _perf_span("page.security_jump"):
+        trigger_security_tab_jump_if_needed()
 
     if iphone_mode:
+        iphone_render_start = time.perf_counter()
         st.markdown(
             """
             <style>
@@ -7801,10 +7839,24 @@ def _render_application_page() -> PageStatus:
             else:
                 render_fund_monitor_tab()
 
+        _perf_log(
+            "page.mobile_render",
+            iphone_render_start,
+            group=mobile_group,
+            page=mobile_page,
+        )
+        _perf_log("page.total", page_start_time, mode="iphone")
         return page_status
 
     # ===== 方案B进阶版：desktop sidebar 导航壳层 =====
+    sidebar_start_time = time.perf_counter()
     selected_module, selected_page = render_desktop_sidebar_navigation()
+    _perf_log(
+        "page.sidebar",
+        sidebar_start_time,
+        module=selected_module,
+        page=selected_page,
+    )
 
     decision_module_label = get_module_label_for_page(DECISION_TODAY_PAGE_LABEL)
     fund_module_label = get_module_label_for_page(ETF_MAIN_PAGE_LABEL)
@@ -7815,6 +7867,7 @@ def _render_application_page() -> PageStatus:
     macro_module_label = get_module_label_for_page(MACRO_MAIN_PAGE_LABEL)
     overseas_module_label = get_module_label_for_page(OVERSEAS_NASDAQ_SECTORS_PAGE_LABEL)
 
+    page_render_start_time = time.perf_counter()
     if selected_module == decision_module_label:
         if selected_page == DECISION_TODAY_PAGE_LABEL:
             render_commercial_mvp_tab()
@@ -7917,23 +7970,37 @@ def _render_application_page() -> PageStatus:
         else:
             render_nasdaq_sector_page()
 
-    # Local dashboard modules inject their own CSS while rendering. This final
-    # pass keeps those modules aligned with the shared terminal design system.
-    st.markdown(
-        f"<style>{build_terminal_component_overrides_css()}</style>",
-        unsafe_allow_html=True,
+    _perf_log(
+        "page.render",
+        page_render_start_time,
+        module=selected_module,
+        page=selected_page,
     )
 
+    # Local dashboard modules inject their own CSS while rendering. This final
+    # pass keeps those modules aligned with the shared terminal design system.
+    with _perf_span("page.terminal_css"):
+        st.markdown(
+            f"<style>{build_terminal_component_overrides_css()}</style>",
+            unsafe_allow_html=True,
+        )
+
+    _perf_log("page.total", page_start_time, mode="desktop", module=selected_module, page=selected_page)
     return page_status
 
 
 def main() -> None:
-    page_status = render_with_page_loading_mask(st, _render_application_page)
+    main_start_time = time.perf_counter()
+    with _perf_span("main.render_with_mask"):
+        page_status = render_with_page_loading_mask(st, _render_application_page)
 
-    st.markdown(
-        build_page_status_bar_html(page_status),
-        unsafe_allow_html=True,
-    )
+    with _perf_span("main.status_bar"):
+        st.markdown(
+            build_page_status_bar_html(page_status),
+            unsafe_allow_html=True,
+        )
+
+    _perf_log("main.total", main_start_time)
 
 
 
