@@ -35,6 +35,13 @@ class NasdaqSectorThemeTest(unittest.TestCase):
         self.assertIn("build_apple_plotly_template", self.source)
         self.assertIn("template=build_apple_plotly_template()", self.source)
 
+    def test_price_changes_use_china_market_colors(self) -> None:
+        self.assertIn(".ws-market-up{color:#D94C51!important}", self.source)
+        self.assertIn(".ws-market-down{color:#248A3D!important}", self.source)
+        self.assertIn('return "ws-market-up" if float(number) > 0 else "ws-market-down"', self.source)
+        self.assertIn('color_continuous_scale=["#248A3D", "#E8EEF3", "#D94C51"]', self.source)
+        self.assertIn('_style_change_columns(leader_df, [f"{period}涨跌(%)"])', self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

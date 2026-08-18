@@ -24,6 +24,7 @@ NASDAQ_SECTOR_PAGE_CSS = """
 .ws-us-market-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin:.55rem 0 .85rem}
 .ws-us-market-card{padding:.8rem .9rem;background:var(--ws-bg-surface);border:1px solid var(--ws-border-soft);border-radius:var(--ws-radius-lg);box-shadow:var(--ws-shadow)}
 .ws-us-market-card span{display:block;color:var(--ws-text-muted);font-size:.88rem}.ws-us-market-card strong{display:block;margin-top:.2rem;color:var(--ws-text-main);font-size:1.25rem}.ws-us-market-card small{color:var(--ws-text-soft)}
+.ws-market-up{color:#D94C51!important}.ws-market-down{color:#248A3D!important}.ws-market-flat{color:var(--ws-text-muted)!important}
 .ws-us-sector-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.65rem;margin:.4rem 0 1rem}.ws-us-sector-tile{padding:.8rem;border:1px solid var(--ws-border-soft);border-radius:var(--ws-radius-lg);background:var(--tile-bg);box-shadow:var(--ws-shadow)}
 .ws-us-sector-tile h4{margin:0!important;font-size:1rem!important}.ws-us-sector-tile strong{display:block;margin:.35rem 0;color:var(--tile-color);font-size:1.35rem}.ws-us-sector-tile span,.ws-us-sector-tile small{display:block;color:var(--ws-text-muted)}
 .ws-us-theme-marker{display:none}.st-key-nasdaq-sector-toolbar{margin:.55rem 0 .75rem;padding:.7rem .8rem;border-radius:var(--ws-radius-lg)}
@@ -61,6 +62,29 @@ def _pct(value) -> str:
     return "-" if pd.isna(number) else f"{float(number):+.2f}%"
 
 
+def _china_market_class(value) -> str:
+    """Return the China-market direction class: red up, green down."""
+    number = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(number) or float(number) == 0:
+        return "ws-market-flat"
+    return "ws-market-up" if float(number) > 0 else "ws-market-down"
+
+
+def _china_market_cell(value) -> str:
+    """Pandas Styler rule for China-market price-change columns."""
+    direction = _china_market_class(value)
+    if direction == "ws-market-up":
+        return "color: #D94C51; font-weight: 600"
+    if direction == "ws-market-down":
+        return "color: #248A3D; font-weight: 600"
+    return "color: inherit"
+
+
+def _style_change_columns(frame: pd.DataFrame, columns: list[str]):
+    available = [column for column in columns if column in frame.columns]
+    return frame.style.map(_china_market_cell, subset=available)
+
+
 def _tile_style(value: float) -> tuple[str, str]:
     strength = min(abs(float(value or 0)) / 4.0, 1.0)
     if value > 0:
@@ -73,16 +97,17 @@ def _tile_style(value: float) -> tuple[str, str]:
 def _render_market_strip(snapshot: dict, sector_df: pd.DataFrame) -> None:
     benchmarks = snapshot.get("benchmark_returns") or {}
     strongest = sector_df.iloc[0] if not sector_df.empty else {}
-    weakest = sector_df.iloc[-1] if not sector_df.empty else {}
     cards = [
-        ("纳斯达克100（QQQ）", _pct(benchmarks.get("QQQ")), f"周期：{snapshot.get('period') or '-'}"),
-        ("上涨板块", f"{int((sector_df['return_pct'] > 0).sum())} / {len(sector_df)}" if not sector_df.empty else "-", "红涨绿跌"),
-        ("最强板块", str(strongest.get("sector") or "-"), _pct(strongest.get("return_pct"))),
-        ("领涨龙头", str(strongest.get("leader_symbol") or "-"), f"{strongest.get('leader_name') or '-'} {_pct(strongest.get('leader_return_pct'))}"),
+        ("纳斯达克100（QQQ）", _pct(benchmarks.get("QQQ")), f"周期：{snapshot.get('period') or '-'}", benchmarks.get("QQQ"), None),
+        ("上涨板块", f"{int((sector_df['return_pct'] > 0).sum())} / {len(sector_df)}" if not sector_df.empty else "-", "中国模式 · 红涨绿跌", None, None),
+        ("最强板块", str(strongest.get("sector") or "-"), _pct(strongest.get("return_pct")), None, strongest.get("return_pct")),
+        ("领涨龙头", str(strongest.get("leader_symbol") or "-"), f"{strongest.get('leader_name') or '-'} {_pct(strongest.get('leader_return_pct'))}", None, strongest.get("leader_return_pct")),
     ]
     html = "".join(
-        f'<div class="ws-us-market-card"><span>{escape(label)}</span><strong>{escape(value)}</strong><small>{escape(detail)}</small></div>'
-        for label, value, detail in cards
+        f'<div class="ws-us-market-card"><span>{escape(label)}</span>'
+        f'<strong class="{_china_market_class(value_change) if value_change is not None else ""}">{escape(value)}</strong>'
+        f'<small class="{_china_market_class(detail_change) if detail_change is not None else ""}">{escape(detail)}</small></div>'
+        for label, value, detail, value_change, detail_change in cards
     )
     st.html(f'<div class="ws-us-market-strip">{html}</div>')
 
@@ -241,7 +266,10 @@ def render_nasdaq_sector_page() -> None:
             }
         )
         st.dataframe(
-            rank_df[["排名", "板块", f"{period}涨跌(%)", "相对QQQ(百分点)", "上涨家数占比(%)", "领涨代码", "领涨公司", "领涨幅度(%)"]],
+            _style_change_columns(
+                rank_df[["排名", "板块", f"{period}涨跌(%)", "相对QQQ(百分点)", "上涨家数占比(%)", "领涨代码", "领涨公司", "领涨幅度(%)"]],
+                [f"{period}涨跌(%)", "相对QQQ(百分点)", "领涨幅度(%)"],
+            ),
             use_container_width=True,
             hide_index=True,
             height=455,
@@ -274,7 +302,7 @@ def render_nasdaq_sector_page() -> None:
         st.info("该板块暂无可用股票数据。")
     else:
         st.dataframe(
-            leader_df,
+            _style_change_columns(leader_df, [f"{period}涨跌(%)"]),
             use_container_width=True,
             hide_index=True,
             height=min(520, 42 + len(leader_df) * 36),
