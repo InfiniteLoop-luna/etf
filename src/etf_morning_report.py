@@ -10,7 +10,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from src.distribution_llm_analysis import make_json_safe
-from src.fund_hot_stocks import get_engine as get_fund_engine, query_fund_preference_snapshot
+from src.fund_hot_stocks import get_engine as get_fund_engine
 from src.stock_research_llm_analysis import load_stock_research_llm_config
 
 logger = logging.getLogger(__name__)
@@ -101,6 +101,49 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
         etf_source_date = _safe_date(etf.iloc[0].get("trade_date"))
         if etf_source_date and etf_source_date != target:
             warnings.append(f"ETF份额数据采用最近可用日期：{etf_source_date}")
+
+    industry_etf_growth = _query_frame(
+        engine,
+        """
+        WITH available_dates AS (
+            SELECT DISTINCT trade_date
+            FROM etf_share_size
+            WHERE trade_date <= :trade_date
+            ORDER BY trade_date DESC
+            LIMIT 2
+        ), ranked AS (
+            SELECT s.trade_date, s.ts_code, s.total_share, s.total_size,
+                   e.fund_name_cn, e.primary_category, e.secondary_category,
+                   ROW_NUMBER() OVER (PARTITION BY s.ts_code ORDER BY s.trade_date DESC) AS rn
+            FROM etf_share_size s
+            JOIN available_dates d ON d.trade_date = s.trade_date
+            LEFT JOIN etf_summary e ON e.fund_trade_code = s.ts_code
+            WHERE e.primary_category = '指数'
+              AND e.secondary_category = '行业&其他'
+        ), grouped AS (
+            SELECT fund_name_cn AS industry_etf,
+                   MAX(trade_date) FILTER (WHERE rn = 1) AS current_date,
+                   MAX(trade_date) FILTER (WHERE rn = 2) AS previous_date,
+                   MAX(total_share) FILTER (WHERE rn = 1) AS current_share,
+                   MAX(total_share) FILTER (WHERE rn = 2) AS previous_share,
+                   MAX(total_size) FILTER (WHERE rn = 1) AS current_size
+            FROM ranked
+            GROUP BY fund_name_cn
+        )
+        SELECT industry_etf, current_date, previous_date, current_share, previous_share,
+               current_size,
+               CASE WHEN previous_share IS NULL OR previous_share = 0 THEN NULL
+                    ELSE (current_share - previous_share) / previous_share * 100 END AS share_growth_pct,
+               current_share - COALESCE(previous_share, 0) AS share_change
+        FROM grouped
+        WHERE current_share IS NOT NULL
+        ORDER BY share_growth_pct DESC NULLS LAST, current_share DESC
+        LIMIT 30
+        """,
+        {"trade_date": target},
+    )
+    if industry_etf_growth.empty:
+        warnings.append("行业ETF份额增长数据缺失")
 
     ths = _query_frame(
         engine,
@@ -219,35 +262,30 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
         if not code:
             continue
         try:
-            holdings = query_fund_preference_snapshot(code, top_n=10, engine=engine)
-            holding_rows = _summarize_rows(
-                holdings,
-                ["symbol", "stock_name", "stk_mkv_ratio", "stock_industry", "stock_market", "stock_main_business", "stock_product", "stock_introduction"],
-                10,
-            )
-            subsector_counts: dict[str, float] = {}
-            for holding in holding_rows:
-                label = str(holding.get("stock_industry") or "未识别行业")
-                weight = float(holding.get("stk_mkv_ratio") or 0)
-                subsector_counts[label] = subsector_counts.get(label, 0.0) + weight
+            from src.fund_nav import fetch_latest_fund_nav_snapshot
+            nav = fetch_latest_fund_nav_snapshot(code) or {}
             funds.append({
                 "fund_code": code,
                 "fund_name": row.get("security_name") or code,
-                "holdings": holding_rows,
-                "industry_weight_summary": [
-                    {"industry": name, "weight": round(weight, 2)}
-                    for name, weight in sorted(subsector_counts.items(), key=lambda item: item[1], reverse=True)
-                ],
-                "holding_count": int(len(holdings)),
+                "nav_date": _safe_date(nav.get("nav_date")),
+                "daily_change_pct": nav.get("daily_change_pct"),
+                "unit_nav": nav.get("unit_nav"),
             })
         except Exception as exc:
-            warnings.append(f"基金 {code} 持仓读取失败：{exc}")
+            warnings.append(f"基金 {code} 净值读取失败：{exc}")
 
     return make_json_safe({
         "schema_version": REPORT_SCHEMA_VERSION,
         "report_trade_date": target,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "etf_overview": {"category_share_rows": _summarize_rows(etf, ["primary_category", "secondary_category", "total_share_size", "total_size"])},
+        "etf_overview": {
+            "category_share_rows": _summarize_rows(etf, ["primary_category", "secondary_category", "total_share_size", "total_size"]),
+            "industry_etf_growth": _summarize_rows(
+                industry_etf_growth,
+                ["industry_etf", "current_date", "previous_date", "current_share", "previous_share", "share_change", "share_growth_pct", "current_size"],
+                30,
+            ),
+        },
         "fund_watchlist": {"funds": funds},
         "trend_recommendations": {
             "trade_date": trend_payload.get("trade_date"),
@@ -312,7 +350,9 @@ def _fallback_markdown(fact_pack: dict) -> str:
     target = fact_pack.get("report_trade_date") or "未知日期"
     warnings = fact_pack.get("data_quality", {}).get("warnings") or []
     digest = build_report_digest(fact_pack)
-    etf_rows = fact_pack.get("etf_overview", {}).get("category_share_rows") or []
+    etf_overview = fact_pack.get("etf_overview", {}) or {}
+    etf_rows = etf_overview.get("category_share_rows") or []
+    industry_etf_growth = etf_overview.get("industry_etf_growth") or []
     ths_rows = fact_pack.get("money_flow", {}).get("ths_top_inflow") or []
     dc_rows = fact_pack.get("money_flow", {}).get("dc_top_inflow") or []
     northbound_rows = fact_pack.get("northbound", {}).get("daily") or []
@@ -335,12 +375,22 @@ def _fallback_markdown(fact_pack: dict) -> str:
         "",
         "## 二、ETF / 市场概览",
         f"- ETF 分类份额记录：{len(etf_rows)} 条",
+        f"- 行业 ETF 份额增长记录：{len(industry_etf_growth)} 条",
         f"- 北向资金记录：{len(northbound_rows)} 条",
         f"- 成交量记录：{len(volume_rows)} 条",
         f"- 两融记录：{len(margin_rows)} 条",
         "",
         "## 三、资金与情绪",
     ]
+    if industry_etf_growth:
+        lines.extend(["", "### 行业 ETF 较前一日份额变化"])
+        for row in industry_etf_growth[:15]:
+            growth = row.get("share_growth_pct")
+            growth_text = "--" if growth is None else f"{float(growth):+.2f}%"
+            lines.append(
+                f"- {row.get('industry_etf') or '-'}｜份额变化 {growth_text}｜"
+                f"增减 {row.get('share_change') or 0}｜当前份额 {row.get('current_share') or '-'}"
+            )
     if ths_rows:
         top_ths = ths_rows[:3]
         for row in top_ths:
@@ -372,15 +422,14 @@ def _fallback_markdown(fact_pack: dict) -> str:
         for item in top_avoid[:3]:
             lines.append(f"- 谨慎：{item.get('name') or item.get('ts_code') or '-'}｜行业 {item.get('industry') or '-'}")
 
-    lines.extend(["", "## 五、自选基金持仓"])
+    lines.extend(["", "## 五、自选基金上一交易日表现"])
     for fund in funds:
-        lines.append(f"### {fund.get('fund_name')}（{fund.get('fund_code')}）")
-        lines.append(f"- 前十大持仓可用：{fund.get('holding_count', 0)} 只")
-        industry_weight_summary = fund.get("industry_weight_summary") or []
-        if industry_weight_summary:
-            lines.append("- 行业权重：" + "、".join(f"{item.get('industry')} {item.get('weight')}%" for item in industry_weight_summary[:4]))
-        for holding in fund.get("holdings", [])[:5]:
-            lines.append(f"- {holding.get('stock_name') or holding.get('symbol')}｜行业：{holding.get('stock_industry') or '-'}｜权重：{holding.get('stk_mkv_ratio') or '-'}%")
+        change = fund.get("daily_change_pct")
+        change_text = "--" if change is None else f"{float(change):+.2f}%"
+        lines.append(
+            f"- {fund.get('fund_name')}（{fund.get('fund_code')}）｜"
+            f"净值日期：{fund.get('nav_date') or '-'}｜上一交易日涨跌幅：{change_text}"
+        )
 
     lines.extend(["", "## 六、数据说明"])
     lines.append("- 基金持仓采用最近一期披露数据，不等同于上一交易日实时持仓。")
@@ -394,7 +443,8 @@ def _build_llm_fact_pack(fact_pack: dict) -> dict:
     """Trim verbose evidence before sending it to the LLM; full facts stay on disk."""
     compact = dict(fact_pack)
     compact["etf_overview"] = {
-        "category_share_rows": (fact_pack.get("etf_overview", {}).get("category_share_rows") or [])[:12]
+        "category_share_rows": (fact_pack.get("etf_overview", {}).get("category_share_rows") or [])[:12],
+        "industry_etf_growth": (fact_pack.get("etf_overview", {}).get("industry_etf_growth") or [])[:20],
     }
     compact["money_flow"] = {
         "ths_top_inflow": (fact_pack.get("money_flow", {}).get("ths_top_inflow") or [])[:8],
@@ -410,15 +460,9 @@ def _build_llm_fact_pack(fact_pack: dict) -> dict:
         compact["fund_watchlist"]["funds"].append({
             "fund_code": fund.get("fund_code"),
             "fund_name": fund.get("fund_name"),
-            "holding_count": fund.get("holding_count"),
-            "industry_weight_summary": (fund.get("industry_weight_summary") or [])[:6],
-            "holdings": [
-                {
-                    key: holding.get(key)
-                    for key in ("symbol", "stock_name", "stk_mkv_ratio", "stock_industry", "stock_market")
-                }
-                for holding in (fund.get("holdings") or [])[:10]
-            ],
+            "nav_date": fund.get("nav_date"),
+            "daily_change_pct": fund.get("daily_change_pct"),
+            "unit_nav": fund.get("unit_nav"),
         })
     return compact
 
@@ -431,7 +475,7 @@ def generate_llm_markdown(fact_pack: dict) -> tuple[str, dict | None]:
     system = (
         "你是ETF晨报分析员。只能基于给定JSON事实数据，不得编造数字、日期或新闻。"
         "必须区分上一交易日行情数据与基金最近一期披露持仓。输出完整中文Markdown报告，"
-        "包含：核心结论、ETF方向、自选基金持仓、行业/细分板块、资金流、趋势推荐、风险提示、数据缺口。"
+        "包含：核心结论、ETF方向、行业ETF份额增长、自选基金上一交易日涨跌幅、资金流、趋势推荐、风险提示、数据缺口。"
         "不得给出绝对买卖指令，缺数据要明确写出。"
     )
     user = "请基于以下Fact Pack生成一份5-8分钟可读的ETF晨报，只输出Markdown：\n\n" + json.dumps(make_json_safe(llm_fact_pack), ensure_ascii=False)

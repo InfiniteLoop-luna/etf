@@ -76,10 +76,8 @@ def test_llm_fact_pack_removes_verbose_company_text():
         }]},
         "etf_overview": {"category_share_rows": []}, "money_flow": {}, "trend_recommendations": {},
     })
-    holding = compact["fund_watchlist"]["funds"][0]["holdings"][0]
-    assert "stock_main_business" not in holding
-    assert "stock_product" not in holding
-    assert "stock_introduction" not in holding
+    assert "holdings" not in compact["fund_watchlist"]["funds"][0]
+    assert compact["fund_watchlist"]["funds"][0]["daily_change_pct"] is None
 
 
 def test_generate_llm_markdown_falls_back_when_llm_unconfigured(monkeypatch):
@@ -91,6 +89,21 @@ def test_generate_llm_markdown_falls_back_when_llm_unconfigured(monkeypatch):
 
     assert meta is None
     assert "结构化事实版报告" in markdown
+
+
+def test_fallback_markdown_lists_fund_change_not_holdings():
+    markdown = _fallback_markdown({
+        "report_trade_date": "2026-08-27",
+        "etf_overview": {"category_share_rows": [], "industry_etf_growth": []},
+        "money_flow": {"ths_top_inflow": [], "dc_top_inflow": []},
+        "fund_watchlist": {"funds": [{"fund_name": "测试基金", "fund_code": "000001.OF", "nav_date": "2026-08-27", "daily_change_pct": 1.23}]},
+        "market_sentiment": {"limitup": []}, "northbound": {"daily": []},
+        "margin": {"daily": []}, "volume": {"daily": []},
+        "trend_recommendations": {}, "data_quality": {"warnings": []},
+    })
+    assert "测试基金（000001.OF）" in markdown
+    assert "上一交易日涨跌幅：+1.23%" in markdown
+    assert "前十大持仓可用" not in markdown
 
 
 def test_save_report_marks_llm_or_fact_mode(tmp_path, monkeypatch):
