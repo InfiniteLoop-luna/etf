@@ -21,6 +21,17 @@ def test_classifies_semiconductor_equipment_into_smaller_segments():
     assert deposition["subsector"] == "薄膜沉积设备"
 
 
+def test_primary_business_outweighs_background_mentions():
+    result = classify_stock_subsector(
+        industry="半导体",
+        main_business="主营PECVD、ALD薄膜沉积设备",
+        introduction="薄膜沉积设备与光刻机、刻蚀机共同构成芯片制造主设备",
+    )
+
+    assert result["subsector"] == "薄膜沉积设备"
+    assert "刻蚀设备" in result["subsector_tags"]
+
+
 def test_falls_back_to_original_industry_without_guessing():
     result = classify_stock_subsector(industry="食品饮料", main_business="产品暂无细分描述")
 

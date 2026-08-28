@@ -54,15 +54,29 @@ def classify_stock_subsector(
     A single primary label prevents duplicated portfolio weights in treemaps.
     Additional matches are retained as auxiliary tags for hover details.
     """
-    text = _normalize_text((main_business, product, introduction))
-    matched: list[str] = []
-    matched_keywords: list[str] = []
-    for label, keywords in SUBSECTOR_RULES:
-        hits = [keyword for keyword in keywords if keyword.lower().replace(" ", "") in text]
-        if hits:
-            matched.append(label)
-            matched_keywords.extend(hits)
+    evidence_fields = (
+        (_normalize_text((main_business,)), 5),
+        (_normalize_text((product,)), 2),
+        (_normalize_text((introduction,)), 1),
+    )
+    matches: list[tuple[str, int, int, list[str]]] = []
+    for rule_order, (label, keywords) in enumerate(SUBSECTOR_RULES):
+        score = 0
+        hits: list[str] = []
+        for field_text, field_weight in evidence_fields:
+            field_hits = [
+                keyword
+                for keyword in keywords
+                if keyword.lower().replace(" ", "") in field_text
+            ]
+            score += len(field_hits) * field_weight
+            hits.extend(field_hits)
+        if score:
+            matches.append((label, score, rule_order, list(dict.fromkeys(hits))))
 
+    matches.sort(key=lambda item: (-item[1], item[2]))
+    matched = [item[0] for item in matches]
+    matched_keywords = [keyword for item in matches for keyword in item[3]]
     industry_label = str(industry or "").strip() or "未识别行业"
     primary = matched[0] if matched else f"其他·{industry_label}"
     return {
