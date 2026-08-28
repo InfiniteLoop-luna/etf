@@ -8901,6 +8901,91 @@ def render_daily_trend_reco_tab():
         )
 
 
+def _morning_report_num(value, digits=2, suffix=""):
+    number = pd.to_numeric(value, errors="coerce")
+    if pd.isna(number):
+        return "--"
+    return f"{float(number):,.{digits}f}{suffix}"
+
+
+def _morning_report_table_html(rows, columns, empty_text="暂无数据"):
+    if not rows:
+        return f'<div class="ws-morning-empty">{escape(str(empty_text))}</div>'
+    head = "".join(f"<th>{escape(str(label))}</th>" for _, label in columns)
+    body = []
+    for row in rows:
+        cells = []
+        for key, _ in columns:
+            value = row.get(key, "--")
+            cells.append(f"<td>{escape(str(value if value not in (None, '') else '--'))}</td>")
+        body.append(f"<tr>{''.join(cells)}</tr>")
+    return f'<div class="ws-morning-table-wrap"><table><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
+
+
+def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
+    from src.etf_morning_report import build_report_digest
+
+    digest = build_report_digest(fact_pack)
+    overview = fact_pack.get("etf_overview", {}) or {}
+    growth_rows = overview.get("industry_etf_growth") or []
+    ths_rows = (fact_pack.get("money_flow", {}) or {}).get("ths_top_inflow") or []
+    dc_rows = (fact_pack.get("money_flow", {}) or {}).get("dc_top_inflow") or []
+    funds = (fact_pack.get("fund_watchlist", {}) or {}).get("funds") or []
+    sentiment_rows = (fact_pack.get("market_sentiment", {}) or {}).get("limitup") or []
+    north_rows = (fact_pack.get("northbound", {}) or {}).get("daily") or []
+    trend = fact_pack.get("trend_recommendations", {}) or {}
+    sentiment = sentiment_rows[0] if sentiment_rows else {}
+    north = north_rows[0] if north_rows else {}
+    fund_changes = []
+    for fund in funds:
+        change = pd.to_numeric(fund.get("daily_change_pct"), errors="coerce")
+        fund_changes.append({
+            "基金": f"{fund.get('fund_name') or '-'}（{fund.get('fund_code') or '-'}）",
+            "净值日期": fund.get("nav_date") or "--",
+            "上一交易日涨跌幅": "--" if pd.isna(change) else f"{float(change):+.2f}%",
+        })
+    valid_changes = [pd.to_numeric(fund.get("daily_change_pct"), errors="coerce") for fund in funds]
+    valid_changes = [float(value) for value in valid_changes if not pd.isna(value)]
+    avg_fund_change = sum(valid_changes) / len(valid_changes) if valid_changes else None
+    etf_growth_display = []
+    for row in growth_rows[:20]:
+        growth = pd.to_numeric(row.get("share_growth_pct"), errors="coerce")
+        etf_growth_display.append({
+            "行业ETF": row.get("industry_etf") or "--",
+            "较前一日份额增长": "--" if pd.isna(growth) else f"{float(growth):+.2f}%",
+            "份额增减": _morning_report_num(row.get("share_change"), 2),
+            "当前份额": _morning_report_num(row.get("current_share"), 2),
+        })
+    ths_display = [{
+        "行业": row.get("industry") or "--",
+        "净流入": _morning_report_num(row.get("net_amount"), 2),
+        "涨跌幅": _morning_report_num(row.get("pct_change"), 2, "%"),
+        "龙头股": row.get("lead_stock") or "--",
+    } for row in ths_rows[:10]]
+    dc_display = [{
+        "板块": row.get("industry") or "--",
+        "净流入": _morning_report_num(row.get("net_amount"), 2),
+        "涨跌幅": _morning_report_num(row.get("pct_change"), 2, "%"),
+    } for row in dc_rows[:10]]
+    uptrend_display = [{"方向": "看多", "股票": item.get("name") or item.get("ts_code") or "--", "行业": item.get("industry") or "--"} for item in (trend.get("top_uptrend") or [])[:8]]
+    avoid_display = [{"方向": "谨慎", "股票": item.get("name") or item.get("ts_code") or "--", "行业": item.get("industry") or "--"} for item in (trend.get("top_avoid") or [])[:8]]
+    all_trend_display = uptrend_display + avoid_display
+    mode = "LLM 综合版" if report.get("report_mode") == "llm" else "结构化事实版"
+    mode_class = "is-llm" if report.get("report_mode") == "llm" else "is-facts"
+    css = """
+    <style>
+    .ws-morning-shell{display:flex;flex-direction:column;gap:18px;margin:8px 0 22px}
+    .ws-morning-hero{padding:22px 24px;border-radius:20px;background:linear-gradient(135deg,#102a43,#1d4e89);color:#fff;box-shadow:0 10px 28px rgba(16,42,67,.18)}
+    .ws-morning-hero h2{margin:0 0 8px;font-size:28px}.ws-morning-hero p{margin:0;color:#d8e8f7}
+    .ws-morning-badge{display:inline-block;padding:5px 10px;border-radius:999px;font-size:12px;margin-top:12px}.ws-morning-badge.is-llm{background:#d1fae5;color:#065f46}.ws-morning-badge.is-facts{background:#fef3c7;color:#92400e}
+    .ws-morning-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.ws-morning-metric{background:#fff;border:1px solid #e5edf5;border-radius:16px;padding:15px 16px;box-shadow:0 4px 14px rgba(31,56,85,.06)}.ws-morning-metric span{display:block;color:#6b7c93;font-size:12px}.ws-morning-metric strong{display:block;margin-top:7px;color:#19324d;font-size:20px}.ws-morning-section{background:#fff;border:1px solid #e5edf5;border-radius:18px;padding:18px 20px;box-shadow:0 4px 14px rgba(31,56,85,.05)}.ws-morning-section h3{margin:0 0 12px;color:#19324d;font-size:18px}.ws-morning-section p{color:#6b7c93;font-size:13px;margin:0 0 10px}.ws-morning-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.ws-morning-table-wrap{overflow:auto}.ws-morning-table-wrap table{width:100%;border-collapse:collapse;font-size:13px}.ws-morning-table-wrap th{background:#f4f8fc;color:#52657c;font-weight:600;text-align:left;white-space:nowrap}.ws-morning-table-wrap th,.ws-morning-table-wrap td{padding:10px 11px;border-bottom:1px solid #edf2f7}.ws-morning-table-wrap td{color:#263b53;white-space:nowrap}.ws-morning-empty{padding:18px;color:#8a9aad;background:#f8fafc;border-radius:12px;text-align:center}
+    @media(max-width:900px){.ws-morning-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ws-morning-grid{grid-template-columns:1fr}}
+    </style>
+    """
+    html_block = f"""{css}<div class="ws-morning-shell"><div class="ws-morning-hero"><h2>ETF 晨报｜{escape(str(fact_pack.get('report_trade_date') or '--'))}</h2><p>汇总上一交易日 ETF、资金、市场情绪、趋势推荐和自选基金表现</p><span class="ws-morning-badge {mode_class}">报告模式：{mode}</span></div><div class="ws-morning-metrics"><div class="ws-morning-metric"><span>风险灯</span><strong>{digest['risk_color']}｜{escape(digest['risk_text'])}</strong></div><div class="ws-morning-metric"><span>资金主线</span><strong>{escape(str(digest['top_sector']))}</strong></div><div class="ws-morning-metric"><span>涨停 / 炸板</span><strong>{digest['limitup_count']} / {digest['blowup_count']}</strong></div><div class="ws-morning-metric"><span>自选基金平均涨跌</span><strong>{'--' if avg_fund_change is None else f'{avg_fund_change:+.2f}%'} </strong></div></div><div class="ws-morning-section"><h3>行业 ETF 较前一日份额变化</h3><p>按份额增长比例排序；没有前一日可比份额时显示“--”。</p>{_morning_report_table_html(etf_growth_display,[('行业ETF','行业ETF'),('较前一日份额增长','较前一日份额增长'),('份额增减','份额增减'),('当前份额','当前份额')])}</div><div class="ws-morning-grid"><div class="ws-morning-section"><h3>THS 行业资金流 Top10</h3>{_morning_report_table_html(ths_display,[('行业','行业'),('净流入','净流入'),('涨跌幅','涨跌幅'),('龙头股','龙头股')])}</div><div class="ws-morning-section"><h3>DC 板块资金流 Top10</h3>{_morning_report_table_html(dc_display,[('板块','板块'),('净流入','净流入'),('涨跌幅','涨跌幅')])}</div></div><div class="ws-morning-section"><h3>自选基金上一交易日表现</h3>{_morning_report_table_html(fund_changes,[('基金','基金'),('净值日期','净值日期'),('上一交易日涨跌幅','上一交易日涨跌幅')])}</div><div class="ws-morning-grid"><div class="ws-morning-section"><h3>趋势推荐</h3>{_morning_report_table_html(all_trend_display,[('方向','方向'),('股票','股票'),('行业','行业')])}</div><div class="ws-morning-section"><h3>市场辅助指标</h3>{_morning_report_table_html([{'指标':'北向资金净流入','数值':_morning_report_num(north.get('north_money'),2)}, {'指标':'沪股通','数值':_morning_report_num(north.get('hgt'),2)}, {'指标':'深股通','数值':_morning_report_num(north.get('sgt'),2)}, {'指标':'报告数据质量提示','数值':f"{len(fact_pack.get('data_quality',{}).get('warnings') or [])} 条"}],[('指标','指标'),('数值','数值')])}</div></div></div>"""
+    st.html(html_block)
+
+
 def render_etf_morning_report_page():
     from src.etf_morning_report import (
         generate_and_save_report,
@@ -8947,7 +9032,9 @@ def render_etf_morning_report_page():
         with st.expander("数据缺口与质量提示", expanded=True):
             for warning in quality["warnings"]:
                 st.warning(warning)
-    st.markdown(report.get("markdown") or "暂无报告内容")
+    render_etf_morning_report_dashboard(fact_pack, report)
+    with st.expander("查看 LLM / Markdown 原文", expanded=False):
+        st.markdown(report.get("markdown") or "暂无报告内容")
 
 
 def render_funding_freshness_page():
