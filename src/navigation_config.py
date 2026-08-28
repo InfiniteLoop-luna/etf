@@ -57,6 +57,7 @@ MONEY_HOTMONEY_PAGE_LABEL = _page_label("资金", "hotmoney")
 DATA_HEALTH_PAGE_LABEL = _page_label("数据", "data_health")
 DATA_UPDATE_ACTIVITY_PAGE_LABEL = _page_label("数据", "update_activity")
 DATA_TASK_STATUS_PAGE_LABEL = _page_label("数据", "data_task_status")
+ETF_MORNING_REPORT_PAGE_LABEL = _page_label("数据", "etf_morning_report")
 
 MACRO_MAIN_PAGE_LABEL = _page_label("宏观", "macro")
 MACRO_DEPOSIT_PAGE_LABEL = _page_label("宏观", "deposit")

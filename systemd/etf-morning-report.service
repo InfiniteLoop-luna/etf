@@ -1,0 +1,11 @@
+[Unit]
+Description=Generate ETF previous trading day morning report
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/etf-app
+Environment=PYTHONPATH=/opt/etf-app
+ExecStart=/opt/etf-app/.venv/bin/python /opt/etf-app/scripts/generate_etf_morning_report.py

@@ -109,6 +109,7 @@ from src.navigation_config import (
     ETF_FUND_WATCHLIST_PAGE_LABEL,
     ETF_INDUSTRY_PAGE_LABEL,
     ETF_MAIN_PAGE_LABEL,
+    ETF_MORNING_REPORT_PAGE_LABEL,
     ETF_PAGE_OPTIONS,
     ETF_RATIO_PAGE_LABEL,
     ETF_TREND_PAGE_LABEL,
@@ -7952,6 +7953,8 @@ def _render_application_page() -> PageStatus:
             render_update_activity_page()
         elif selected_page == DATA_TASK_STATUS_PAGE_LABEL:
             render_data_task_status_page()
+        elif selected_page == ETF_MORNING_REPORT_PAGE_LABEL:
+            render_etf_morning_report_page()
         else:
             render_funding_freshness_page()
 
@@ -8896,6 +8899,43 @@ def render_daily_trend_reco_tab():
                 )
             }
         )
+
+
+def render_etf_morning_report_page():
+    from src.etf_morning_report import (
+        generate_and_save_report,
+        list_saved_report_dates,
+        load_saved_report,
+    )
+
+    st.subheader("📰 ETF晨报")
+    st.caption("每个交易日早晨汇总上一个交易日的 ETF、基金、资金、趋势与情绪数据；LLM 仅基于项目 Fact Pack 生成。")
+    dates = list_saved_report_dates()
+    latest = load_saved_report()
+    if st.button("重新生成上一个交易日晨报", type="primary", key="btn_generate_etf_morning_report"):
+        with st.spinner("正在汇总数据并生成晨报..."):
+            latest = generate_and_save_report()
+        dates = list_saved_report_dates()
+        st.success(f"晨报已生成：{(latest or {}).get('fact_pack', {}).get('report_trade_date') or '-'}")
+
+    if dates:
+        selected = st.selectbox("查看报告日期", dates, index=0, key="etf_morning_report_date")
+        report = load_saved_report(selected) or latest
+    else:
+        report = latest
+
+    if not report:
+        st.info("还没有晨报。点击上方按钮生成第一份报告；定时任务启用后会在交易日早晨自动生成。")
+        return
+
+    fact_pack = report.get("fact_pack") or {}
+    quality = fact_pack.get("data_quality") or {}
+    st.metric("报告交易日", fact_pack.get("report_trade_date") or "-")
+    if quality.get("warnings"):
+        with st.expander("数据缺口与质量提示", expanded=True):
+            for warning in quality["warnings"]:
+                st.warning(warning)
+    st.markdown(report.get("markdown") or "暂无报告内容")
 
 
 def render_funding_freshness_page():

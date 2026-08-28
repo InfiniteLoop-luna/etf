@@ -244,6 +244,12 @@ SIDEBAR_MODULES = (
                 "查看数据摘要文件与任务结果线索",
                 "standard",
             ),
+            SidebarPage(
+                "etf_morning_report",
+                "📰 ETF晨报",
+                "上一个交易日的全站数据与LLM综合报告",
+                "heavy",
+            ),
         ),
     ),
     SidebarModule(

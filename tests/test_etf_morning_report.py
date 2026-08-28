@@ -1,0 +1,67 @@
+from datetime import date
+
+import pandas as pd
+
+from src.etf_morning_report import (
+    _fallback_markdown,
+    find_previous_trade_date,
+    generate_llm_markdown,
+    save_report,
+)
+
+
+class FakeEngine:
+    pass
+
+
+def test_find_previous_trade_date_uses_latest_available_source(monkeypatch):
+    values = {
+        "etf_share_size": pd.DataFrame([{"latest_date": date(2026, 8, 27)}]),
+        "ts_stock_daily": pd.DataFrame([{"latest_date": date(2026, 8, 27)}]),
+        "ts_moneyflow": pd.DataFrame([{"latest_date": date(2026, 8, 26)}]),
+        "ts_margin": pd.DataFrame([{"latest_date": date(2026, 8, 27)}]),
+        "ts_limit_list_d": pd.DataFrame([{"latest_date": date(2026, 8, 27)}]),
+    }
+
+    def fake_query(engine, sql, params=None):
+        for table in values:
+            if f"FROM {table}" in sql:
+                return values[table]
+        return pd.DataFrame()
+
+    monkeypatch.setattr("src.etf_morning_report._query_frame", fake_query)
+    assert find_previous_trade_date(FakeEngine(), today=date(2026, 8, 28)) == "2026-08-27"
+
+
+def test_fallback_markdown_explains_holdings_disclosure_limit():
+    markdown = _fallback_markdown({
+        "report_trade_date": "2026-08-27",
+        "etf_overview": {"category_share_rows": [{"secondary_category": "宽基"}]},
+        "money_flow": {"ths_top_inflow": []},
+        "fund_watchlist": {"funds": []},
+        "data_quality": {"warnings": ["行业资金流数据缺失"]},
+    })
+
+    assert "ETF 晨报｜2026-08-27" in markdown
+    assert "不等同于上一交易日实时持仓" in markdown
+    assert "行业资金流数据缺失" in markdown
+
+
+def test_generate_llm_markdown_falls_back_when_llm_unconfigured(monkeypatch):
+    class Config:
+        configured = False
+
+    monkeypatch.setattr("src.etf_morning_report.load_stock_research_llm_config", lambda: Config())
+    markdown, meta = generate_llm_markdown({"report_trade_date": "2026-08-27", "data_quality": {"warnings": []}})
+
+    assert meta is None
+    assert "结构化事实版报告" in markdown
+
+
+def test_save_report_writes_latest_and_date_files(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.etf_morning_report.REPORT_DIR", tmp_path)
+    saved = save_report({"report_trade_date": "2026-08-27"}, "# report\n", {"model": "demo"})
+
+    assert saved["llm"]["model"] == "demo"
+    assert (tmp_path / "2026-08-27.md").read_text(encoding="utf-8") == "# report\n"
+    assert (tmp_path / "latest.json").exists()
