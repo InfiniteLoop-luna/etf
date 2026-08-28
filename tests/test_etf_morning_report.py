@@ -5,6 +5,7 @@ import pandas as pd
 from src.etf_morning_report import (
     _fallback_markdown,
     build_report_digest,
+    _build_llm_fact_pack,
     find_previous_trade_date,
     generate_llm_markdown,
     save_report,
@@ -61,6 +62,24 @@ def test_fallback_markdown_explains_holdings_disclosure_limit():
     assert "ETF 晨报｜2026-08-27" in markdown
     assert "不等同于上一交易日实时持仓" in markdown
     assert "行业资金流数据缺失" in markdown
+
+
+def test_llm_fact_pack_removes_verbose_company_text():
+    compact = _build_llm_fact_pack({
+        "report_trade_date": "2026-08-27",
+        "fund_watchlist": {"funds": [{
+            "fund_code": "000001.OF", "fund_name": "测试基金", "holding_count": 1,
+            "industry_weight_summary": [{"industry": "半导体", "weight": 10}],
+            "holdings": [{"symbol": "000001.SZ", "stock_name": "测试股", "stk_mkv_ratio": 10,
+                          "stock_industry": "半导体", "stock_main_business": "x" * 1000,
+                          "stock_product": "y" * 1000, "stock_introduction": "z" * 1000}]
+        }]},
+        "etf_overview": {"category_share_rows": []}, "money_flow": {}, "trend_recommendations": {},
+    })
+    holding = compact["fund_watchlist"]["funds"][0]["holdings"][0]
+    assert "stock_main_business" not in holding
+    assert "stock_product" not in holding
+    assert "stock_introduction" not in holding
 
 
 def test_generate_llm_markdown_falls_back_when_llm_unconfigured(monkeypatch):

@@ -390,33 +390,84 @@ def _fallback_markdown(fact_pack: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _build_llm_fact_pack(fact_pack: dict) -> dict:
+    """Trim verbose evidence before sending it to the LLM; full facts stay on disk."""
+    compact = dict(fact_pack)
+    compact["etf_overview"] = {
+        "category_share_rows": (fact_pack.get("etf_overview", {}).get("category_share_rows") or [])[:12]
+    }
+    compact["money_flow"] = {
+        "ths_top_inflow": (fact_pack.get("money_flow", {}).get("ths_top_inflow") or [])[:8],
+        "dc_top_inflow": (fact_pack.get("money_flow", {}).get("dc_top_inflow") or [])[:8],
+    }
+    compact["trend_recommendations"] = {
+        "trade_date": fact_pack.get("trend_recommendations", {}).get("trade_date"),
+        "top_uptrend": (fact_pack.get("trend_recommendations", {}).get("top_uptrend") or [])[:6],
+        "top_avoid": (fact_pack.get("trend_recommendations", {}).get("top_avoid") or [])[:6],
+    }
+    compact["fund_watchlist"] = {"funds": []}
+    for fund in fact_pack.get("fund_watchlist", {}).get("funds") or []:
+        compact["fund_watchlist"]["funds"].append({
+            "fund_code": fund.get("fund_code"),
+            "fund_name": fund.get("fund_name"),
+            "holding_count": fund.get("holding_count"),
+            "industry_weight_summary": (fund.get("industry_weight_summary") or [])[:6],
+            "holdings": [
+                {
+                    key: holding.get(key)
+                    for key in ("symbol", "stock_name", "stk_mkv_ratio", "stock_industry", "stock_market")
+                }
+                for holding in (fund.get("holdings") or [])[:10]
+            ],
+        })
+    return compact
+
+
 def generate_llm_markdown(fact_pack: dict) -> tuple[str, dict | None]:
     config = load_stock_research_llm_config()
     if not config.configured:
         return _fallback_markdown(fact_pack), None
+    llm_fact_pack = _build_llm_fact_pack(fact_pack)
     system = (
         "你是ETF晨报分析员。只能基于给定JSON事实数据，不得编造数字、日期或新闻。"
         "必须区分上一交易日行情数据与基金最近一期披露持仓。输出完整中文Markdown报告，"
         "包含：核心结论、ETF方向、自选基金持仓、行业/细分板块、资金流、趋势推荐、风险提示、数据缺口。"
         "不得给出绝对买卖指令，缺数据要明确写出。"
     )
-    user = "请基于以下Fact Pack生成一份5-8分钟可读的ETF晨报，只输出Markdown：\n\n" + json.dumps(make_json_safe(fact_pack), ensure_ascii=False)
+    user = "请基于以下Fact Pack生成一份5-8分钟可读的ETF晨报，只输出Markdown：\n\n" + json.dumps(make_json_safe(llm_fact_pack), ensure_ascii=False)
+    last_error = ""
     try:
         import requests
-        response = requests.post(
-            config.base_url.rstrip("/") + "/chat/completions",
-            headers={"Authorization": f"Bearer {config.api_key}", "Content-Type": "application/json"},
-            json={"model": config.model, "temperature": 0.2, "max_tokens": max(3200, config.max_tokens), "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]},
-            timeout=config.timeout_seconds,
-        )
-        response.raise_for_status()
-        content = (((response.json().get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
-        if content:
-            return content, {"model": config.model}
+        request_body = {
+            "model": config.model,
+            "temperature": 0.2,
+            "max_tokens": max(3200, config.max_tokens),
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        }
+        for attempt in range(2):
+            try:
+                response = requests.post(
+                    config.base_url.rstrip("/") + "/chat/completions",
+                    headers={"Authorization": f"Bearer {config.api_key}", "Content-Type": "application/json"},
+                    json=request_body,
+                    timeout=config.timeout_seconds,
+                )
+                response.raise_for_status()
+                content = (((response.json().get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+                if content:
+                    return content, {"model": config.model, "attempt": attempt + 1}
+                last_error = "LLM返回空内容"
+            except Exception as exc:
+                last_error = str(exc)
+                logger.warning("ETF morning report LLM attempt %s failed: %s", attempt + 1, exc)
     except Exception as exc:
-        logger.warning("ETF morning report LLM failed: %s", exc)
+        last_error = str(exc)
+    if last_error:
         quality = fact_pack.setdefault("data_quality", {})
-        quality.setdefault("warnings", []).append(f"LLM生成失败，已降级为事实版：{exc}")
+        quality.setdefault("warnings", []).append(f"LLM生成失败，已降级为事实版：{last_error}")
     return _fallback_markdown(fact_pack), None
 
 
