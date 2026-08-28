@@ -8958,7 +8958,8 @@ def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
                 "较前一日份额增长": "--" if pd.isna(growth) else f"{float(growth):+.2f}%",
                 "份额增减": _morning_report_num(row.get("share_change"), 2),
                 "当前份额": _morning_report_num(row.get("current_share"), 2),
-            })    ths_display = [{
+            })
+    ths_display = [{
         "行业": row.get("industry") or "--",
         "净流入": _morning_report_num(row.get("net_amount"), 2),
         "涨跌幅": _morning_report_num(row.get("pct_change"), 2, "%"),
