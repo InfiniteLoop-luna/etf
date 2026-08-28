@@ -81,10 +81,13 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
     etf = _query_frame(
         engine,
         """
-        SELECT trade_date, secondary_category, SUM(COALESCE(total_share, 0)) AS total_share_size
-        FROM etf_share_size
-        WHERE trade_date = :trade_date
-        GROUP BY trade_date, secondary_category
+        SELECT s.trade_date, e.primary_category, e.secondary_category,
+               SUM(COALESCE(s.total_share, 0)) AS total_share_size,
+               SUM(COALESCE(s.total_size, 0)) AS total_size
+        FROM etf_share_size s
+        LEFT JOIN etf_summary e ON e.fund_trade_code = s.ts_code
+        WHERE s.trade_date = :trade_date
+        GROUP BY s.trade_date, e.primary_category, e.secondary_category
         ORDER BY total_share_size DESC
         LIMIT 20
         """,
@@ -123,9 +126,12 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
     volume = _query_frame(
         engine,
         """
-        SELECT trade_date, SUM(amount) AS total_amount, SUM(vol) AS total_volume
+        SELECT trade_date,
+               SUM((payload->>'amount')::numeric) AS total_amount,
+               SUM((payload->>'vol')::numeric) AS total_volume
         FROM ts_stock_daily
         WHERE trade_date = :trade_date
+          AND (payload->>'amount') IS NOT NULL
         GROUP BY trade_date
         """,
         {"trade_date": target},
@@ -183,7 +189,7 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
         "schema_version": REPORT_SCHEMA_VERSION,
         "report_trade_date": target,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "etf_overview": {"category_share_rows": _summarize_rows(etf, ["secondary_category", "total_share_size"])},
+        "etf_overview": {"category_share_rows": _summarize_rows(etf, ["primary_category", "secondary_category", "total_share_size", "total_size"])},
         "fund_watchlist": {"funds": funds},
         "trend_recommendations": {
             "trade_date": trend_payload.get("trade_date"),
@@ -249,6 +255,8 @@ def generate_llm_markdown(fact_pack: dict) -> tuple[str, dict | None]:
             return content, {"model": config.model}
     except Exception as exc:
         logger.warning("ETF morning report LLM failed: %s", exc)
+        quality = fact_pack.setdefault("data_quality", {})
+        quality.setdefault("warnings", []).append(f"LLM生成失败，已降级为事实版：{exc}")
     return _fallback_markdown(fact_pack), None
 
 
