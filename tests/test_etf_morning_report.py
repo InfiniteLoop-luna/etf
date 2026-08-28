@@ -66,7 +66,7 @@ def test_build_report_digest_calculates_risk_light_and_top_sector():
 def test_fallback_markdown_explains_holdings_disclosure_limit():
     markdown = _fallback_markdown({
         "report_trade_date": "2026-08-27",
-        "etf_overview": {"category_share_rows": [{"secondary_category": "宽基"}], "industry_etf_growth": []},
+        "etf_overview": {"category_share_rows": [{"secondary_category": "宽基"}], "industry_etf_growth": [], "industry_etf_groups": []},
         "money_flow": {"ths_top_inflow": [], "dc_top_inflow": []},
         "fund_watchlist": {"funds": []},
         "market_sentiment": {"limitup": []}, "northbound": {"daily": []},
@@ -82,7 +82,7 @@ def test_fallback_markdown_explains_holdings_disclosure_limit():
 def test_fallback_markdown_lists_fund_change_not_holdings():
     markdown = _fallback_markdown({
         "report_trade_date": "2026-08-27",
-        "etf_overview": {"category_share_rows": [], "industry_etf_growth": []},
+        "etf_overview": {"category_share_rows": [], "industry_etf_growth": [], "industry_etf_groups": []},
         "money_flow": {"ths_top_inflow": [], "dc_top_inflow": []},
         "fund_watchlist": {"funds": [{"fund_name": "测试基金", "fund_code": "000001.OF", "nav_date": "2026-08-27", "daily_change_pct": 1.23}]},
         "market_sentiment": {"limitup": []}, "northbound": {"daily": []},

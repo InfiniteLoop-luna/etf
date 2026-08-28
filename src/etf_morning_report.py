@@ -119,7 +119,8 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
             FROM etf_share_size s
             JOIN available_dates d ON d.trade_date = s.trade_date
             LEFT JOIN etf_summary e ON e.fund_trade_code = s.ts_code
-            WHERE e.secondary_category = '行业&其他'
+            WHERE e.primary_category = '指数'
+              AND e.secondary_category = '行业&其他'
         )
         SELECT ts_code, etf_name, industry, industry_etf,
                MAX(trade_date) FILTER (WHERE rn = 1) AS current_date,
@@ -375,6 +376,7 @@ def _fallback_markdown(fact_pack: dict) -> str:
     etf_overview = fact_pack.get("etf_overview", {}) or {}
     etf_rows = etf_overview.get("category_share_rows") or []
     industry_etf_growth = etf_overview.get("industry_etf_growth") or []
+    industry_etf_groups = etf_overview.get("industry_etf_groups") or []
     ths_rows = fact_pack.get("money_flow", {}).get("ths_top_inflow") or []
     dc_rows = fact_pack.get("money_flow", {}).get("dc_top_inflow") or []
     northbound_rows = fact_pack.get("northbound", {}).get("daily") or []
@@ -406,13 +408,15 @@ def _fallback_markdown(fact_pack: dict) -> str:
     ]
     if industry_etf_growth:
         lines.extend(["", "### 行业 ETF 较前一日份额变化"])
-        for row in industry_etf_growth:
-            growth = row.get("share_growth_pct")
-            growth_text = "--" if growth is None else f"{float(growth):+.2f}%"
-            lines.append(
-                f"- 行业：{row.get('industry') or '未识别行业'}｜{row.get('industry_etf') or '-'}（{row.get('ts_code') or '-' }）｜份额变化 {growth_text}｜"
-                f"增减 {row.get('share_change') or 0}｜当前份额 {row.get('current_share') or '-'}"
-            )
+        for group in industry_etf_groups:
+            lines.append(f"#### {group.get('industry') or '未识别行业'}（{group.get('etf_count') or 0} 只）")
+            for row in group.get("etfs") or []:
+                growth = row.get("share_growth_pct")
+                growth_text = "--" if growth is None else f"{float(growth):+.2f}%"
+                lines.append(
+                    f"- {row.get('etf_name') or '-'}（{row.get('ts_code') or '-'}）｜份额变化 {growth_text}｜"
+                    f"增减 {row.get('share_change') or 0}｜当前份额 {row.get('current_share') or '-'}"
+                )
     if ths_rows:
         top_ths = ths_rows[:3]
         for row in top_ths:
