@@ -312,20 +312,77 @@ def _fallback_markdown(fact_pack: dict) -> str:
     target = fact_pack.get("report_trade_date") or "未知日期"
     warnings = fact_pack.get("data_quality", {}).get("warnings") or []
     digest = build_report_digest(fact_pack)
-    lines = [f"# ETF 晨报｜{target}", "", f"> 当前为结构化事实版报告：LLM 未配置或本次调用失败。风险灯：{digest['risk_color']}｜{digest['risk_text']}", "", "## 一、核心摘要", f"- 自选基金：{digest['fund_count']} 只", f"- 资金流入靠前行业：{digest['top_sector']}", f"- 涨停 / 炸板：{digest['limitup_count']} / {digest['blowup_count']}", f"- 数据质量提示：{digest['warning_count']} 条", "", "## 二、核心数据"]
     etf_rows = fact_pack.get("etf_overview", {}).get("category_share_rows") or []
-    lines.append(f"- ETF 分类份额记录：{len(etf_rows)} 条")
     ths_rows = fact_pack.get("money_flow", {}).get("ths_top_inflow") or []
-    lines.append(f"- THS 行业资金流记录：{len(ths_rows)} 条")
+    dc_rows = fact_pack.get("money_flow", {}).get("dc_top_inflow") or []
+    northbound_rows = fact_pack.get("northbound", {}).get("daily") or []
+    sentiment_rows = fact_pack.get("market_sentiment", {}).get("limitup") or []
+    margin_rows = fact_pack.get("margin", {}).get("daily") or []
+    volume_rows = fact_pack.get("volume", {}).get("daily") or []
+    trend = fact_pack.get("trend_recommendations", {}) or {}
     funds = fact_pack.get("fund_watchlist", {}).get("funds") or []
-    lines.append(f"- 纳入分析的自选基金：{len(funds)} 只")
-    lines.extend(["", "## 二、自选基金持仓"])
+
+    lines = [
+        f"# ETF 晨报｜{target}",
+        "",
+        f"> 当前为结构化事实版报告：LLM 未配置或本次调用失败。风险灯：{digest['risk_color']}｜{digest['risk_text']}",
+        "",
+        "## 一、核心摘要",
+        f"- 自选基金：{digest['fund_count']} 只",
+        f"- 资金流入靠前行业：{digest['top_sector']}",
+        f"- 涨停 / 炸板：{digest['limitup_count']} / {digest['blowup_count']}",
+        f"- 数据质量提示：{digest['warning_count']} 条",
+        "",
+        "## 二、ETF / 市场概览",
+        f"- ETF 分类份额记录：{len(etf_rows)} 条",
+        f"- 北向资金记录：{len(northbound_rows)} 条",
+        f"- 成交量记录：{len(volume_rows)} 条",
+        f"- 两融记录：{len(margin_rows)} 条",
+        "",
+        "## 三、资金与情绪",
+    ]
+    if ths_rows:
+        top_ths = ths_rows[:3]
+        for row in top_ths:
+            lines.append(f"- THS {row.get('industry') or '-'}｜净流入 {row.get('net_amount') or '-'}｜涨跌 {row.get('pct_change') or '-'}%")
+    if dc_rows:
+        top_dc = dc_rows[:3]
+        for row in top_dc:
+            lines.append(f"- DC {row.get('industry') or '-'}｜净流入 {row.get('net_amount') or '-'}｜涨跌 {row.get('pct_change') or '-'}%")
+    if sentiment_rows:
+        sentiment = sentiment_rows[0]
+        lines.append(f"- 涨停 {sentiment.get('up_cnt') or 0} 家，炸板 {sentiment.get('zha_cnt') or 0} 家")
+    if northbound_rows:
+        nb = northbound_rows[0]
+        lines.append(f"- 北向资金净流入 {nb.get('north_money') or '-'}，沪股通 {nb.get('hgt') or '-'}，深股通 {nb.get('sgt') or '-'}")
+    if margin_rows:
+        m = margin_rows[0]
+        lines.append(f"- 两融买入 {m.get('financing_buy') or '-'}，偿还 {m.get('financing_repay') or '-'}，余额 {m.get('financing_balance') or '-'}")
+    if volume_rows:
+        v = volume_rows[0]
+        lines.append(f"- 成交额 {v.get('total_amount') or '-'}，成交量 {v.get('total_volume') or '-'}")
+
+    lines.extend(["", "## 四、趋势推荐"])
+    top_uptrend = trend.get("top_uptrend") or []
+    top_avoid = trend.get("top_avoid") or []
+    if top_uptrend:
+        for item in top_uptrend[:3]:
+            lines.append(f"- 看多：{item.get('name') or item.get('ts_code') or '-'}｜行业 {item.get('industry') or '-'}")
+    if top_avoid:
+        for item in top_avoid[:3]:
+            lines.append(f"- 谨慎：{item.get('name') or item.get('ts_code') or '-'}｜行业 {item.get('industry') or '-'}")
+
+    lines.extend(["", "## 五、自选基金持仓"])
     for fund in funds:
         lines.append(f"### {fund.get('fund_name')}（{fund.get('fund_code')}）")
         lines.append(f"- 前十大持仓可用：{fund.get('holding_count', 0)} 只")
+        industry_weight_summary = fund.get("industry_weight_summary") or []
+        if industry_weight_summary:
+            lines.append("- 行业权重：" + "、".join(f"{item.get('industry')} {item.get('weight')}%" for item in industry_weight_summary[:4]))
         for holding in fund.get("holdings", [])[:5]:
             lines.append(f"- {holding.get('stock_name') or holding.get('symbol')}｜行业：{holding.get('stock_industry') or '-'}｜权重：{holding.get('stk_mkv_ratio') or '-'}%")
-    lines.extend(["", "## 三、数据说明"])
+
+    lines.extend(["", "## 六、数据说明"])
     lines.append("- 基金持仓采用最近一期披露数据，不等同于上一交易日实时持仓。")
     if warnings:
         lines.extend(["", "### 数据缺口"])
