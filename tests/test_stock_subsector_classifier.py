@@ -21,6 +21,22 @@ def test_classifies_semiconductor_equipment_into_smaller_segments():
     assert deposition["subsector"] == "薄膜沉积设备"
 
 
+def test_semiconductor_equipment_prefers_reliable_detailed_process():
+    cmp_item = classify_stock_subsector(
+        industry="半导体",
+        main_business="半导体专用设备的研发生产",
+        introduction="主营CMP设备和化学机械抛光工艺",
+    )
+    etch_item = classify_stock_subsector(
+        industry="半导体",
+        main_business="半导体设备研发生产",
+        introduction="开发等离子体刻蚀设备和薄膜沉积设备",
+    )
+
+    assert cmp_item["subsector"] == "CMP设备及材料"
+    assert etch_item["subsector"] == "刻蚀设备"
+
+
 def test_primary_business_outweighs_background_mentions():
     result = classify_stock_subsector(
         industry="半导体",
@@ -30,6 +46,17 @@ def test_primary_business_outweighs_background_mentions():
 
     assert result["subsector"] == "薄膜沉积设备"
     assert "刻蚀设备" in result["subsector_tags"]
+
+
+def test_does_not_treat_generic_lithium_ion_equipment_as_battery_maker():
+    result = classify_stock_subsector(
+        industry="半导体",
+        main_business="集成电路设备",
+        product="组装生产锂离子电池设备",
+    )
+
+    assert result["subsector"] == "半导体设备"
+    assert "锂电池" not in result["subsector_tags"]
 
 
 def test_falls_back_to_original_industry_without_guessing():

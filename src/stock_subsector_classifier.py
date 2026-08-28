@@ -26,11 +26,22 @@ SUBSECTOR_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("GPU/AI芯片", ("gpu", "ai芯片", "人工智能芯片")),
     ("连接器", ("连接器", "连接组件")),
     ("消费电子零部件", ("消费电子零部件", "精密结构件", "声学器件")),
-    ("锂电池", ("锂离子电池", "动力电池", "储能电池")),
+    ("锂电池", ("动力电池", "储能电池", "锂电池电芯")),
     ("锂电材料", ("正极材料", "负极材料", "电解液", "锂电隔膜")),
     ("光伏设备", ("光伏设备", "硅片设备", "电池片设备")),
     ("机器人", ("工业机器人", "人形机器人", "机器人")),
 )
+
+
+SEMICONDUCTOR_EQUIPMENT_SUBSECTORS = {
+    "CMP设备及材料",
+    "涂胶显影/湿法设备",
+    "量测/检测设备",
+    "刻蚀设备",
+    "薄膜沉积设备",
+    "光刻设备",
+    "半导体设备零部件",
+}
 
 
 def _normalize_text(values: Iterable[object]) -> str:
@@ -79,6 +90,12 @@ def classify_stock_subsector(
     matched_keywords = [keyword for item in matches for keyword in item[3]]
     industry_label = str(industry or "").strip() or "未识别行业"
     primary = matched[0] if matched else f"其他·{industry_label}"
+    if industry_label == "半导体" and "半导体设备" in matched:
+        detailed_equipment_matches = [
+            item for item in matches if item[0] in SEMICONDUCTOR_EQUIPMENT_SUBSECTORS
+        ]
+        if detailed_equipment_matches:
+            primary = detailed_equipment_matches[0][0]
     return {
         "subsector": primary,
         "subsector_tags": matched,
