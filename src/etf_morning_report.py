@@ -155,6 +155,48 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
         {"trade_date": target},
     )
 
+    sentiment = _query_frame(
+        engine,
+        """
+        SELECT
+          COUNT(*) FILTER (WHERE UPPER(COALESCE(payload->>'limit', '')) = 'U') AS up_cnt,
+          COUNT(*) FILTER (WHERE UPPER(COALESCE(payload->>'limit', '')) = 'Z') AS zha_cnt,
+          COUNT(*) AS total_cnt
+        FROM ts_limit_list_d
+        WHERE trade_date = :trade_date
+        """,
+        {"trade_date": target},
+    )
+    if sentiment.empty:
+        warnings.append("涨停情绪数据缺失")
+
+    northbound = _query_frame(
+        engine,
+        """
+        SELECT trade_date, (payload->>'north_money')::numeric AS north_money,
+               (payload->>'hgt')::numeric AS hgt,
+               (payload->>'sgt')::numeric AS sgt
+        FROM ts_moneyflow_hsgt
+        WHERE trade_date = :trade_date
+        """,
+        {"trade_date": target},
+    )
+    if northbound.empty:
+        warnings.append("北向资金数据缺失")
+
+    lhb = _query_frame(
+        engine,
+        """
+        SELECT COUNT(*) AS stock_count,
+               COUNT(DISTINCT ts_code) AS distinct_stock_count
+        FROM ts_top_list
+        WHERE trade_date = :trade_date
+        """,
+        {"trade_date": target},
+    )
+    if lhb.empty:
+        warnings.append("龙虎榜数据缺失")
+
     trend_payload: dict = {}
     try:
         from src.trend_reco_store import fetch_trend_reco_payload
@@ -178,14 +220,24 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
             continue
         try:
             holdings = query_fund_preference_snapshot(code, top_n=10, engine=engine)
+            holding_rows = _summarize_rows(
+                holdings,
+                ["symbol", "stock_name", "stk_mkv_ratio", "stock_industry", "stock_market", "stock_main_business", "stock_product", "stock_introduction"],
+                10,
+            )
+            subsector_counts: dict[str, float] = {}
+            for holding in holding_rows:
+                label = str(holding.get("stock_industry") or "未识别行业")
+                weight = float(holding.get("stk_mkv_ratio") or 0)
+                subsector_counts[label] = subsector_counts.get(label, 0.0) + weight
             funds.append({
                 "fund_code": code,
                 "fund_name": row.get("security_name") or code,
-                "holdings": _summarize_rows(
-                    holdings,
-                    ["symbol", "stock_name", "stk_mkv_ratio", "stock_industry", "stock_market"],
-                    10,
-                ),
+                "holdings": holding_rows,
+                "industry_weight_summary": [
+                    {"industry": name, "weight": round(weight, 2)}
+                    for name, weight in sorted(subsector_counts.items(), key=lambda item: item[1], reverse=True)
+                ],
                 "holding_count": int(len(holdings)),
             })
         except Exception as exc:
@@ -202,6 +254,9 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
             "top_uptrend": (trend_payload.get("top_uptrend") or [])[:10],
             "top_avoid": (trend_payload.get("top_avoid") or [])[:10],
         },
+        "market_sentiment": {"limitup": _summarize_rows(sentiment, ["up_cnt", "zha_cnt", "total_cnt"], 1)},
+        "northbound": {"daily": _summarize_rows(northbound, ["trade_date", "north_money", "hgt", "sgt"], 1)},
+        "dragon_tiger": {"daily": _summarize_rows(lhb, ["stock_count", "distinct_stock_count"], 1)},
         "money_flow": {
             "ths_top_inflow": _summarize_rows(ths, ["industry", "net_amount", "pct_change", "lead_stock"]),
             "dc_top_inflow": _summarize_rows(dc, ["industry", "net_amount", "pct_change"]),
