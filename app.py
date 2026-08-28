@@ -8906,6 +8906,7 @@ def render_etf_morning_report_page():
         generate_and_save_report,
         list_saved_report_dates,
         load_saved_report,
+        build_report_digest,
     )
 
     st.subheader("📰 ETF晨报")
@@ -8930,7 +8931,13 @@ def render_etf_morning_report_page():
 
     fact_pack = report.get("fact_pack") or {}
     quality = fact_pack.get("data_quality") or {}
+    digest = build_report_digest(fact_pack)
     st.metric("报告交易日", fact_pack.get("report_trade_date") or "-")
+    cols = st.columns(4)
+    cols[0].metric("风险灯", f"{digest['risk_color']}｜{digest['risk_text']}")
+    cols[1].metric("自选基金", f"{digest['fund_count']} 只")
+    cols[2].metric("资金流入行业", digest["top_sector"])
+    cols[3].metric("涨停 / 炸板", f"{digest['limitup_count']} / {digest['blowup_count']}")
     if quality.get("warnings"):
         with st.expander("数据缺口与质量提示", expanded=True):
             for warning in quality["warnings"]:

@@ -267,10 +267,52 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
     })
 
 
+def build_report_digest(fact_pack: dict) -> dict:
+    warnings = fact_pack.get("data_quality", {}).get("warnings") or []
+    funds = fact_pack.get("fund_watchlist", {}).get("funds") or []
+    ths = fact_pack.get("money_flow", {}).get("ths_top_inflow") or []
+    dc = fact_pack.get("money_flow", {}).get("dc_top_inflow") or []
+    uptrend = fact_pack.get("trend_recommendations", {}).get("top_uptrend") or []
+    avoid = fact_pack.get("trend_recommendations", {}).get("top_avoid") or []
+    sentiment_rows = fact_pack.get("market_sentiment", {}).get("limitup") or []
+    sentiment = sentiment_rows[0] if sentiment_rows else {}
+    up_cnt = float(sentiment.get("up_cnt") or 0)
+    zha_cnt = float(sentiment.get("zha_cnt") or 0)
+    if up_cnt <= 0:
+        risk = "灰色"
+        risk_text = "涨停情绪数据不足，保持观察"
+    elif zha_cnt / up_cnt >= 0.35:
+        risk = "红色"
+        risk_text = "炸板率偏高，短线情绪谨慎"
+    elif zha_cnt / up_cnt >= 0.2:
+        risk = "黄色"
+        risk_text = "市场存在分化，注意追涨节奏"
+    else:
+        risk = "绿色"
+        risk_text = "涨停结构相对稳定"
+    top_fund = funds[0] if funds else {}
+    top_sector = ths[0].get("industry") if ths else (dc[0].get("industry") if dc else "-")
+    return {
+        "risk_color": risk,
+        "risk_text": risk_text,
+        "fund_count": len(funds),
+        "top_sector": top_sector or "-",
+        "top_sector_net_amount": (ths[0].get("net_amount") if ths else None),
+        "top_fund_name": top_fund.get("fund_name") or "-",
+        "top_fund_code": top_fund.get("fund_code") or "-",
+        "top_uptrend": uptrend[:3],
+        "top_avoid": avoid[:3],
+        "warning_count": len(warnings),
+        "limitup_count": int(up_cnt),
+        "blowup_count": int(zha_cnt),
+    }
+
+
 def _fallback_markdown(fact_pack: dict) -> str:
     target = fact_pack.get("report_trade_date") or "未知日期"
     warnings = fact_pack.get("data_quality", {}).get("warnings") or []
-    lines = [f"# ETF 晨报｜{target}", "", "> 当前为结构化事实版报告：LLM 未配置或本次调用失败。", "", "## 一、核心数据"]
+    digest = build_report_digest(fact_pack)
+    lines = [f"# ETF 晨报｜{target}", "", f"> 当前为结构化事实版报告：LLM 未配置或本次调用失败。风险灯：{digest['risk_color']}｜{digest['risk_text']}", "", "## 一、核心摘要", f"- 自选基金：{digest['fund_count']} 只", f"- 资金流入靠前行业：{digest['top_sector']}", f"- 涨停 / 炸板：{digest['limitup_count']} / {digest['blowup_count']}", f"- 数据质量提示：{digest['warning_count']} 条", "", "## 二、核心数据"]
     etf_rows = fact_pack.get("etf_overview", {}).get("category_share_rows") or []
     lines.append(f"- ETF 分类份额记录：{len(etf_rows)} 条")
     ths_rows = fact_pack.get("money_flow", {}).get("ths_top_inflow") or []

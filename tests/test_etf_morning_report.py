@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.etf_morning_report import (
     _fallback_markdown,
+    build_report_digest,
     find_previous_trade_date,
     generate_llm_markdown,
     save_report,
@@ -31,6 +32,21 @@ def test_find_previous_trade_date_uses_latest_available_source(monkeypatch):
 
     monkeypatch.setattr("src.etf_morning_report._query_frame", fake_query)
     assert find_previous_trade_date(FakeEngine(), today=date(2026, 8, 28)) == "2026-08-27"
+
+
+def test_build_report_digest_calculates_risk_light_and_top_sector():
+    digest = build_report_digest({
+        "fund_watchlist": {"funds": [{"fund_name": "测试基金", "fund_code": "000001.OF"}]},
+        "money_flow": {"ths_top_inflow": [{"industry": "半导体", "net_amount": 123.4}], "dc_top_inflow": []},
+        "trend_recommendations": {"top_uptrend": [{"name": "甲"}], "top_avoid": [{"name": "乙"}]},
+        "market_sentiment": {"limitup": [{"up_cnt": 20, "zha_cnt": 2}]},
+        "data_quality": {"warnings": []},
+    })
+
+    assert digest["risk_color"] == "绿色"
+    assert digest["top_sector"] == "半导体"
+    assert digest["fund_count"] == 1
+    assert digest["limitup_count"] == 20
 
 
 def test_fallback_markdown_explains_holdings_disclosure_limit():
