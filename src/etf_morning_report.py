@@ -86,7 +86,9 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
                SUM(COALESCE(s.total_size, 0)) AS total_size
         FROM etf_share_size s
         LEFT JOIN etf_summary e ON e.fund_trade_code = s.ts_code
-        WHERE s.trade_date = :trade_date
+        WHERE s.trade_date = (
+            SELECT MAX(trade_date) FROM etf_share_size WHERE trade_date <= :trade_date
+        )
         GROUP BY s.trade_date, e.primary_category, e.secondary_category
         ORDER BY total_share_size DESC
         LIMIT 20
@@ -95,6 +97,10 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
     )
     if etf.empty:
         warnings.append("ETF份额数据缺失")
+    else:
+        etf_source_date = _safe_date(etf.iloc[0].get("trade_date"))
+        if etf_source_date and etf_source_date != target:
+            warnings.append(f"ETF份额数据采用最近可用日期：{etf_source_date}")
 
     ths = _query_frame(
         engine,
