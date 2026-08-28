@@ -2154,6 +2154,9 @@ def query_fund_preference_snapshot(
             sb.name AS stock_name,
             sb.industry AS stock_industry,
             sb.market AS stock_market,
+            sc.main_business AS stock_main_business,
+            sc.business_scope AS stock_product,
+            sc.introduction AS stock_introduction,
             p.mkv,
             p.amount,
             p.stk_mkv_ratio,
@@ -2164,6 +2167,7 @@ def query_fund_preference_snapshot(
           ON sb_filter.ts_code = p.symbol
          AND {ACTIVE_STOCK_FILTER_SQL_SB_FILTER}
         LEFT JOIN vw_ts_stock_basic sb ON sb.ts_code = p.symbol AND {ACTIVE_STOCK_FILTER_SQL_SB}
+        LEFT JOIN vw_ts_stock_company sc ON sc.ts_code = p.symbol
     ), prev AS (
         SELECT
             p.fund_code,
@@ -2185,6 +2189,9 @@ def query_fund_preference_snapshot(
         COALESCE(c.stock_name, c.symbol) AS stock_name,
         c.stock_industry,
         c.stock_market,
+        c.stock_main_business,
+        c.stock_product,
+        c.stock_introduction,
         c.mkv,
         c.amount,
         c.stk_mkv_ratio,

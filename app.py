@@ -18852,16 +18852,22 @@ def render_fund_holding_industry_heatmap(item: dict) -> None:
         return
 
     industry_weight = heatmap_df.groupby("所属行业")["持仓权重(%)"].transform("sum")
-    heatmap_df = heatmap_df.assign(**{"行业权重(%)": industry_weight})
+    subsector_weight = heatmap_df.groupby(["所属行业", "细分板块"])["持仓权重(%)"].transform("sum")
+    heatmap_df = heatmap_df.assign(
+        **{"行业权重(%)": industry_weight, "细分板块权重(%)": subsector_weight}
+    )
     fund_name = _fund_watchlist_text(item.get("fund_name"), "未知基金")
     fund_code = _fund_watchlist_text(item.get("fund_code"))
     fund_root_label = f"{fund_name}（{fund_code}）"
     fig = px.treemap(
         heatmap_df,
-        path=[px.Constant(fund_root_label), "所属行业", "持仓股票"],
+        path=[px.Constant(fund_root_label), "所属行业", "细分板块", "持仓股票"],
         values="持仓权重(%)",
-        color="所属行业",
-        custom_data=["股票名称", "股票代码", "持仓权重(%)", "行业权重(%)"],
+        color="细分板块",
+        custom_data=[
+            "股票名称", "股票代码", "所属行业", "细分板块", "持仓权重(%)",
+            "细分板块权重(%)", "行业权重(%)", "板块标签", "分类依据",
+        ],
         color_discrete_sequence=px.colors.qualitative.Set3,
     )
     fig.update_traces(
@@ -18870,9 +18876,13 @@ def render_fund_holding_industry_heatmap(item: dict) -> None:
         hovertemplate=(
             "<b>%{customdata[0]}</b><br>"
             "代码：%{customdata[1]}<br>"
-            "所属行业：%{parent}<br>"
-            "个股权重：%{customdata[2]:.2f}%<br>"
-            "行业权重：%{customdata[3]:.2f}%<extra></extra>"
+            "所属行业：%{customdata[2]}<br>"
+            "细分板块：%{customdata[3]}<br>"
+            "个股权重：%{customdata[4]:.2f}%<br>"
+            "细分板块权重：%{customdata[5]:.2f}%<br>"
+            "行业权重：%{customdata[6]:.2f}%<br>"
+            "相关标签：%{customdata[7]}<br>"
+            "分类依据：%{customdata[8]}<extra></extra>"
         ),
         marker=dict(line=dict(color="rgba(255,255,255,0.72)", width=2)),
     )
@@ -18888,7 +18898,7 @@ def render_fund_holding_industry_heatmap(item: dict) -> None:
         config={"displayModeBar": False, "responsive": True},
         key=f"fund_holding_industry_heatmap_{item.get('safe_code', 'fund')}",
     )
-    st.caption("矩形面积代表个股持仓权重；按行业分组，同一行业使用同一颜色。行业权重为该行业入选前十大持仓股票的权重合计。")
+    st.caption("层级为大行业 → 主细分板块 → 个股；矩形面积代表持仓权重。每只股票只计入一个主细分板块，避免权重重复；其他相关板块显示在悬浮标签中。")
 
 
 def render_fund_watchlist_focus_detail(item: dict) -> None:

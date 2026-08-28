@@ -57,6 +57,9 @@ def _holding_df():
                 "symbol": "300750.SZ",
                 "stock_industry": "电池",
                 "stock_market": "创业板",
+                "stock_main_business": "动力电池与储能电池研发生产",
+                "stock_product": "锂离子电池",
+                "stock_introduction": "",
                 "mkv": 1_820_000_000,
                 "stk_mkv_ratio": 7.9,
                 "holding_change_flag": "increase",
@@ -118,6 +121,7 @@ def test_build_item_normalizes_existing_fund_and_holding_data():
     assert item["holdings"][0]["stock_name"] == "宁德时代"
     assert item["holdings"][0]["industry"] == "电池"
     assert item["holdings"][0]["market"] == "创业板"
+    assert item["holdings"][0]["subsector"] == "锂电池"
     assert item["holdings"][1]["industry"] == "未识别"
 
 
@@ -138,6 +142,7 @@ def test_build_industry_heatmap_frame_keeps_industry_stock_and_positive_weight()
     ningde = frame[frame["股票代码"] == "300750.SZ"].iloc[0]
     assert ningde["所属行业"] == "电池"
     assert ningde["持仓股票"] == "宁德时代（300750.SZ）"
+    assert ningde["细分板块"] == "锂电池"
     assert set(frame["所属行业"]) == {"电池", "未识别"}
 
 

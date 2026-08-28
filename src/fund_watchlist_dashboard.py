@@ -4,6 +4,8 @@ from typing import Iterable
 
 import pandas as pd
 
+from src.stock_subsector_classifier import classify_stock_subsector
+
 
 CHANGE_LABELS = {
     "new": "新进",
@@ -128,6 +130,12 @@ def build_fund_watchlist_item(
         for _, row in holding_df.head(10).iterrows():
             flag = str(row.get("holding_change_flag") or "stable").strip().lower()
             market_value = _optional_float(row.get("mkv"))
+            subsector = classify_stock_subsector(
+                industry=row.get("stock_industry"),
+                main_business=row.get("stock_main_business"),
+                product=row.get("stock_product"),
+                introduction=row.get("stock_introduction"),
+            )
             holdings.append(
                 {
                     "stock_name": str(row.get("stock_name") or row.get("symbol") or "-"),
@@ -138,6 +146,10 @@ def build_fund_watchlist_item(
                     "market": str(
                         _first_nonempty(row.get("stock_market"), default="-")
                     ),
+                    "subsector": str(subsector["subsector"]),
+                    "subsector_tags": list(subsector["subsector_tags"]),
+                    "subsector_tag_text": str(subsector["subsector_tag_text"]),
+                    "subsector_evidence": str(subsector["subsector_evidence"]),
                     "market_value": market_value,
                     "market_value_yi": (
                         market_value / 1e8 if market_value is not None else None
@@ -221,17 +233,29 @@ def build_fund_holding_industry_heatmap_frame(holdings: Iterable[dict]) -> pd.Da
                 "所属行业": industry,
                 "股票名称": stock_name,
                 "股票代码": symbol,
+                "细分板块": str(
+                    _first_nonempty(holding.get("subsector"), default=f"其他·{industry}")
+                ),
+                "板块标签": str(
+                    _first_nonempty(holding.get("subsector_tag_text"), default="-")
+                ),
+                "分类依据": str(
+                    _first_nonempty(holding.get("subsector_evidence"), default="-")
+                ),
                 "持仓股票": f"{stock_name}（{symbol}）" if symbol != "-" else stock_name,
                 "持仓权重(%)": weight,
             }
         )
     if not rows:
         return pd.DataFrame(
-            columns=["所属行业", "股票名称", "股票代码", "持仓股票", "持仓权重(%)"]
+            columns=[
+                "所属行业", "细分板块", "股票名称", "股票代码", "板块标签", "分类依据",
+                "持仓股票", "持仓权重(%)",
+            ]
         )
     return (
         pd.DataFrame(rows)
-        .sort_values(["所属行业", "持仓权重(%)"], ascending=[True, False])
+        .sort_values(["所属行业", "细分板块", "持仓权重(%)"], ascending=[True, True, False])
         .reset_index(drop=True)
     )
 

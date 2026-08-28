@@ -127,7 +127,8 @@ def test_fund_watchlist_copy_and_fields_are_chinese_fund_semantics():
         "前十大持仓行业权重热力图",
         "持仓披露日期",
         "fund_root_label",
-        "矩形面积代表个股持仓权重",
+        "矩形面积代表持仓权重",
+        "大行业 → 主细分板块 → 个股",
         "持仓市值",
         "持仓变化",
     ]:
