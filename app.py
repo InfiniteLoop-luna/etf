@@ -18895,6 +18895,8 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
             "<tr>"
             f"<td>{_fund_watchlist_text(holding.get('stock_name'))}</td>"
             f"<td>{_fund_watchlist_text(holding.get('symbol'))}</td>"
+            f"<td>{_fund_watchlist_text(holding.get('industry'), '未识别')}</td>"
+            f"<td>{_fund_watchlist_text(holding.get('market'))}</td>"
             f"<td>{_fund_watchlist_number_label(holding.get('market_value_yi'), '亿')}</td>"
             f"<td>{_fund_watchlist_number_label(holding.get('weight'), '%')}</td>"
             f"<td{realtime_class}>{_fund_watchlist_signed_pct_label(realtime_pct)}</td>"
@@ -18911,6 +18913,8 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
                     <tr>
                         <th>股票名称</th>
                         <th>股票代码</th>
+                        <th>所属行业</th>
+                        <th>市场板块</th>
                         <th>持仓市值</th>
                         <th>持仓权重</th>
                         <th>实时涨跌</th>

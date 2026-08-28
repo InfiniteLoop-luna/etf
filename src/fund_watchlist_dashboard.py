@@ -132,6 +132,12 @@ def build_fund_watchlist_item(
                 {
                     "stock_name": str(row.get("stock_name") or row.get("symbol") or "-"),
                     "symbol": str(row.get("symbol") or "-"),
+                    "industry": str(
+                        _first_nonempty(row.get("stock_industry"), default="未识别")
+                    ),
+                    "market": str(
+                        _first_nonempty(row.get("stock_market"), default="-")
+                    ),
                     "market_value": market_value,
                     "market_value_yi": (
                         market_value / 1e8 if market_value is not None else None

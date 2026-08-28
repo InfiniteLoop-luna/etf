@@ -54,6 +54,8 @@ def _holding_df():
                 "end_date": "2026-03-31",
                 "stock_name": "宁德时代",
                 "symbol": "300750.SZ",
+                "stock_industry": "电池",
+                "stock_market": "创业板",
                 "mkv": 1_820_000_000,
                 "stk_mkv_ratio": 7.9,
                 "holding_change_flag": "increase",
@@ -113,6 +115,9 @@ def test_build_item_normalizes_existing_fund_and_holding_data():
     assert item["unit_nav"] == 2.1604
     assert item["daily_change_pct"] == -0.53
     assert item["holdings"][0]["stock_name"] == "宁德时代"
+    assert item["holdings"][0]["industry"] == "电池"
+    assert item["holdings"][0]["market"] == "创业板"
+    assert item["holdings"][1]["industry"] == "未识别"
 
 
 def test_build_latest_snapshot_uses_latest_confirmed_row_and_source_change():
