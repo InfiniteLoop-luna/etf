@@ -18853,9 +18853,12 @@ def render_fund_holding_industry_heatmap(item: dict) -> None:
 
     industry_weight = heatmap_df.groupby("所属行业")["持仓权重(%)"].transform("sum")
     heatmap_df = heatmap_df.assign(**{"行业权重(%)": industry_weight})
+    fund_name = _fund_watchlist_text(item.get("fund_name"), "未知基金")
+    fund_code = _fund_watchlist_text(item.get("fund_code"))
+    fund_root_label = f"{fund_name}（{fund_code}）"
     fig = px.treemap(
         heatmap_df,
-        path=[px.Constant("前十大持仓"), "所属行业", "持仓股票"],
+        path=[px.Constant(fund_root_label), "所属行业", "持仓股票"],
         values="持仓权重(%)",
         color="所属行业",
         custom_data=["股票名称", "股票代码", "持仓权重(%)", "行业权重(%)"],
@@ -18986,7 +18989,11 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
         else ""
     )
 
-    st.markdown("#### 前十大持仓行业权重热力图")
+    st.markdown(
+        f"#### {_fund_watchlist_text(item.get('fund_name'), '未知基金')}"
+        f"（{_fund_watchlist_text(item.get('fund_code'))}）前十大持仓行业权重热力图"
+    )
+    st.caption(f"持仓披露日期：{latest_label}")
     render_fund_holding_industry_heatmap(item)
 
     st.html(
