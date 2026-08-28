@@ -163,6 +163,7 @@ from src.factor_workbench import (
 )
 from src.fund_watchlist_dashboard import (
     attach_latest_closing_estimate,
+    build_fund_holding_industry_heatmap_frame,
     build_fund_watchlist_item,
     build_fund_watchlist_summary,
     build_fund_watchlist_table,
@@ -18844,6 +18845,49 @@ def render_fund_watchlist_table(items: list[dict], *, focus_code: str) -> str:
     return selected_code
 
 
+def render_fund_holding_industry_heatmap(item: dict) -> None:
+    heatmap_df = build_fund_holding_industry_heatmap_frame(item.get("holdings", []))
+    if heatmap_df.empty:
+        st.info("当前前十大持仓暂无可计算的行业和权重数据。")
+        return
+
+    industry_weight = heatmap_df.groupby("所属行业")["持仓权重(%)"].transform("sum")
+    heatmap_df = heatmap_df.assign(**{"行业权重(%)": industry_weight})
+    fig = px.treemap(
+        heatmap_df,
+        path=[px.Constant("前十大持仓"), "所属行业", "持仓股票"],
+        values="持仓权重(%)",
+        color="所属行业",
+        custom_data=["股票名称", "股票代码", "持仓权重(%)", "行业权重(%)"],
+        color_discrete_sequence=px.colors.qualitative.Set3,
+    )
+    fig.update_traces(
+        root_color="rgba(0,0,0,0)",
+        texttemplate="<b>%{label}</b><br>%{value:.2f}%",
+        hovertemplate=(
+            "<b>%{customdata[0]}</b><br>"
+            "代码：%{customdata[1]}<br>"
+            "所属行业：%{parent}<br>"
+            "个股权重：%{customdata[2]:.2f}%<br>"
+            "行业权重：%{customdata[3]:.2f}%<extra></extra>"
+        ),
+        marker=dict(line=dict(color="rgba(255,255,255,0.72)", width=2)),
+    )
+    fig.update_layout(
+        height=430,
+        margin=dict(l=4, r=4, t=8, b=4),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={"displayModeBar": False, "responsive": True},
+        key=f"fund_holding_industry_heatmap_{item.get('safe_code', 'fund')}",
+    )
+    st.caption("矩形面积代表个股持仓权重；按行业分组，同一行业使用同一颜色。行业权重为该行业入选前十大持仓股票的权重合计。")
+
+
 def render_fund_watchlist_focus_detail(item: dict) -> None:
     ratio = item.get("top10_ratio")
     ratio_value = 0.0 if ratio is None else max(0.0, min(float(ratio), 100.0))
@@ -18941,6 +18985,9 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
         if effective_error
         else ""
     )
+
+    st.markdown("#### 前十大持仓行业权重热力图")
+    render_fund_holding_industry_heatmap(item)
 
     st.html(
         f"""

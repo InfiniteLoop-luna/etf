@@ -198,6 +198,44 @@ def build_fund_watchlist_item(
     }
 
 
+def build_fund_holding_industry_heatmap_frame(holdings: Iterable[dict]) -> pd.DataFrame:
+    """Build a clean industry -> stock hierarchy weighted by disclosed holding ratio."""
+    rows = []
+    for holding in holdings or []:
+        weight = _optional_float(holding.get("weight"))
+        if weight is None or weight <= 0:
+            continue
+        industry = str(
+            _first_nonempty(holding.get("industry"), default="未识别行业")
+        ).strip()
+        stock_name = str(
+            _first_nonempty(
+                holding.get("stock_name"),
+                holding.get("symbol"),
+                default="未知股票",
+            )
+        ).strip()
+        symbol = str(_first_nonempty(holding.get("symbol"), default="-")).strip()
+        rows.append(
+            {
+                "所属行业": industry,
+                "股票名称": stock_name,
+                "股票代码": symbol,
+                "持仓股票": f"{stock_name}（{symbol}）" if symbol != "-" else stock_name,
+                "持仓权重(%)": weight,
+            }
+        )
+    if not rows:
+        return pd.DataFrame(
+            columns=["所属行业", "股票名称", "股票代码", "持仓股票", "持仓权重(%)"]
+        )
+    return (
+        pd.DataFrame(rows)
+        .sort_values(["所属行业", "持仓权重(%)"], ascending=[True, False])
+        .reset_index(drop=True)
+    )
+
+
 def build_fund_watchlist_summary(items: Iterable[dict]) -> dict:
     items = list(items)
     dates = [

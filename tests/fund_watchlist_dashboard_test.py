@@ -15,6 +15,7 @@ from src.fund_nav import (
     normalize_fund_code_for_nav,
 )
 from src.fund_watchlist_dashboard import (
+    build_fund_holding_industry_heatmap_frame,
     build_fund_watchlist_item,
     build_fund_watchlist_summary,
     build_fund_watchlist_table,
@@ -118,6 +119,26 @@ def test_build_item_normalizes_existing_fund_and_holding_data():
     assert item["holdings"][0]["industry"] == "电池"
     assert item["holdings"][0]["market"] == "创业板"
     assert item["holdings"][1]["industry"] == "未识别"
+
+
+def test_build_industry_heatmap_frame_keeps_industry_stock_and_positive_weight():
+    item = build_fund_watchlist_item(_watchlist_row(), _meta_df(), _holding_df())
+    item["holdings"].append(
+        {
+            "stock_name": "零权重股票",
+            "symbol": "000000.SZ",
+            "industry": "其他",
+            "weight": 0,
+        }
+    )
+
+    frame = build_fund_holding_industry_heatmap_frame(item["holdings"])
+
+    assert sorted(frame["持仓权重(%)"].tolist(), reverse=True) == [7.9, 6.3, 4.7]
+    ningde = frame[frame["股票代码"] == "300750.SZ"].iloc[0]
+    assert ningde["所属行业"] == "电池"
+    assert ningde["持仓股票"] == "宁德时代（300750.SZ）"
+    assert set(frame["所属行业"]) == {"电池", "未识别"}
 
 
 def test_build_latest_snapshot_uses_latest_confirmed_row_and_source_change():

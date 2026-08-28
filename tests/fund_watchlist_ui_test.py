@@ -124,6 +124,8 @@ def test_fund_watchlist_copy_and_fields_are_chinese_fund_semantics():
         "持仓变动",
         "基金管理人",
         "前十大持仓明细",
+        "前十大持仓行业权重热力图",
+        "矩形面积代表个股持仓权重",
         "持仓市值",
         "持仓变化",
     ]:
