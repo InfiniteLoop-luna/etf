@@ -74,6 +74,15 @@ def test_generate_llm_markdown_falls_back_when_llm_unconfigured(monkeypatch):
     assert "结构化事实版报告" in markdown
 
 
+def test_save_report_marks_llm_or_fact_mode(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.etf_morning_report.REPORT_DIR", tmp_path)
+    llm_saved = save_report({"report_trade_date": "2026-08-27"}, "# report\n", {"model": "demo"})
+    facts_saved = save_report({"report_trade_date": "2026-08-28"}, "# report\n")
+
+    assert llm_saved["report_mode"] == "llm"
+    assert facts_saved["report_mode"] == "facts"
+
+
 def test_save_report_writes_latest_and_date_files(tmp_path, monkeypatch):
     monkeypatch.setattr("src.etf_morning_report.REPORT_DIR", tmp_path)
     saved = save_report({"report_trade_date": "2026-08-27"}, "# report\n", {"model": "demo"})

@@ -8932,6 +8932,11 @@ def render_etf_morning_report_page():
     fact_pack = report.get("fact_pack") or {}
     quality = fact_pack.get("data_quality") or {}
     digest = build_report_digest(fact_pack)
+    report_mode = str(report.get("report_mode") or ("llm" if report.get("llm") else "facts"))
+    if report_mode == "llm":
+        st.success(f"报告模式：LLM 综合版（{(report.get('llm') or {}).get('model') or '已配置模型'}）")
+    else:
+        st.info("报告模式：结构化事实版（未使用 LLM 或本次 LLM 未成功返回）")
     st.metric("报告交易日", fact_pack.get("report_trade_date") or "-")
     cols = st.columns(4)
     cols[0].metric("风险灯", f"{digest['risk_color']}｜{digest['risk_text']}")

@@ -119,7 +119,7 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
     dc = _query_frame(
         engine,
         """
-        SELECT payload->>'industry' AS industry,
+        SELECT payload->>'name' AS industry,
                (payload->>'net_amount')::numeric AS net_amount,
                (payload->>'pct_change')::numeric AS pct_change
         FROM ts_moneyflow_dc_ind
@@ -423,7 +423,13 @@ def generate_llm_markdown(fact_pack: dict) -> tuple[str, dict | None]:
 def save_report(fact_pack: dict, markdown: str, llm_meta: dict | None = None) -> dict:
     target = str(fact_pack.get("report_trade_date") or datetime.now().date())
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    payload = {"fact_pack": fact_pack, "markdown": markdown, "llm": llm_meta or {}, "saved_at": datetime.now().isoformat(timespec="seconds")}
+    payload = {
+        "fact_pack": fact_pack,
+        "markdown": markdown,
+        "llm": llm_meta or {},
+        "report_mode": "llm" if llm_meta else "facts",
+        "saved_at": datetime.now().isoformat(timespec="seconds"),
+    }
     (REPORT_DIR / f"{target}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     (REPORT_DIR / f"{target}.md").write_text(markdown, encoding="utf-8")
     (REPORT_DIR / "latest.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
