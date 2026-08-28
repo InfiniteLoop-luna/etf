@@ -189,7 +189,7 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
         """
         SELECT COUNT(*) AS stock_count,
                COUNT(DISTINCT ts_code) AS distinct_stock_count
-        FROM ts_top_list
+        FROM ts_lhb_top_list
         WHERE trade_date = :trade_date
         """,
         {"trade_date": target},
