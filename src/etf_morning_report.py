@@ -112,33 +112,33 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
             ORDER BY trade_date DESC
             LIMIT 2
         ), ranked AS (
-            SELECT s.trade_date, s.ts_code, s.total_share, s.total_size,
-                   e.fund_name_cn, e.primary_category, e.secondary_category,
+            SELECT s.trade_date, s.ts_code, s.etf_name, s.total_share, s.total_size,
+                   COALESCE(NULLIF(e.index_name, ''), NULLIF(e.etf_expanded_name, ''), '未识别行业') AS industry,
+                   COALESCE(NULLIF(e.fund_name_cn, ''), NULLIF(s.etf_name, ''), s.ts_code) AS industry_etf,
                    ROW_NUMBER() OVER (PARTITION BY s.ts_code ORDER BY s.trade_date DESC) AS rn
             FROM etf_share_size s
             JOIN available_dates d ON d.trade_date = s.trade_date
             LEFT JOIN etf_summary e ON e.fund_trade_code = s.ts_code
-            WHERE e.primary_category = '指数'
-              AND e.secondary_category = '行业&其他'
-        ), grouped AS (
-            SELECT fund_name_cn AS industry_etf,
-                   MAX(trade_date) FILTER (WHERE rn = 1) AS current_date,
-                   MAX(trade_date) FILTER (WHERE rn = 2) AS previous_date,
-                   MAX(total_share) FILTER (WHERE rn = 1) AS current_share,
-                   MAX(total_share) FILTER (WHERE rn = 2) AS previous_share,
-                   MAX(total_size) FILTER (WHERE rn = 1) AS current_size
-            FROM ranked
-            GROUP BY fund_name_cn
+            WHERE e.secondary_category = '行业&其他'
         )
-        SELECT industry_etf, current_date, previous_date, current_share, previous_share,
-               current_size,
-               CASE WHEN previous_share IS NULL OR previous_share = 0 THEN NULL
-                    ELSE (current_share - previous_share) / previous_share * 100 END AS share_growth_pct,
-               current_share - COALESCE(previous_share, 0) AS share_change
-        FROM grouped
-        WHERE current_share IS NOT NULL
-        ORDER BY share_growth_pct DESC NULLS LAST, current_share DESC
-        LIMIT 30
+        SELECT ts_code, etf_name, industry, industry_etf,
+               MAX(trade_date) FILTER (WHERE rn = 1) AS current_date,
+               MAX(trade_date) FILTER (WHERE rn = 2) AS previous_date,
+               MAX(total_share) FILTER (WHERE rn = 1) AS current_share,
+               MAX(total_share) FILTER (WHERE rn = 2) AS previous_share,
+               MAX(total_size) FILTER (WHERE rn = 1) AS current_size,
+               CASE WHEN MAX(total_share) FILTER (WHERE rn = 2) IS NULL
+                           OR MAX(total_share) FILTER (WHERE rn = 2) = 0 THEN NULL
+                    ELSE (
+                        MAX(total_share) FILTER (WHERE rn = 1)
+                        - MAX(total_share) FILTER (WHERE rn = 2)
+                    ) / MAX(total_share) FILTER (WHERE rn = 2) * 100 END AS share_growth_pct,
+               MAX(total_share) FILTER (WHERE rn = 1)
+               - COALESCE(MAX(total_share) FILTER (WHERE rn = 2), 0) AS share_change
+        FROM ranked
+        GROUP BY ts_code, etf_name, industry, industry_etf
+        HAVING MAX(total_share) FILTER (WHERE rn = 1) IS NOT NULL
+        ORDER BY industry, share_growth_pct DESC NULLS LAST, current_share DESC
         """,
         {"trade_date": target},
     )
@@ -282,9 +282,10 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
             "category_share_rows": _summarize_rows(etf, ["primary_category", "secondary_category", "total_share_size", "total_size"]),
             "industry_etf_growth": _summarize_rows(
                 industry_etf_growth,
-                ["industry_etf", "current_date", "previous_date", "current_share", "previous_share", "share_change", "share_growth_pct", "current_size"],
-                30,
+                ["industry", "ts_code", "industry_etf", "current_date", "previous_date", "current_share", "previous_share", "share_change", "share_growth_pct", "current_size"],
+                1000,
             ),
+            "industry_etf_groups": _build_industry_etf_groups(industry_etf_growth),
         },
         "fund_watchlist": {"funds": funds},
         "trend_recommendations": {
@@ -303,6 +304,27 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
         "margin": {"daily": _summarize_rows(margin, ["trade_date", "financing_buy", "financing_repay", "financing_balance"], 1)},
         "data_quality": {"warnings": warnings},
     })
+
+
+def _build_industry_etf_groups(frame: pd.DataFrame) -> list[dict]:
+    if frame is None or frame.empty:
+        return []
+    groups = []
+    for industry, group in frame.groupby("industry", dropna=False, sort=True):
+        rows = []
+        for row in group.sort_values("share_growth_pct", ascending=False, na_position="last").to_dict(orient="records"):
+            rows.append({
+                "ts_code": row.get("ts_code"),
+                "etf_name": row.get("industry_etf") or row.get("etf_name") or row.get("ts_code"),
+                "current_date": row.get("current_date"),
+                "previous_date": row.get("previous_date"),
+                "current_share": row.get("current_share"),
+                "previous_share": row.get("previous_share"),
+                "share_change": row.get("share_change"),
+                "share_growth_pct": row.get("share_growth_pct"),
+            })
+        groups.append({"industry": industry or "未识别行业", "etf_count": len(rows), "etfs": make_json_safe(rows)})
+    return groups
 
 
 def build_report_digest(fact_pack: dict) -> dict:
@@ -384,11 +406,11 @@ def _fallback_markdown(fact_pack: dict) -> str:
     ]
     if industry_etf_growth:
         lines.extend(["", "### 行业 ETF 较前一日份额变化"])
-        for row in industry_etf_growth[:15]:
+        for row in industry_etf_growth:
             growth = row.get("share_growth_pct")
             growth_text = "--" if growth is None else f"{float(growth):+.2f}%"
             lines.append(
-                f"- {row.get('industry_etf') or '-'}｜份额变化 {growth_text}｜"
+                f"- 行业：{row.get('industry') or '未识别行业'}｜{row.get('industry_etf') or '-'}（{row.get('ts_code') or '-' }）｜份额变化 {growth_text}｜"
                 f"增减 {row.get('share_change') or 0}｜当前份额 {row.get('current_share') or '-'}"
             )
     if ths_rows:
@@ -444,7 +466,7 @@ def _build_llm_fact_pack(fact_pack: dict) -> dict:
     compact = dict(fact_pack)
     compact["etf_overview"] = {
         "category_share_rows": (fact_pack.get("etf_overview", {}).get("category_share_rows") or [])[:12],
-        "industry_etf_growth": (fact_pack.get("etf_overview", {}).get("industry_etf_growth") or [])[:20],
+        "industry_etf_growth": (fact_pack.get("etf_overview", {}).get("industry_etf_growth") or [])[:300],
     }
     compact["money_flow"] = {
         "ths_top_inflow": (fact_pack.get("money_flow", {}).get("ths_top_inflow") or [])[:8],
