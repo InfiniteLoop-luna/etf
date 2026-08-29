@@ -312,6 +312,16 @@ def _build_industry_etf_groups(frame: pd.DataFrame) -> list[dict]:
         return []
     groups = []
     for industry, group in frame.groupby("industry", dropna=False, sort=True):
+        current_shares = pd.to_numeric(group.get("current_share"), errors="coerce")
+        previous_shares = pd.to_numeric(group.get("previous_share"), errors="coerce")
+        current_share = current_shares.sum(min_count=1)
+        previous_share = previous_shares.sum(min_count=1)
+        share_change = None
+        share_growth_pct = None
+        if not pd.isna(current_share) and not pd.isna(previous_share):
+            share_change = float(current_share - previous_share)
+            if float(previous_share) != 0:
+                share_growth_pct = share_change / float(previous_share) * 100
         rows = []
         for row in group.sort_values("share_growth_pct", ascending=False, na_position="last").to_dict(orient="records"):
             rows.append({
@@ -324,8 +334,25 @@ def _build_industry_etf_groups(frame: pd.DataFrame) -> list[dict]:
                 "share_change": row.get("share_change"),
                 "share_growth_pct": row.get("share_growth_pct"),
             })
-        groups.append({"industry": industry or "未识别行业", "etf_count": len(rows), "etfs": make_json_safe(rows)})
-    return groups
+        groups.append({
+            "industry": industry or "未识别行业",
+            "etf_count": len(rows),
+            "current_date": max((str(value) for value in group["current_date"].dropna()), default=None),
+            "previous_date": max((str(value) for value in group["previous_date"].dropna()), default=None),
+            "current_share": None if pd.isna(current_share) else float(current_share),
+            "previous_share": None if pd.isna(previous_share) else float(previous_share),
+            "share_change": share_change,
+            "share_growth_pct": share_growth_pct,
+            "etfs": make_json_safe(rows),
+        })
+    groups.sort(
+        key=lambda item: (
+            item.get("share_growth_pct") is None,
+            -(item.get("share_growth_pct") or 0),
+            str(item.get("industry") or ""),
+        )
+    )
+    return make_json_safe(groups)
 
 
 def build_report_digest(fact_pack: dict) -> dict:
@@ -409,7 +436,12 @@ def _fallback_markdown(fact_pack: dict) -> str:
     if industry_etf_growth:
         lines.extend(["", "### 行业 ETF 较前一日份额变化"])
         for group in industry_etf_groups:
-            lines.append(f"#### {group.get('industry') or '未识别行业'}（{group.get('etf_count') or 0} 只）")
+            group_growth = group.get("share_growth_pct")
+            group_growth_text = "--" if group_growth is None else f"{float(group_growth):+.2f}%"
+            lines.append(
+                f"#### {group.get('industry') or '未识别行业'}（{group.get('etf_count') or 0} 只）｜"
+                f"行业合计份额较前一日 {group_growth_text}｜增减 {group.get('share_change') or 0}"
+            )
             for row in group.get("etfs") or []:
                 growth = row.get("share_growth_pct")
                 growth_text = "--" if growth is None else f"{float(growth):+.2f}%"
@@ -470,7 +502,7 @@ def _build_llm_fact_pack(fact_pack: dict) -> dict:
     compact = dict(fact_pack)
     compact["etf_overview"] = {
         "category_share_rows": (fact_pack.get("etf_overview", {}).get("category_share_rows") or [])[:12],
-        "industry_etf_growth": (fact_pack.get("etf_overview", {}).get("industry_etf_growth") or [])[:300],
+        "industry_etf_groups": (fact_pack.get("etf_overview", {}).get("industry_etf_groups") or [])[:100],
     }
     compact["money_flow"] = {
         "ths_top_inflow": (fact_pack.get("money_flow", {}).get("ths_top_inflow") or [])[:8],

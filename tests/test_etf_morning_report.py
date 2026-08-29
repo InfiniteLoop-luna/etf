@@ -37,15 +37,19 @@ def test_find_previous_trade_date_uses_latest_available_source(monkeypatch):
 
 def test_industry_etf_groups_keep_all_etfs_under_industry():
     frame = pd.DataFrame([
-        {"industry": "半导体", "ts_code": "159000.SZ", "industry_etf": "半导体ETF", "share_growth_pct": 5.0},
-        {"industry": "半导体", "ts_code": "159001.SZ", "industry_etf": "芯片ETF", "share_growth_pct": -2.0},
-        {"industry": "通信", "ts_code": "159002.SZ", "industry_etf": "通信ETF", "share_growth_pct": 1.0},
+        {"industry": "半导体", "ts_code": "159000.SZ", "industry_etf": "半导体ETF", "current_date": "2026-08-27", "previous_date": "2026-08-26", "current_share": 110.0, "previous_share": 100.0, "share_growth_pct": 10.0},
+        {"industry": "半导体", "ts_code": "159001.SZ", "industry_etf": "芯片ETF", "current_date": "2026-08-27", "previous_date": "2026-08-26", "current_share": 190.0, "previous_share": 200.0, "share_growth_pct": -5.0},
+        {"industry": "通信", "ts_code": "159002.SZ", "industry_etf": "通信ETF", "current_date": "2026-08-27", "previous_date": "2026-08-26", "current_share": 101.0, "previous_share": 100.0, "share_growth_pct": 1.0},
     ])
     groups = _build_industry_etf_groups(frame)
 
-    assert [group["industry"] for group in groups] == ["半导体", "通信"]
-    assert len(groups[0]["etfs"]) == 2
-    assert groups[0]["etfs"][0]["ts_code"] == "159000.SZ"
+    semiconductor = next(group for group in groups if group["industry"] == "半导体")
+    assert len(semiconductor["etfs"]) == 2
+    assert semiconductor["etfs"][0]["ts_code"] == "159000.SZ"
+    assert semiconductor["current_share"] == 300.0
+    assert semiconductor["previous_share"] == 300.0
+    assert semiconductor["share_change"] == 0.0
+    assert semiconductor["share_growth_pct"] == 0.0
 
 
 def test_build_report_digest_calculates_risk_light_and_top_sector():

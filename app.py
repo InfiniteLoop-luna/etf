@@ -8922,6 +8922,37 @@ def _morning_report_table_html(rows, columns, empty_text="暂无数据"):
     return f'<div class="ws-morning-table-wrap"><table><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
 
 
+def _morning_report_industry_groups_html(groups):
+    if not groups:
+        return '<div class="ws-morning-empty">暂无行业 ETF 份额数据</div>'
+    blocks = []
+    for group in groups:
+        growth = pd.to_numeric(group.get("share_growth_pct"), errors="coerce")
+        growth_text = "--" if pd.isna(growth) else f"{float(growth):+.2f}%"
+        rows = []
+        for row in group.get("etfs") or []:
+            etf_growth = pd.to_numeric(row.get("share_growth_pct"), errors="coerce")
+            rows.append({
+                "行业ETF": f"{row.get('etf_name') or '--'}（{row.get('ts_code') or '--'}）",
+                "较前一日份额增长": "--" if pd.isna(etf_growth) else f"{float(etf_growth):+.2f}%",
+                "份额增减": _morning_report_num(row.get("share_change"), 2),
+                "当前份额": _morning_report_num(row.get("current_share"), 2),
+            })
+        summary = (
+            f'<span class="ws-industry-name">{escape(str(group.get("industry") or "未识别行业"))}</span>'
+            f'<span class="ws-industry-count">{int(group.get("etf_count") or 0)} 只 ETF</span>'
+            f'<span class="ws-industry-growth">较前一日 {escape(growth_text)}</span>'
+            f'<span class="ws-industry-change">份额增减 {_morning_report_num(group.get("share_change"), 2)} · '
+            f'当前份额 {_morning_report_num(group.get("current_share"), 2)}</span>'
+        )
+        details = _morning_report_table_html(
+            rows,
+            [('行业ETF', '包含的 ETF'), ('较前一日份额增长', '较前一日份额增长'), ('份额增减', '份额增减'), ('当前份额', '当前份额')],
+        )
+        blocks.append(f'<details class="ws-industry-group"><summary>{summary}</summary>{details}</details>')
+    return f'<div class="ws-industry-groups">{"".join(blocks)}</div>'
+
+
 def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
     from src.etf_morning_report import build_report_digest
 
@@ -8948,17 +8979,6 @@ def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
     valid_changes = [pd.to_numeric(fund.get("daily_change_pct"), errors="coerce") for fund in funds]
     valid_changes = [float(value) for value in valid_changes if not pd.isna(value)]
     avg_fund_change = sum(valid_changes) / len(valid_changes) if valid_changes else None
-    etf_growth_display = []
-    for group in growth_groups:
-        for row in group.get("etfs") or []:
-            growth = pd.to_numeric(row.get("share_growth_pct"), errors="coerce")
-            etf_growth_display.append({
-                "行业": group.get("industry") or "未识别行业",
-                "行业ETF": f"{row.get('etf_name') or '--'}（{row.get('ts_code') or '--'}）",
-                "较前一日份额增长": "--" if pd.isna(growth) else f"{float(growth):+.2f}%",
-                "份额增减": _morning_report_num(row.get("share_change"), 2),
-                "当前份额": _morning_report_num(row.get("current_share"), 2),
-            })
     ths_display = [{
         "行业": row.get("industry") or "--",
         "净流入": _morning_report_num(row.get("net_amount"), 2),
@@ -8982,10 +9002,11 @@ def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
     .ws-morning-hero h2{margin:0 0 8px;font-size:28px}.ws-morning-hero p{margin:0;color:#d8e8f7}
     .ws-morning-badge{display:inline-block;padding:5px 10px;border-radius:999px;font-size:12px;margin-top:12px}.ws-morning-badge.is-llm{background:#d1fae5;color:#065f46}.ws-morning-badge.is-facts{background:#fef3c7;color:#92400e}
     .ws-morning-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.ws-morning-metric{background:#fff;border:1px solid #e5edf5;border-radius:16px;padding:15px 16px;box-shadow:0 4px 14px rgba(31,56,85,.06)}.ws-morning-metric span{display:block;color:#6b7c93;font-size:12px}.ws-morning-metric strong{display:block;margin-top:7px;color:#19324d;font-size:20px}.ws-morning-section{background:#fff;border:1px solid #e5edf5;border-radius:18px;padding:18px 20px;box-shadow:0 4px 14px rgba(31,56,85,.05)}.ws-morning-section h3{margin:0 0 12px;color:#19324d;font-size:18px}.ws-morning-section p{color:#6b7c93;font-size:13px;margin:0 0 10px}.ws-morning-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.ws-morning-table-wrap{overflow:auto}.ws-morning-table-wrap table{width:100%;border-collapse:collapse;font-size:13px}.ws-morning-table-wrap th{background:#f4f8fc;color:#52657c;font-weight:600;text-align:left;white-space:nowrap}.ws-morning-table-wrap th,.ws-morning-table-wrap td{padding:10px 11px;border-bottom:1px solid #edf2f7}.ws-morning-table-wrap td{color:#263b53;white-space:nowrap}.ws-morning-empty{padding:18px;color:#8a9aad;background:#f8fafc;border-radius:12px;text-align:center}
-    @media(max-width:900px){.ws-morning-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ws-morning-grid{grid-template-columns:1fr}}
+    .ws-industry-groups{display:flex;flex-direction:column;gap:10px}.ws-industry-group{border:1px solid #e3ebf3;border-radius:14px;background:#fbfdff;overflow:hidden}.ws-industry-group summary{display:grid;grid-template-columns:minmax(180px,1.5fr) 100px 150px minmax(240px,1fr);align-items:center;gap:12px;padding:14px 16px;cursor:pointer;list-style-position:inside;color:#263b53}.ws-industry-group[open] summary{background:#f4f8fc;border-bottom:1px solid #e3ebf3}.ws-industry-name{font-weight:700;color:#19324d}.ws-industry-count{color:#6b7c93}.ws-industry-growth{font-weight:700;color:#176b45}.ws-industry-change{color:#6b7c93;font-size:12px}.ws-industry-group .ws-morning-table-wrap{padding:0 14px 10px}.ws-industry-group table{background:#fff}
+    @media(max-width:900px){.ws-morning-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ws-morning-grid{grid-template-columns:1fr}.ws-industry-group summary{grid-template-columns:1fr 1fr}.ws-industry-change{grid-column:1/-1}}
     </style>
     """
-    html_block = f"""{css}<div class="ws-morning-shell"><div class="ws-morning-hero"><h2>晨报｜{escape(str(fact_pack.get('report_trade_date') or '--'))}</h2><p>汇总上一交易日 ETF、资金、市场情绪、趋势推荐和自选基金表现</p><span class="ws-morning-badge {mode_class}">报告模式：{mode}</span></div><div class="ws-morning-metrics"><div class="ws-morning-metric"><span>风险灯</span><strong>{digest['risk_color']}｜{escape(digest['risk_text'])}</strong></div><div class="ws-morning-metric"><span>资金主线</span><strong>{escape(str(digest['top_sector']))}</strong></div><div class="ws-morning-metric"><span>涨停 / 炸板</span><strong>{digest['limitup_count']} / {digest['blowup_count']}</strong></div><div class="ws-morning-metric"><span>自选基金平均涨跌</span><strong>{'--' if avg_fund_change is None else f'{avg_fund_change:+.2f}%'} </strong></div></div><div class="ws-morning-section"><h3>行业 ETF 较前一日份额变化</h3><p>按标的指数归并为行业，每个行业列出全部 ETF；没有前一日可比份额时显示“--”。</p>{_morning_report_table_html(etf_growth_display,[('行业','行业'),('行业ETF','行业ETF'),('较前一日份额增长','较前一日份额增长'),('份额增减','份额增减'),('当前份额','当前份额')])}</div><div class="ws-morning-grid"><div class="ws-morning-section"><h3>THS 行业资金流 Top10</h3>{_morning_report_table_html(ths_display,[('行业','行业'),('净流入','净流入'),('涨跌幅','涨跌幅'),('龙头股','龙头股')])}</div><div class="ws-morning-section"><h3>DC 板块资金流 Top10</h3>{_morning_report_table_html(dc_display,[('板块','板块'),('净流入','净流入'),('涨跌幅','涨跌幅')])}</div></div><div class="ws-morning-section"><h3>自选基金上一交易日表现</h3>{_morning_report_table_html(fund_changes,[('基金','基金'),('净值日期','净值日期'),('上一交易日涨跌幅','上一交易日涨跌幅')])}</div><div class="ws-morning-grid"><div class="ws-morning-section"><h3>趋势推荐</h3>{_morning_report_table_html(all_trend_display,[('方向','方向'),('股票','股票'),('行业','行业')])}</div><div class="ws-morning-section"><h3>市场辅助指标</h3>{_morning_report_table_html([{'指标':'北向资金净流入','数值':_morning_report_num(north.get('north_money'),2)}, {'指标':'沪股通','数值':_morning_report_num(north.get('hgt'),2)}, {'指标':'深股通','数值':_morning_report_num(north.get('sgt'),2)}, {'指标':'报告数据质量提示','数值':f"{len(fact_pack.get('data_quality',{}).get('warnings') or [])} 条"}],[('指标','指标'),('数值','数值')])}</div></div></div>"""
+    html_block = f"""{css}<div class="ws-morning-shell"><div class="ws-morning-hero"><h2>晨报｜{escape(str(fact_pack.get('report_trade_date') or '--'))}</h2><p>汇总上一交易日 ETF、资金、市场情绪、趋势推荐和自选基金表现</p><span class="ws-morning-badge {mode_class}">报告模式：{mode}</span></div><div class="ws-morning-metrics"><div class="ws-morning-metric"><span>风险灯</span><strong>{digest['risk_color']}｜{escape(digest['risk_text'])}</strong></div><div class="ws-morning-metric"><span>资金主线</span><strong>{escape(str(digest['top_sector']))}</strong></div><div class="ws-morning-metric"><span>涨停 / 炸板</span><strong>{digest['limitup_count']} / {digest['blowup_count']}</strong></div><div class="ws-morning-metric"><span>自选基金平均涨跌</span><strong>{'--' if avg_fund_change is None else f'{avg_fund_change:+.2f}%'} </strong></div></div><div class="ws-morning-section"><h3>行业 ETF 较前一日份额变化</h3><p>同一标的行业合并展示；点击行业可查看全部包含的 ETF。行业增长按所属 ETF 的合计份额与前一日合计份额计算。</p>{_morning_report_industry_groups_html(growth_groups)}</div><div class="ws-morning-grid"><div class="ws-morning-section"><h3>THS 行业资金流 Top10</h3>{_morning_report_table_html(ths_display,[('行业','行业'),('净流入','净流入'),('涨跌幅','涨跌幅'),('龙头股','龙头股')])}</div><div class="ws-morning-section"><h3>DC 板块资金流 Top10</h3>{_morning_report_table_html(dc_display,[('板块','板块'),('净流入','净流入'),('涨跌幅','涨跌幅')])}</div></div><div class="ws-morning-section"><h3>自选基金上一交易日表现</h3>{_morning_report_table_html(fund_changes,[('基金','基金'),('净值日期','净值日期'),('上一交易日涨跌幅','上一交易日涨跌幅')])}</div><div class="ws-morning-grid"><div class="ws-morning-section"><h3>趋势推荐</h3>{_morning_report_table_html(all_trend_display,[('方向','方向'),('股票','股票'),('行业','行业')])}</div><div class="ws-morning-section"><h3>市场辅助指标</h3>{_morning_report_table_html([{'指标':'北向资金净流入','数值':_morning_report_num(north.get('north_money'),2)}, {'指标':'沪股通','数值':_morning_report_num(north.get('hgt'),2)}, {'指标':'深股通','数值':_morning_report_num(north.get('sgt'),2)}, {'指标':'报告数据质量提示','数值':f"{len(fact_pack.get('data_quality',{}).get('warnings') or [])} 条"}],[('指标','指标'),('数值','数值')])}</div></div></div>"""
     st.html(html_block)
 
 
