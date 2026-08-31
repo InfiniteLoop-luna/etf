@@ -305,6 +305,153 @@ def test_generate_llm_markdown_uses_validated_json(monkeypatch):
     assert "deterministic_digest" not in user_prompt
 
 
+def test_generate_llm_markdown_disables_deepseek_thinking(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [{
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": '{"summary":"半导体净流入 12.34 亿元","summary_evidence_ids":["flow.ths.0"],"focus_items":[]}'
+                    },
+                }]
+            }
+
+    def fake_post(url, headers, json, timeout):
+        captured.update(json)
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "src.etf_morning_report.load_stock_research_llm_config",
+        lambda: SimpleNamespace(
+            configured=True,
+            model="deepseek-v4-flash",
+            temperature=0.2,
+            max_tokens=3200,
+            base_url="https://api.deepseek.com",
+            api_key="secret",
+            timeout_seconds=5,
+        ),
+    )
+    monkeypatch.setattr("requests.post", fake_post)
+    fact_pack = {
+        "report_trade_date": "2026-08-27",
+        "data_quality": {"report_status": "complete", "coverage_score": 100, "warnings": []},
+        "evidence": [
+            {"evidence_id": "flow.ths.0", "label": "半导体净流入", "value": 12.34, "unit": "亿元"},
+        ],
+    }
+
+    _, meta = generate_llm_markdown(fact_pack)
+
+    assert meta is not None
+    assert captured["thinking"] == {"type": "disabled"}
+
+
+def test_generate_llm_markdown_retries_truncated_response_with_larger_budget(monkeypatch):
+    request_bodies = []
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    responses = iter([
+        FakeResponse({
+            "choices": [{"finish_reason": "length", "message": {"content": ""}}],
+        }),
+        FakeResponse({
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {
+                    "content": '{"summary":"半导体净流入 12.34 亿元","summary_evidence_ids":["flow.ths.0"],"focus_items":[]}'
+                },
+            }],
+        }),
+    ])
+
+    def fake_post(url, headers, json, timeout):
+        request_bodies.append(json)
+        return next(responses)
+
+    monkeypatch.setattr(
+        "src.etf_morning_report.load_stock_research_llm_config",
+        lambda: SimpleNamespace(
+            configured=True,
+            model="deepseek-v4-flash",
+            temperature=0.2,
+            max_tokens=3200,
+            base_url="https://api.deepseek.com",
+            api_key="secret",
+            timeout_seconds=5,
+        ),
+    )
+    monkeypatch.setattr("requests.post", fake_post)
+    fact_pack = {
+        "report_trade_date": "2026-08-27",
+        "data_quality": {"report_status": "complete", "coverage_score": 100, "warnings": []},
+        "evidence": [
+            {"evidence_id": "flow.ths.0", "label": "半导体净流入", "value": 12.34, "unit": "亿元"},
+        ],
+    }
+
+    _, meta = generate_llm_markdown(fact_pack)
+
+    assert meta is not None
+    assert meta["attempt"] == 2
+    assert request_bodies[0]["thinking"] == {"type": "disabled"}
+    assert request_bodies[1]["thinking"] == {"type": "disabled"}
+    assert request_bodies[1]["max_tokens"] > request_bodies[0]["max_tokens"]
+    assert request_bodies[1]["temperature"] == 0.0
+    assert "上一次输出为空、被截断或未通过校验" in request_bodies[1]["messages"][1]["content"]
+
+
+def test_generate_llm_markdown_reports_truncation_instead_of_validation_failure(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"finish_reason": "length", "message": {"content": ""}}]}
+
+    monkeypatch.setattr(
+        "src.etf_morning_report.load_stock_research_llm_config",
+        lambda: SimpleNamespace(
+            configured=True,
+            model="deepseek-v4-flash",
+            temperature=0.2,
+            max_tokens=3200,
+            base_url="https://api.deepseek.com",
+            api_key="secret",
+            timeout_seconds=5,
+        ),
+    )
+    monkeypatch.setattr("requests.post", lambda *args, **kwargs: FakeResponse())
+    fact_pack = {
+        "report_trade_date": "2026-08-27",
+        "data_quality": {"report_status": "complete", "coverage_score": 100, "warnings": []},
+        "evidence": [
+            {"evidence_id": "flow.ths.0", "label": "半导体净流入", "value": 12.34, "unit": "亿元"},
+        ],
+    }
+
+    _, meta = generate_llm_markdown(fact_pack)
+
+    assert meta is None
+    assert any("模型输出被截断（finish_reason=length）" in warning for warning in fact_pack["data_quality"]["warnings"])
+    assert all("未返回通过证据校验" not in warning for warning in fact_pack["data_quality"]["warnings"])
+
+
 def test_generate_llm_markdown_skips_only_when_no_business_evidence(monkeypatch):
     monkeypatch.setattr(
         "src.etf_morning_report.load_stock_research_llm_config",

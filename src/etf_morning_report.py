@@ -1190,6 +1190,43 @@ def render_morning_llm_markdown(fact_pack: dict, analysis: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _is_deepseek_llm_config(config: Any) -> bool:
+    base_url = str(getattr(config, "base_url", "") or "").lower()
+    model = str(getattr(config, "model", "") or "").lower()
+    return "deepseek" in base_url or model.startswith("deepseek")
+
+
+def _build_morning_llm_request_body(
+    config: Any,
+    system: str,
+    user: str,
+    *,
+    attempt: int,
+) -> dict:
+    base_max_tokens = max(3200, int(config.max_tokens))
+    is_retry = attempt > 0
+    retry_instruction = (
+        "\n\n上一次输出为空、被截断或未通过校验。请重新生成完整JSON；"
+        "不要计算输入证据中没有直接提供的比例、排名或其他派生数字；"
+        "data_quality_note必须是字符串，其他字段形状必须严格遵守系统说明。"
+        if is_retry
+        else ""
+    )
+    request_body = {
+        "model": config.model,
+        "temperature": 0.0 if is_retry else min(float(config.temperature), 0.1),
+        "max_tokens": min(max(base_max_tokens * 2, 4800), 8192) if is_retry else base_max_tokens,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user + retry_instruction},
+        ],
+    }
+    if _is_deepseek_llm_config(config):
+        request_body["thinking"] = {"type": "disabled"}
+    return request_body
+
+
 def generate_llm_markdown(fact_pack: dict) -> tuple[str, dict | None]:
     config = load_stock_research_llm_config()
     quality = fact_pack.get("data_quality", {}) or {}
@@ -1209,24 +1246,21 @@ def generate_llm_markdown(fact_pack: dict) -> tuple[str, dict | None]:
         "summary写成120到220字的综合复盘，不能只是项目符号拼接；focus_items最多3项，写最重要的结构观察。"
         "只返回一个JSON对象，字段固定为headline, headline_evidence_ids, summary, summary_evidence_ids, focus_items, risk_note, data_quality_note。"
         "focus_items每项为{text,evidence_ids,caveat}；risk_note也使用相同结构。"
+        "data_quality_note必须是字符串。"
         "不得给出绝对买卖指令，不得输出Markdown。"
     )
     user = "请生成一份60-90秒可读的前一交易日汇总分析JSON。缺少的主题直接省略：\n\n" + json.dumps(make_json_safe(llm_fact_pack), ensure_ascii=False)
     last_error = ""
     try:
         import requests
-        request_body = {
-            "model": config.model,
-            "temperature": min(float(config.temperature), 0.1),
-            "max_tokens": max(3200, config.max_tokens),
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        }
         for attempt in range(2):
             try:
+                request_body = _build_morning_llm_request_body(
+                    config,
+                    system,
+                    user,
+                    attempt=attempt,
+                )
                 response = requests.post(
                     config.base_url.rstrip("/") + "/chat/completions",
                     headers={"Authorization": f"Bearer {config.api_key}", "Content-Type": "application/json"},
@@ -1234,7 +1268,10 @@ def generate_llm_markdown(fact_pack: dict) -> tuple[str, dict | None]:
                     timeout=config.timeout_seconds,
                 )
                 response.raise_for_status()
-                content = (((response.json().get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+                response_payload = response.json()
+                choice = (response_payload.get("choices") or [{}])[0] if isinstance(response_payload, dict) else {}
+                finish_reason = str(choice.get("finish_reason") or "unknown") if isinstance(choice, dict) else "unknown"
+                content = (((choice.get("message") or {}).get("content") or "").strip()) if isinstance(choice, dict) else ""
                 parsed = parse_llm_json_object(content) if content else None
                 normalized = normalize_morning_llm_result(parsed, fact_pack)
                 if normalized:
@@ -1245,7 +1282,21 @@ def generate_llm_markdown(fact_pack: dict) -> tuple[str, dict | None]:
                         "analysis": normalized,
                         "validation": {"evidence_bound": True, "numbers_checked": True},
                     }
-                last_error = "LLM未返回通过证据校验的结构化结果"
+                if finish_reason == "length":
+                    last_error = "模型输出被截断（finish_reason=length）"
+                elif not content:
+                    last_error = f"模型返回空正文（finish_reason={finish_reason}）"
+                elif parsed is None:
+                    last_error = "模型未返回有效JSON对象"
+                else:
+                    last_error = "模型JSON未通过证据校验"
+                logger.warning(
+                    "ETF morning report LLM attempt %s rejected: finish_reason=%s content_length=%s reason=%s",
+                    attempt + 1,
+                    finish_reason,
+                    len(content),
+                    last_error,
+                )
             except Exception as exc:
                 last_error = str(exc)
                 logger.warning("ETF morning report LLM attempt %s failed: %s", attempt + 1, exc)
