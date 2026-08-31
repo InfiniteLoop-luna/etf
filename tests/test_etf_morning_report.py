@@ -84,7 +84,7 @@ def test_build_report_digest_calculates_risk_light_and_top_sector():
         "money_flow": {"ths_top_inflow": [{"industry": "半导体", "net_amount": 123.4}], "dc_top_inflow": []},
         "trend_recommendations": {"top_uptrend": [{"name": "甲"}], "top_avoid": [{"name": "乙"}]},
         "market_sentiment": {"limitup": [{"up_cnt": 20, "zha_cnt": 2}]},
-        "data_quality": {"warnings": []},
+        "data_quality": {"report_status": "partial", "warnings": []},
     })
 
     assert digest["risk_color"] == "绿色"
@@ -280,9 +280,10 @@ def test_generate_llm_markdown_uses_validated_json(monkeypatch):
         "schema_version": "etf-morning-report-v2",
         "report_trade_date": "2026-08-27",
         "generated_at": "2026-08-28T08:30:00+08:00",
-        "data_quality": {"report_status": "complete", "coverage_score": 100, "warnings": []},
+        "data_quality": {"report_status": "partial", "coverage_score": 62, "warnings": ["辅助数据缺失"]},
         "evidence": [
-            {"evidence_id": "flow.ths.0", "label": "半导体净流入", "value": 12.34, "unit": "亿元"}
+            {"evidence_id": "flow.ths.0", "label": "半导体净流入", "value": 12.34, "unit": "亿元"},
+            {"evidence_id": "northbound.net", "label": "北向资金", "value": 0, "unit": "亿元", "status": "missing"},
         ],
         "fund_watchlist": {"funds": []},
         "money_flow": {"ths_top_inflow": [], "dc_top_inflow": []},
@@ -296,6 +297,46 @@ def test_generate_llm_markdown_uses_validated_json(monkeypatch):
     assert "半导体净流入 12.34 亿元" in markdown
     assert meta["analysis"]["validated"] is True
     assert captured["response_format"] == {"type": "json_object"}
+    user_prompt = captured["messages"][1]["content"]
+    assert "flow.ths.0" in user_prompt
+    assert "northbound.net" not in user_prompt
+    assert "deterministic_digest" not in user_prompt
+
+
+def test_generate_llm_markdown_skips_only_when_no_business_evidence(monkeypatch):
+    monkeypatch.setattr(
+        "src.etf_morning_report.load_stock_research_llm_config",
+        lambda: SimpleNamespace(
+            configured=True,
+            model="demo-model",
+            temperature=0.1,
+            max_tokens=1200,
+            base_url="https://example.invalid",
+            api_key="secret",
+            timeout_seconds=5,
+        ),
+    )
+    monkeypatch.setattr(
+        "requests.post",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("LLM should not be called")),
+    )
+    fact_pack = {
+        "report_trade_date": "2026-08-27",
+        "data_quality": {"report_status": "partial", "coverage_score": 0, "warnings": []},
+        "evidence": [
+            {"evidence_id": "quality.coverage", "value": 0, "status": "verified"},
+            {"evidence_id": "sentiment.limitup", "value": 0, "status": "missing"},
+        ],
+    }
+
+    markdown, meta = generate_llm_markdown(fact_pack)
+
+    assert meta is None
+    assert any(
+        "没有可用于分析的业务证据" in warning
+        for warning in fact_pack["data_quality"]["warnings"]
+    )
+    assert "结构化事实版" in markdown
 
 
 def _notification_report(status="complete"):
@@ -336,7 +377,7 @@ def test_serverchan_endpoint_supports_turbo_and_sc3_without_arbitrary_hosts():
     assert build_serverchan_endpoint("https://example.com/key") is None
 
 
-def test_serverchan_delivery_suppresses_partial_by_default(tmp_path, monkeypatch):
+def test_serverchan_delivery_can_suppress_partial_by_admin_policy(tmp_path, monkeypatch):
     monkeypatch.setattr("src.morning_report_notifier.NOTIFICATION_DIR", tmp_path)
     config = ServerChanNotifierConfig(
         enabled=True,
@@ -348,6 +389,31 @@ def test_serverchan_delivery_suppresses_partial_by_default(tmp_path, monkeypatch
 
     assert result["status"] == "suppressed_partial"
     assert not list(tmp_path.glob("*.json"))
+
+
+def test_serverchan_delivery_allows_partial_report_by_default(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.morning_report_notifier.NOTIFICATION_DIR", tmp_path)
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"code": 0, "message": "ok"}
+
+    class FakeSession:
+        def post(self, url, json, headers, timeout):
+            return FakeResponse()
+
+    config = ServerChanNotifierConfig(enabled=True, sendkey="SCTtest")
+    result = send_serverchan_report(
+        _notification_report("partial"),
+        config=config,
+        recipient_id="partial-default",
+        session=FakeSession(),
+    )
+
+    assert result["status"] == "delivered"
 
 
 def test_serverchan_delivery_is_idempotent_by_trade_date(tmp_path, monkeypatch):

@@ -668,9 +668,23 @@ def build_report_digest(fact_pack: dict) -> dict:
     report_status = str(quality.get("report_status") or "complete")
     attempts = up_cnt + zha_cnt
     blowup_rate = None if attempts <= 0 else zha_cnt / attempts
-    if report_status != "complete":
+    evidence = _evidence_by_id(fact_pack)
+    if evidence:
+        sentiment_ids = ["sentiment.limitup", "sentiment.blowup", "sentiment.blowup_rate"]
+        sentiment_ready = all(
+            evidence.get(evidence_id)
+            and evidence[evidence_id].get("status", "verified") not in {"missing", "stale"}
+            for evidence_id in sentiment_ids
+        )
+    else:
+        source_status = {
+            source.get("key"): source.get("status")
+            for source in quality.get("sources") or []
+        }
+        sentiment_ready = bool(sentiment_rows) and source_status.get("limit_sentiment", "fresh") == "fresh"
+    if not sentiment_ready:
         risk = "灰色"
-        risk_text = "关键数据未齐，暂不判断"
+        risk_text = "涨停情绪数据不足，暂不判断"
     elif blowup_rate is None:
         risk = "灰色"
         risk_text = "涨停情绪数据不足，保持观察"
@@ -689,6 +703,7 @@ def build_report_digest(fact_pack: dict) -> dict:
         "risk_color": risk,
         "risk_label": "短线情绪灯",
         "risk_text": risk_text,
+        "sentiment_available": sentiment_ready,
         "blowup_rate": None if blowup_rate is None else round(blowup_rate * 100, 2),
         "fund_count": len(funds),
         "top_sector": top_sector or "-",
@@ -703,8 +718,6 @@ def build_report_digest(fact_pack: dict) -> dict:
         "coverage_score": int(quality.get("coverage_score") or 0),
         "report_status": report_status,
     }
-    evidence = _evidence_by_id(fact_pack)
-
     def usable(evidence_id: str) -> bool:
         item = evidence.get(evidence_id) or {}
         return bool(item) and item.get("status", "verified") not in {"missing", "stale"}
@@ -757,13 +770,16 @@ def _fallback_markdown(fact_pack: dict) -> str:
     lines = [
         f"# ETF 晨报｜{target}",
         "",
-        f"> 当前为结构化事实版报告：LLM 未配置、关键数据未齐或本次模型结果未通过校验。"
+        f"> 当前为结构化事实版报告：LLM 未配置、没有可用业务证据或本次模型结果未通过校验。"
         f"短线情绪灯：{digest['risk_color']}｜{digest['risk_text']}",
         "",
         "## 一、核心摘要",
         f"- 自选基金：{digest['fund_count']} 只",
         f"- 资金流入靠前行业：{digest['top_sector']}",
-        f"- 涨停 / 炸板：{digest['limitup_count']} / {digest['blowup_count']}",
+    ]
+    if digest.get("sentiment_available"):
+        lines.append(f"- 涨停 / 炸板：{digest['limitup_count']} / {digest['blowup_count']}")
+    lines.extend([
         f"- 数据覆盖率：{digest['coverage_score']}%（{digest['report_status']}）",
         f"- 数据质量提示：{digest['warning_count']} 条",
         "",
@@ -775,7 +791,7 @@ def _fallback_markdown(fact_pack: dict) -> str:
         f"- 两融记录：{len(margin_rows)} 条",
         "",
         "## 三、资金与情绪",
-    ]
+    ])
     if industry_etf_growth:
         lines.extend(["", "### 行业 ETF 较前一日份额变化"])
         for group in industry_etf_groups[:10]:
@@ -800,7 +816,7 @@ def _fallback_markdown(fact_pack: dict) -> str:
         top_dc = dc_rows[:3]
         for row in top_dc:
             lines.append(f"- DC {row.get('industry') or '-'}｜净流入 {row.get('net_amount_yi') or '-'} 亿元｜涨跌 {row.get('pct_change') or '-'}%")
-    if sentiment_rows:
+    if sentiment_rows and digest.get("sentiment_available"):
         sentiment = sentiment_rows[0]
         lines.append(f"- 涨停 {sentiment.get('up_cnt') or 0} 家，炸板 {sentiment.get('zha_cnt') or 0} 家")
     if northbound_rows:
@@ -842,10 +858,19 @@ def _fallback_markdown(fact_pack: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _reportable_evidence(fact_pack: dict) -> list[dict]:
+    return [
+        item
+        for item in (fact_pack.get("evidence") or [])
+        if item.get("status", "verified") != "missing"
+        and item.get("value") is not None
+        and not str(item.get("evidence_id") or "").startswith("quality.")
+    ]
+
+
 def _build_llm_fact_pack(fact_pack: dict) -> dict:
     """Send the addressable evidence ledger, not a large untyped data dump."""
     quality = fact_pack.get("data_quality", {}) or {}
-    digest = build_report_digest(fact_pack)
     return make_json_safe({
         "schema_version": fact_pack.get("schema_version"),
         "report_trade_date": fact_pack.get("report_trade_date"),
@@ -855,17 +880,7 @@ def _build_llm_fact_pack(fact_pack: dict) -> dict:
             "coverage_score": quality.get("coverage_score"),
             "warnings": (quality.get("warnings") or [])[:20],
         },
-        "deterministic_digest": {
-            "short_term_sentiment": digest.get("risk_text"),
-            "top_sector": digest.get("top_sector"),
-            "limitup_count": digest.get("limitup_count"),
-            "blowup_count": digest.get("blowup_count"),
-        },
-        "evidence": [
-            item
-            for item in (fact_pack.get("evidence") or [])
-            if item.get("status", "verified") != "missing" and item.get("value") is not None
-        ][:80],
+        "evidence": _reportable_evidence(fact_pack)[:80],
     })
 
 
@@ -999,8 +1014,8 @@ def render_morning_llm_markdown(fact_pack: dict, analysis: dict) -> str:
 def generate_llm_markdown(fact_pack: dict) -> tuple[str, dict | None]:
     config = load_stock_research_llm_config()
     quality = fact_pack.get("data_quality", {}) or {}
-    if quality.get("report_status") != "complete":
-        quality.setdefault("warnings", []).append("关键数据源未齐，已跳过LLM综合并使用事实版")
+    if not _reportable_evidence(fact_pack):
+        quality.setdefault("warnings", []).append("没有可用于分析的业务证据，已使用事实版")
         return _fallback_markdown(fact_pack), None
     if not config.configured:
         return _fallback_markdown(fact_pack), None

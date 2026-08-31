@@ -80,7 +80,7 @@ class ServerChanNotifierConfig:
     report_url: str = ""
     timeout_seconds: int = 12
     max_attempts: int = 2
-    allow_partial: bool = False
+    allow_partial: bool = True
 
     @property
     def endpoint(self) -> str | None:
@@ -109,7 +109,7 @@ def load_serverchan_notifier_config() -> ServerChanNotifierConfig:
         report_url=str(pick("MORNING_REPORT_PUBLIC_URL", "")).strip(),
         timeout_seconds=max(3, _to_int(pick("MORNING_REPORT_SERVERCHAN_TIMEOUT_SECONDS", 12), 12)),
         max_attempts=max(1, min(3, _to_int(pick("MORNING_REPORT_SERVERCHAN_MAX_ATTEMPTS", 2), 2))),
-        allow_partial=_to_bool(pick("MORNING_REPORT_SERVERCHAN_ALLOW_PARTIAL", False), False),
+        allow_partial=_to_bool(pick("MORNING_REPORT_SERVERCHAN_ALLOW_PARTIAL", True), True),
     )
 
 
@@ -152,9 +152,12 @@ def build_serverchan_message(report: dict, *, report_url: str | None = None) -> 
         f"**短线情绪**：{_safe_text(digest.get('risk_color'))}｜{_safe_text(digest.get('risk_text'))}",
         "",
         f"**资金主线**：{_safe_text(digest.get('top_sector'))}",
-        "",
-        f"**涨停 / 炸板**：{digest.get('limitup_count', 0)} / {digest.get('blowup_count', 0)}",
     ])
+    if digest.get("sentiment_available"):
+        lines.extend([
+            "",
+            f"**涨停 / 炸板**：{digest.get('limitup_count', 0)} / {digest.get('blowup_count', 0)}",
+        ])
     warnings = quality.get("warnings") or []
     if warnings:
         lines.extend(["", "## 数据提示", ""])

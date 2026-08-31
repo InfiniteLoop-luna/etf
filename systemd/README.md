@@ -95,8 +95,8 @@ journalctl -u etf-fund-estimate-snapshot.service -n 80 --no-pager
 
 The morning report timer runs at 08:30, 08:45, and 09:00 Asia/Shanghai on
 weekdays. Each run rebuilds the same T-1 report. Delivery is idempotent by
-trade date, so later runs only send when an earlier run was suppressed because
-required data was incomplete or the earlier delivery failed.
+trade date and recipient. Later runs refresh the saved report but do not repeat
+an already successful delivery; failed deliveries remain eligible for retry.
 Before delivery, the job verifies the current day against the SSE calendar
 through the project's configured Tushare connection. It suppresses delivery on
 exchange holidays, and fails closed when the calendar cannot be verified.
@@ -106,7 +106,7 @@ Recommended `/opt/etf-app/.env` settings:
 ```bash
 USER_SECRET_ENCRYPTION_KEY=REPLACE_WITH_A_STABLE_RANDOM_SECRET_OF_AT_LEAST_32_CHARS
 MORNING_REPORT_PUBLIC_URL=https://YOUR_HOST/
-MORNING_REPORT_SERVERCHAN_ALLOW_PARTIAL=false
+MORNING_REPORT_SERVERCHAN_ALLOW_PARTIAL=true
 MORNING_REPORT_SERVERCHAN_TIMEOUT_SECONDS=12
 MORNING_REPORT_SERVERCHAN_MAX_ATTEMPTS=2
 ```
@@ -117,8 +117,9 @@ unreadable. Logged-in users configure their own SendKey from the account menu's
 morning-report notification settings. Use an `SCT...` Turbo key for WeChat and
 other configured ServerChan channels. The notifier also accepts an `sctp...`
 ServerChan 3 key and routes it to the official per-user endpoint automatically.
-By default, reports with missing required sources are saved as partial reports
-but are not delivered.
+By default, reports with missing sources omit those unavailable facts, retain
+the visible data-gap warnings, and still generate and deliver an evidence-bound
+AI summary when at least one usable business evidence item exists.
 
 Generate the encryption secret once on the server, then copy the output into
 the `.env` value above and keep it in the server's secret backup:

@@ -9206,6 +9206,12 @@ def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
     generated_display = generated_at.replace("T", " ")[:19]
     average_text = "--" if avg_fund_change is None else f"{avg_fund_change:+.2f}%"
     blowup_rate_text = "--" if digest.get("blowup_rate") is None else f"{digest['blowup_rate']:.2f}%"
+    sentiment_count_text = (
+        f"{digest['limitup_count']} / {digest['blowup_count']}"
+        if digest.get("sentiment_available")
+        else "-- / --"
+    )
+    sentiment_count_note = f"数据截至 {target_date or '--'}" if digest.get("sentiment_available") else "该项数据未提供"
     summary_html = f'<p class="ws-morning-summary">{escape(str(summary))}</p>' if summary else ""
 
     css = """
@@ -9227,12 +9233,12 @@ def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
     html_block = f"""{css}<div class="ws-morning-shell">
     <header class="ws-morning-hero"><span class="ws-morning-kicker">MORNING BRIEF · 数据截至 {escape(target_date or '--')}</span><h2>晨报｜{escape(target_date or '--')}</h2><p>{escape(str(headline))}</p><div class="ws-morning-badges"><span class="ws-morning-badge {status_class}">{status_label}</span><span class="ws-morning-badge">数据覆盖 {int(quality.get('coverage_score') or 0)}%</span><span class="ws-morning-badge">{mode}</span><span class="ws-morning-badge">生成 {escape(generated_display)}</span></div></header>
     <section class="ws-morning-section"><h3>今天先看三件事</h3><p>模型结论仅在证据编号和数字校验通过后展示；否则自动使用结构化事实。</p>{summary_html}{_morning_focus_html(focus_items, evidence_map)}</section>
-    <div class="ws-morning-metrics"><div class="ws-morning-metric"><span>{escape(str(digest.get('risk_label') or '短线情绪灯'))}</span><strong>{escape(str(digest['risk_color']))}｜{escape(str(digest['risk_text']))}</strong><small>炸板率 {escape(blowup_rate_text)}</small></div><div class="ws-morning-metric"><span>资金主线</span><strong>{escape(str(digest['top_sector']))}</strong><small>THS 口径，不与 DC 绝对值横比</small></div><div class="ws-morning-metric"><span>涨停 / 炸板</span><strong>{digest['limitup_count']} / {digest['blowup_count']}</strong><small>数据截至 {escape(target_date or '--')}</small></div><div class="ws-morning-metric"><span>自选基金平均涨跌</span><strong>{escape(average_text)}</strong><small>仅计算净值日期对齐的 {len(valid_changes)} 只</small></div></div>
+    <div class="ws-morning-metrics"><div class="ws-morning-metric"><span>{escape(str(digest.get('risk_label') or '短线情绪灯'))}</span><strong>{escape(str(digest['risk_color']))}｜{escape(str(digest['risk_text']))}</strong><small>炸板率 {escape(blowup_rate_text)}</small></div><div class="ws-morning-metric"><span>资金主线</span><strong>{escape(str(digest['top_sector']))}</strong><small>THS 口径，不与 DC 绝对值横比</small></div><div class="ws-morning-metric"><span>涨停 / 炸板</span><strong>{escape(sentiment_count_text)}</strong><small>{escape(sentiment_count_note)}</small></div><div class="ws-morning-metric"><span>自选基金平均涨跌</span><strong>{escape(average_text)}</strong><small>仅计算净值日期对齐的 {len(valid_changes)} 只</small></div></div>
     <section class="ws-morning-section"><h3>行业 ETF 份额变化</h3><p>统一换算为亿份；按行业所含 ETF 合计份额计算，点击查看明细。</p>{_morning_report_industry_groups_html(growth_groups)}</section>
     <div class="ws-morning-grid"><section class="ws-morning-section"><h3>THS 行业资金流</h3><p>单位统一为亿元，供应商口径：同花顺。</p>{_morning_report_table_html(ths_display,[('行业','行业'),('净流入','净流入'),('涨跌幅','涨跌幅'),('龙头股','龙头股')])}</section><section class="ws-morning-section"><h3>DC 板块资金流</h3><p>上游原始单位为元，页面统一换算为亿元；供应商口径：东方财富。</p>{_morning_report_table_html(dc_display,[('板块','板块'),('净流入','净流入'),('涨跌幅','涨跌幅')])}</section></div>
     <section class="ws-morning-section"><h3>自选基金确认净值表现</h3><p>只把净值日期与报告交易日一致的基金纳入顶部平均值。</p>{_morning_report_table_html(fund_changes,[('基金','基金'),('净值日期','净值日期'),('确认涨跌幅','确认涨跌幅')])}</section>
     <div class="ws-morning-grid"><section class="ws-morning-section"><h3>趋势模型输出</h3><p>这是模型生成结果，不等同于原始行情或买卖指令。</p>{_morning_report_table_html(trend_display,[('类型','类型'),('证券','证券'),('行业','行业')])}</section><section class="ws-morning-section"><h3>市场辅助指标</h3><p>金额统一换算为亿元，并保留各自数据日期。</p>{_morning_report_table_html(auxiliary_rows,[('指标','指标'),('数值','数值'),('截至','截至')])}</section></div>
-    <section class="ws-morning-section"><h3>数据源就绪度</h3><p>关键数据未齐时，晨报会标记为部分数据并跳过 LLM 综合。</p>{_morning_sources_html(quality.get('sources') or [])}</section>
+    <section class="ws-morning-section"><h3>数据源就绪度</h3><p>缺失数据不会交给模型；其余可用证据仍会生成 AI 摘要，并明确标记为部分数据。</p>{_morning_sources_html(quality.get('sources') or [])}</section>
     <div class="ws-morning-footnote">口径说明：THS 与 DC 资金流虽均换算为亿元，但供应商定义不同，不做绝对值横向比较。北向、两融、成交额也按各自上游口径换算。报告不构成投资建议。</div>
     </div>"""
     st.html(html_block)
