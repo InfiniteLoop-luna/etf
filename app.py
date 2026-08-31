@@ -248,6 +248,15 @@ from src.user_favorite_store import (
     list_favorite_pages,
     remove_favorite_page,
 )
+from src.morning_report_notifier import send_serverchan_test
+from src.user_notification_store import (
+    delete_user_serverchan_credential,
+    get_user_serverchan_credential,
+    get_user_serverchan_sendkey,
+    notification_encryption_configured,
+    save_user_serverchan_sendkey,
+    set_user_serverchan_enabled,
+)
 from src.distribution_alert_store import get_latest_alerts_for_stocks
 from src.distribution_report_store import get_daily_report, get_report_status, get_report_statuses
 from src.stock_research_report_store import (
@@ -2408,6 +2417,112 @@ def render_user_login_status() -> None:
         render_user_login_dialog()
 
 
+def render_user_notification_settings(username: str, key_suffix: str) -> None:
+    st.caption("为当前账户配置晨报通知。完整 SendKey 不会在保存后回显。")
+    if not notification_encryption_configured():
+        st.warning("服务器尚未启用用户密钥加密，请管理员先配置 USER_SECRET_ENCRYPTION_KEY。")
+        return
+
+    try:
+        existing = get_user_serverchan_credential(username)
+    except Exception:
+        logger.exception("Failed to load notification settings for user %s", username)
+        st.error("暂时无法读取通知设置，请稍后重试。")
+        return
+
+    if existing:
+        state_text = "已启用" if existing.enabled else "已暂停"
+        st.info(f"Server酱：{existing.key_hint} · {state_text}")
+    else:
+        st.info("尚未配置 Server酱 SendKey。微信通知请使用 SCT 开头的 Turbo Key。")
+
+    with st.form(f"user-serverchan-settings-{key_suffix}", clear_on_submit=True):
+        sendkey_input = st.text_input(
+            "Server酱 SendKey",
+            type="password",
+            placeholder="留空可只修改启用状态；新建时必须填写",
+            autocomplete="off",
+            key=f"user-serverchan-sendkey-{key_suffix}",
+        )
+        enabled = st.checkbox(
+            "启用每日晨报通知",
+            value=existing.enabled if existing else True,
+            key=f"user-serverchan-enabled-{key_suffix}",
+        )
+        save_col, test_col = st.columns(2)
+        save_clicked = save_col.form_submit_button(
+            "保存",
+            type="primary",
+            use_container_width=True,
+        )
+        test_clicked = test_col.form_submit_button(
+            "发送测试",
+            use_container_width=True,
+        )
+
+    delete_clicked = False
+    if existing:
+        confirm_delete = st.checkbox(
+            "确认删除已保存的 SendKey",
+            value=False,
+            key=f"user-serverchan-confirm-delete-{key_suffix}",
+        )
+        delete_clicked = st.button(
+            "删除已保存的 SendKey",
+            disabled=not confirm_delete,
+            use_container_width=True,
+            key=f"user-serverchan-delete-{key_suffix}",
+        )
+
+    normalized_input = str(sendkey_input or "").strip()
+    if save_clicked:
+        try:
+            if normalized_input:
+                save_user_serverchan_sendkey(username, normalized_input, enabled=enabled)
+            elif existing:
+                set_user_serverchan_enabled(username, enabled)
+            else:
+                st.warning("首次配置请填写 SendKey。")
+                return
+            st.toast("晨报通知设置已保存。", icon="✅")
+            st.rerun()
+        except ValueError as exc:
+            st.warning(str(exc))
+        except Exception:
+            logger.exception("Failed to save notification settings for user %s", username)
+            st.error("保存失败，请检查服务器加密与数据库配置。")
+
+    if test_clicked:
+        try:
+            key_for_test = normalized_input or get_user_serverchan_sendkey(
+                username,
+                require_enabled=False,
+            )
+            if not key_for_test:
+                st.warning("请先填写或保存 SendKey。")
+                return
+            result = send_serverchan_test(key_for_test)
+            if result.get("status") == "delivered":
+                st.success("测试消息已发送，请在 Server酱目标渠道确认接收。")
+            elif result.get("status") == "invalid_sendkey":
+                st.warning("SendKey 格式无效，应以 SCT 或 sctp 开头。")
+            else:
+                st.error("测试发送失败，请检查 SendKey、渠道配置和当日额度。")
+        except Exception:
+            logger.exception("ServerChan test failed for user %s", username)
+            st.error("测试发送失败，请稍后重试。")
+
+    if delete_clicked:
+        try:
+            deleted = delete_user_serverchan_credential(username)
+            if deleted:
+                st.toast("已删除 Server酱 SendKey。", icon="✅")
+            st.rerun()
+        except Exception:
+            logger.exception("Failed to delete notification settings for user %s", username)
+            st.error("删除失败，请稍后重试。")
+
+
 def render_user_session_menu(key_suffix: str) -> None:
     current_username = get_logged_in_username()
     if not current_username:
@@ -2415,6 +2530,7 @@ def render_user_session_menu(key_suffix: str) -> None:
 
     current_theme_id = get_active_theme_id()
     theme_menu_key = f"account_theme_menu_open_{key_suffix}"
+    notification_menu_key = f"account_notification_menu_open_{key_suffix}"
     with st.popover(
         current_username,
         icon=":material/account_circle:",
@@ -2471,6 +2587,21 @@ def render_user_session_menu(key_suffix: str) -> None:
                         if not set_active_theme_id(theme_id, current_username):
                             st.toast("主题已切换，但账户偏好保存失败。", icon="⚠️")
                         st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        notification_menu_open = bool(st.session_state.get(notification_menu_key, False))
+        if st.button(
+            "晨报通知设置",
+            key=f"btn-user-notification-menu-{key_suffix}",
+            icon=":material/expand_more:" if notification_menu_open else ":material/chevron_right:",
+            use_container_width=True,
+        ):
+            st.session_state[notification_menu_key] = not notification_menu_open
+            st.rerun()
+
+        if notification_menu_open:
+            st.markdown('<div class="ws-account-menu-submenu">', unsafe_allow_html=True)
+            render_user_notification_settings(current_username, key_suffix)
             st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="ws-account-menu-divider"></div>', unsafe_allow_html=True)
@@ -8901,11 +9032,19 @@ def render_daily_trend_reco_tab():
         )
 
 
-def _morning_report_num(value, digits=2, suffix=""):
+def _morning_report_num(value, digits=2, suffix="", signed=False):
     number = pd.to_numeric(value, errors="coerce")
     if pd.isna(number):
         return "--"
-    return f"{float(number):,.{digits}f}{suffix}"
+    sign = "+" if signed and float(number) > 0 else ""
+    return f"{sign}{float(number):,.{digits}f}{suffix}"
+
+
+def _morning_change_class(value):
+    number = pd.to_numeric(value, errors="coerce")
+    if pd.isna(number) or float(number) == 0:
+        return "is-flat"
+    return "is-up" if float(number) > 0 else "is-down"
 
 
 def _morning_report_table_html(rows, columns, empty_text="暂无数据"):
@@ -8929,21 +9068,22 @@ def _morning_report_industry_groups_html(groups):
     for group in groups:
         growth = pd.to_numeric(group.get("share_growth_pct"), errors="coerce")
         growth_text = "--" if pd.isna(growth) else f"{float(growth):+.2f}%"
+        growth_class = _morning_change_class(growth)
         rows = []
         for row in group.get("etfs") or []:
             etf_growth = pd.to_numeric(row.get("share_growth_pct"), errors="coerce")
             rows.append({
                 "行业ETF": f"{row.get('etf_name') or '--'}（{row.get('ts_code') or '--'}）",
                 "较前一日份额增长": "--" if pd.isna(etf_growth) else f"{float(etf_growth):+.2f}%",
-                "份额增减": _morning_report_num(row.get("share_change"), 2),
-                "当前份额": _morning_report_num(row.get("current_share"), 2),
+                "份额增减": _morning_report_num(row.get("share_change_yi"), 2, " 亿份", signed=True),
+                "当前份额": _morning_report_num(row.get("current_share_yi"), 2, " 亿份"),
             })
         summary = (
             f'<span class="ws-industry-name">{escape(str(group.get("industry") or "未识别行业"))}</span>'
             f'<span class="ws-industry-count">{int(group.get("etf_count") or 0)} 只 ETF</span>'
-            f'<span class="ws-industry-growth">较前一日 {escape(growth_text)}</span>'
-            f'<span class="ws-industry-change">份额增减 {_morning_report_num(group.get("share_change"), 2)} · '
-            f'当前份额 {_morning_report_num(group.get("current_share"), 2)}</span>'
+            f'<span class="ws-industry-growth {growth_class}">较前一日 {escape(growth_text)}</span>'
+            f'<span class="ws-industry-change">份额增减 {_morning_report_num(group.get("share_change_yi"), 2, " 亿份", signed=True)} · '
+            f'当前份额 {_morning_report_num(group.get("current_share_yi"), 2, " 亿份")}</span>'
         )
         details = _morning_report_table_html(
             rows,
@@ -8953,60 +9093,148 @@ def _morning_report_industry_groups_html(groups):
     return f'<div class="ws-industry-groups">{"".join(blocks)}</div>'
 
 
+def _morning_focus_html(items, evidence_map):
+    if not items:
+        return '<div class="ws-morning-empty">暂无通过校验的核心结论</div>'
+    cards = []
+    for index, item in enumerate(items[:3], start=1):
+        evidence_ids = [str(value) for value in item.get("evidence_ids") or []]
+        evidence_labels = [
+            evidence_map[evidence_id].get("label")
+            for evidence_id in evidence_ids
+            if evidence_id in evidence_map
+        ]
+        evidence_text = "、".join(str(value) for value in evidence_labels if value) or "结构化事实"
+        caveat = str(item.get("caveat") or "").strip()
+        caveat_html = f'<p class="ws-morning-focus-caveat">限制：{escape(caveat)}</p>' if caveat else ""
+        cards.append(
+            f'<article class="ws-morning-focus-card"><span class="ws-morning-focus-index">0{index}</span>'
+            f'<strong>{escape(str(item.get("text") or "--"))}</strong>'
+            f'<p>依据：{escape(evidence_text)}</p>{caveat_html}</article>'
+        )
+    return f'<div class="ws-morning-focus-grid">{"".join(cards)}</div>'
+
+
+def _morning_sources_html(sources):
+    if not sources:
+        return '<div class="ws-morning-empty">旧版报告没有数据源就绪记录</div>'
+    rows = []
+    status_labels = {"fresh": "已就绪", "stale": "滞后", "missing": "缺失"}
+    for source in sources:
+        status = str(source.get("status") or "missing")
+        rows.append({
+            "数据源": source.get("label") or source.get("key") or "--",
+            "角色": "关键" if source.get("required") else "辅助",
+            "状态": status_labels.get(status, status),
+            "最近日期": source.get("latest_date") or "--",
+            "当日记录": source.get("row_count") or 0,
+        })
+    return _morning_report_table_html(
+        rows,
+        [("数据源", "数据源"), ("角色", "角色"), ("状态", "状态"), ("最近日期", "最近日期"), ("当日记录", "当日记录")],
+    )
+
+
 def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
     from src.etf_morning_report import build_report_digest
 
     digest = build_report_digest(fact_pack)
+    quality = fact_pack.get("data_quality", {}) or {}
     overview = fact_pack.get("etf_overview", {}) or {}
-    growth_rows = overview.get("industry_etf_growth") or []
     growth_groups = overview.get("industry_etf_groups") or []
     ths_rows = (fact_pack.get("money_flow", {}) or {}).get("ths_top_inflow") or []
     dc_rows = (fact_pack.get("money_flow", {}) or {}).get("dc_top_inflow") or []
     funds = (fact_pack.get("fund_watchlist", {}) or {}).get("funds") or []
-    sentiment_rows = (fact_pack.get("market_sentiment", {}) or {}).get("limitup") or []
     north_rows = (fact_pack.get("northbound", {}) or {}).get("daily") or []
+    margin_rows = (fact_pack.get("margin", {}) or {}).get("daily") or []
+    volume_rows = (fact_pack.get("volume", {}) or {}).get("daily") or []
     trend = fact_pack.get("trend_recommendations", {}) or {}
-    sentiment = sentiment_rows[0] if sentiment_rows else {}
     north = north_rows[0] if north_rows else {}
+    margin = margin_rows[0] if margin_rows else {}
+    volume = volume_rows[0] if volume_rows else {}
+    evidence_map = {
+        str(item.get("evidence_id")): item
+        for item in fact_pack.get("evidence") or []
+        if item.get("evidence_id")
+    }
+    llm_analysis = ((report.get("llm") or {}).get("analysis") or {})
+    focus_items = llm_analysis.get("focus_items") or digest.get("focus_items") or []
+    summary = (llm_analysis.get("summary") or {}).get("text") or ""
+    headline = llm_analysis.get("headline") or "上一交易日的关键变化与证据"
+
     fund_changes = []
+    valid_changes = []
+    target_date = str(fact_pack.get("report_trade_date") or "")
     for fund in funds:
         change = pd.to_numeric(fund.get("daily_change_pct"), errors="coerce")
+        if not pd.isna(change) and fund.get("nav_date") == target_date:
+            valid_changes.append(float(change))
         fund_changes.append({
             "基金": f"{fund.get('fund_name') or '-'}（{fund.get('fund_code') or '-'}）",
             "净值日期": fund.get("nav_date") or "--",
-            "上一交易日涨跌幅": "--" if pd.isna(change) else f"{float(change):+.2f}%",
+            "确认涨跌幅": "--" if pd.isna(change) else f"{float(change):+.2f}%",
         })
-    valid_changes = [pd.to_numeric(fund.get("daily_change_pct"), errors="coerce") for fund in funds]
-    valid_changes = [float(value) for value in valid_changes if not pd.isna(value)]
     avg_fund_change = sum(valid_changes) / len(valid_changes) if valid_changes else None
     ths_display = [{
         "行业": row.get("industry") or "--",
-        "净流入": _morning_report_num(row.get("net_amount"), 2),
-        "涨跌幅": _morning_report_num(row.get("pct_change"), 2, "%"),
+        "净流入": _morning_report_num(row.get("net_amount_yi"), 2, " 亿元", signed=True),
+        "涨跌幅": _morning_report_num(row.get("pct_change"), 2, "%", signed=True),
         "龙头股": row.get("lead_stock") or "--",
     } for row in ths_rows[:10]]
     dc_display = [{
         "板块": row.get("industry") or "--",
-        "净流入": _morning_report_num(row.get("net_amount"), 2),
-        "涨跌幅": _morning_report_num(row.get("pct_change"), 2, "%"),
+        "净流入": _morning_report_num(row.get("net_amount_yi"), 2, " 亿元", signed=True),
+        "涨跌幅": _morning_report_num(row.get("pct_change"), 2, "%", signed=True),
     } for row in dc_rows[:10]]
-    uptrend_display = [{"方向": "看多", "股票": item.get("name") or item.get("ts_code") or "--", "行业": item.get("industry") or "--"} for item in (trend.get("top_uptrend") or [])[:8]]
-    avoid_display = [{"方向": "谨慎", "股票": item.get("name") or item.get("ts_code") or "--", "行业": item.get("industry") or "--"} for item in (trend.get("top_avoid") or [])[:8]]
-    all_trend_display = uptrend_display + avoid_display
-    mode = "LLM 综合版" if report.get("report_mode") == "llm" else "结构化事实版"
-    mode_class = "is-llm" if report.get("report_mode") == "llm" else "is-facts"
+    trend_display = [
+        {"类型": "趋势候选", "证券": item.get("name") or item.get("ts_code") or "--", "行业": item.get("industry") or "--"}
+        for item in (trend.get("top_uptrend") or [])[:6]
+    ] + [
+        {"类型": "谨慎候选", "证券": item.get("name") or item.get("ts_code") or "--", "行业": item.get("industry") or "--"}
+        for item in (trend.get("top_avoid") or [])[:6]
+    ]
+    auxiliary_rows = [
+        {"指标": "北向资金净流入", "数值": _morning_report_num(north.get("north_money_yi"), 2, " 亿元", signed=True), "截至": north.get("trade_date") or "--"},
+        {"指标": "融资余额", "数值": _morning_report_num(margin.get("financing_balance_yi"), 2, " 亿元"), "截至": margin.get("trade_date") or "--"},
+        {"指标": "全市场成交额", "数值": _morning_report_num(volume.get("total_amount_yi"), 2, " 亿元"), "截至": volume.get("trade_date") or "--"},
+    ]
+    mode = "证据校验版" if report.get("report_mode") == "llm" else "结构化事实版"
+    status = str(quality.get("report_status") or "partial")
+    status_label = "关键数据已齐" if status == "complete" else "部分数据"
+    status_class = "is-complete" if status == "complete" else "is-partial"
+    generated_at = str(fact_pack.get("generated_at") or report.get("saved_at") or "--")
+    generated_display = generated_at.replace("T", " ")[:19]
+    average_text = "--" if avg_fund_change is None else f"{avg_fund_change:+.2f}%"
+    blowup_rate_text = "--" if digest.get("blowup_rate") is None else f"{digest['blowup_rate']:.2f}%"
+    summary_html = f'<p class="ws-morning-summary">{escape(str(summary))}</p>' if summary else ""
+
     css = """
     <style>
-    .ws-morning-shell{display:flex;flex-direction:column;gap:18px;margin:8px 0 22px}
-    .ws-morning-hero{padding:22px 24px;border-radius:20px;background:linear-gradient(135deg,#102a43,#1d4e89);color:#fff;box-shadow:0 10px 28px rgba(16,42,67,.18)}
-    .ws-morning-hero h2{margin:0 0 8px;font-size:28px}.ws-morning-hero p{margin:0;color:#d8e8f7}
-    .ws-morning-badge{display:inline-block;padding:5px 10px;border-radius:999px;font-size:12px;margin-top:12px}.ws-morning-badge.is-llm{background:#d1fae5;color:#065f46}.ws-morning-badge.is-facts{background:#fef3c7;color:#92400e}
-    .ws-morning-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.ws-morning-metric{background:#fff;border:1px solid #e5edf5;border-radius:16px;padding:15px 16px;box-shadow:0 4px 14px rgba(31,56,85,.06)}.ws-morning-metric span{display:block;color:#6b7c93;font-size:12px}.ws-morning-metric strong{display:block;margin-top:7px;color:#19324d;font-size:20px}.ws-morning-section{background:#fff;border:1px solid #e5edf5;border-radius:18px;padding:18px 20px;box-shadow:0 4px 14px rgba(31,56,85,.05)}.ws-morning-section h3{margin:0 0 12px;color:#19324d;font-size:18px}.ws-morning-section p{color:#6b7c93;font-size:13px;margin:0 0 10px}.ws-morning-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.ws-morning-table-wrap{overflow:auto}.ws-morning-table-wrap table{width:100%;border-collapse:collapse;font-size:13px}.ws-morning-table-wrap th{background:#f4f8fc;color:#52657c;font-weight:600;text-align:left;white-space:nowrap}.ws-morning-table-wrap th,.ws-morning-table-wrap td{padding:10px 11px;border-bottom:1px solid #edf2f7}.ws-morning-table-wrap td{color:#263b53;white-space:nowrap}.ws-morning-empty{padding:18px;color:#8a9aad;background:#f8fafc;border-radius:12px;text-align:center}
-    .ws-industry-groups{display:flex;flex-direction:column;gap:10px}.ws-industry-group{border:1px solid #e3ebf3;border-radius:14px;background:#fbfdff;overflow:hidden}.ws-industry-group summary{display:grid;grid-template-columns:minmax(180px,1.5fr) 100px 150px minmax(240px,1fr);align-items:center;gap:12px;padding:14px 16px;cursor:pointer;list-style-position:inside;color:#263b53}.ws-industry-group[open] summary{background:#f4f8fc;border-bottom:1px solid #e3ebf3}.ws-industry-name{font-weight:700;color:#19324d}.ws-industry-count{color:#6b7c93}.ws-industry-growth{font-weight:700;color:#176b45}.ws-industry-change{color:#6b7c93;font-size:12px}.ws-industry-group .ws-morning-table-wrap{padding:0 14px 10px}.ws-industry-group table{background:#fff}
-    @media(max-width:900px){.ws-morning-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ws-morning-grid{grid-template-columns:1fr}.ws-industry-group summary{grid-template-columns:1fr 1fr}.ws-industry-change{grid-column:1/-1}}
+    .ws-morning-shell{display:flex;flex-direction:column;gap:16px;margin:4px 0 24px;color:var(--ws-text-main)}
+    .ws-morning-hero{padding:24px;border:1px solid var(--ws-border-soft);border-radius:var(--ws-radius-lg);background:linear-gradient(135deg,var(--ws-bg-dark),var(--ws-color-primary-strong));color:var(--ws-text-inverse);box-shadow:var(--ws-shadow)}
+    .ws-morning-kicker{font:600 14px/1 var(--ws-font-data);letter-spacing:.08em;opacity:.78}.ws-morning-hero h2{margin:9px 0 6px;font:700 28px/1.2 var(--ws-font-heading);color:inherit}.ws-morning-hero>p{margin:0;opacity:.82}
+    .ws-morning-badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.ws-morning-badge{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.13);font:600 14px/1 var(--ws-font-data)}.ws-morning-badge.is-complete{background:color-mix(in srgb,var(--ws-color-up) 28%,white);color:#fff}.ws-morning-badge.is-partial{background:color-mix(in srgb,var(--ws-color-warn) 34%,white);color:#3b2a00}
+    .ws-morning-section{background:var(--ws-bg-surface);border:1px solid var(--ws-border-soft);border-radius:var(--ws-radius-lg);padding:20px;box-shadow:var(--ws-shadow)}.ws-morning-section h3{margin:0 0 6px;color:var(--ws-text-main);font:700 18px/1.3 var(--ws-font-heading)}.ws-morning-section>p{color:var(--ws-text-muted);font-size:14px;margin:0 0 12px}.ws-morning-summary{font-size:15px!important;line-height:1.65;color:var(--ws-text-main)!important;margin-top:10px!important}
+    .ws-morning-focus-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px}.ws-morning-focus-card{position:relative;min-height:136px;padding:16px;border:1px solid var(--ws-border-soft);border-radius:var(--ws-radius-md);background:var(--ws-surface-soft)}.ws-morning-focus-index{display:block;margin-bottom:18px;color:var(--ws-color-primary);font:700 14px/1 var(--ws-font-data)}.ws-morning-focus-card strong{display:block;font-size:15px;line-height:1.5}.ws-morning-focus-card p{margin:10px 0 0;color:var(--ws-text-muted);font-size:14px;line-height:1.45}.ws-morning-focus-caveat{color:var(--ws-color-warn)!important}
+    .ws-morning-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.ws-morning-metric{background:var(--ws-bg-surface);border:1px solid var(--ws-border-soft);border-radius:var(--ws-radius-md);padding:16px;box-shadow:var(--ws-shadow)}.ws-morning-metric span{display:block;color:var(--ws-text-muted);font-size:14px}.ws-morning-metric strong{display:block;margin-top:8px;color:var(--ws-text-main);font:700 19px/1.35 var(--ws-font-heading)}.ws-morning-metric small{display:block;margin-top:7px;color:var(--ws-text-soft);font-size:14px}
+    .ws-morning-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.ws-morning-table-wrap{overflow:auto}.ws-morning-table-wrap table{width:100%;border-collapse:collapse;font-size:14px}.ws-morning-table-wrap th{background:var(--ws-surface-soft);color:var(--ws-text-muted);font-weight:600;text-align:left;white-space:nowrap}.ws-morning-table-wrap th,.ws-morning-table-wrap td{padding:10px 11px;border-bottom:1px solid var(--ws-border-soft)}.ws-morning-table-wrap td{color:var(--ws-text-main);white-space:nowrap}.ws-morning-empty{padding:18px;color:var(--ws-text-soft);background:var(--ws-surface-soft);border-radius:var(--ws-radius-md);text-align:center}
+    .ws-industry-groups{display:flex;flex-direction:column;gap:9px}.ws-industry-group{border:1px solid var(--ws-border-soft);border-radius:var(--ws-radius-md);background:var(--ws-bg-surface);overflow:hidden}.ws-industry-group summary{display:grid;grid-template-columns:minmax(180px,1.5fr) 100px 150px minmax(240px,1fr);align-items:center;gap:12px;padding:14px 16px;cursor:pointer;color:var(--ws-text-main)}.ws-industry-group[open] summary{background:var(--ws-surface-soft);border-bottom:1px solid var(--ws-border-soft)}.ws-industry-name{font-weight:700}.ws-industry-count,.ws-industry-change{color:var(--ws-text-muted)}.ws-industry-growth{font-weight:700}.ws-industry-growth.is-up{color:var(--ws-color-down)}.ws-industry-growth.is-down{color:var(--ws-color-up)}.ws-industry-growth.is-flat{color:var(--ws-color-neutral)}.ws-industry-change{font-size:14px}.ws-industry-group .ws-morning-table-wrap{padding:0 14px 10px}
+    .ws-morning-footnote{padding:12px 14px;border-radius:var(--ws-radius-md);background:var(--ws-surface-soft);color:var(--ws-text-muted);font-size:14px;line-height:1.6}
+    @media(max-width:900px){.ws-morning-focus-grid,.ws-morning-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ws-morning-grid{grid-template-columns:1fr}.ws-industry-group summary{grid-template-columns:1fr 1fr}.ws-industry-change{grid-column:1/-1}}
+    @media(max-width:600px){.ws-morning-focus-grid,.ws-morning-metrics{grid-template-columns:1fr}.ws-morning-hero{padding:20px}.ws-morning-hero h2{font-size:24px}.ws-industry-group summary{grid-template-columns:1fr}.ws-industry-change{grid-column:auto}}
     </style>
     """
-    html_block = f"""{css}<div class="ws-morning-shell"><div class="ws-morning-hero"><h2>晨报｜{escape(str(fact_pack.get('report_trade_date') or '--'))}</h2><p>汇总上一交易日 ETF、资金、市场情绪、趋势推荐和自选基金表现</p><span class="ws-morning-badge {mode_class}">报告模式：{mode}</span></div><div class="ws-morning-metrics"><div class="ws-morning-metric"><span>风险灯</span><strong>{digest['risk_color']}｜{escape(digest['risk_text'])}</strong></div><div class="ws-morning-metric"><span>资金主线</span><strong>{escape(str(digest['top_sector']))}</strong></div><div class="ws-morning-metric"><span>涨停 / 炸板</span><strong>{digest['limitup_count']} / {digest['blowup_count']}</strong></div><div class="ws-morning-metric"><span>自选基金平均涨跌</span><strong>{'--' if avg_fund_change is None else f'{avg_fund_change:+.2f}%'} </strong></div></div><div class="ws-morning-section"><h3>行业 ETF 较前一日份额变化</h3><p>同一标的行业合并展示；点击行业可查看全部包含的 ETF。行业增长按所属 ETF 的合计份额与前一日合计份额计算。</p>{_morning_report_industry_groups_html(growth_groups)}</div><div class="ws-morning-grid"><div class="ws-morning-section"><h3>THS 行业资金流 Top10</h3>{_morning_report_table_html(ths_display,[('行业','行业'),('净流入','净流入'),('涨跌幅','涨跌幅'),('龙头股','龙头股')])}</div><div class="ws-morning-section"><h3>DC 板块资金流 Top10</h3>{_morning_report_table_html(dc_display,[('板块','板块'),('净流入','净流入'),('涨跌幅','涨跌幅')])}</div></div><div class="ws-morning-section"><h3>自选基金上一交易日表现</h3>{_morning_report_table_html(fund_changes,[('基金','基金'),('净值日期','净值日期'),('上一交易日涨跌幅','上一交易日涨跌幅')])}</div><div class="ws-morning-grid"><div class="ws-morning-section"><h3>趋势推荐</h3>{_morning_report_table_html(all_trend_display,[('方向','方向'),('股票','股票'),('行业','行业')])}</div><div class="ws-morning-section"><h3>市场辅助指标</h3>{_morning_report_table_html([{'指标':'北向资金净流入','数值':_morning_report_num(north.get('north_money'),2)}, {'指标':'沪股通','数值':_morning_report_num(north.get('hgt'),2)}, {'指标':'深股通','数值':_morning_report_num(north.get('sgt'),2)}, {'指标':'报告数据质量提示','数值':f"{len(fact_pack.get('data_quality',{}).get('warnings') or [])} 条"}],[('指标','指标'),('数值','数值')])}</div></div></div>"""
+    html_block = f"""{css}<div class="ws-morning-shell">
+    <header class="ws-morning-hero"><span class="ws-morning-kicker">MORNING BRIEF · 数据截至 {escape(target_date or '--')}</span><h2>晨报｜{escape(target_date or '--')}</h2><p>{escape(str(headline))}</p><div class="ws-morning-badges"><span class="ws-morning-badge {status_class}">{status_label}</span><span class="ws-morning-badge">数据覆盖 {int(quality.get('coverage_score') or 0)}%</span><span class="ws-morning-badge">{mode}</span><span class="ws-morning-badge">生成 {escape(generated_display)}</span></div></header>
+    <section class="ws-morning-section"><h3>今天先看三件事</h3><p>模型结论仅在证据编号和数字校验通过后展示；否则自动使用结构化事实。</p>{summary_html}{_morning_focus_html(focus_items, evidence_map)}</section>
+    <div class="ws-morning-metrics"><div class="ws-morning-metric"><span>{escape(str(digest.get('risk_label') or '短线情绪灯'))}</span><strong>{escape(str(digest['risk_color']))}｜{escape(str(digest['risk_text']))}</strong><small>炸板率 {escape(blowup_rate_text)}</small></div><div class="ws-morning-metric"><span>资金主线</span><strong>{escape(str(digest['top_sector']))}</strong><small>THS 口径，不与 DC 绝对值横比</small></div><div class="ws-morning-metric"><span>涨停 / 炸板</span><strong>{digest['limitup_count']} / {digest['blowup_count']}</strong><small>数据截至 {escape(target_date or '--')}</small></div><div class="ws-morning-metric"><span>自选基金平均涨跌</span><strong>{escape(average_text)}</strong><small>仅计算净值日期对齐的 {len(valid_changes)} 只</small></div></div>
+    <section class="ws-morning-section"><h3>行业 ETF 份额变化</h3><p>统一换算为亿份；按行业所含 ETF 合计份额计算，点击查看明细。</p>{_morning_report_industry_groups_html(growth_groups)}</section>
+    <div class="ws-morning-grid"><section class="ws-morning-section"><h3>THS 行业资金流</h3><p>单位统一为亿元，供应商口径：同花顺。</p>{_morning_report_table_html(ths_display,[('行业','行业'),('净流入','净流入'),('涨跌幅','涨跌幅'),('龙头股','龙头股')])}</section><section class="ws-morning-section"><h3>DC 板块资金流</h3><p>上游原始单位为元，页面统一换算为亿元；供应商口径：东方财富。</p>{_morning_report_table_html(dc_display,[('板块','板块'),('净流入','净流入'),('涨跌幅','涨跌幅')])}</section></div>
+    <section class="ws-morning-section"><h3>自选基金确认净值表现</h3><p>只把净值日期与报告交易日一致的基金纳入顶部平均值。</p>{_morning_report_table_html(fund_changes,[('基金','基金'),('净值日期','净值日期'),('确认涨跌幅','确认涨跌幅')])}</section>
+    <div class="ws-morning-grid"><section class="ws-morning-section"><h3>趋势模型输出</h3><p>这是模型生成结果，不等同于原始行情或买卖指令。</p>{_morning_report_table_html(trend_display,[('类型','类型'),('证券','证券'),('行业','行业')])}</section><section class="ws-morning-section"><h3>市场辅助指标</h3><p>金额统一换算为亿元，并保留各自数据日期。</p>{_morning_report_table_html(auxiliary_rows,[('指标','指标'),('数值','数值'),('截至','截至')])}</section></div>
+    <section class="ws-morning-section"><h3>数据源就绪度</h3><p>关键数据未齐时，晨报会标记为部分数据并跳过 LLM 综合。</p>{_morning_sources_html(quality.get('sources') or [])}</section>
+    <div class="ws-morning-footnote">口径说明：THS 与 DC 资金流虽均换算为亿元，但供应商定义不同，不做绝对值横向比较。北向、两融、成交额也按各自上游口径换算。报告不构成投资建议。</div>
+    </div>"""
     st.html(html_block)
 
 
@@ -9015,22 +9243,40 @@ def render_etf_morning_report_page():
         generate_and_save_report,
         list_saved_report_dates,
         load_saved_report,
-        build_report_digest,
     )
 
-    st.subheader("📰 晨报")
-    st.caption("每个交易日早晨汇总上一个交易日的市场、ETF、基金、资金、趋势与情绪数据；LLM 仅基于项目 Fact Pack 生成。")
     dates = list_saved_report_dates()
     latest = load_saved_report()
-    if st.button("重新生成上一个交易日晨报", type="primary", key="btn_generate_etf_morning_report"):
+    control_date, control_action = st.columns([3, 1])
+    with control_date:
+        selected = st.selectbox(
+            "查看报告日期",
+            dates,
+            index=0,
+            key="etf_morning_report_date",
+            disabled=not dates,
+            placeholder="暂无历史报告",
+        ) if dates else None
+    with control_action:
+        st.write("")
+        regenerate = st.button(
+            "重新生成 T-1 晨报",
+            type="primary",
+            key="btn_generate_etf_morning_report",
+            use_container_width=True,
+        )
+    if regenerate:
         with st.spinner("正在汇总数据并生成晨报..."):
             latest = generate_and_save_report()
         dates = list_saved_report_dates()
-        st.success(f"晨报已生成：{(latest or {}).get('fact_pack', {}).get('report_trade_date') or '-'}")
-
-    if dates:
-        selected = st.selectbox("查看报告日期", dates, index=0, key="etf_morning_report_date")
-        report = load_saved_report(selected) or latest
+        selected = (latest or {}).get("fact_pack", {}).get("report_trade_date")
+        report = latest
+        st.success(f"晨报已生成：{selected or '-'}；定时推送只由服务器任务触发，本次手动生成不会重复推送。")
+    elif selected:
+        report = load_saved_report(selected)
+        if report is None:
+            st.error(f"{selected} 的晨报文件缺失或已损坏，未自动回退到其他日期。")
+            return
     else:
         report = latest
 
@@ -9039,26 +9285,20 @@ def render_etf_morning_report_page():
         return
 
     fact_pack = report.get("fact_pack") or {}
+    render_etf_morning_report_dashboard(fact_pack, report)
     quality = fact_pack.get("data_quality") or {}
-    digest = build_report_digest(fact_pack)
-    report_mode = str(report.get("report_mode") or ("llm" if report.get("llm") else "facts"))
-    if report_mode == "llm":
-        st.success(f"报告模式：LLM 综合版（{(report.get('llm') or {}).get('model') or '已配置模型'}）")
-    else:
-        st.info("报告模式：结构化事实版（未使用 LLM 或本次 LLM 未成功返回）")
-    st.metric("报告交易日", fact_pack.get("report_trade_date") or "-")
-    cols = st.columns(4)
-    cols[0].metric("风险灯", f"{digest['risk_color']}｜{digest['risk_text']}")
-    cols[1].metric("自选基金", f"{digest['fund_count']} 只")
-    cols[2].metric("资金流入行业", digest["top_sector"])
-    cols[3].metric("涨停 / 炸板", f"{digest['limitup_count']} / {digest['blowup_count']}")
     if quality.get("warnings"):
-        with st.expander("数据缺口与质量提示", expanded=True):
+        with st.expander(f"数据缺口与质量提示（{len(quality['warnings'])}）", expanded=quality.get("report_status") != "complete"):
             for warning in quality["warnings"]:
                 st.warning(warning)
-    render_etf_morning_report_dashboard(fact_pack, report)
-    with st.expander("查看 LLM / Markdown 原文", expanded=False):
+    with st.expander("查看经过校验的 Markdown 与证据账本", expanded=False):
         st.markdown(report.get("markdown") or "暂无报告内容")
+        with st.popover("查看证据明细"):
+            evidence_rows = fact_pack.get("evidence") or []
+            if evidence_rows:
+                st.dataframe(pd.DataFrame(evidence_rows), use_container_width=True, hide_index=True)
+            else:
+                st.caption("旧版报告没有证据账本。")
 
 
 def render_funding_freshness_page():

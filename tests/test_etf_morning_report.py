@@ -1,4 +1,5 @@
 from datetime import date
+from types import SimpleNamespace
 
 import pandas as pd
 
@@ -6,14 +7,39 @@ from src.etf_morning_report import (
     _fallback_markdown,
     _build_industry_etf_groups,
     build_report_digest,
+    build_source_readiness,
     find_previous_trade_date,
     generate_llm_markdown,
+    normalize_morning_llm_result,
     save_report,
 )
+from src.morning_report_notifier import (
+    ServerChanNotifierConfig,
+    build_serverchan_endpoint,
+    build_serverchan_message,
+    send_serverchan_report,
+    send_serverchan_report_for_users,
+)
+from scripts.generate_etf_morning_report import is_sse_trading_day_today
 
 
 class FakeEngine:
     pass
+
+
+def test_scheduled_notification_uses_sse_trading_calendar(monkeypatch):
+    class FakePro:
+        def __init__(self, is_open):
+            self.is_open = is_open
+
+        def trade_cal(self, **kwargs):
+            return pd.DataFrame([{"cal_date": kwargs["start_date"], "is_open": self.is_open}])
+
+    monkeypatch.setattr("src.volume_fetcher._init_tushare", lambda: FakePro(0))
+    assert is_sse_trading_day_today() is False
+
+    monkeypatch.setattr("src.volume_fetcher._init_tushare", lambda: FakePro(1))
+    assert is_sse_trading_day_today() is True
 
 
 def test_find_previous_trade_date_uses_latest_available_source(monkeypatch):
@@ -114,3 +140,307 @@ def test_save_report_writes_latest_and_date_files(tmp_path, monkeypatch):
     assert saved["llm"]["model"] == "demo"
     assert (tmp_path / "2026-08-27.md").read_text(encoding="utf-8") == "# report\n"
     assert (tmp_path / "latest.json").exists()
+
+
+def test_source_readiness_requires_all_core_sources(monkeypatch):
+    def fake_query(engine, sql, params=None):
+        if "FROM ts_limit_list_d" in sql:
+            return pd.DataFrame([{"latest_date": date(2026, 8, 26), "row_count": 0}])
+        return pd.DataFrame([{"latest_date": date(2026, 8, 27), "row_count": 10}])
+
+    monkeypatch.setattr("src.etf_morning_report._query_frame", fake_query)
+    readiness = build_source_readiness(FakeEngine(), "2026-08-27")
+
+    assert readiness["report_status"] == "partial"
+    assert readiness["required_ready"] == 2
+    assert readiness["required_total"] == 3
+
+
+def test_normalize_morning_llm_result_requires_supported_evidence_and_numbers():
+    fact_pack = {
+        "evidence": [
+            {"evidence_id": "flow.ths.0", "label": "半导体净流入", "value": 12.34, "unit": "亿元"}
+        ]
+    }
+    valid = normalize_morning_llm_result(
+        {
+            "headline": "资金主线清晰",
+            "summary": "半导体净流入 12.34 亿元",
+            "summary_evidence_ids": ["flow.ths.0"],
+            "focus_items": [],
+        },
+        fact_pack,
+    )
+    invalid = normalize_morning_llm_result(
+        {
+            "summary": "半导体净流入 99.99 亿元",
+            "summary_evidence_ids": ["flow.ths.0"],
+            "focus_items": [],
+        },
+        fact_pack,
+    )
+
+    assert valid is not None
+    assert valid["summary"]["evidence_ids"] == ["flow.ths.0"]
+    assert invalid is None
+
+
+def test_normalize_morning_llm_result_rejects_missing_evidence():
+    fact_pack = {
+        "evidence": [
+            {
+                "evidence_id": "sentiment.limitup",
+                "label": "涨停家数",
+                "value": 0,
+                "unit": "家",
+                "status": "missing",
+            }
+        ]
+    }
+
+    result = normalize_morning_llm_result(
+        {
+            "summary": "涨停 0 家",
+            "summary_evidence_ids": ["sentiment.limitup"],
+            "focus_items": [],
+        },
+        fact_pack,
+    )
+
+    assert result is None
+
+
+def test_normalize_morning_llm_result_requires_caveat_for_stale_or_generated_evidence():
+    fact_pack = {
+        "evidence": [
+            {
+                "evidence_id": "trend.up.0",
+                "label": "趋势候选",
+                "value": "示例证券",
+                "unit": "",
+                "status": "generated",
+            }
+        ]
+    }
+    without_caveat = normalize_morning_llm_result(
+        {
+            "focus_items": [{"text": "示例证券是趋势候选", "evidence_ids": ["trend.up.0"]}],
+        },
+        fact_pack,
+    )
+    with_caveat = normalize_morning_llm_result(
+        {
+            "focus_items": [{
+                "text": "示例证券是趋势候选",
+                "evidence_ids": ["trend.up.0"],
+                "caveat": "这是模型生成结果，不是原始行情",
+            }],
+        },
+        fact_pack,
+    )
+
+    assert without_caveat is None
+    assert with_caveat is not None
+
+
+def test_generate_llm_markdown_uses_validated_json(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [{
+                    "message": {
+                        "content": '{"headline":"主线明确","summary":"半导体净流入 12.34 亿元","summary_evidence_ids":["flow.ths.0"],"focus_items":[]}'
+                    }
+                }]
+            }
+
+    def fake_post(url, headers, json, timeout):
+        captured.update(json)
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "src.etf_morning_report.load_stock_research_llm_config",
+        lambda: SimpleNamespace(
+            configured=True,
+            model="demo-model",
+            temperature=0.2,
+            max_tokens=1200,
+            base_url="https://example.invalid",
+            api_key="secret",
+            timeout_seconds=5,
+        ),
+    )
+    monkeypatch.setattr("requests.post", fake_post)
+    fact_pack = {
+        "schema_version": "etf-morning-report-v2",
+        "report_trade_date": "2026-08-27",
+        "generated_at": "2026-08-28T08:30:00+08:00",
+        "data_quality": {"report_status": "complete", "coverage_score": 100, "warnings": []},
+        "evidence": [
+            {"evidence_id": "flow.ths.0", "label": "半导体净流入", "value": 12.34, "unit": "亿元"}
+        ],
+        "fund_watchlist": {"funds": []},
+        "money_flow": {"ths_top_inflow": [], "dc_top_inflow": []},
+        "trend_recommendations": {},
+        "market_sentiment": {"limitup": []},
+        "etf_overview": {"industry_etf_groups": []},
+    }
+
+    markdown, meta = generate_llm_markdown(fact_pack)
+
+    assert "半导体净流入 12.34 亿元" in markdown
+    assert meta["analysis"]["validated"] is True
+    assert captured["response_format"] == {"type": "json_object"}
+
+
+def _notification_report(status="complete"):
+    return {
+        "report_hash": "hash-demo",
+        "report_mode": "facts",
+        "fact_pack": {
+            "report_trade_date": "2026-08-27",
+            "data_quality": {"report_status": status, "coverage_score": 88, "warnings": []},
+            "fund_watchlist": {"funds": []},
+            "money_flow": {"ths_top_inflow": [{"industry": "半导体", "net_amount_yi": 12.34}], "dc_top_inflow": []},
+            "trend_recommendations": {},
+            "market_sentiment": {"limitup": [{"up_cnt": 20, "zha_cnt": 2}]},
+            "etf_overview": {"industry_etf_groups": []},
+            "evidence": [
+                {"evidence_id": "sentiment.limitup", "label": "涨停家数", "value": 20, "unit": "家"}
+            ],
+        },
+    }
+
+
+def test_build_serverchan_message_is_short_evidence_summary():
+    title, content = build_serverchan_message(
+        _notification_report(),
+        report_url="https://example.com/morning",
+    )
+
+    assert "\n" not in title
+    assert "晨报｜2026-08-27" in content
+    assert "数据覆盖 88%" in content
+    assert "查看完整晨报" in content
+    assert len(content) < 10000
+
+
+def test_serverchan_endpoint_supports_turbo_and_sc3_without_arbitrary_hosts():
+    assert build_serverchan_endpoint("SCTabc_123") == "https://sctapi.ftqq.com/SCTabc_123.send"
+    assert build_serverchan_endpoint("sctp123tabc_456") == "https://123.push.ft07.com/send/sctp123tabc_456.send"
+    assert build_serverchan_endpoint("https://example.com/key") is None
+
+
+def test_serverchan_delivery_suppresses_partial_by_default(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.morning_report_notifier.NOTIFICATION_DIR", tmp_path)
+    config = ServerChanNotifierConfig(
+        enabled=True,
+        sendkey="SCTtest",
+        allow_partial=False,
+    )
+
+    result = send_serverchan_report(_notification_report("partial"), config=config)
+
+    assert result["status"] == "suppressed_partial"
+    assert not list(tmp_path.glob("*.json"))
+
+
+def test_serverchan_delivery_is_idempotent_by_trade_date(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.morning_report_notifier.NOTIFICATION_DIR", tmp_path)
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"code": 0, "message": "ok"}
+
+    class FakeSession:
+        def post(self, url, json, headers, timeout):
+            calls.append((url, json, headers, timeout))
+            return FakeResponse()
+
+    config = ServerChanNotifierConfig(
+        enabled=True,
+        sendkey="SCTtest",
+        report_url="https://example.com/morning",
+    )
+    report = _notification_report()
+
+    first = send_serverchan_report(report, config=config, session=FakeSession())
+    second = send_serverchan_report(report, config=config, session=FakeSession())
+
+    assert first["status"] == "delivered"
+    assert second["status"] == "duplicate_skipped"
+    assert len(calls) == 1
+    assert calls[0][0] == "https://sctapi.ftqq.com/SCTtest.send"
+    assert set(calls[0][1]) == {"title", "desp"}
+
+
+def test_serverchan_business_error_is_not_retried_and_redacts_sendkey(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.morning_report_notifier.NOTIFICATION_DIR", tmp_path)
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"code": 40001, "message": "invalid SCTsecret"}
+
+    class FakeSession:
+        def post(self, url, json, headers, timeout):
+            calls.append(url)
+            return FakeResponse()
+
+    config = ServerChanNotifierConfig(
+        enabled=True,
+        sendkey="SCTsecret",
+        max_attempts=3,
+    )
+
+    result = send_serverchan_report(_notification_report(), config=config, session=FakeSession())
+
+    assert result["status"] == "failed"
+    assert len(calls) == 1
+    assert "SCTsecret" not in result["error"]
+
+
+def test_serverchan_scheduled_delivery_has_independent_user_idempotency(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.morning_report_notifier.NOTIFICATION_DIR", tmp_path)
+    monkeypatch.setattr(
+        "src.user_notification_store.list_enabled_serverchan_credentials",
+        lambda: [("alice", "SCTalice"), ("bob", "SCTbob")],
+    )
+    monkeypatch.setattr(
+        "src.morning_report_notifier.load_serverchan_notifier_config",
+        lambda: ServerChanNotifierConfig(enabled=False, report_url="https://example.com/morning"),
+    )
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"code": 0, "message": "ok"}
+
+    class FakeSession:
+        def post(self, url, json, headers, timeout):
+            calls.append(url)
+            return FakeResponse()
+
+    first = send_serverchan_report_for_users(_notification_report(), session=FakeSession())
+    second = send_serverchan_report_for_users(_notification_report(), session=FakeSession())
+
+    assert first["status"] == "delivered"
+    assert first["recipient_count"] == 2
+    assert second["status"] == "duplicate_skipped"
+    assert len(calls) == 2
+    assert {item["recipient"] for item in first["recipients"]} == {"user:alice", "user:bob"}

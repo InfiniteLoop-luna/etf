@@ -8,4 +8,5 @@ Type=oneshot
 User=root
 WorkingDirectory=/opt/etf-app
 Environment=PYTHONPATH=/opt/etf-app
+EnvironmentFile=-/opt/etf-app/.env
 ExecStart=/opt/etf-app/.venv/bin/python /opt/etf-app/scripts/generate_etf_morning_report.py

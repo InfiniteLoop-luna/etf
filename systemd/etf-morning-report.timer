@@ -3,6 +3,8 @@ Description=Generate ETF morning report on trading weekdays at 08:30 China time
 
 [Timer]
 OnCalendar=Mon..Fri *-*-* 08:30:00 Asia/Shanghai
+OnCalendar=Mon..Fri *-*-* 08:45:00 Asia/Shanghai
+OnCalendar=Mon..Fri *-*-* 09:00:00 Asia/Shanghai
 Persistent=true
 Unit=etf-morning-report.service
 

@@ -109,6 +109,7 @@ wealthspark-*.html
 # Local ETF share cache artifacts
 /data/etf_share_cache.meta.json
 /data/etf_share_cache.pkl.gz
+/data/morning_reports/
 
 .streamlit/secrets.toml
 .streamlit/secrets.toml
