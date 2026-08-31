@@ -9148,10 +9148,12 @@ def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
     north_rows = (fact_pack.get("northbound", {}) or {}).get("daily") or []
     margin_rows = (fact_pack.get("margin", {}) or {}).get("daily") or []
     volume_rows = (fact_pack.get("volume", {}) or {}).get("daily") or []
+    breadth_rows = (fact_pack.get("market_breadth", {}) or {}).get("daily") or []
     trend = fact_pack.get("trend_recommendations", {}) or {}
     north = north_rows[0] if north_rows else {}
     margin = margin_rows[0] if margin_rows else {}
     volume = volume_rows[0] if volume_rows else {}
+    breadth = breadth_rows[0] if breadth_rows else {}
     evidence_map = {
         str(item.get("evidence_id")): item
         for item in fact_pack.get("evidence") or []
@@ -9194,6 +9196,19 @@ def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
         for item in (trend.get("top_avoid") or [])[:6]
     ]
     auxiliary_rows = [
+        {
+            "指标": "上涨 / 下跌股票",
+            "数值": (
+                f"{int(breadth.get('advancer_count') or 0)} / {int(breadth.get('decliner_count') or 0)} 家"
+                if breadth else "--"
+            ),
+            "截至": breadth.get("trade_date") or "--",
+        },
+        {
+            "指标": "个股涨跌幅中位数",
+            "数值": _morning_report_num(breadth.get("median_pct_chg"), 2, "%", signed=True),
+            "截至": breadth.get("trade_date") or "--",
+        },
         {"指标": "北向资金净流入", "数值": _morning_report_num(north.get("north_money_yi"), 2, " 亿元", signed=True), "截至": north.get("trade_date") or "--"},
         {"指标": "融资余额", "数值": _morning_report_num(margin.get("financing_balance_yi"), 2, " 亿元"), "截至": margin.get("trade_date") or "--"},
         {"指标": "全市场成交额", "数值": _morning_report_num(volume.get("total_amount_yi"), 2, " 亿元"), "截至": volume.get("trade_date") or "--"},
@@ -9232,7 +9247,7 @@ def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
     """
     html_block = f"""{css}<div class="ws-morning-shell">
     <header class="ws-morning-hero"><span class="ws-morning-kicker">MORNING BRIEF · 数据截至 {escape(target_date or '--')}</span><h2>晨报｜{escape(target_date or '--')}</h2><p>{escape(str(headline))}</p><div class="ws-morning-badges"><span class="ws-morning-badge {status_class}">{status_label}</span><span class="ws-morning-badge">数据覆盖 {int(quality.get('coverage_score') or 0)}%</span><span class="ws-morning-badge">{mode}</span><span class="ws-morning-badge">生成 {escape(generated_display)}</span></div></header>
-    <section class="ws-morning-section"><h3>今天先看三件事</h3><p>模型结论仅在证据编号和数字校验通过后展示；否则自动使用结构化事实。</p>{summary_html}{_morning_focus_html(focus_items, evidence_map)}</section>
+    <section class="ws-morning-section"><h3>昨日综合复盘</h3><p>模型会综合市场广度、成交活跃度、资金流和 ETF 结构；只展示通过证据编号与数字校验的判断。</p>{summary_html}{_morning_focus_html(focus_items, evidence_map)}</section>
     <div class="ws-morning-metrics"><div class="ws-morning-metric"><span>{escape(str(digest.get('risk_label') or '短线情绪灯'))}</span><strong>{escape(str(digest['risk_color']))}｜{escape(str(digest['risk_text']))}</strong><small>炸板率 {escape(blowup_rate_text)}</small></div><div class="ws-morning-metric"><span>资金主线</span><strong>{escape(str(digest['top_sector']))}</strong><small>THS 口径，不与 DC 绝对值横比</small></div><div class="ws-morning-metric"><span>涨停 / 炸板</span><strong>{escape(sentiment_count_text)}</strong><small>{escape(sentiment_count_note)}</small></div><div class="ws-morning-metric"><span>自选基金平均涨跌</span><strong>{escape(average_text)}</strong><small>仅计算净值日期对齐的 {len(valid_changes)} 只</small></div></div>
     <section class="ws-morning-section"><h3>行业 ETF 份额变化</h3><p>统一换算为亿份；按行业所含 ETF 合计份额计算，点击查看明细。</p>{_morning_report_industry_groups_html(growth_groups)}</section>
     <div class="ws-morning-grid"><section class="ws-morning-section"><h3>THS 行业资金流</h3><p>单位统一为亿元，供应商口径：同花顺。</p>{_morning_report_table_html(ths_display,[('行业','行业'),('净流入','净流入'),('涨跌幅','涨跌幅'),('龙头股','龙头股')])}</section><section class="ws-morning-section"><h3>DC 板块资金流</h3><p>上游原始单位为元，页面统一换算为亿元；供应商口径：东方财富。</p>{_morning_report_table_html(dc_display,[('板块','板块'),('净流入','净流入'),('涨跌幅','涨跌幅')])}</section></div>

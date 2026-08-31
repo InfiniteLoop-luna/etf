@@ -137,7 +137,7 @@ def build_serverchan_message(report: dict, *, report_url: str | None = None) -> 
         "",
         f"> {status_text} · 数据覆盖 {_safe_text(quality.get('coverage_score') or 0, 10)}% · {mode}",
         "",
-        "## 今天先看",
+        "## 昨日复盘要点",
         "",
     ]
     if focus_items:

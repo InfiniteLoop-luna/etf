@@ -4,8 +4,10 @@ from types import SimpleNamespace
 import pandas as pd
 
 from src.etf_morning_report import (
+    _build_llm_fact_pack,
     _fallback_markdown,
     _build_industry_etf_groups,
+    build_evidence_ledger,
     build_report_digest,
     build_source_readiness,
     find_previous_trade_date,
@@ -337,6 +339,56 @@ def test_generate_llm_markdown_skips_only_when_no_business_evidence(monkeypatch)
         for warning in fact_pack["data_quality"]["warnings"]
     )
     assert "结构化事实版" in markdown
+
+
+def test_llm_fact_pack_groups_previous_day_market_and_funding_evidence():
+    fact_pack = {
+        "report_trade_date": "2026-08-27",
+        "data_quality": {
+            "report_status": "partial",
+            "coverage_score": 75,
+            "warnings": [],
+            "sources": [
+                {"key": "stock_daily", "status": "fresh"},
+                {"key": "margin", "status": "fresh"},
+                {"key": "dragon_tiger", "status": "fresh"},
+            ],
+        },
+        "market_breadth": {
+            "daily": [{
+                "trade_date": "2026-08-27",
+                "traded_stock_count": 5200,
+                "advancer_count": 3100,
+                "decliner_count": 1900,
+                "flat_count": 200,
+                "strong_advancer_count": 180,
+                "strong_decliner_count": 60,
+                "average_pct_chg": 0.52,
+                "median_pct_chg": 0.31,
+            }]
+        },
+        "volume": {"daily": [{"trade_date": "2026-08-27", "total_amount_yi": 12000}]},
+        "margin": {"daily": [{
+            "trade_date": "2026-08-27",
+            "financing_net_buy_yi": 21.5,
+            "financing_balance_yi": 19000,
+        }]},
+        "dragon_tiger": {"daily": [{"distinct_stock_count": 48}]},
+    }
+    fact_pack["evidence"] = build_evidence_ledger(fact_pack)
+
+    llm_pack = _build_llm_fact_pack(fact_pack)
+
+    market_ids = {
+        item["evidence_id"]
+        for item in llm_pack["evidence_groups"]["market_breadth_and_sentiment"]
+    }
+    capital_ids = {
+        item["evidence_id"]
+        for item in llm_pack["evidence_groups"]["capital_flow_and_activity"]
+    }
+    assert {"market.advancers", "market.decliners", "market.turnover"} <= market_ids
+    assert {"margin.net_buy", "margin.balance", "lhb.stock_count"} <= capital_ids
 
 
 def _notification_report(status="complete"):

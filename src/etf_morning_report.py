@@ -276,6 +276,25 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
         """,
         {"trade_date": target},
     )
+    market_breadth = _query_frame(
+        engine,
+        """
+        SELECT trade_date,
+               COUNT(*) AS traded_stock_count,
+               COUNT(*) FILTER (WHERE pct_chg > 0) AS advancer_count,
+               COUNT(*) FILTER (WHERE pct_chg < 0) AS decliner_count,
+               COUNT(*) FILTER (WHERE pct_chg = 0) AS flat_count,
+               COUNT(*) FILTER (WHERE pct_chg >= 5) AS strong_advancer_count,
+               COUNT(*) FILTER (WHERE pct_chg <= -5) AS strong_decliner_count,
+               AVG(pct_chg) AS average_pct_chg,
+               PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY pct_chg) AS median_pct_chg
+        FROM vw_ts_stock_daily
+        WHERE trade_date = :trade_date
+          AND pct_chg IS NOT NULL
+        GROUP BY trade_date
+        """,
+        {"trade_date": target},
+    )
     margin = _query_frame(
         engine,
         """
@@ -284,7 +303,9 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
                SUM((payload->>'rzye')::numeric) AS financing_balance,
                SUM((payload->>'rzmre')::numeric) / 100000000.0 AS financing_buy_yi,
                SUM((payload->>'rzche')::numeric) / 100000000.0 AS financing_repay_yi,
-               SUM((payload->>'rzye')::numeric) / 100000000.0 AS financing_balance_yi
+               SUM((payload->>'rzye')::numeric) / 100000000.0 AS financing_balance_yi,
+               (SUM((payload->>'rzmre')::numeric) - SUM((payload->>'rzche')::numeric))
+                   / 100000000.0 AS financing_net_buy_yi
         FROM ts_margin
         WHERE trade_date = :trade_date
         GROUP BY trade_date
@@ -387,7 +408,7 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
         "etf_overview": {
             "category_share_rows": _summarize_rows(
                 etf,
-                ["primary_category", "secondary_category", "total_share_size", "total_share_yi", "total_size", "total_size_yi"],
+                ["trade_date", "primary_category", "secondary_category", "total_share_size", "total_share_yi", "total_size", "total_size_yi"],
             ),
             "industry_etf_growth": _summarize_rows(
                 industry_etf_growth,
@@ -416,12 +437,22 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
             "dc_top_inflow": _summarize_rows(dc, ["industry", "net_amount", "net_amount_yi", "pct_change"]),
         },
         "volume": {"daily": _summarize_rows(volume, ["trade_date", "total_amount", "total_amount_yi", "total_volume"], 1)},
+        "market_breadth": {
+            "daily": _summarize_rows(
+                market_breadth,
+                [
+                    "trade_date", "traded_stock_count", "advancer_count", "decliner_count", "flat_count",
+                    "strong_advancer_count", "strong_decliner_count", "average_pct_chg", "median_pct_chg",
+                ],
+                1,
+            )
+        },
         "margin": {
             "daily": _summarize_rows(
                 margin,
                 [
                     "trade_date", "financing_buy", "financing_repay", "financing_balance",
-                    "financing_buy_yi", "financing_repay_yi", "financing_balance_yi",
+                    "financing_buy_yi", "financing_repay_yi", "financing_balance_yi", "financing_net_buy_yi",
                 ],
                 1,
             )
@@ -564,6 +595,49 @@ def build_evidence_ledger(fact_pack: dict) -> list[dict]:
         )
     )
 
+    breadth_rows = (fact_pack.get("market_breadth", {}) or {}).get("daily") or []
+    if breadth_rows:
+        breadth = breadth_rows[0]
+        breadth_date = _safe_date(breadth.get("trade_date")) or target
+        stock_status = source_status.get("stock_daily", "missing")
+        for evidence_id, label, field, unit in [
+            ("market.traded", "有涨跌幅记录的股票数", "traded_stock_count", "家"),
+            ("market.advancers", "上涨股票数", "advancer_count", "家"),
+            ("market.decliners", "下跌股票数", "decliner_count", "家"),
+            ("market.flat", "平盘股票数", "flat_count", "家"),
+            ("market.strong_advancers", "涨幅不低于5%的股票数", "strong_advancer_count", "家"),
+            ("market.strong_decliners", "跌幅不低于5%的股票数", "strong_decliner_count", "家"),
+            ("market.average_return", "全市场个股平均涨跌幅", "average_pct_chg", "%"),
+            ("market.median_return", "全市场个股涨跌幅中位数", "median_pct_chg", "%"),
+        ]:
+            evidence.append(
+                _evidence_item(
+                    evidence_id,
+                    label,
+                    breadth.get(field),
+                    unit,
+                    breadth_date,
+                    "vw_ts_stock_daily",
+                    status=stock_status,
+                )
+            )
+
+    volume_rows = (fact_pack.get("volume", {}) or {}).get("daily") or []
+    if volume_rows:
+        volume = volume_rows[0]
+        evidence.append(
+            _evidence_item(
+                "market.turnover",
+                "A股成交额",
+                volume.get("total_amount_yi"),
+                "亿元",
+                _safe_date(volume.get("trade_date")) or target,
+                "ts_stock_daily",
+                status=source_status.get("stock_daily", "missing"),
+                note="由Tushare日行情amount千元口径统一换算为亿元",
+            )
+        )
+
     for rows, prefix, source_table, status_key in [
         ((fact_pack.get("money_flow", {}) or {}).get("ths_top_inflow") or [], "flow.ths", "ts_moneyflow_ind_ths", "ths_industry_flow"),
         ((fact_pack.get("money_flow", {}) or {}).get("dc_top_inflow") or [], "flow.dc", "ts_moneyflow_dc_ind", "dc_industry_flow"),
@@ -597,6 +671,35 @@ def build_evidence_ledger(fact_pack: dict) -> list[dict]:
             )
         )
 
+    category_rows = (fact_pack.get("etf_overview", {}) or {}).get("category_share_rows") or []
+    for index, row in enumerate(category_rows[:5]):
+        category = "/".join(
+            str(value)
+            for value in (row.get("primary_category"), row.get("secondary_category"))
+            if value
+        ) or "未分类ETF"
+        category_date = _safe_date(row.get("trade_date")) or target
+        evidence.extend([
+            _evidence_item(
+                f"etf.category.{index}.share",
+                f"{category}ETF合计份额",
+                row.get("total_share_yi"),
+                "亿份",
+                category_date,
+                "etf_share_size + etf_summary",
+                status=source_status.get("etf_share", "missing"),
+            ),
+            _evidence_item(
+                f"etf.category.{index}.size",
+                f"{category}ETF合计规模",
+                row.get("total_size_yi"),
+                "亿元",
+                category_date,
+                "etf_share_size + etf_summary",
+                status=source_status.get("etf_share", "missing"),
+            ),
+        ])
+
     funds = (fact_pack.get("fund_watchlist", {}) or {}).get("funds") or []
     for index, fund in enumerate(funds[:20]):
         evidence.append(
@@ -623,6 +726,48 @@ def build_evidence_ledger(fact_pack: dict) -> list[dict]:
                 "ts_moneyflow_hsgt",
                 status=source_status.get("northbound", "missing"),
                 note="由Tushare百万元口径统一换算为亿元",
+            )
+        )
+
+    margin_rows = (fact_pack.get("margin", {}) or {}).get("daily") or []
+    if margin_rows:
+        margin = margin_rows[0]
+        margin_date = _safe_date(margin.get("trade_date")) or target
+        margin_status = source_status.get("margin", "missing")
+        evidence.extend([
+            _evidence_item(
+                "margin.net_buy",
+                "融资净买入",
+                margin.get("financing_net_buy_yi"),
+                "亿元",
+                margin_date,
+                "ts_margin",
+                status=margin_status,
+                note="融资买入额减融资偿还额",
+            ),
+            _evidence_item(
+                "margin.balance",
+                "融资余额",
+                margin.get("financing_balance_yi"),
+                "亿元",
+                margin_date,
+                "ts_margin",
+                status=margin_status,
+            ),
+        ])
+
+    lhb_rows = (fact_pack.get("dragon_tiger", {}) or {}).get("daily") or []
+    if lhb_rows:
+        evidence.append(
+            _evidence_item(
+                "lhb.stock_count",
+                "龙虎榜涉及股票数",
+                lhb_rows[0].get("distinct_stock_count"),
+                "家",
+                target,
+                "ts_lhb_top_list",
+                status=source_status.get("dragon_tiger", "missing"),
+                note="按ts_code去重；同一股票可能有多条上榜原因记录",
             )
         )
 
@@ -871,6 +1016,26 @@ def _reportable_evidence(fact_pack: dict) -> list[dict]:
 def _build_llm_fact_pack(fact_pack: dict) -> dict:
     """Send the addressable evidence ledger, not a large untyped data dump."""
     quality = fact_pack.get("data_quality", {}) or {}
+    grouped_evidence = {
+        "market_breadth_and_sentiment": [],
+        "capital_flow_and_activity": [],
+        "etf_structure": [],
+        "watchlist_funds": [],
+        "model_outputs": [],
+    }
+    for item in _reportable_evidence(fact_pack)[:80]:
+        evidence_id = str(item.get("evidence_id") or "")
+        if evidence_id.startswith(("market.", "sentiment.")):
+            group = "market_breadth_and_sentiment"
+        elif evidence_id.startswith(("flow.", "northbound.", "margin.", "lhb.")):
+            group = "capital_flow_and_activity"
+        elif evidence_id.startswith("etf."):
+            group = "etf_structure"
+        elif evidence_id.startswith("fund."):
+            group = "watchlist_funds"
+        else:
+            group = "model_outputs"
+        grouped_evidence[group].append(item)
     return make_json_safe({
         "schema_version": fact_pack.get("schema_version"),
         "report_trade_date": fact_pack.get("report_trade_date"),
@@ -880,7 +1045,11 @@ def _build_llm_fact_pack(fact_pack: dict) -> dict:
             "coverage_score": quality.get("coverage_score"),
             "warnings": (quality.get("warnings") or [])[:20],
         },
-        "evidence": _reportable_evidence(fact_pack)[:80],
+        "evidence_groups": {
+            key: values
+            for key, values in grouped_evidence.items()
+            if values
+        },
     })
 
 
@@ -945,6 +1114,15 @@ def normalize_morning_llm_result(result: dict | None, fact_pack: dict) -> dict |
     if not isinstance(result, dict) or not result:
         return None
     evidence_map = _evidence_by_id(fact_pack)
+    headline = _normalize_claim_item(
+        {
+            "text": result.get("headline"),
+            "evidence_ids": result.get("headline_evidence_ids"),
+            "caveat": "",
+        },
+        evidence_map,
+        max_length=90,
+    )
     summary = _normalize_claim_item(
         {
             "text": result.get("summary"),
@@ -967,7 +1145,8 @@ def normalize_morning_llm_result(result: dict | None, fact_pack: dict) -> dict |
         return None
     return {
         "schema_version": LLM_SCHEMA_VERSION,
-        "headline": _coerce_report_text(result.get("headline"), 80),
+        "headline": (headline or {}).get("text") or "前一交易日市场复盘",
+        "headline_evidence_ids": (headline or {}).get("evidence_ids") or [],
         "summary": summary or {},
         "focus_items": focus_items,
         "risk_note": risk_note or {},
@@ -984,18 +1163,18 @@ def render_morning_llm_markdown(fact_pack: dict, analysis: dict) -> str:
         lines.extend([f"> {analysis['headline']}", ""])
     summary = analysis.get("summary") or {}
     if summary.get("text"):
-        lines.extend(["## 核心结论", summary["text"], ""])
+        lines.extend(["## 昨日综合复盘", summary["text"], ""])
         lines.append(f"证据：{', '.join(summary.get('evidence_ids') or [])}")
     focus_items = analysis.get("focus_items") or []
     if focus_items:
-        lines.extend(["", "## 今天先看三件事"])
+        lines.extend(["", "## 昨日结构观察"])
         for item in focus_items:
             evidence_text = ", ".join(item.get("evidence_ids") or [])
             caveat = f"；限制：{item['caveat']}" if item.get("caveat") else ""
             lines.append(f"- {item.get('text')}（证据：{evidence_text}{caveat}）")
     risk_note = analysis.get("risk_note") or {}
     if risk_note.get("text"):
-        lines.extend(["", "## 风险提示", risk_note["text"]])
+        lines.extend(["", "## 昨日风险与分化", risk_note["text"]])
         lines.append(f"证据：{', '.join(risk_note.get('evidence_ids') or [])}")
     lines.extend([
         "",
@@ -1021,14 +1200,18 @@ def generate_llm_markdown(fact_pack: dict) -> tuple[str, dict | None]:
         return _fallback_markdown(fact_pack), None
     llm_fact_pack = _build_llm_fact_pack(fact_pack)
     system = (
-        "你是审慎的ETF晨报分析员。只能使用给定evidence数组，不得补充外部知识、新闻、数字或因果解释。"
-        "每个结论必须列出真实存在的evidence_id；不同供应商资金流口径不可直接互相比较。"
+        "你是审慎的A股与ETF盘后复盘编辑。任务是把前一交易日的可用数据综合成一份有判断、有层次的昨日复盘，"
+        "不是机械罗列单个数字。只能使用给定evidence_groups，不得补充外部知识、新闻、指数表现、数字或未经证据支持的因果解释。"
+        "优先依次分析：市场涨跌分布与成交活跃度、涨停和炸板情绪、行业资金方向、ETF份额结构、北向/两融/龙虎榜、"
+        "以及自选基金表现；某组不存在就完全跳过。应在证据允许时比较不同组信号，指出共振或背离，但不得预测涨跌。"
+        "每个结论必须列出真实存在的evidence_id；不同供应商资金流口径不可直接比较绝对值。"
         "不得引用status=missing的证据；引用status=stale或generated的证据时必须在caveat明确说明其时效或模型属性。"
-        "只返回一个JSON对象，字段固定为headline, summary, summary_evidence_ids, focus_items, risk_note, data_quality_note。"
-        "focus_items最多3项，每项为{text,evidence_ids,caveat}；risk_note也使用相同结构。"
+        "summary写成120到220字的综合复盘，不能只是项目符号拼接；focus_items最多3项，写最重要的结构观察。"
+        "只返回一个JSON对象，字段固定为headline, headline_evidence_ids, summary, summary_evidence_ids, focus_items, risk_note, data_quality_note。"
+        "focus_items每项为{text,evidence_ids,caveat}；risk_note也使用相同结构。"
         "不得给出绝对买卖指令，不得输出Markdown。"
     )
-    user = "请生成60-90秒可读的晨报JSON。没有证据支持的内容宁可不写：\n\n" + json.dumps(make_json_safe(llm_fact_pack), ensure_ascii=False)
+    user = "请生成一份60-90秒可读的前一交易日汇总分析JSON。缺少的主题直接省略：\n\n" + json.dumps(make_json_safe(llm_fact_pack), ensure_ascii=False)
     last_error = ""
     try:
         import requests
