@@ -214,6 +214,7 @@ def build_global_apple_theme_css() -> str:
             "badge-dollar-sign",
             "briefcase-business",
             "chart-candlestick",
+            "chart-no-axes-column-increasing",
             "chevron-right",
             "database",
             "globe",
@@ -1081,6 +1082,10 @@ button[aria-label="Open sidebar"]:hover {{
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-data"] button::before {{
     mask-image: url("{mask_icons['database']}");
     -webkit-mask-image: url("{mask_icons['database']}");
+}}
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-admin"] button::before {{
+    mask-image: url("{mask_icons['chart-no-axes-column-increasing']}");
+    -webkit-mask-image: url("{mask_icons['chart-no-axes-column-increasing']}");
 }}
 [data-testid="stSidebar"] [class*="st-key-ws-sidebar-module-favorite"] button::before {{
     background: #F5B400 !important;
@@ -2075,6 +2080,7 @@ button[kind="primary"],
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-money"] button:hover::after {{ content: "Money flow"; }}
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-macro"] button:hover::after {{ content: "Macro"; }}
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-data"] button:hover::after {{ content: "Data"; }}
+[data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-admin"] button:hover::after {{ content: "Analytics"; }}
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-favorite"] button:hover::after {{ content: "Favorites"; }}
 [data-testid="stSidebar"][aria-expanded="false"] [class*="st-key-ws-sidebar-module-overseas"] button:hover::after {{ content: "Global markets"; }}
 

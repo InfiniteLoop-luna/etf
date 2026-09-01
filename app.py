@@ -23,11 +23,12 @@ try:
 except Exception:
     plotly_events = None
 from plotly.subplots import make_subplots
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from contextlib import contextmanager
 from typing import Optional, List, Union
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 from src.data_loader import load_etf_data
 from src.volume_fetcher import load_volume_dataframe
 from src.etf_classifier import fetch_etf_data, process_etf_classification, export_etfs_to_excel
@@ -97,6 +98,8 @@ from src.index_monitor_store import (
     upsert_index_monitor_rows,
 )
 from src.navigation_config import (
+    ADMIN_PAGE_OPTIONS,
+    ADMIN_VISIT_ANALYTICS_PAGE_LABEL,
     DECISION_DAILY_RECO_PAGE_LABEL,
     DECISION_ML_PAGE_LABEL,
     DECISION_PAGE_OPTIONS,
@@ -139,14 +142,14 @@ from src.navigation_config import (
     STOCK_USER_WATCHLIST_LABEL,
 )
 from src.sidebar_navigation import (
-    SIDEBAR_MODULES,
     get_module_by_id,
     get_module_by_label,
     get_module_label_for_page,
-    get_module_labels,
+    get_visible_modules,
     get_page_by_id,
     get_page_labels,
     get_recent_visits,
+    is_module_visible,
     record_recent_visit,
     resolve_expanded_module_ids,
     search_sidebar_pages,
@@ -247,6 +250,13 @@ from src.user_favorite_store import (
     add_favorite_page,
     list_favorite_pages,
     remove_favorite_page,
+)
+from src.visit_analytics import (
+    extract_request_metadata,
+    infer_device_type,
+    is_visit_analytics_admin,
+    list_page_visits,
+    record_page_visit,
 )
 from src.morning_report_notifier import send_serverchan_test
 from src.user_notification_store import (
@@ -4225,7 +4235,9 @@ def _toggle_sidebar_recent_expansion() -> None:
 
 
 def _resolve_desktop_sidebar_selection():
-    module_labels = get_module_labels()
+    current_username = get_logged_in_username()
+    visible_modules = get_visible_modules(current_username)
+    module_labels = [module.label for module in visible_modules]
     selected_module_label = st.session_state.get("sidebar_nav_group")
     if selected_module_label not in module_labels:
         selected_module_label = "股票" if "股票" in module_labels else module_labels[0]
@@ -4254,6 +4266,8 @@ def _navigate_desktop_sidebar_to(
 ) -> None:
     module = get_module_by_id(module_id)
     page = get_page_by_id(page_id)
+    if not is_module_visible(module.id, get_logged_in_username()):
+        raise PermissionError(f"当前用户无权访问模块 {module.id!r}")
     if page not in module.pages:
         raise KeyError(f"Unknown page {page_id!r} for module {module_id!r}")
 
@@ -4299,9 +4313,15 @@ def consume_pending_fund_watchlist_navigation() -> None:
 
 def render_desktop_sidebar_navigation() -> tuple[str, str]:
     selected_module, selected_page = _resolve_desktop_sidebar_selection()
+    visible_modules = get_visible_modules(get_logged_in_username())
+    visible_module_ids = {module.id for module in visible_modules}
     expanded_module_ids = set(_get_sidebar_expanded_module_ids(selected_page.id))
     record_recent_visit(st.session_state, selected_module.id, selected_page.id)
-    recent_visits = get_recent_visits(st.session_state)
+    recent_visits = [
+        visit
+        for visit in get_recent_visits(st.session_state)
+        if visit["module_id"] in visible_module_ids
+    ]
 
     sidebar_header = st.sidebar.container(key="ws-sidebar-header")
     sidebar_header.markdown(
@@ -4337,7 +4357,10 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
 
         with sidebar_middle.container(key="ws-sidebar-tree"):
             if search_query:
-                search_results = search_sidebar_pages(search_query)
+                search_results = search_sidebar_pages(
+                    search_query,
+                    visible_module_ids=visible_module_ids,
+                )
                 if search_results:
                     for result_index, result in enumerate(search_results):
                         if st.button(
@@ -4372,11 +4395,12 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
                     "money": 3,
                     "macro": 4,
                     "data": 5,
-                    "overseas": 6,
-                    "favorite": 7,
+                    "admin": 6,
+                    "overseas": 7,
+                    "favorite": 8,
                 }
                 ordered_modules = sorted(
-                    SIDEBAR_MODULES,
+                    visible_modules,
                     key=lambda item: module_order.get(item.id, len(module_order)),
                 )
                 for module in ordered_modules:
@@ -7770,6 +7794,308 @@ def render_volume_tab():
     )
 
 
+VISIT_ANALYTICS_TIMEZONE = ZoneInfo("Asia/Shanghai")
+VISIT_ANALYTICS_ROW_LIMIT = 100_000
+
+
+def _current_request_headers() -> dict[str, str]:
+    try:
+        return {str(key): str(value) for key, value in dict(st.context.headers).items()}
+    except Exception:
+        return {}
+
+
+def record_current_page_visit_once(module_id: str, page_id: str) -> None:
+    """Record navigation events, while ignoring Streamlit widget-only reruns."""
+    import threading
+
+    username = get_logged_in_username()
+    if not username:
+        return
+
+    module = get_module_by_id(module_id)
+    page = get_page_by_id(page_id)
+    visit_key = (username.casefold(), module.id, page.id)
+    if st.session_state.get("last_recorded_page_visit") == visit_key:
+        return
+    st.session_state["last_recorded_page_visit"] = visit_key
+
+    engine = get_security_intraday_engine_cached()
+    if engine is None:
+        return
+    request_metadata = extract_request_metadata(_current_request_headers())
+    session_id = str(
+        st.session_state.setdefault("visit_analytics_session_id", str(time.time_ns()))
+    )
+
+    def _worker() -> None:
+        try:
+            record_page_visit(
+                engine,
+                username=username,
+                module_id=module.id,
+                module_label=module.label,
+                page_id=page.id,
+                page_label=page.label,
+                session_id=session_id,
+                **request_metadata,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to record page visit | user=%s module=%s page=%s error=%s",
+                username,
+                module.id,
+                page.id,
+                exc,
+            )
+
+    threading.Thread(
+        target=_worker,
+        name="page-visit-recorder",
+        daemon=True,
+    ).start()
+
+
+def _visit_analytics_date_bounds(date_value) -> tuple[datetime, datetime, object, object]:
+    today = datetime.now(VISIT_ANALYTICS_TIMEZONE).date()
+    if isinstance(date_value, (tuple, list)) and len(date_value) >= 2:
+        start_date, end_date = date_value[0], date_value[1]
+    elif isinstance(date_value, (tuple, list)) and len(date_value) == 1:
+        start_date = end_date = date_value[0]
+    elif date_value:
+        start_date = end_date = date_value
+    else:
+        start_date = end_date = today
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
+    start_local = datetime.combine(start_date, datetime.min.time(), VISIT_ANALYTICS_TIMEZONE)
+    end_local = datetime.combine(
+        end_date + timedelta(days=1),
+        datetime.min.time(),
+        VISIT_ANALYTICS_TIMEZONE,
+    )
+    return (
+        start_local.astimezone(timezone.utc),
+        end_local.astimezone(timezone.utc),
+        start_date,
+        end_date,
+    )
+
+
+def _prepare_visit_analytics_frame(visits_df: pd.DataFrame) -> pd.DataFrame:
+    if visits_df is None or visits_df.empty:
+        return pd.DataFrame(columns=list(visits_df.columns) if visits_df is not None else [])
+    prepared = visits_df.copy()
+    prepared["visited_at_local"] = pd.to_datetime(
+        prepared["visited_at"],
+        errors="coerce",
+        utc=True,
+    ).dt.tz_convert(VISIT_ANALYTICS_TIMEZONE)
+    prepared["visit_date"] = prepared["visited_at_local"].dt.strftime("%Y-%m-%d")
+    prepared["device_type"] = prepared["user_agent"].map(infer_device_type)
+    prepared["page_path"] = prepared["module_label"].astype(str) + " / " + prepared["page_label"].astype(str)
+    return prepared
+
+
+def render_visit_analytics_page() -> None:
+    current_username = get_logged_in_username()
+    if not is_visit_analytics_admin(current_username):
+        st.error("当前账户无权查看网站浏览数据。")
+        return
+
+    st.title("📊 网站浏览数据")
+    st.caption("仅 lijing 可见 · 每次进入新版面计为 1 次访问，页面内筛选和按钮交互不重复计数。")
+
+    today = datetime.now(VISIT_ANALYTICS_TIMEZONE).date()
+    filter_cols = st.columns([1.7, 1, 1])
+    with filter_cols[0]:
+        selected_dates = st.date_input(
+            "日期范围",
+            value=(today - timedelta(days=29), today),
+            max_value=today,
+            key="visit_analytics_date_range",
+        )
+    start_at, end_at, start_date, end_date = _visit_analytics_date_bounds(selected_dates)
+
+    engine = get_security_intraday_engine_cached()
+    if engine is None:
+        st.error("暂时无法连接访问记录数据库。")
+        return
+    try:
+        visits_df = list_page_visits(
+            engine,
+            start_at=start_at,
+            end_at=end_at,
+            limit=VISIT_ANALYTICS_ROW_LIMIT,
+        )
+    except Exception as exc:
+        logger.exception("Failed to load visit analytics")
+        st.error(f"暂时无法读取访问记录：{exc}")
+        return
+
+    prepared_df = _prepare_visit_analytics_frame(visits_df)
+    usernames = sorted(
+        item for item in prepared_df.get("username", pd.Series(dtype=str)).dropna().astype(str).unique() if item
+    )
+    ip_addresses = sorted(
+        item for item in prepared_df.get("ip_address", pd.Series(dtype=str)).dropna().astype(str).unique() if item
+    )
+    with filter_cols[1]:
+        selected_username = st.selectbox(
+            "用户",
+            ["全部", *usernames],
+            key="visit_analytics_username_filter",
+        )
+    with filter_cols[2]:
+        selected_ip = st.selectbox(
+            "IP",
+            ["全部", *ip_addresses],
+            key="visit_analytics_ip_filter",
+        )
+
+    filtered_df = prepared_df
+    if selected_username != "全部":
+        filtered_df = filtered_df[filtered_df["username"] == selected_username]
+    if selected_ip != "全部":
+        filtered_df = filtered_df[filtered_df["ip_address"] == selected_ip]
+
+    visit_count = int(len(filtered_df))
+    unique_ip_count = int(
+        filtered_df.get("ip_address", pd.Series(dtype=str)).replace("", pd.NA).nunique()
+    )
+    unique_user_count = int(filtered_df.get("username", pd.Series(dtype=str)).nunique())
+    unique_page_count = int(filtered_df.get("page_id", pd.Series(dtype=str)).nunique())
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("访问次数", f"{visit_count:,}")
+    metric_cols[1].metric("独立 IP", f"{unique_ip_count:,}")
+    metric_cols[2].metric("登录用户", f"{unique_user_count:,}")
+    metric_cols[3].metric("浏览版面", f"{unique_page_count:,}")
+
+    if len(visits_df) >= VISIT_ANALYTICS_ROW_LIMIT:
+        st.warning(f"当前日期范围超过 {VISIT_ANALYTICS_ROW_LIMIT:,} 条，仅展示最近记录；请缩小日期范围。")
+    if filtered_df.empty:
+        st.info("当前筛选范围内还没有浏览记录。")
+        return
+
+    daily_df = (
+        filtered_df.groupby("visit_date", as_index=False)
+        .agg(
+            visits=("visit_id", "count"),
+            unique_ips=("ip_address", lambda series: series.replace("", pd.NA).nunique()),
+        )
+        .sort_values("visit_date")
+    )
+    all_days = pd.DataFrame(
+        {
+            "visit_date": pd.date_range(start_date, end_date, freq="D").strftime("%Y-%m-%d")
+        }
+    )
+    daily_df = all_days.merge(daily_df, on="visit_date", how="left").fillna(0)
+    daily_df[["visits", "unique_ips"]] = daily_df[["visits", "unique_ips"]].astype(int)
+
+    trend_fig = go.Figure()
+    trend_fig.add_bar(
+        x=daily_df["visit_date"],
+        y=daily_df["visits"],
+        name="访问次数",
+        marker_color="#365CCB",
+    )
+    trend_fig.add_scatter(
+        x=daily_df["visit_date"],
+        y=daily_df["unique_ips"],
+        name="独立 IP",
+        mode="lines+markers",
+        line={"color": "#D9A441", "width": 2},
+        marker={"size": 6},
+    )
+    trend_fig.update_layout(
+        title="每日访问趋势",
+        xaxis_title="日期",
+        yaxis_title="次数 / IP 数",
+        barmode="group",
+        hovermode="x unified",
+        height=360,
+        margin={"l": 20, "r": 20, "t": 60, "b": 20},
+        legend={"orientation": "h", "y": 1.12, "x": 0},
+    )
+    st.plotly_chart(trend_fig, use_container_width=True)
+
+    breakdown_cols = st.columns(2)
+    page_counts = (
+        filtered_df.groupby("page_path", as_index=False)
+        .size()
+        .rename(columns={"size": "visits"})
+        .sort_values("visits", ascending=False)
+        .head(12)
+        .sort_values("visits")
+    )
+    page_fig = px.bar(
+        page_counts,
+        x="visits",
+        y="page_path",
+        orientation="h",
+        title="访问版面排行",
+        labels={"visits": "访问次数", "page_path": "版面"},
+        color_discrete_sequence=["#365CCB"],
+    )
+    page_fig.update_layout(
+        showlegend=False,
+        height=max(320, 32 * len(page_counts)),
+        margin={"l": 20, "r": 20, "t": 60, "b": 20},
+    )
+    breakdown_cols[0].plotly_chart(page_fig, use_container_width=True)
+
+    device_counts = (
+        filtered_df.groupby("device_type", as_index=False)
+        .size()
+        .rename(columns={"size": "visits"})
+        .sort_values("visits", ascending=False)
+    )
+    device_fig = px.bar(
+        device_counts,
+        x="device_type",
+        y="visits",
+        title="访问设备分布",
+        labels={"visits": "访问次数", "device_type": "设备"},
+        color_discrete_sequence=["#D9A441"],
+    )
+    device_fig.update_layout(
+        showlegend=False,
+        height=320,
+        margin={"l": 20, "r": 20, "t": 60, "b": 20},
+    )
+    breakdown_cols[1].plotly_chart(device_fig, use_container_width=True)
+
+    st.subheader("访问明细")
+    detail_df = filtered_df.copy()
+    detail_df["visited_at_local"] = detail_df["visited_at_local"].dt.strftime("%Y-%m-%d %H:%M:%S")
+    detail_df = detail_df.rename(
+        columns={
+            "visited_at_local": "访问时间",
+            "username": "用户",
+            "ip_address": "IP",
+            "module_label": "模块",
+            "page_label": "版面",
+            "device_type": "设备",
+            "user_agent": "浏览器标识",
+            "referrer": "来源页",
+        }
+    )
+    st.dataframe(
+        detail_df[["访问时间", "用户", "IP", "模块", "版面", "设备", "浏览器标识", "来源页"]],
+        use_container_width=True,
+        hide_index=True,
+        height=480,
+    )
+    latest_visit = filtered_df["visited_at_local"].max()
+    latest_text = latest_visit.strftime("%Y-%m-%d %H:%M:%S") if pd.notna(latest_visit) else "—"
+    st.caption(
+        f"口径：进入一个新版面计 1 次访问；独立 IP 在当前筛选范围内去重。"
+        f"数据表：app_page_visits｜最近一条：{latest_text}（北京时间）。"
+    )
+
+
 # 主应用
 def _render_application_page() -> PageStatus:
     """主应用逻辑"""
@@ -7852,9 +8178,14 @@ def _render_application_page() -> PageStatus:
 
         render_user_session_menu("iphone")
 
+        mobile_group_options = ["Favorite", "决策", "基金", "股票", "资金", "宏观"]
+        if is_visit_analytics_admin(get_logged_in_username()):
+            mobile_group_options.append("管理")
+        if st.session_state.get("iphone_group_radio") not in mobile_group_options:
+            st.session_state["iphone_group_radio"] = mobile_group_options[0]
         mobile_group = st.radio(
             "模块",
-            ["Favorite", "决策", "基金", "股票", "资金", "宏观"],
+            mobile_group_options,
             horizontal=True,
             key="iphone_group_radio",
         )
@@ -7957,7 +8288,7 @@ def _render_application_page() -> PageStatus:
             else:
                 render_moneyflow_tab()
 
-        else:
+        elif mobile_group == "宏观":
             mobile_page = st.selectbox(
                 "页面",
                 MACRO_PAGE_OPTIONS,
@@ -7972,6 +8303,23 @@ def _render_application_page() -> PageStatus:
             else:
                 render_fund_monitor_tab()
 
+        else:
+            mobile_page = st.selectbox(
+                "页面",
+                ADMIN_PAGE_OPTIONS,
+                key="iphone_page_admin",
+            )
+            if mobile_page == ADMIN_VISIT_ANALYTICS_PAGE_LABEL:
+                render_visit_analytics_page()
+            else:
+                render_visit_analytics_page()
+
+        mobile_module_config = get_module_by_label(mobile_group)
+        mobile_page_config = next(
+            page for page in mobile_module_config.pages if page.label == mobile_page
+        )
+        record_current_page_visit_once(mobile_module_config.id, mobile_page_config.id)
+
         _perf_log(
             "page.mobile_render",
             iphone_render_start,
@@ -7984,6 +8332,11 @@ def _render_application_page() -> PageStatus:
     # ===== 方案B进阶版：desktop sidebar 导航壳层 =====
     sidebar_start_time = time.perf_counter()
     selected_module, selected_page = render_desktop_sidebar_navigation()
+    selected_module_config = get_module_by_label(selected_module)
+    selected_page_config = next(
+        page for page in selected_module_config.pages if page.label == selected_page
+    )
+    record_current_page_visit_once(selected_module_config.id, selected_page_config.id)
     _perf_log(
         "page.sidebar",
         sidebar_start_time,
@@ -7999,6 +8352,7 @@ def _render_application_page() -> PageStatus:
     data_module_label = get_module_label_for_page(DATA_HEALTH_PAGE_LABEL)
     macro_module_label = get_module_label_for_page(MACRO_MAIN_PAGE_LABEL)
     overseas_module_label = get_module_label_for_page(OVERSEAS_NASDAQ_SECTORS_PAGE_LABEL)
+    admin_module_label = get_module_label_for_page(ADMIN_VISIT_ANALYTICS_PAGE_LABEL)
 
     page_render_start_time = time.perf_counter()
     if selected_module == decision_module_label:
@@ -8104,6 +8458,12 @@ def _render_application_page() -> PageStatus:
             render_nasdaq_sector_page()
         else:
             render_nasdaq_sector_page()
+
+    elif selected_module == admin_module_label:
+        if selected_page == ADMIN_VISIT_ANALYTICS_PAGE_LABEL:
+            render_visit_analytics_page()
+        else:
+            render_visit_analytics_page()
 
     _perf_log(
         "page.render",
@@ -19730,8 +20090,13 @@ def render_my_favorite_tab() -> None:
         st.error(f"加载 My Favorite 失败：{exc}")
         return
 
+    visible_modules = get_visible_modules(current_username)
+    visible_module_ids = {module.id for module in visible_modules}
+    if favorite_df is not None and not favorite_df.empty:
+        favorite_df = favorite_df[favorite_df["module_id"].isin(visible_module_ids)].copy()
+
     all_pages: list[tuple[str, str, str]] = []
-    for module in SIDEBAR_MODULES:
+    for module in visible_modules:
         for page in module.pages:
             all_pages.append((module.id, page.id, f"{module.label} / {page.label}"))
     options = [label for _, _, label in all_pages]

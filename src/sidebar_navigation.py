@@ -253,6 +253,19 @@ SIDEBAR_MODULES = (
         ),
     ),
     SidebarModule(
+        id="admin",
+        label="管理",
+        session_key="admin_subpage",
+        pages=(
+            SidebarPage(
+                "visit_analytics",
+                "📊 网站浏览数据",
+                "访问次数、独立 IP 与版面分布",
+                "standard",
+            ),
+        ),
+    ),
+    SidebarModule(
         id="macro",
         label="宏观",
         session_key="macro_subpage",
@@ -316,10 +329,25 @@ PAGE_BY_ID = {page.id: page for module in SIDEBAR_MODULES for page in module.pag
 PAGE_TO_MODULE = {page.label: module.label for module in SIDEBAR_MODULES for page in module.pages}
 PAGE_ID_TO_MODULE_ID = {page.id: module.id for module in SIDEBAR_MODULES for page in module.pages}
 DEFAULT_SHORTCUT_PAGE_IDS = ("commercial_mvp", "security_search", "moneyflow")
+PRIVATE_MODULE_USERNAMES = {"admin": frozenset({"lijing"})}
 
 
 def get_module_labels() -> list[str]:
     return [module.label for module in SIDEBAR_MODULES]
+
+
+def is_module_visible(module_id: str, username: str = "") -> bool:
+    allowed_usernames = PRIVATE_MODULE_USERNAMES.get(str(module_id or ""))
+    if allowed_usernames is None:
+        return True
+    normalized_username = str(username or "").strip().casefold()
+    return normalized_username in allowed_usernames
+
+
+def get_visible_modules(username: str = "") -> tuple[SidebarModule, ...]:
+    return tuple(
+        module for module in SIDEBAR_MODULES if is_module_visible(module.id, username)
+    )
 
 
 def get_module_by_label(module_label: str) -> SidebarModule:
@@ -452,13 +480,18 @@ def _normalize_query(text: str) -> str:
     return str(text or "").strip().lower()
 
 
-def search_sidebar_pages(query: str) -> list[SidebarSearchResult]:
+def search_sidebar_pages(
+    query: str,
+    visible_module_ids: set[str] | frozenset[str] | None = None,
+) -> list[SidebarSearchResult]:
     normalized_query = _normalize_query(query)
     if not normalized_query:
         return []
 
     results: list[SidebarSearchResult] = []
     for module_index, module in enumerate(SIDEBAR_MODULES):
+        if visible_module_ids is not None and module.id not in visible_module_ids:
+            continue
         module_label_text = _normalize_query(module.label)
         module_id_text = _normalize_query(module.id)
         module_hit = (

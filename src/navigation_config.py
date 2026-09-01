@@ -10,6 +10,7 @@ MONEY_PAGE_OPTIONS = get_page_labels("资金")
 DATA_PAGE_OPTIONS = get_page_labels("数据")
 MACRO_PAGE_OPTIONS = get_page_labels("宏观")
 OVERSEAS_PAGE_OPTIONS = get_page_labels("海外")
+ADMIN_PAGE_OPTIONS = get_page_labels("管理")
 
 
 def _page_label(module_label: str, page_id: str) -> str:
@@ -64,3 +65,4 @@ MACRO_DEPOSIT_PAGE_LABEL = _page_label("宏观", "deposit")
 MACRO_INDEX_MONITOR_PAGE_LABEL = _page_label("宏观", "index_monitor")
 
 OVERSEAS_NASDAQ_SECTORS_PAGE_LABEL = _page_label("海外", "nasdaq_sectors")
+ADMIN_VISIT_ANALYTICS_PAGE_LABEL = _page_label("管理", "visit_analytics")
