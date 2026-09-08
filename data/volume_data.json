@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-09-07",
+  "last_updated": "2026-09-08",
   "data": [
     {
       "trade_date": "2022-01-04",
@@ -27215,6 +27215,30 @@
       "trade_date": "2026-09-07",
       "ts_name": "科创板",
       "amount": 715.23,
+      "vol": 8.58
+    },
+    {
+      "trade_date": "2026-09-08",
+      "ts_name": "创业板",
+      "amount": 4737.07,
+      "vol": 167.08
+    },
+    {
+      "trade_date": "2026-09-08",
+      "ts_name": "沪市主板",
+      "amount": 8514.22,
+      "vol": 521.1
+    },
+    {
+      "trade_date": "2026-09-08",
+      "ts_name": "深市主板",
+      "amount": 5710.05,
+      "vol": 476.99
+    },
+    {
+      "trade_date": "2026-09-08",
+      "ts_name": "科创板",
+      "amount": 636.53,
       "vol": 8.58
     }
   ]
