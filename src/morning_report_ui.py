@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime
 from html import escape
 from typing import Any, Iterable
 
@@ -548,6 +549,99 @@ def _detail_block(title: str, subtitle: str, content: str, *, opened: bool = Fal
     )
 
 
+def _published_display(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "时间未知"
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed.strftime("%m-%d %H:%M") + " 北京时间"
+    except ValueError:
+        return text.replace("T", " ")[:16]
+
+
+def _safe_link(value: Any) -> str:
+    url = str(value or "").strip()
+    return escape(url, quote=True) if url.lower().startswith(("http://", "https://")) else ""
+
+
+def _impact_tone(direction: Any) -> str:
+    return {
+        "偏利好": "positive",
+        "偏利空": "negative",
+        "双向": "warning",
+        "中性": "neutral",
+        "待验证": "neutral",
+    }.get(str(direction or ""), "neutral")
+
+
+def _overseas_news_html(overseas: dict[str, Any], llm_impacts: list[dict[str, Any]]) -> str:
+    countries = overseas.get("countries", {}) or {}
+    if not any((countries.get(code, {}) or {}).get("items") for code in ("US", "JP", "KR")):
+        return ""
+    llm_by_country = {
+        str(item.get("country") or ""): item
+        for item in llm_impacts
+        if isinstance(item, dict) and item.get("country")
+    }
+    cards: list[str] = []
+    for code, label in (("US", "美国"), ("JP", "日本"), ("KR", "韩国")):
+        country = countries.get(code, {}) or {}
+        items = country.get("items") or []
+        if not items:
+            continue
+        news_rows: list[str] = []
+        for item in items[:3]:
+            url = _safe_link(item.get("url"))
+            title = _text(item.get("title"), "标题暂缺")
+            title_html = (
+                f'<a href="{url}" target="_blank" rel="noopener noreferrer">{title}</a>'
+                if url else f"<span>{title}</span>"
+            )
+            source_type = str(item.get("source_type") or "media")
+            source_label = "T1 · 官方" if source_type == "official" else "T2 · 媒体"
+            news_rows.append(
+                '<li class="mr-news-item">'
+                f'<div>{title_html}</div><p><span class="mr-source-badge is-{escape(source_type)}">{source_label}</span>'
+                f'<span>{_text(item.get("source"), "未知来源")}</span><time>{escape(_published_display(item.get("published_at")))}</time></p>'
+                "</li>"
+            )
+        impact = llm_by_country.get(label) or country.get("impact") or {}
+        direction = str(impact.get("direction") or "待验证")
+        method = str(impact.get("method") or "规则兜底")
+        channels = [str(value) for value in (impact.get("channels") or []) if value]
+        sectors = [str(value) for value in (impact.get("affected_sectors") or []) if value]
+        tags = "".join(
+            f'<span>{escape(value)}</span>' for value in (channels[:3] + sectors[:4])
+        )
+        impact_html = (
+            '<div class="mr-impact">'
+            f'<div class="mr-impact-head"><span>情景推演 · {escape(method)}</span>'
+            f'<strong class="is-{_impact_tone(direction)}">{escape(direction)}</strong></div>'
+            f'<p>{_text(impact.get("analysis"), "现有证据不足，暂不判断方向。")}</p>'
+            f'<div class="mr-impact-meta"><span>影响 {escape(str(impact.get("strength") or "低"))}</span>'
+            f'<span>置信度 {escape(str(impact.get("confidence") or "低"))}</span></div>'
+            f'<div class="mr-impact-tags">{tags}</div>'
+            f'<small><b>失效条件</b>{_text(impact.get("invalidating_conditions"), "等待开盘前后市场信号确认。")}</small>'
+            "</div>"
+        )
+        cards.append(
+            '<article class="mr-country-card">'
+            f'<header><span>{escape(code)}</span><h3>{escape(label)}</h3><small>已确认资讯</small></header>'
+            f'<ul class="mr-news-list">{"".join(news_rows)}</ul>{impact_html}</article>'
+        )
+    warnings = overseas.get("warnings") or []
+    warning_html = f' · 部分来源异常：{escape("、".join(str(item) for item in warnings[:3]))}' if warnings else ""
+    return (
+        '<section class="mr-overseas"><div class="mr-overseas-head"><div><span>GLOBAL OVERNIGHT</span>'
+        '<h2>海外隔夜资讯 / 次日A股影响</h2><p>美国、日本、韩国最新宏观与市场事件</p></div>'
+        '<small>事实与推演分开展示</small></div>'
+        f'<div class="mr-country-grid">{"".join(cards)}</div>'
+        '<p class="mr-overseas-note">官方机构为事实锚点，白名单财经媒体仅作补充；媒体报道不等同于官方确认。'
+        f'影响方向是有证据引用的情景推演，不是点位或涨跌幅预测{warning_html}。</p></section>'
+    )
+
+
 def _dashboard_css() -> str:
     return """
 <style>
@@ -555,14 +649,15 @@ def _dashboard_css() -> str:
 .ws-morning-report *{box-sizing:border-box}.mr-hero{position:relative;isolation:isolate;overflow:hidden;padding:28px;border:1px solid rgba(255,255,255,.16);border-radius:22px;background:linear-gradient(122deg,#092f4d 0%,#0d527b 58%,#127da9 100%);box-shadow:0 15px 34px rgba(12,54,86,.20);color:#fff}.mr-hero:before{position:absolute;right:-24px;bottom:-18px;z-index:-1;width:410px;height:210px;background:linear-gradient(155deg,transparent 48%,rgba(114,220,255,.17) 49% 51%,transparent 52%),repeating-linear-gradient(90deg,transparent 0 27px,rgba(255,255,255,.10) 28px 36px);clip-path:polygon(0 72%,9% 57%,18% 63%,27% 34%,36% 48%,46% 18%,55% 29%,65% 5%,75% 27%,84% 0,92% 20%,100% 9%,100% 100%,0 100%);content:""}.mr-hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.mr-kicker{display:block;margin-bottom:9px;color:#8edcff;font:700 12px/1.2 var(--ws-font-data);letter-spacing:.14em;text-transform:uppercase}.mr-hero h1{margin:0;color:#fff!important;font-size:30px;line-height:1.15;letter-spacing:-.02em}.mr-hero-copy{max-width:720px;margin:9px 0 0;color:rgba(255,255,255,.78)!important;font-size:15px;line-height:1.6}.mr-hero-date{min-width:150px;padding-left:20px;border-left:1px solid rgba(255,255,255,.23);text-align:right}.mr-hero-date strong{display:block;color:#fff;font:800 24px/1.1 var(--ws-font-data)}.mr-hero-date span{display:block;margin-top:6px;color:rgba(255,255,255,.65);font-size:12px}.mr-meta{display:flex;flex-wrap:wrap;gap:7px;margin-top:19px}.mr-badge{padding:6px 10px;border:1px solid rgba(255,255,255,.16);border-radius:999px;background:rgba(255,255,255,.10);color:#fff;font-size:12px}.mr-badge.is-complete{background:rgba(40,192,135,.22)}.mr-badge.is-partial{background:rgba(255,194,76,.24)}.mr-verdicts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:20px}.mr-verdict{display:flex;align-items:center;gap:10px;min-height:58px;padding:11px 13px;border:1px solid rgba(255,255,255,.13);border-radius:13px;background:rgba(4,31,51,.28);backdrop-filter:blur(6px)}.mr-verdict span{color:rgba(255,255,255,.62);font-size:12px}.mr-verdict strong{display:block;margin-top:3px;color:#fff;font-size:15px}.mr-verdict small{display:block;margin-top:2px;color:rgba(255,255,255,.54);font-size:9px}.mr-verdict-dot{width:7px;height:30px;border-radius:8px;background:#fff}.mr-verdict.is-positive .mr-verdict-dot{background:#55d39d}.mr-verdict.is-warning .mr-verdict-dot{background:#ffc95a}.mr-verdict.is-negative .mr-verdict-dot{background:#ff7581}.mr-verdict.is-neutral .mr-verdict-dot{background:#b9c9d4}
 .mr-brief{padding:19px 20px;border:1px solid var(--mr-line);border-radius:18px;background:linear-gradient(135deg,#fff 0%,#f5fbff 100%);box-shadow:0 7px 19px rgba(42,136,192,.08)}.mr-brief-head{display:flex;align-items:center;justify-content:space-between;gap:18px}.mr-brief-label{color:var(--mr-blue);font-size:12px;font-weight:800;letter-spacing:.08em}.mr-brief h2{margin:4px 0 0!important;color:var(--mr-ink)!important;font-size:19px!important}.mr-brief-summary{margin:14px 0 0!important;color:#395a70!important;font-size:15px;line-height:1.75}.mr-focus-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:14px}.mr-focus-card{position:relative;min-height:126px;padding:15px;border:1px solid var(--mr-line);border-radius:14px;background:#fff}.mr-focus-index{display:block;margin-bottom:13px;color:var(--mr-blue);font:800 12px/1 var(--ws-font-data)}.mr-focus-card strong{display:block;font-size:14px;line-height:1.55}.mr-focus-card p{margin:9px 0 0!important;color:var(--mr-muted)!important;font-size:12px;line-height:1.45}.mr-focus-caveat{color:#b67818!important}
 .mr-change-radar{padding:18px 20px;border:1px solid var(--mr-line);border-radius:18px;background:#fff;box-shadow:0 7px 19px rgba(42,136,192,.07)}.mr-change-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}.mr-change-head span{color:var(--mr-blue);font:800 11px/1 var(--ws-font-data);letter-spacing:.12em}.mr-change-head h2{margin:5px 0 0!important;color:var(--mr-ink)!important;font-size:18px!important}.mr-change-head p,.mr-change-head small{margin:4px 0 0!important;color:var(--mr-muted)!important;font-size:11px}.mr-change-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:14px}.mr-change-item{display:grid;grid-template-columns:1fr auto;gap:6px 8px;padding:13px;border:1px solid #e2edf3;border-radius:12px;background:#fbfdff}.mr-change-item>span{grid-column:1/-1;color:var(--mr-muted);font-size:11px}.mr-change-item>strong{font:800 15px/1.2 var(--ws-font-data)}.mr-change-item>em{font-size:10px;font-style:normal;text-align:right}.mr-change-item>small{grid-column:1/-1;color:#8ba0ae;font-size:10px;line-height:1.35}
+.mr-overseas{padding:19px 20px;border:1px solid #cfe1ec;border-radius:18px;background:linear-gradient(145deg,#f8fcff,#f2f8fb);box-shadow:0 8px 22px rgba(27,96,137,.08)}.mr-overseas-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px}.mr-overseas-head>div>span{color:#356f93;font:800 max(var(--ws-font-size-min,14px),11px)/1 var(--ws-font-data);letter-spacing:.12em}.mr-overseas-head h2{margin:5px 0 0!important;color:var(--mr-ink)!important;font-size:19px!important}.mr-overseas-head p,.mr-overseas-head>small{margin:4px 0 0!important;color:var(--mr-muted)!important;font-size:max(var(--ws-font-size-min,14px),11px)}.mr-country-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}.mr-country-card{display:flex;min-width:0;flex-direction:column;overflow:hidden;border:1px solid #d8e7ef;border-radius:14px;background:#fff}.mr-country-card>header{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;padding:12px 13px;border-bottom:1px solid #e4eef4;background:#f7fbfd}.mr-country-card>header>span{display:grid;width:32px;height:27px;place-items:center;border-radius:8px;background:#153f5b;color:#fff;font:800 max(var(--ws-font-size-min,14px),10px)/1 var(--ws-font-data)}.mr-country-card h3{margin:0!important;color:var(--mr-ink)!important;font-size:16px!important}.mr-country-card>header>small{color:#3a789a;font-size:max(var(--ws-font-size-min,14px),10px)}.mr-news-list{display:flex;flex-direction:column;margin:0;padding:2px 13px 0;list-style:none}.mr-news-item{padding:10px 0;border-bottom:1px solid #edf3f6}.mr-news-item:last-child{border-bottom:0}.mr-news-item a,.mr-news-item>div>span{display:-webkit-box;overflow:hidden;color:#244b64;font-size:max(var(--ws-font-size-min,14px),12px);font-weight:700;line-height:1.45;text-decoration:none;-webkit-box-orient:vertical;-webkit-line-clamp:2}.mr-news-item a:hover{color:var(--mr-blue);text-decoration:underline}.mr-news-item p{display:flex;flex-wrap:wrap;align-items:center;gap:5px 7px;margin:6px 0 0!important;color:#8297a5!important;font-size:max(var(--ws-font-size-min,14px),9px)}.mr-source-badge{padding:3px 5px;border-radius:5px;background:#eef4f7;color:#547183}.mr-source-badge.is-official{background:#e4f5ee;color:#16755c}.mr-impact{margin:auto 10px 10px;padding:11px;border:1px solid #e0eaf0;border-radius:11px;background:#f7fafc}.mr-impact-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.mr-impact-head>span{color:#6f8798;font-size:max(var(--ws-font-size-min,14px),9px)}.mr-impact-head>strong{font-size:14px}.mr-impact>p{margin:7px 0 0!important;color:#446277!important;font-size:max(var(--ws-font-size-min,14px),11px);line-height:1.55}.mr-impact-meta{display:flex;gap:6px;margin-top:8px}.mr-impact-meta>span{padding:3px 6px;border-radius:6px;background:#eaf2f6;color:#557488;font-size:max(var(--ws-font-size-min,14px),9px)}.mr-impact-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}.mr-impact-tags>span{padding:3px 6px;border:1px solid #dbe7ed;border-radius:999px;background:#fff;color:#5e7888;font-size:max(var(--ws-font-size-min,14px),9px)}.mr-impact>small{display:grid;grid-template-columns:52px 1fr;gap:5px;margin-top:8px;padding-top:8px;border-top:1px dashed #dbe6ec;color:#768d9c;font-size:max(var(--ws-font-size-min,14px),9px);line-height:1.45}.mr-impact>small b{color:#405f73}.mr-overseas-note{margin:11px 0 0!important;color:#718997!important;font-size:max(var(--ws-font-size-min,14px),10px);line-height:1.5}
 .mr-section{overflow:hidden;border:1px solid var(--mr-line);border-radius:19px;background:#fff;box-shadow:0 8px 22px rgba(42,136,192,.08)}.mr-section-head{display:flex;align-items:center;gap:13px;padding:14px 18px;border-bottom:1px solid var(--mr-line)}.mr-section-number{display:grid;flex:0 0 36px;height:36px;place-items:center;border-radius:11px;background:var(--mr-blue);color:#fff;font:800 13px/1 var(--ws-font-data)}.mr-section-head h2{margin:0!important;color:var(--mr-ink)!important;font-size:18px!important}.mr-section-head p{margin:3px 0 0!important;color:var(--mr-muted)!important;font-size:12px}.mr-tone-blue{background:linear-gradient(90deg,var(--mr-blue-soft),#fff)}.mr-tone-red{background:linear-gradient(90deg,var(--mr-red-soft),#fff)}.mr-tone-red .mr-section-number{background:var(--mr-red)}.mr-tone-orange{background:linear-gradient(90deg,var(--mr-orange-soft),#fff)}.mr-tone-orange .mr-section-number{background:var(--mr-orange)}.mr-tone-purple{background:linear-gradient(90deg,var(--mr-purple-soft),#fff)}.mr-tone-purple .mr-section-number{background:var(--mr-purple)}.mr-tone-green{background:linear-gradient(90deg,var(--mr-green-soft),#fff)}.mr-tone-green .mr-section-number{background:var(--mr-green)}.mr-section-body{padding:15px 18px 18px}.mr-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}.mr-metric{min-height:108px;padding:14px;border:1px solid #e1edf4;border-radius:13px;background:#fbfdff}.mr-metric>span{display:block;color:var(--mr-muted);font-size:12px}.mr-metric>strong{display:block;margin-top:9px;font:800 18px/1.25 var(--ws-font-data)}.mr-metric>small{display:block;margin-top:8px;color:#8aa0ae;font-size:11px;line-height:1.35}.is-positive{color:var(--mr-red)!important}.is-negative{color:var(--mr-green)!important}.is-warning{color:#b67518!important}.is-neutral{color:#537084!important}.mr-conclusion{display:flex;align-items:flex-start;gap:10px;margin-top:11px;padding:11px 13px;border-radius:11px;background:#f1f8fc;color:#31586f;font-size:13px;line-height:1.55}.mr-conclusion:before{content:"结论";flex:0 0 auto;padding:3px 7px;border-radius:6px;background:var(--mr-blue);color:#fff;font-size:11px;font-weight:800}.mr-conclusion.is-red{background:var(--mr-red-soft)}.mr-conclusion.is-red:before{background:var(--mr-red)}.mr-conclusion.is-orange{background:var(--mr-orange-soft)}.mr-conclusion.is-orange:before{background:var(--mr-orange)}
 .mr-sector-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.mr-sector-lane{padding:15px;border:1px solid var(--mr-line);border-radius:14px;background:#fbfdff}.mr-lane-eyebrow{color:var(--mr-muted);font-size:11px;font-weight:800;letter-spacing:.08em}.mr-sector-lane h3{margin:5px 0 10px!important;color:var(--mr-ink)!important;font-size:16px!important}.mr-sector-lane ul{display:flex;flex-direction:column;gap:0;margin:0;padding:0;list-style:none}.mr-sector-lane li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:9px 0;border-top:1px solid #e8f0f5}.mr-sector-lane li>span{font-size:13px;font-weight:700}.mr-sector-lane li>strong{font:800 12px/1.3 var(--ws-font-data)}.mr-sector-lane li>small{grid-column:1/-1;color:var(--mr-muted);font-size:11px}.mr-sector-lane li.is-empty{display:block;color:var(--mr-muted);font-size:13px}.mr-lane-flow{border-top:3px solid var(--mr-red)}.mr-lane-share{border-top:3px solid var(--mr-blue)}.mr-lane-weak{border-top:3px solid var(--mr-green)}
 .mr-check-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:13px}.mr-check{padding:13px;border:1px solid var(--mr-line);border-top:3px solid var(--mr-blue);border-radius:12px;background:#fbfdff}.mr-check>span{display:block;color:var(--mr-muted);font-size:10px;font-weight:800;letter-spacing:.06em}.mr-check>strong{display:block;margin:6px 0 9px;font-size:14px}.mr-check p{display:grid;grid-template-columns:58px 1fr;gap:5px;margin:5px 0 0!important;color:#5f7a8b!important;font-size:10px;line-height:1.4}.mr-check p b{color:#31576e}.mr-check-orange{border-top-color:var(--mr-orange)}.mr-check-red{border-top-color:var(--mr-red)}.mr-check-purple{border-top-color:var(--mr-purple)}.mr-check-note{margin:0 0 14px!important;padding:9px 11px;border-radius:9px;background:#f4f9fc;color:var(--mr-muted)!important;font-size:10px;line-height:1.5}.mr-trend-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px}.mr-trend-panel{padding:15px;border:1px solid var(--mr-line);border-radius:14px;background:#fbfdff}.mr-trend-panel h3{margin:0 0 3px!important;color:var(--mr-ink)!important;font-size:16px!important}.mr-trend-panel>p{margin:0 0 12px!important;color:var(--mr-muted)!important;font-size:12px}.mr-stock-list{display:flex;flex-direction:column;gap:7px}.mr-stock{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:8px;padding:10px;border:1px solid #e2edf3;border-radius:11px;background:#fff}.mr-stock-rank{color:#8da4b3;font:700 11px/1 var(--ws-font-data)}.mr-stock>div>strong{font-size:13px}.mr-stock>div>p{margin:3px 0 0!important;color:var(--mr-muted)!important;font-size:11px}.mr-stock-score{text-align:right}.mr-stock-score strong{display:block;color:var(--mr-purple);font:800 15px/1 var(--ws-font-data)}.mr-stock-score small{color:var(--mr-muted);font-size:10px}.mr-prob{grid-column:2/-1;color:#718a9a;font-size:10px}.mr-stock-reason{grid-column:2/-1;margin:0!important;padding-top:6px;border-top:1px dashed #e1ebf1;color:#597486!important;font-size:10px!important;line-height:1.45}.mr-model-note{margin:11px 0 0!important;color:var(--mr-muted)!important;font-size:11px;line-height:1.5}
 .mr-history{margin:0 0 14px;padding:14px;border:1px solid #dedaf8;border-radius:14px;background:linear-gradient(135deg,#fbfaff,#f4f2ff)}.mr-history-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}.mr-history-head span,.mr-history>div>span{color:var(--mr-purple);font:800 10px/1 var(--ws-font-data);letter-spacing:.1em}.mr-history-head h3,.mr-history>div>h3{margin:4px 0 0!important;color:var(--mr-ink)!important;font-size:16px!important}.mr-history-head p{margin:3px 0 0!important;color:var(--mr-muted)!important;font-size:10px}.mr-history-head>small{color:var(--mr-muted);font-size:10px}.mr-history-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:11px}.mr-history-card{padding:12px;border:1px solid #e3e0f7;border-radius:11px;background:rgba(255,255,255,.82)}.mr-history-card>span{display:block;color:var(--mr-purple);font:800 11px/1 var(--ws-font-data)}.mr-history-card>strong{display:block;margin:7px 0 8px;font-size:15px}.mr-history-card p{display:grid;grid-template-columns:68px 1fr;gap:6px;margin:4px 0 0!important;color:#5f7788!important;font-size:10px}.mr-history-card p b{color:#324f63}.mr-history-card small{display:block;margin-top:8px;color:#8397a4;font-size:9px}.mr-history-card em{display:block;margin-top:7px;padding-top:7px;border-top:1px dashed #e0ddf1;font-size:9px;font-style:normal;line-height:1.35}.mr-history-conclusion{margin:10px 0 0!important;padding:9px 11px;border-radius:9px;background:#ebe8ff;color:#554c9f!important;font-size:10px;line-height:1.5}.mr-history.is-empty{display:flex;align-items:center;justify-content:space-between;gap:12px}.mr-history.is-empty p{margin:0!important;color:var(--mr-muted)!important;font-size:11px}
 .mr-final-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0}.mr-final{min-height:100px;padding:14px 17px;border-right:1px solid var(--mr-line)}.mr-final:last-child{border-right:0}.mr-final span{display:block;color:var(--mr-muted);font-size:12px}.mr-final strong{display:block;margin-top:7px;font-size:18px}.mr-final p{margin:7px 0 0!important;color:#607c8e!important;font-size:12px;line-height:1.45}
 .mr-details{display:flex;flex-direction:column;gap:8px}.mr-detail{overflow:hidden;border:1px solid var(--mr-line);border-radius:15px;background:#fff}.mr-detail>summary{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 17px;cursor:pointer;list-style:none}.mr-detail>summary::-webkit-details-marker{display:none}.mr-detail>summary strong{display:block;color:var(--mr-ink);font-size:14px}.mr-detail>summary span{display:block;margin-top:3px;color:var(--mr-muted);font-size:11px}.mr-detail-action{display:inline-flex!important;align-items:center;gap:5px;flex:0 0 auto!important;margin:0!important;padding:6px 9px;border-radius:8px;background:#edf7fd;color:var(--mr-blue)!important;font-weight:700}.mr-detail-action:before{content:"＋";font-size:12px;line-height:1}.mr-detail[open] .mr-detail-action{font-size:0}.mr-detail[open] .mr-detail-action:before{content:"－";font-size:12px}.mr-detail[open] .mr-detail-action:after{content:"收起";font-size:11px}.mr-detail[open]>summary{background:#f8fcfe}.mr-detail-body{padding:0 16px 16px;border-top:1px solid var(--mr-line)}.mr-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding-top:14px}.mr-detail-grid h4{margin:0 0 4px!important;color:var(--mr-ink)!important;font-size:14px!important}.mr-detail-grid p{margin:0 0 9px!important;color:var(--mr-muted)!important;font-size:11px}.mr-table-wrap{overflow:auto}.mr-table-wrap table{width:100%;border-collapse:collapse;font-size:12px}.mr-table-wrap th{background:#eff8fd;color:#52768d;font-weight:700;text-align:left;white-space:nowrap}.mr-table-wrap th,.mr-table-wrap td{padding:9px 10px;border-bottom:1px solid #e2edf3}.mr-table-wrap td{color:#2f5268;white-space:nowrap}.mr-empty{padding:18px;border-radius:11px;background:#f4f9fc;color:var(--mr-muted);font-size:12px;text-align:center}.mr-industry-list{display:flex;flex-direction:column;gap:7px;padding-top:14px}.mr-industry{overflow:hidden;border:1px solid #dfebf2;border-radius:11px}.mr-industry>summary{display:grid;grid-template-columns:minmax(130px,1.2fr) 80px 140px minmax(190px,1fr);align-items:center;gap:9px;padding:11px 13px;cursor:pointer;list-style:none}.mr-industry>summary::-webkit-details-marker{display:none}.mr-industry[open]>summary{background:#f4f9fc}.mr-industry-name{font-size:13px;font-weight:800}.mr-industry-count,.mr-industry-change{color:var(--mr-muted);font-size:11px}.mr-industry .mr-table-wrap{padding:0 11px 9px}.mr-footnote{padding:12px 14px;border:1px dashed #cbdfe9;border-radius:12px;background:#f7fbfd;color:var(--mr-muted);font-size:11px;line-height:1.6}
-@media(max-width:1100px){.mr-verdicts{grid-template-columns:repeat(2,minmax(0,1fr))}.mr-metrics,.mr-change-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.mr-check-grid{grid-template-columns:1fr 1fr}.mr-sector-grid{grid-template-columns:1fr 1fr}.mr-sector-grid .mr-sector-lane:last-child{grid-column:1/-1}.mr-industry>summary{grid-template-columns:1fr 90px 140px}.mr-industry-change{grid-column:1/-1}}
-@media(max-width:760px){.mr-hero{padding:21px}.mr-hero-top{display:block}.mr-hero-date{margin-top:18px;padding:12px 0 0;border-top:1px solid rgba(255,255,255,.22);border-left:0;text-align:left}.mr-hero-date strong{font-size:20px}.mr-verdicts,.mr-focus-grid,.mr-change-grid,.mr-check-grid,.mr-trend-grid,.mr-history-grid,.mr-final-grid,.mr-detail-grid{grid-template-columns:1fr}.mr-change-head,.mr-history-head{align-items:flex-start;flex-direction:column}.mr-history.is-empty{align-items:flex-start;flex-direction:column}.mr-final{border-right:0;border-bottom:1px solid var(--mr-line)}.mr-final:last-child{border-bottom:0}.mr-metrics{grid-template-columns:1fr 1fr}.mr-sector-grid{grid-template-columns:1fr}.mr-sector-grid .mr-sector-lane:last-child{grid-column:auto}}
+@media(max-width:1100px){.mr-verdicts{grid-template-columns:repeat(2,minmax(0,1fr))}.mr-metrics,.mr-change-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.mr-check-grid{grid-template-columns:1fr 1fr}.mr-sector-grid,.mr-country-grid{grid-template-columns:1fr 1fr}.mr-sector-grid .mr-sector-lane:last-child,.mr-country-grid .mr-country-card:last-child{grid-column:1/-1}.mr-industry>summary{grid-template-columns:1fr 90px 140px}.mr-industry-change{grid-column:1/-1}}
+@media(max-width:760px){.mr-hero{padding:21px}.mr-hero-top{display:block}.mr-hero-date{margin-top:18px;padding:12px 0 0;border-top:1px solid rgba(255,255,255,.22);border-left:0;text-align:left}.mr-hero-date strong{font-size:20px}.mr-verdicts,.mr-focus-grid,.mr-change-grid,.mr-check-grid,.mr-trend-grid,.mr-history-grid,.mr-final-grid,.mr-detail-grid,.mr-country-grid{grid-template-columns:1fr}.mr-change-head,.mr-history-head,.mr-overseas-head{align-items:flex-start;flex-direction:column}.mr-history.is-empty{align-items:flex-start;flex-direction:column}.mr-final{border-right:0;border-bottom:1px solid var(--mr-line)}.mr-final:last-child{border-bottom:0}.mr-metrics{grid-template-columns:1fr 1fr}.mr-sector-grid{grid-template-columns:1fr}.mr-sector-grid .mr-sector-lane:last-child,.mr-country-grid .mr-country-card:last-child{grid-column:auto}}
 @media(max-width:480px){.mr-hero h1{font-size:25px!important}.mr-metrics{grid-template-columns:1fr}.mr-section-head{align-items:flex-start}.mr-section-head p{line-height:1.4}.mr-industry>summary{grid-template-columns:1fr}.mr-industry-change{grid-column:auto}.mr-detail>summary{align-items:flex-start;gap:10px}.mr-detail-action{padding:5px 7px;font-size:10px!important}.mr-detail[open] .mr-detail-action{font-size:0!important}.mr-detail[open] .mr-detail-action:after{font-size:10px}}
 </style>
 """
@@ -609,6 +704,10 @@ def build_morning_report_dashboard_html(
     focus_items = llm_analysis.get("focus_items") or digest.get("focus_items") or []
     summary = (llm_analysis.get("summary") or {}).get("text") or ""
     headline = llm_analysis.get("headline") or "上一交易日关键变化与今日观察线索"
+    overseas_html = _overseas_news_html(
+        fact_pack.get("overseas_news", {}) or {},
+        llm_analysis.get("overseas_impacts") or [],
+    )
 
     market_label, market_tone, market_note = _market_assessment(breadth)
     sentiment_label, sentiment_tone, sentiment_note = _sentiment_assessment(digest)
@@ -730,6 +829,7 @@ def build_morning_report_dashboard_html(
 </header>
 <section class="mr-brief"><div class="mr-brief-head"><div><span class="mr-brief-label">今日先看</span><h2>晨会摘要与关键证据</h2></div></div>{summary_html}{_focus_html(focus_items, evidence_map)}</section>
 {change_radar_html}
+{overseas_html}
 <section class="mr-section">{_section_header(1, '大盘环境', '先看市场广度、量能与增量资金', 'blue')}<div class="mr-section-body"><div class="mr-metrics">{market_metrics}</div><div class="mr-conclusion">{escape(market_note)}</div></div></section>
 <section class="mr-section">{_section_header(2, '市场情绪与赚钱效应', '涨停结构、炸板率与强势股共同判断短线温度', 'red')}<div class="mr-section-body"><div class="mr-metrics">{sentiment_metrics}</div><div class="mr-conclusion is-red">{_text(risk_note)}</div></div></section>
 <section class="mr-section">{_section_header(3, '板块复盘', '资金主线、ETF 份额增强与退潮方向分栏观察', 'orange')}<div class="mr-section-body"><div class="mr-sector-grid">{_sector_lane_html('A · 资金主线', '净流入领先', ths_rows, kind='flow')}{_sector_lane_html('B · 份额增强', 'ETF 申购共振', positive_groups, kind='share')}{_sector_lane_html('C · 风险观察', 'ETF 份额走弱', weak_groups, kind='weak')}</div><div class="mr-conclusion is-orange">{escape(strategy_note)}</div></div></section>

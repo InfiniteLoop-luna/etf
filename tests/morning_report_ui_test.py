@@ -83,6 +83,27 @@ def _fact_pack():
                 {"trade_date": "2026-09-15", "reco_type": "uptrend", "rank_no": 1, "ts_code": "600111.SH", "name": "历史样本", "industry": "电子", "ret_fwd_1d": 0.018, "ret_fwd_5d": None, "ret_fwd_20d": None},
             ],
         },
+        "overseas_news": {
+            "status": "ok",
+            "warnings": [],
+            "countries": {
+                "US": {
+                    "label": "美国",
+                    "items": [{"news_id": "overseas.US.fed", "title": "Federal Reserve issues FOMC statement", "source": "Federal Reserve", "published_at": "2026-09-17T02:00:00+08:00", "url": "https://www.federalreserve.gov/example", "source_type": "official", "source_tier": 1, "verification_status": "官方发布"}],
+                    "impact": {"country": "美国", "direction": "双向", "strength": "中", "confidence": "中", "analysis": "利率路径可能通过美元与全球风险偏好影响A股。", "channels": ["美元与人民币汇率"], "affected_sectors": ["成长科技"], "invalidating_conditions": "人民币与亚洲股指期货未确认时下调权重。", "method": "规则兜底"},
+                },
+                "JP": {
+                    "label": "日本",
+                    "items": [{"news_id": "overseas.JP.boj", "title": "Bank of Japan releases statistics", "source": "Bank of Japan", "published_at": "2026-09-17T15:00:00+08:00", "url": "https://www.boj.or.jp/example", "source_type": "official", "source_tier": 1, "verification_status": "官方发布"}],
+                    "impact": {"country": "日本", "direction": "中性", "strength": "低", "confidence": "低", "analysis": "现有资讯尚未形成单一方向。", "channels": ["日元与套息交易"], "affected_sectors": ["汽车"], "invalidating_conditions": "等待日元和区域市场确认。", "method": "规则兜底"},
+                },
+                "KR": {
+                    "label": "韩国",
+                    "items": [{"news_id": "overseas.KR.bok", "title": "Monetary and Liquidity Aggregates", "source": "Bank of Korea", "published_at": "2026-09-17T11:00:00+08:00", "url": "https://www.bok.or.kr/example", "source_type": "official", "source_tier": 1, "verification_status": "官方发布"}],
+                    "impact": {"country": "韩国", "direction": "中性", "strength": "低", "confidence": "低", "analysis": "现有资讯更多是区域流动性观察变量。", "channels": ["韩元与亚洲货币"], "affected_sectors": ["半导体"], "invalidating_conditions": "等待韩元和电子链表现确认。", "method": "规则兜底"},
+                },
+            },
+        },
         "fund_watchlist": {"funds": [{"fund_name": "示例基金", "fund_code": "000001.OF", "nav_date": "2026-09-16", "daily_change_pct": 1.25}]},
     }
     fact_pack["evidence"] = build_evidence_ledger(fact_pack)
@@ -93,7 +114,7 @@ def test_dashboard_uses_five_step_review_structure_and_key_metrics():
     fact_pack = _fact_pack()
     report = {
         "report_mode": "llm",
-        "llm": {"analysis": {"headline": "资金与份额形成局部共振", "summary": {"text": "市场广度改善，主线仍需开盘后确认。"}}},
+        "llm": {"analysis": {"headline": "资金与份额形成局部共振", "summary": {"text": "市场广度改善，主线仍需开盘后确认。"}, "overseas_impacts": [{"country": "美国", "direction": "偏利空", "strength": "中", "confidence": "中", "analysis": "美国利率信号可能经美元和贴现率压制成长估值。", "channels": ["海外贴现率"], "affected_sectors": ["成长科技"], "invalidating_conditions": "人民币走强且亚洲股指期货企稳时下调权重。", "method": "大模型情景推演（证据校验）"}]}},
     }
 
     html = build_morning_report_dashboard_html(fact_pack, report)
@@ -114,6 +135,12 @@ def test_dashboard_uses_five_step_review_structure_and_key_metrics():
     assert "实际低 8.8pct" in html
     assert "历史候选兑现明细" in html
     assert "历史样本（600111.SH）" in html
+    assert "海外隔夜资讯 / 次日A股影响" in html
+    assert all(country in html for country in ["美国", "日本", "韩国"])
+    assert "T1 · 官方" in html and "09-17 02:00 北京时间" in html
+    assert "大模型情景推演（证据校验）" in html
+    assert "美国利率信号可能经美元和贴现率压制成长估值" in html
+    assert 'href="https://www.federalreserve.gov/example"' in html
 
 
 def test_dashboard_surfaces_cross_signal_sector_and_complete_details():

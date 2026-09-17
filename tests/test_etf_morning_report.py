@@ -621,6 +621,81 @@ def test_llm_fact_pack_groups_previous_day_market_and_funding_evidence():
     assert {"margin.net_buy", "margin.balance", "lhb.stock_count"} <= capital_ids
 
 
+def test_overseas_news_is_addressable_evidence_and_has_own_llm_group():
+    fact_pack = {
+        "report_trade_date": "2026-09-16",
+        "data_quality": {"report_status": "complete", "coverage_score": 100, "warnings": []},
+        "overseas_news": {
+            "countries": {
+                "US": {
+                    "label": "美国",
+                    "items": [{
+                        "news_id": "overseas.US.abc123",
+                        "title": "Federal Reserve issues FOMC statement",
+                        "summary": "Policy decision.",
+                        "source": "Federal Reserve",
+                        "published_at": "2026-09-17T02:00:00+08:00",
+                        "url": "https://www.federalreserve.gov/example",
+                        "source_type": "official",
+                        "source_tier": 1,
+                        "verification_status": "官方发布",
+                    }],
+                }
+            }
+        },
+    }
+    fact_pack["evidence"] = build_evidence_ledger(fact_pack)
+
+    evidence = next(item for item in fact_pack["evidence"] if item["evidence_id"] == "overseas.US.abc123")
+    llm_pack = _build_llm_fact_pack(fact_pack)
+
+    assert evidence["status"] == "verified"
+    assert "原文：https://www.federalreserve.gov/example" in evidence["note"]
+    assert llm_pack["evidence_groups"]["overseas_news"][0]["evidence_id"] == "overseas.US.abc123"
+
+
+def test_normalize_overseas_impact_requires_same_country_evidence_and_caveat():
+    fact_pack = {
+        "evidence": [
+            {"evidence_id": "flow.ths.0", "source": "THS", "value": 12.3, "status": "verified"},
+            {"evidence_id": "overseas.US.official", "source": "Federal Reserve", "value": "FOMC statement", "status": "verified"},
+            {"evidence_id": "overseas.US.media", "source": "Reuters", "value": "Markets react", "status": "reported"},
+        ]
+    }
+    base_result = {
+        "summary": "市场结构保持观察",
+        "summary_evidence_ids": ["flow.ths.0"],
+        "focus_items": [],
+        "overseas_impacts": [{
+            "country": "美国",
+            "direction": "双向",
+            "strength": "中",
+            "confidence": "高",
+            "analysis": "利率路径通过美元、海外贴现率和全球风险偏好影响A股。",
+            "channels": ["美元与人民币汇率", "海外贴现率"],
+            "affected_sectors": ["成长科技"],
+            "invalidating_conditions": "人民币与亚洲股指期货未确认该方向时下调权重。",
+            "evidence_ids": ["overseas.US.official", "overseas.US.media"],
+            "caveat": "这是情景推演，不是涨跌预测",
+        }],
+    }
+
+    valid = normalize_morning_llm_result(base_result, fact_pack)
+    invalid = normalize_morning_llm_result(
+        {
+            **base_result,
+            "overseas_impacts": [{
+                **base_result["overseas_impacts"][0],
+                "evidence_ids": ["flow.ths.0"],
+            }],
+        },
+        fact_pack,
+    )
+
+    assert valid["overseas_impacts"][0]["confidence"] == "高"
+    assert invalid["overseas_impacts"] == []
+
+
 def _notification_report(status="complete"):
     return {
         "report_hash": "hash-demo",

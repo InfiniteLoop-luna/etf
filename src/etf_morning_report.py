@@ -15,13 +15,14 @@ from sqlalchemy import text
 
 from src.distribution_llm_analysis import make_json_safe, parse_llm_json_object
 from src.fund_hot_stocks import get_engine as get_fund_engine
+from src.overseas_market_news import collect_overseas_market_news
 from src.stock_research_llm_analysis import load_stock_research_llm_config
 
 logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REPORT_DIR = PROJECT_ROOT / "data" / "morning_reports"
-REPORT_SCHEMA_VERSION = "etf-morning-report-v2"
-LLM_SCHEMA_VERSION = "etf-morning-report-llm-v2"
+REPORT_SCHEMA_VERSION = "etf-morning-report-v3"
+LLM_SCHEMA_VERSION = "etf-morning-report-llm-v3"
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 
 SOURCE_DEFINITIONS = (
@@ -336,6 +337,19 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
             },
         }
 
+    try:
+        overseas_news = collect_overseas_market_news()
+    except Exception as exc:
+        logger.warning("overseas market news collection failed: %s", exc)
+        overseas_news = {
+            "generated_at": datetime.now(BEIJING_TZ).isoformat(timespec="seconds"),
+            "status": "empty",
+            "countries": {},
+            "warnings": ["海外资讯采集暂不可用"],
+            "source_policy": "官方机构为事实锚点；媒体报道仅作补充。",
+            "analysis_policy": "方向为次日A股情景推演，不是点位或涨跌幅预测。",
+        }
+
     readiness = build_source_readiness(engine, target)
     for source in readiness["sources"]:
         if source["status"] == "fresh":
@@ -610,6 +624,7 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
             "top_avoid": (trend_payload.get("top_avoid") or [])[:10],
         },
         "trend_evaluation": trend_evaluation,
+        "overseas_news": overseas_news,
         "market_sentiment": {"limitup": _summarize_rows(sentiment, ["up_cnt", "zha_cnt", "total_cnt"], 1)},
         "northbound": {
             "daily": _summarize_rows(
@@ -1002,6 +1017,36 @@ def build_evidence_ledger(fact_pack: dict) -> list[dict]:
                     note=sample_note,
                 )
             )
+
+    overseas = fact_pack.get("overseas_news", {}) or {}
+    countries = overseas.get("countries", {}) or {}
+    for country_code in ("US", "JP", "KR"):
+        country = countries.get(country_code, {}) or {}
+        for item in (country.get("items") or [])[:4]:
+            evidence_id = str(item.get("news_id") or "").strip()
+            if not evidence_id.startswith(f"overseas.{country_code}."):
+                continue
+            summary_text = str(item.get("summary") or "").strip()
+            note_parts = [
+                str(item.get("verification_status") or "来源待核"),
+                f"来源等级 T{int(item.get('source_tier') or 2)}",
+            ]
+            if summary_text:
+                note_parts.append(summary_text[:420])
+            if item.get("url"):
+                note_parts.append(f"原文：{item['url']}")
+            evidence.append(
+                _evidence_item(
+                    evidence_id,
+                    f"{country.get('label') or item.get('country') or country_code}财经资讯",
+                    item.get("title"),
+                    "标题",
+                    item.get("published_at"),
+                    str(item.get("source") or "未知来源"),
+                    status="verified" if item.get("source_type") == "official" else "reported",
+                    note="；".join(note_parts),
+                )
+            )
     return make_json_safe(evidence)
 
 
@@ -1126,6 +1171,7 @@ def _fallback_markdown(fact_pack: dict) -> str:
     volume_rows = fact_pack.get("volume", {}).get("daily") or []
     trend = fact_pack.get("trend_recommendations", {}) or {}
     funds = fact_pack.get("fund_watchlist", {}).get("funds") or []
+    overseas = fact_pack.get("overseas_news", {}) or {}
 
     lines = [
         f"# ETF 晨报｜{target}",
@@ -1189,7 +1235,31 @@ def _fallback_markdown(fact_pack: dict) -> str:
         v = volume_rows[0]
         lines.append(f"- 成交额 {v.get('total_amount_yi') or '-'} 亿元，成交量 {v.get('total_volume') or '-'} 手")
 
-    lines.extend(["", "## 四、趋势推荐"])
+    overseas_countries = overseas.get("countries", {}) or {}
+    if any((overseas_countries.get(code, {}) or {}).get("items") for code in ("US", "JP", "KR")):
+        lines.extend(["", "## 四、海外隔夜资讯 / 次日A股情景影响"])
+        for code in ("US", "JP", "KR"):
+            country = overseas_countries.get(code, {}) or {}
+            items = country.get("items") or []
+            if not items:
+                continue
+            lines.append(f"### {country.get('label') or code}｜已确认资讯")
+            for item in items[:3]:
+                title = str(item.get("title") or "--").replace("[", "［").replace("]", "］")
+                source = item.get("source") or "未知来源"
+                published = item.get("published_at") or "时间未知"
+                url = str(item.get("url") or "")
+                link_text = f"[{title}]({url})" if url.startswith(("http://", "https://")) else title
+                lines.append(f"- {link_text}｜{source}｜{published}｜{item.get('verification_status') or '来源待核'}")
+            impact = country.get("impact") or {}
+            if impact:
+                lines.append(
+                    f"- **情景推演：{impact.get('direction')}｜影响{impact.get('strength')}｜置信度{impact.get('confidence')}**："
+                    f"{impact.get('analysis')} 失效条件：{impact.get('invalidating_conditions')}"
+                )
+        lines.append("- 说明：上述方向为规则兜底情景，不是点位或涨跌幅预测；媒体报道不等同于官方确认。")
+
+    lines.extend(["", "## 五、趋势推荐"])
     top_uptrend = trend.get("top_uptrend") or []
     top_avoid = trend.get("top_avoid") or []
     if top_uptrend:
@@ -1199,7 +1269,7 @@ def _fallback_markdown(fact_pack: dict) -> str:
         for item in top_avoid[:3]:
             lines.append(f"- 谨慎：{item.get('name') or item.get('ts_code') or '-'}｜行业 {item.get('industry') or '-'}")
 
-    lines.extend(["", "## 五、自选基金上一交易日表现"])
+    lines.extend(["", "## 六、自选基金上一交易日表现"])
     for fund in funds:
         change = fund.get("daily_change_pct")
         change_text = "--" if change is None else f"{float(change):+.2f}%"
@@ -1208,7 +1278,7 @@ def _fallback_markdown(fact_pack: dict) -> str:
             f"净值日期：{fund.get('nav_date') or '-'}｜上一交易日涨跌幅：{change_text}"
         )
 
-    lines.extend(["", "## 六、数据说明"])
+    lines.extend(["", "## 七、数据说明"])
     lines.append("- 自选基金采用最近已披露净值；若净值日期未对齐报告交易日，会在数据缺口中明确提示。")
     lines.append("- 如后续引用基金持仓，只能采用最近一期披露数据，不等同于上一交易日实时持仓。")
     lines.append("- THS 与 DC 资金流已统一显示为亿元，但仍属于不同供应商口径，不做绝对值横向比较。")
@@ -1236,9 +1306,10 @@ def _build_llm_fact_pack(fact_pack: dict) -> dict:
         "capital_flow_and_activity": [],
         "etf_structure": [],
         "watchlist_funds": [],
+        "overseas_news": [],
         "model_outputs": [],
     }
-    for item in _reportable_evidence(fact_pack)[:80]:
+    for item in _reportable_evidence(fact_pack)[:120]:
         evidence_id = str(item.get("evidence_id") or "")
         if evidence_id.startswith(("market.", "sentiment.")):
             group = "market_breadth_and_sentiment"
@@ -1248,6 +1319,8 @@ def _build_llm_fact_pack(fact_pack: dict) -> dict:
             group = "etf_structure"
         elif evidence_id.startswith("fund."):
             group = "watchlist_funds"
+        elif evidence_id.startswith("overseas."):
+            group = "overseas_news"
         else:
             group = "model_outputs"
         grouped_evidence[group].append(item)
@@ -1325,6 +1398,80 @@ def _normalize_claim_item(value: Any, evidence_map: dict[str, dict], *, max_leng
     }
 
 
+def _normalize_overseas_impact(value: Any, evidence_map: dict[str, dict]) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    countries = {"美国": "US", "日本": "JP", "韩国": "KR"}
+    country = _coerce_report_text(value.get("country"), 12)
+    country_code = countries.get(country)
+    direction = _coerce_report_text(value.get("direction"), 12)
+    strength = _coerce_report_text(value.get("strength"), 4)
+    confidence = _coerce_report_text(value.get("confidence"), 4)
+    analysis = _coerce_report_text(value.get("analysis"), 320)
+    invalidating = _coerce_report_text(value.get("invalidating_conditions"), 220)
+    caveat = _coerce_report_text(value.get("caveat"), 120)
+    if (
+        not country_code
+        or direction not in {"偏利好", "偏利空", "中性", "双向", "待验证"}
+        or strength not in {"高", "中", "低"}
+        or confidence not in {"高", "中", "低"}
+        or not analysis
+        or not invalidating
+        or caveat != "这是情景推演，不是涨跌预测"
+    ):
+        return None
+
+    raw_ids = value.get("evidence_ids") if isinstance(value.get("evidence_ids"), list) else []
+    evidence_ids: list[str] = []
+    for evidence_id in raw_ids:
+        key = str(evidence_id or "").strip()
+        if (
+            key.startswith(f"overseas.{country_code}.")
+            and key in evidence_map
+            and evidence_map[key].get("status") != "missing"
+            and key not in evidence_ids
+        ):
+            evidence_ids.append(key)
+    selected = [evidence_map[key] for key in evidence_ids]
+    if not evidence_ids:
+        return None
+
+    channels = [
+        _coerce_report_text(item, 50)
+        for item in (value.get("channels") if isinstance(value.get("channels"), list) else [])
+    ]
+    sectors = [
+        _coerce_report_text(item, 50)
+        for item in (value.get("affected_sectors") if isinstance(value.get("affected_sectors"), list) else [])
+    ]
+    channels = [item for item in channels if item][:4]
+    sectors = [item for item in sectors if item][:6]
+    if not _claim_numbers_supported(
+        " ".join([analysis, invalidating, *channels, *sectors]),
+        selected,
+    ):
+        return None
+
+    # “高置信度”需要至少两个独立来源且含官方事实锚点，否则自动降级。
+    sources = {str(item.get("source") or "") for item in selected if item.get("source")}
+    has_official = any(item.get("status") == "verified" for item in selected)
+    if confidence == "高" and (len(sources) < 2 or not has_official):
+        confidence = "中"
+    return {
+        "country": country,
+        "direction": direction,
+        "strength": strength,
+        "confidence": confidence,
+        "analysis": analysis,
+        "channels": channels,
+        "affected_sectors": sectors,
+        "invalidating_conditions": invalidating,
+        "evidence_ids": evidence_ids[:6],
+        "caveat": caveat,
+        "method": "大模型情景推演（证据校验）",
+    }
+
+
 def normalize_morning_llm_result(result: dict | None, fact_pack: dict) -> dict | None:
     if not isinstance(result, dict) or not result:
         return None
@@ -1356,6 +1503,16 @@ def normalize_morning_llm_result(result: dict | None, fact_pack: dict) -> dict |
         if len(focus_items) >= 3:
             break
     risk_note = _normalize_claim_item(result.get("risk_note"), evidence_map, max_length=260)
+    overseas_impacts = []
+    raw_impacts = result.get("overseas_impacts") if isinstance(result.get("overseas_impacts"), list) else []
+    seen_countries: set[str] = set()
+    for item in raw_impacts:
+        normalized_impact = _normalize_overseas_impact(item, evidence_map)
+        if normalized_impact and normalized_impact["country"] not in seen_countries:
+            overseas_impacts.append(normalized_impact)
+            seen_countries.add(normalized_impact["country"])
+        if len(overseas_impacts) >= 3:
+            break
     if not summary and not focus_items:
         return None
     return {
@@ -1365,6 +1522,7 @@ def normalize_morning_llm_result(result: dict | None, fact_pack: dict) -> dict |
         "summary": summary or {},
         "focus_items": focus_items,
         "risk_note": risk_note or {},
+        "overseas_impacts": overseas_impacts,
         "data_quality_note": _coerce_report_text(result.get("data_quality_note"), 260),
         "validated": True,
     }
@@ -1391,6 +1549,18 @@ def render_morning_llm_markdown(fact_pack: dict, analysis: dict) -> str:
     if risk_note.get("text"):
         lines.extend(["", "## 昨日风险与分化", risk_note["text"]])
         lines.append(f"证据：{', '.join(risk_note.get('evidence_ids') or [])}")
+    overseas_impacts = analysis.get("overseas_impacts") or []
+    if overseas_impacts:
+        lines.extend(["", "## 海外隔夜资讯对次日A股的情景影响"])
+        for item in overseas_impacts:
+            channels = "、".join(item.get("channels") or []) or "待验证"
+            sectors = "、".join(item.get("affected_sectors") or []) or "待验证"
+            evidence_text = ", ".join(item.get("evidence_ids") or [])
+            lines.append(
+                f"- **{item.get('country')}｜{item.get('direction')}｜影响{item.get('strength')}｜置信度{item.get('confidence')}**："
+                f"{item.get('analysis')} 传导：{channels}；关注：{sectors}；"
+                f"失效条件：{item.get('invalidating_conditions')}（证据：{evidence_text}）"
+            )
     lines.extend([
         "",
         "## 数据质量",
@@ -1453,13 +1623,22 @@ def generate_llm_markdown(fact_pack: dict) -> tuple[str, dict | None]:
     llm_fact_pack = _build_llm_fact_pack(fact_pack)
     system = (
         "你是审慎的A股与ETF盘后复盘编辑。任务是把前一交易日的可用数据综合成一份有判断、有层次的昨日复盘，"
-        "不是机械罗列单个数字。只能使用给定evidence_groups，不得补充外部知识、新闻、指数表现、数字或未经证据支持的因果解释。"
+        "不是机械罗列单个数字。已发生的事实只能来自给定evidence_groups，不得补充外部新闻、指数表现或数字。"
         "优先依次分析：市场涨跌分布与成交活跃度、涨停和炸板情绪、行业资金方向、ETF份额结构、北向/两融/龙虎榜、"
         "以及自选基金表现；某组不存在就完全跳过。应在证据允许时比较不同组信号，指出共振或背离，但不得预测涨跌。"
         "每个结论必须列出真实存在的evidence_id；不同供应商资金流口径不可直接比较绝对值。"
         "不得引用status=missing的证据；引用status=stale或generated的证据时必须在caveat明确说明其时效或模型属性。"
         "summary写成120到220字的综合复盘，不能只是项目符号拼接；focus_items最多3项，写最重要的结构观察。"
-        "只返回一个JSON对象，字段固定为headline, headline_evidence_ids, summary, summary_evidence_ids, focus_items, risk_note, data_quality_note。"
+        "如存在overseas_news证据，另做独立的全球宏观与跨市场事件分析，不得用ETF分类或ETF份额数据替代海外事实。"
+        "可以使用通用、定性的金融传导逻辑进行情景推演，但必须区分已确认资讯和推演，不得把推演写成确定事实。"
+        "overseas_impacts最多3项、每个国家最多1项，每项固定为"
+        "{country,direction,strength,confidence,analysis,channels,affected_sectors,invalidating_conditions,evidence_ids,caveat}。"
+        "country只能是美国、日本、韩国；direction只能是偏利好、偏利空、中性、双向、待验证；"
+        "strength与confidence只能是高、中、低。evidence_ids只能引用同一国家的overseas证据。"
+        "媒体报道不等同于官方确认；高置信度必须同时有官方事实锚点与至少两个独立来源。"
+        "analysis要说明传导路径，不得给出指数点位、目标价或涨跌幅预测；invalidating_conditions必须给出开盘前后可观察的失效条件；"
+        "caveat固定写‘这是情景推演，不是涨跌预测’。"
+        "只返回一个JSON对象，字段固定为headline, headline_evidence_ids, summary, summary_evidence_ids, focus_items, risk_note, overseas_impacts, data_quality_note。"
         "focus_items每项为{text,evidence_ids,caveat}；risk_note也使用相同结构。"
         "data_quality_note必须是字符串。"
         "不得给出绝对买卖指令，不得输出Markdown。"
