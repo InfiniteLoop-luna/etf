@@ -121,6 +121,11 @@ def test_dashboard_surfaces_cross_signal_sector_and_complete_details():
 
     assert "优先验证半导体等资金流与 ETF 份额共振方向的持续性" in html
     assert "ETF 份额变化明细" in html
+    etf_detail_start = html.rfind("<details", 0, html.index("ETF 份额变化明细"))
+    etf_detail_tag = html[etf_detail_start:html.index(">", etf_detail_start) + 1]
+    assert etf_detail_tag == '<details class="mr-detail">'
+    assert "点击展开后可查看所含 ETF" in html
+    assert "展开明细" in html
     assert "行业与板块资金流" in html
     assert "自选基金确认净值" in html
     assert "数据源就绪度" in html
