@@ -9495,7 +9495,7 @@ def _morning_sources_html(sources):
     )
 
 
-def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
+def _render_etf_morning_report_dashboard_legacy(fact_pack: dict, report: dict) -> None:
     from src.etf_morning_report import build_report_digest
 
     digest = build_report_digest(fact_pack)
@@ -9617,6 +9617,12 @@ def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
     <div class="ws-morning-footnote">口径说明：THS 与 DC 资金流虽均换算为亿元，但供应商定义不同，不做绝对值横向比较。北向、两融、成交额也按各自上游口径换算。报告不构成投资建议。</div>
     </div>"""
     st.html(html_block)
+
+
+def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
+    from src.morning_report_ui import build_morning_report_dashboard_html
+
+    st.html(build_morning_report_dashboard_html(fact_pack, report))
 
 
 def render_etf_morning_report_page():
