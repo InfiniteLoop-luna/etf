@@ -133,6 +133,191 @@ def _summarize_rows(frame: pd.DataFrame, columns: list[str], limit: int = 10) ->
     return out[[column for column in columns if column in out.columns]].to_dict(orient="records")
 
 
+def _trend_evaluation_horizon(
+    frame: pd.DataFrame,
+    *,
+    horizon: int,
+    eligible_through: str | None,
+) -> dict:
+    result = {
+        "eligible_through": eligible_through,
+        "run_count": 0,
+        "up_sample": 0,
+        "up_hit_rate": None,
+        "up_avg_return": None,
+        "avoid_sample": 0,
+        "avoid_effective_rate": None,
+        "avoid_avg_return": None,
+        "average_probability": None,
+        "calibration_gap": None,
+    }
+    return_column = f"ret_fwd_{horizon}d"
+    if frame is None or frame.empty or not eligible_through or return_column not in frame.columns:
+        return result
+
+    cutoff = pd.to_datetime(eligible_through, errors="coerce")
+    if pd.isna(cutoff):
+        return result
+    eligible = frame.copy()
+    eligible["trade_date_dt"] = pd.to_datetime(eligible.get("trade_date"), errors="coerce")
+    eligible[return_column] = pd.to_numeric(eligible.get(return_column), errors="coerce")
+    eligible = eligible[
+        (eligible["trade_date_dt"] <= cutoff)
+        & eligible[return_column].notna()
+    ]
+    if eligible.empty:
+        return result
+
+    result["run_count"] = int(eligible["trade_date_dt"].nunique())
+    up_rows = eligible[eligible.get("reco_type").astype(str) == "uptrend"]
+    avoid_rows = eligible[eligible.get("reco_type").astype(str) == "avoid"]
+    if not up_rows.empty:
+        up_returns = pd.to_numeric(up_rows[return_column], errors="coerce").dropna()
+        result["up_sample"] = int(len(up_returns))
+        result["up_hit_rate"] = float((up_returns > 0).mean())
+        result["up_avg_return"] = float(up_returns.mean())
+        probability_column = f"prob_up_{horizon}d"
+        if probability_column in up_rows.columns:
+            probabilities = pd.to_numeric(up_rows[probability_column], errors="coerce").dropna()
+            probabilities = probabilities[(probabilities >= 0) & (probabilities <= 1)]
+            if not probabilities.empty:
+                average_probability = float(probabilities.mean())
+                result["average_probability"] = average_probability
+                result["calibration_gap"] = float(result["up_hit_rate"] - average_probability)
+    if not avoid_rows.empty:
+        avoid_returns = pd.to_numeric(avoid_rows[return_column], errors="coerce").dropna()
+        result["avoid_sample"] = int(len(avoid_returns))
+        result["avoid_effective_rate"] = float((avoid_returns <= 0).mean())
+        result["avoid_avg_return"] = float(avoid_returns.mean())
+    return result
+
+
+def collect_trend_evaluation(
+    engine,
+    target: str,
+    *,
+    lookback_runs: int = 60,
+    topn_limit: int = 10,
+) -> dict:
+    """Evaluate past trend recommendations without using outcomes after target."""
+    base = {
+        "available": False,
+        "as_of_date": target,
+        "lookback_runs": int(lookback_runs),
+        "topn_limit": int(topn_limit),
+        "source": "trend_reco_items + ml_stock_label_daily",
+        "horizons": {},
+        "recent_outcomes": [],
+        "note": "只统计截至报告日已经完整走完对应交易周期的历史推荐；未来收益标签仅用于事后评估。",
+    }
+    calendar = _query_frame(
+        engine,
+        """
+        SELECT DISTINCT trade_date
+        FROM ts_stock_daily
+        WHERE trade_date <= CAST(:trade_date AS date)
+        ORDER BY trade_date DESC
+        LIMIT 21
+        """,
+        {"trade_date": target},
+    )
+    if calendar.empty or "trade_date" not in calendar.columns:
+        base["unavailable_reason"] = "缺少交易日历，暂时无法判断哪些历史结果已经走完周期"
+        return base
+
+    market_dates = []
+    for value in calendar["trade_date"].tolist():
+        parsed = _safe_date(value)
+        if parsed and parsed not in market_dates:
+            market_dates.append(parsed)
+    cutoffs = {
+        horizon: market_dates[horizon] if len(market_dates) > horizon else None
+        for horizon in (1, 5, 20)
+    }
+    rows = _query_frame(
+        engine,
+        """
+        WITH recent_runs AS (
+            SELECT DISTINCT trade_date
+            FROM trend_reco_items
+            WHERE trade_date < CAST(:trade_date AS date)
+            ORDER BY trade_date DESC
+            LIMIT :lookback_runs
+        )
+        SELECT r.trade_date, r.reco_type, r.rank_no, r.ts_code, r.name, r.industry,
+               r.prob_up_5d, r.prob_up_20d,
+               l.ret_fwd_1d, l.ret_fwd_5d, l.ret_fwd_20d
+        FROM trend_reco_items r
+        JOIN recent_runs rr ON rr.trade_date = r.trade_date
+        LEFT JOIN ml_stock_label_daily l
+          ON l.trade_date = r.trade_date AND l.ts_code = r.ts_code
+        WHERE r.rank_no <= :topn_limit
+          AND r.reco_type IN ('uptrend', 'avoid')
+        ORDER BY r.trade_date DESC, r.reco_type, r.rank_no
+        """,
+        {
+            "trade_date": target,
+            "lookback_runs": max(1, int(lookback_runs)),
+            "topn_limit": max(1, int(topn_limit)),
+        },
+    )
+    if rows.empty:
+        base["unavailable_reason"] = "暂无可与未来收益标签匹配的历史推荐"
+        return base
+
+    for horizon in (1, 5, 20):
+        base["horizons"][f"{horizon}d"] = _trend_evaluation_horizon(
+            rows,
+            horizon=horizon,
+            eligible_through=cutoffs[horizon],
+        )
+
+    working = rows.copy()
+    working["trade_date_dt"] = pd.to_datetime(working.get("trade_date"), errors="coerce")
+    cutoff_1d = pd.to_datetime(cutoffs[1], errors="coerce")
+    if not pd.isna(cutoff_1d):
+        working = working[working["trade_date_dt"] <= cutoff_1d]
+    working["ret_fwd_1d"] = pd.to_numeric(working.get("ret_fwd_1d"), errors="coerce")
+    working = working[working["ret_fwd_1d"].notna()].sort_values(
+        ["trade_date_dt", "rank_no"], ascending=[False, True]
+    )
+    recent_balanced = pd.concat(
+        [
+            working[working["reco_type"].astype(str) == reco_type].head(6)
+            for reco_type in ("uptrend", "avoid")
+        ],
+        ignore_index=True,
+    ).sort_values(["trade_date_dt", "rank_no", "reco_type"], ascending=[False, True, False])
+    recent_outcomes = []
+    for row in recent_balanced.head(12).to_dict(orient="records"):
+        row_date = _safe_date(row.get("trade_date"))
+        outcome = {
+            "trade_date": row_date,
+            "reco_type": row.get("reco_type"),
+            "rank_no": row.get("rank_no"),
+            "ts_code": row.get("ts_code"),
+            "name": row.get("name") or row.get("ts_code"),
+            "industry": row.get("industry"),
+        }
+        for horizon in (1, 5, 20):
+            cutoff = cutoffs[horizon]
+            return_value = pd.to_numeric(row.get(f"ret_fwd_{horizon}d"), errors="coerce")
+            outcome[f"ret_fwd_{horizon}d"] = (
+                float(return_value)
+                if cutoff and row_date and row_date <= cutoff and not pd.isna(return_value)
+                else None
+            )
+        recent_outcomes.append(outcome)
+    base["recent_outcomes"] = recent_outcomes
+    base["available"] = any(
+        int(summary.get("up_sample") or 0) + int(summary.get("avoid_sample") or 0) > 0
+        for summary in base["horizons"].values()
+    )
+    if not base["available"]:
+        base["unavailable_reason"] = "历史推荐尚未完整走完可评估周期"
+    return make_json_safe(base)
+
+
 def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
     engine = engine or get_fund_engine()
     target = _safe_date(trade_date) if trade_date else find_previous_trade_date(engine)
@@ -364,6 +549,7 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
         trend_payload = fetch_trend_reco_payload(engine, target) or {}
     except Exception as exc:
         warnings.append(f"趋势推荐读取失败：{exc}")
+    trend_evaluation = collect_trend_evaluation(engine, target)
 
     funds: list[dict] = []
     watchlist = _query_frame(
@@ -423,6 +609,7 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
             "top_uptrend": (trend_payload.get("top_uptrend") or [])[:10],
             "top_avoid": (trend_payload.get("top_avoid") or [])[:10],
         },
+        "trend_evaluation": trend_evaluation,
         "market_sentiment": {"limitup": _summarize_rows(sentiment, ["up_cnt", "zha_cnt", "total_cnt"], 1)},
         "northbound": {
             "daily": _summarize_rows(
@@ -785,6 +972,34 @@ def build_evidence_ledger(fact_pack: dict) -> list[dict]:
                     "trend_reco_items",
                     status="generated",
                     note=f"行业：{item.get('industry') or '-'}；模型生成结果，不是原始行情",
+                )
+            )
+    trend_evaluation = fact_pack.get("trend_evaluation", {}) or {}
+    for horizon_key, horizon in (trend_evaluation.get("horizons") or {}).items():
+        sample_note = (
+            f"强势样本 {int(horizon.get('up_sample') or 0)} 条，"
+            f"避雷样本 {int(horizon.get('avoid_sample') or 0)} 条；"
+            "只统计截至报告日已完整走完周期的历史推荐，未来收益标签仅用于事后评估"
+        )
+        for suffix, label, field in [
+            ("up_hit_rate", "强势候选历史命中率", "up_hit_rate"),
+            ("up_avg_return", "强势候选历史平均收益", "up_avg_return"),
+            ("avoid_effective_rate", "谨慎候选历史避雷有效率", "avoid_effective_rate"),
+            ("avoid_avg_return", "谨慎候选历史平均收益", "avoid_avg_return"),
+        ]:
+            value = pd.to_numeric(horizon.get(field), errors="coerce")
+            if pd.isna(value):
+                continue
+            evidence.append(
+                _evidence_item(
+                    f"trend_eval.{horizon_key}.{suffix}",
+                    f"{horizon_key.upper()}{label}",
+                    round(float(value) * 100, 2),
+                    "%",
+                    trend_evaluation.get("as_of_date") or target,
+                    "derived:trend_reco_items + ml_stock_label_daily",
+                    status="derived",
+                    note=sample_note,
                 )
             )
     return make_json_safe(evidence)

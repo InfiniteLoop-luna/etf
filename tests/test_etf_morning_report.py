@@ -10,6 +10,7 @@ from src.etf_morning_report import (
     build_evidence_ledger,
     build_report_digest,
     build_source_readiness,
+    collect_trend_evaluation,
     find_previous_trade_date,
     generate_llm_markdown,
     normalize_morning_llm_result,
@@ -156,6 +157,88 @@ def test_source_readiness_requires_all_core_sources(monkeypatch):
     assert readiness["report_status"] == "partial"
     assert readiness["required_ready"] == 2
     assert readiness["required_total"] == 3
+
+
+def test_trend_evaluation_only_uses_outcomes_matured_by_report_date(monkeypatch):
+    market_dates = list(reversed(pd.bdate_range(end="2026-09-16", periods=30)))
+    cutoff_1d = market_dates[1].date()
+    cutoff_5d = market_dates[5].date()
+    cutoff_20d = market_dates[20].date()
+    recommendation_rows = pd.DataFrame([
+        {
+            "trade_date": cutoff_1d,
+            "reco_type": "uptrend",
+            "rank_no": 1,
+            "ts_code": "000001.SZ",
+            "name": "近一日样本",
+            "industry": "银行",
+            "prob_up_5d": 0.80,
+            "prob_up_20d": 0.75,
+            "ret_fwd_1d": 0.02,
+            "ret_fwd_5d": 0.10,
+            "ret_fwd_20d": 0.30,
+        },
+        {
+            "trade_date": cutoff_5d,
+            "reco_type": "uptrend",
+            "rank_no": 1,
+            "ts_code": "000002.SZ",
+            "name": "近五日样本",
+            "industry": "电子",
+            "prob_up_5d": 0.70,
+            "prob_up_20d": 0.68,
+            "ret_fwd_1d": -0.01,
+            "ret_fwd_5d": 0.06,
+            "ret_fwd_20d": 0.20,
+        },
+        {
+            "trade_date": cutoff_20d,
+            "reco_type": "uptrend",
+            "rank_no": 1,
+            "ts_code": "000003.SZ",
+            "name": "完整周期样本",
+            "industry": "医药",
+            "prob_up_5d": 0.60,
+            "prob_up_20d": 0.55,
+            "ret_fwd_1d": 0.05,
+            "ret_fwd_5d": 0.08,
+            "ret_fwd_20d": -0.03,
+        },
+        {
+            "trade_date": cutoff_20d,
+            "reco_type": "avoid",
+            "rank_no": 1,
+            "ts_code": "000004.SZ",
+            "name": "避雷样本",
+            "industry": "通信",
+            "prob_up_5d": 0.30,
+            "prob_up_20d": 0.32,
+            "ret_fwd_1d": -0.02,
+            "ret_fwd_5d": -0.04,
+            "ret_fwd_20d": -0.08,
+        },
+    ])
+
+    def fake_query(engine, sql, params=None):
+        if "FROM ts_stock_daily" in sql:
+            return pd.DataFrame({"trade_date": market_dates[:21]})
+        if "FROM trend_reco_items" in sql:
+            return recommendation_rows
+        return pd.DataFrame()
+
+    monkeypatch.setattr("src.etf_morning_report._query_frame", fake_query)
+    evaluation = collect_trend_evaluation(FakeEngine(), "2026-09-16")
+
+    assert evaluation["available"] is True
+    assert evaluation["horizons"]["1d"]["up_sample"] == 3
+    assert evaluation["horizons"]["5d"]["up_sample"] == 2
+    assert evaluation["horizons"]["20d"]["up_sample"] == 1
+    assert evaluation["horizons"]["20d"]["up_hit_rate"] == 0.0
+    assert evaluation["horizons"]["20d"]["avoid_effective_rate"] == 1.0
+    newest = next(item for item in evaluation["recent_outcomes"] if item["name"] == "近一日样本")
+    assert newest["ret_fwd_1d"] == 0.02
+    assert newest["ret_fwd_5d"] is None
+    assert newest["ret_fwd_20d"] is None
 
 
 def test_normalize_morning_llm_result_requires_supported_evidence_and_numbers():

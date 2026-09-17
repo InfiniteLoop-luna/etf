@@ -9619,10 +9619,14 @@ def _render_etf_morning_report_dashboard_legacy(fact_pack: dict, report: dict) -
     st.html(html_block)
 
 
-def render_etf_morning_report_dashboard(fact_pack: dict, report: dict) -> None:
+def render_etf_morning_report_dashboard(
+    fact_pack: dict,
+    report: dict,
+    previous_fact_pack: dict | None = None,
+) -> None:
     from src.morning_report_ui import build_morning_report_dashboard_html
 
-    st.html(build_morning_report_dashboard_html(fact_pack, report))
+    st.html(build_morning_report_dashboard_html(fact_pack, report, previous_fact_pack))
 
 
 def render_etf_morning_report_page():
@@ -9672,7 +9676,14 @@ def render_etf_morning_report_page():
         return
 
     fact_pack = report.get("fact_pack") or {}
-    render_etf_morning_report_dashboard(fact_pack, report)
+    report_date = str(fact_pack.get("report_trade_date") or selected or "")
+    previous_fact_pack = None
+    if report_date in dates:
+        report_index = dates.index(report_date)
+        if report_index + 1 < len(dates):
+            previous_report = load_saved_report(dates[report_index + 1]) or {}
+            previous_fact_pack = previous_report.get("fact_pack") or None
+    render_etf_morning_report_dashboard(fact_pack, report, previous_fact_pack)
     quality = fact_pack.get("data_quality") or {}
     if quality.get("warnings"):
         with st.expander(f"数据缺口与质量提示（{len(quality['warnings'])}）", expanded=quality.get("report_status") != "complete"):
