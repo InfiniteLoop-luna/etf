@@ -35,7 +35,7 @@ def test_fund_watchlist_dashboard_exposes_view_sort_focus_and_batch_controls():
     assert "build_fund_watchlist_summary" in APP_SOURCE
     assert "sort_fund_watchlist_items" in APP_SOURCE
     assert "build_fund_watchlist_table" in APP_SOURCE
-    assert '["看板", "表格"]' in APP_SOURCE
+    assert '["看板", "表格", "对比矩阵"]' in APP_SOURCE
     assert '["盘中估算", "日涨跌幅", "估值偏差", "Top10 集中度", "基金规模", "持仓市值", "披露日期"]' in APP_SOURCE
     assert "render_fund_watchlist_focus_detail" in APP_SOURCE
     assert "fund_watchlist_batch_mode" in APP_SOURCE

@@ -173,6 +173,7 @@ from src.fund_watchlist_dashboard import (
     build_fund_watchlist_table,
     sort_fund_watchlist_items,
 )
+from src.fund_watchlist_comparison_ui import render_fund_watchlist_comparison
 from scripts.funding_freshness_summary import build_summary as build_funding_freshness_summary
 from scripts.update_activity_summary import build_update_activity_summary
 from scripts.data_task_status_summary import build_data_task_status_summary
@@ -20027,7 +20028,7 @@ def render_fund_watchlist_live_dashboard(items: list[dict], current_username: st
     with st.container(key="fund_watchlist_toolbar"):
         control_cols = st.columns([1.1, 1.4, 1.2])
         with control_cols[0]:
-            view_mode = st.radio("视图模式", ["看板", "表格"], horizontal=True, key="fund_watchlist_view_mode")
+            view_mode = st.radio("视图模式", ["看板", "表格", "对比矩阵"], horizontal=True, key="fund_watchlist_view_mode")
         with control_cols[1]:
             sort_label = st.selectbox(
                 "排序方式",
@@ -20047,6 +20048,10 @@ def render_fund_watchlist_live_dashboard(items: list[dict], current_username: st
             current_username,
             toggle_container=control_cols[2],
         )
+
+    if view_mode == "对比矩阵":
+        render_fund_watchlist_comparison(sorted_items, username=current_username)
+        return
 
     if view_mode == "看板":
         render_fund_watchlist_cards(sorted_items, focus_code=focus_code)
