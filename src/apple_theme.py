@@ -595,6 +595,10 @@ button[aria-label="Open sidebar"]:hover {{
     border-bottom: 1px solid var(--ws-border-soft);
 }}
 
+[data-testid="stSidebar"] .ws-sidebar-brand-copy {{
+    display: none !important;
+}}
+
 [data-testid="stSidebar"] .ws-sidebar-brand-kicker {{
     grid-row: 1 / span 2;
     width: 30px;
@@ -1720,6 +1724,19 @@ button[kind="primary"],
     margin: 0 0 var(--ws-space-3);
     padding: 0.25rem 2rem 0.75rem 0.25rem;
     border-bottom: 1px solid var(--ws-sidebar-line);
+}}
+
+[data-testid="stSidebar"] [class*="st-key-ws-sidebar-header"] img {{
+    display: block;
+    width: min(210px, 100%) !important;
+    height: auto !important;
+    margin: 0 0 var(--ws-space-3);
+    object-fit: contain;
+    object-position: left center;
+}}
+
+[data-testid="stSidebar"] .ws-sidebar-brand-copy {{
+    display: none !important;
 }}
 
 [data-testid="stSidebar"] .ws-sidebar-brand-main {{

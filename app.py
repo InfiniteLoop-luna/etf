@@ -359,9 +359,15 @@ def _perf_span(label: str, **details):
     finally:
         _perf_log(label, start_time, **details)
 
+# 品牌资源
+BRAND_ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "brand")
+BRAND_FAVICON_PATH = os.path.join(BRAND_ASSET_DIR, "favicon.png")
+BRAND_LOGO_PATH = os.path.join(BRAND_ASSET_DIR, "logo.png")
+
 # 页面配置
 st.set_page_config(
     page_title="WealthSpark 决策看板",
+    page_icon=BRAND_FAVICON_PATH,
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -4324,13 +4330,11 @@ def render_desktop_sidebar_navigation() -> tuple[str, str]:
     ]
 
     sidebar_header = st.sidebar.container(key="ws-sidebar-header")
+    sidebar_header.image(BRAND_LOGO_PATH, width=210)
     sidebar_header.markdown(
         """
-        <div class="ws-sidebar-brand">
-            <div class="ws-sidebar-brand-main">
-                <span class="ws-sidebar-brand-kicker">W</span>
-                <h2>WealthSpark</h2>
-            </div>
+        <div class="ws-sidebar-brand ws-sidebar-brand-copy">
+            <h2>WealthSpark</h2>
             <p>Professional Terminal</p>
         </div>
         """,
