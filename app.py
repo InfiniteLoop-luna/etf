@@ -19674,6 +19674,7 @@ def render_fund_holding_industry_heatmap(item: dict) -> None:
     fig.update_traces(
         root_color="rgba(0,0,0,0)",
         texttemplate="<b>%{label}</b><br>%{value:.2f}%",
+        textposition="middle left",
         hovertemplate=(
             "<b>%{customdata[0]}</b><br>"
             "代码：%{customdata[1]}<br>"
