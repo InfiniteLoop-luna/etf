@@ -31,10 +31,12 @@ _NUMBER_PATTERN = re.compile(
 )
 _SHARE_LABEL_PATTERN = re.compile(r"(?:持有|持仓|可用|基金)?\s*份额|份额\s*\(?份?\)?")
 _HOLDING_AMOUNT_LABEL_PATTERN = re.compile(
-    r"持有金额|持仓金额|持有市值|持仓市值|当前市值|基金市值"
+    r"持有金额|持仓金额|持有市值|持仓市值|当前市值|基金市值|"
+    r"^金额\s*[\(（]\s*元\s*[\)）]\s*$"
 )
 _HOLDING_PROFIT_LABEL_PATTERN = re.compile(
-    r"持有收益|持仓收益|累计收益|累计盈亏|持仓盈亏|浮动盈亏|持有盈亏"
+    r"持有收益(?!率)|持仓收益(?!率)|累计收益(?!率)|"
+    r"累计盈亏(?!率)|持仓盈亏(?!率)|浮动盈亏(?!率)|持有盈亏(?!率)"
 )
 _HOLDING_COST_LABEL_PATTERN = re.compile(
     r"持仓成本金额|持有成本金额|成本金额|总成本|累计投入|投入本金|持仓本金"
@@ -49,6 +51,18 @@ _MONEY_VALUE_PATTERN = re.compile(
     r"(?<![\d.])(?:[￥¥]?\s*)?[+\-−]?\s*"
     r"(?:\d{1,3}(?:[,，]\d{3})+|\d+)(?:\.\d+)?"
     r"\s*(?:亿|万|千)?\s*(?:元)?(?![\d.])"
+)
+_SUMMARY_VALUE_PATTERN = re.compile(
+    r"(?<![\d.])(?:[￥¥]?\s*)?[+\-−]?\s*"
+    r"(?:\d{1,3}(?:[,，]\d{3})+|\d+)(?:\.\d+)?"
+    r"\s*(?:亿|万|千)?\s*(?:元|%)?(?![\d.])"
+)
+_SUMMARY_LABEL_PATTERN = re.compile(
+    r"昨日收益|今日收益|当日收益|预估收益|估算收益|"
+    r"持有收益率|持仓收益率|累计收益率|"
+    r"累计盈亏率|持仓盈亏率|浮动盈亏率|持有盈亏率|"
+    r"持有收益(?!率)|持仓收益(?!率)|累计收益(?!率)|"
+    r"累计盈亏(?!率)|持仓盈亏(?!率)|浮动盈亏(?!率)|持有盈亏(?!率)"
 )
 _NON_NAME_PATTERN = re.compile(
     r"持有|持仓|份额|金额|市值|收益|盈亏|净值|成本|资产|代码|基金详情|交易记录|总计|合计"
@@ -477,6 +491,67 @@ def _candidate_money_amounts(line: str, *, allow_negative: bool) -> list[dict]:
     return results
 
 
+def _summary_row_values(line: str, *, allow_negative: bool) -> list[dict]:
+    """Parse a pure horizontal value row while preserving percentage slots."""
+    matches = list(_SUMMARY_VALUE_PATTERN.finditer(line))
+    if not matches:
+        return []
+    remainder_parts = []
+    cursor = 0
+    for match in matches:
+        remainder_parts.append(line[cursor : match.start()])
+        cursor = match.end()
+    remainder_parts.append(line[cursor:])
+    remainder = "".join(remainder_parts)
+    if re.sub(r"[\s|｜,，;/；]+", "", remainder):
+        return []
+
+    results = []
+    for match in matches:
+        raw = match.group(0).strip()
+        is_percentage = raw.endswith("%")
+        value = None
+        if not is_percentage:
+            value = parse_money_amount(raw, allow_negative=allow_negative)
+        results.append(
+            {
+                "raw": raw,
+                "value": value,
+                "is_percentage": is_percentage,
+            }
+        )
+    return results
+
+
+def _aligned_summary_money_candidate(
+    label_line: str,
+    label_match: re.Match,
+    value_line: str,
+    *,
+    allow_negative: bool,
+) -> dict | None:
+    """Match horizontal summary labels and values by their left-to-right slot."""
+    label_matches = list(_SUMMARY_LABEL_PATTERN.finditer(label_line))
+    values = _summary_row_values(value_line, allow_negative=allow_negative)
+    if len(label_matches) < 2 or len(label_matches) != len(values):
+        return None
+
+    target_index = next(
+        (
+            index
+            for index, match in enumerate(label_matches)
+            if match.span() == label_match.span()
+        ),
+        None,
+    )
+    if target_index is None:
+        return None
+    candidate = values[target_index]
+    if candidate["is_percentage"] or candidate["value"] is None:
+        return None
+    return candidate
+
+
 def _next_position_label_start(line: str, start: int) -> int:
     positions = [
         match.start()
@@ -516,24 +591,83 @@ def _best_labeled_money_candidate(
                 continue
 
             next_index = index + 1
-            if next_index >= block_end:
+            if next_index < block_end:
+                next_line = lines[next_index]
+                if not _line_has_position_value_label(next_line):
+                    next_candidates = _summary_row_values(
+                        next_line,
+                        allow_negative=allow_negative,
+                    )
+                    if (
+                        len(next_candidates) == 1
+                        and not next_candidates[0]["is_percentage"]
+                        and next_candidates[0]["value"] is not None
+                    ):
+                        score = 110 - abs(next_index - code_index) * 4
+                        ranked.append(
+                            (
+                                score,
+                                next_candidates[0]["value"],
+                                f"{line} | {next_line}",
+                            )
+                        )
+                    else:
+                        aligned = _aligned_summary_money_candidate(
+                            line,
+                            label_match,
+                            next_line,
+                            allow_negative=allow_negative,
+                        )
+                        if aligned is not None:
+                            score = 108 - abs(next_index - code_index) * 4
+                            ranked.append(
+                                (
+                                    score,
+                                    aligned["value"],
+                                    f"{line} | {next_line}",
+                                )
+                            )
+
+            previous_index = index - 1
+            if previous_index < block_start or previous_index == code_index:
                 continue
-            next_line = lines[next_index]
-            if _line_has_position_value_label(next_line):
+            previous_line = lines[previous_index]
+            if _line_has_position_value_label(previous_line):
                 continue
-            next_candidates = _candidate_money_amounts(
-                next_line,
+            previous_values = _summary_row_values(
+                previous_line,
                 allow_negative=allow_negative,
             )
-            if len(next_candidates) == 1:
-                score = 90 - abs(next_index - code_index) * 4
-                ranked.append(
-                    (
-                        score,
-                        next_candidates[0]["value"],
-                        f"{line} | {next_line}",
+            if len(previous_values) == 1:
+                previous_candidate = previous_values[0]
+                if (
+                    not previous_candidate["is_percentage"]
+                    and previous_candidate["value"] is not None
+                ):
+                    score = 80 - abs(previous_index - code_index) * 4
+                    ranked.append(
+                        (
+                            score,
+                            previous_candidate["value"],
+                            f"{previous_line} | {line}",
+                        )
                     )
+            else:
+                aligned = _aligned_summary_money_candidate(
+                    line,
+                    label_match,
+                    previous_line,
+                    allow_negative=allow_negative,
                 )
+                if aligned is not None:
+                    score = 78 - abs(previous_index - code_index) * 4
+                    ranked.append(
+                        (
+                            score,
+                            aligned["value"],
+                            f"{previous_line} | {line}",
+                        )
+                    )
     if not ranked:
         return None, ""
     ranked.sort(key=lambda row: row[0], reverse=True)

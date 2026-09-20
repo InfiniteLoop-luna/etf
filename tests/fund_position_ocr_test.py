@@ -49,6 +49,46 @@ def test_parse_share_amount_supports_grouping_and_chinese_units():
     assert parse_share_amount("0") is None
 
 
+def test_broker_summary_with_values_above_labels_derives_cost():
+    lines = [
+        {"text": "15:13 1 100", "confidence": 0.751},
+        {"text": "南方信息创新混合C 99", "confidence": 0.7421},
+        {"text": "007491", "confidence": 0.8076},
+        {"text": "产品详情》", "confidence": 0.7527},
+        {"text": "晒收益", "confidence": 0.6842},
+        {"text": "48,245.73", "confidence": 0.7985},
+        {"text": "金额(元）", "confidence": 0.6894},
+        {"text": "您已持有59天0", "confidence": 0.8002},
+        {"text": "0.00 2,121.69 +4.65%", "confidence": 0.7781},
+        {"text": "昨日收益 持仓收益 持仓收益率", "confidence": 0.736},
+        {"text": "在途资金 500.00元 可用份额 9,698.70份", "confidence": 0.7977},
+        {"text": "日涨幅 4.26% 最新净值 4.9229(09-18)", "confidence": 0.785},
+        {"text": "持仓成本价 4.7041 银行卡尾号 4906", "confidence": 0.7961},
+    ]
+
+    rows = parse_fund_position_text("", lines=lines)
+
+    assert len(rows) == 1
+    assert rows[0]["fund_code"] == "007491"
+    assert rows[0]["holding_shares"] == pytest.approx(9698.70)
+    assert rows[0]["snapshot_holding_amount"] == pytest.approx(48245.73)
+    assert rows[0]["snapshot_holding_profit"] == pytest.approx(2121.69)
+    assert rows[0]["holding_cost_amount"] == pytest.approx(46124.04)
+    assert rows[0]["holding_cost_source"] == "截图持有金额－累计持仓收益"
+
+
+def test_profit_rate_and_transaction_amount_are_not_position_money():
+    rows = parse_fund_position_text(
+        "南方信息创新混合C\n007491\n可用份额 9,698.70份\n"
+        "持仓收益率 +4.65%\n持仓盈亏率 +4.65%\n申购金额(元)\n1,000.00"
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["snapshot_holding_amount"] is None
+    assert rows[0]["snapshot_holding_profit"] is None
+    assert rows[0]["holding_cost_amount"] is None
+
+
 @pytest.mark.parametrize(
     "value",
     ["-100", "1,23", "12abc", "1.2.3", "inf", "1e309"],
