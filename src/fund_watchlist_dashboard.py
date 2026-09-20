@@ -17,6 +17,8 @@ CHANGE_LABELS = {
 SORT_FIELDS = {
     "盘中估算": "intraday_estimate_pct",
     "预计增减金额": "estimated_daily_amount",
+    "实际持仓金额": "actual_holding_amount",
+    "当前持仓收益": "current_holding_profit",
     "日涨跌幅": "daily_change_pct",
     "估值偏差": "estimate_deviation_pct",
     "Top10 集中度": "top10_ratio",
@@ -115,6 +117,9 @@ def build_fund_watchlist_item(
     previous_unit_nav = _optional_float(nav_snapshot.get("previous_unit_nav"))
     daily_change_pct = _optional_float(nav_snapshot.get("daily_change_pct"))
     holding_shares = _optional_float(watchlist_row.get("holding_shares"))
+    holding_cost_amount = _optional_float(
+        watchlist_row.get("holding_cost_amount")
+    )
     latest_closing_estimate_pct = _optional_float(
         estimate_snapshot.get("estimate_pct")
     )
@@ -187,6 +192,7 @@ def build_fund_watchlist_item(
         "previous_unit_nav": previous_unit_nav,
         "daily_change_pct": daily_change_pct,
         "holding_shares": holding_shares,
+        "holding_cost_amount": holding_cost_amount,
         "nav_source": str(nav_snapshot.get("source") or ""),
         "closing_estimate_date": estimate_date if dates_match else pd.NaT,
         "closing_estimate_pct": closing_estimate_pct,
@@ -288,6 +294,8 @@ def build_fund_watchlist_summary(
         if item.get("top10_ratio") is not None
     ]
     estimated_rows = []
+    actual_holding_rows = []
+    current_holding_profit_rows = []
     for item in items:
         amount = _optional_float(item.get("estimated_daily_amount"))
         estimate_date = _optional_timestamp(item.get("estimated_daily_amount_date"))
@@ -298,6 +306,20 @@ def build_fund_watchlist_summary(
             and (pd.isna(target_day) or estimate_day == target_day)
         ):
             estimated_rows.append((estimate_day, amount))
+        actual_holding_amount = _optional_float(item.get("actual_holding_amount"))
+        actual_holding_date = _optional_timestamp(
+            item.get("actual_holding_amount_date")
+        )
+        if actual_holding_amount is not None:
+            actual_holding_rows.append(
+                (actual_holding_date, actual_holding_amount)
+            )
+        current_holding_profit = _optional_float(item.get("current_holding_profit"))
+        holding_cost_amount = _optional_float(item.get("holding_cost_amount"))
+        if current_holding_profit is not None and holding_cost_amount is not None:
+            current_holding_profit_rows.append(
+                (current_holding_profit, holding_cost_amount)
+            )
     latest_amount_date = (
         max(row[0] for row in estimated_rows) if estimated_rows else pd.NaT
     )
@@ -324,6 +346,36 @@ def build_fund_watchlist_summary(
             1
             for item in items
             if (_optional_float(item.get("holding_shares")) or 0.0) > 0
+        ),
+        "actual_holding_amount": (
+            sum(row[1] for row in actual_holding_rows)
+            if actual_holding_rows
+            else None
+        ),
+        "actual_holding_amount_count": len(actual_holding_rows),
+        "actual_holding_amount_min_date": (
+            min(row[0] for row in actual_holding_rows if not pd.isna(row[0]))
+            if any(not pd.isna(row[0]) for row in actual_holding_rows)
+            else pd.NaT
+        ),
+        "actual_holding_amount_max_date": (
+            max(row[0] for row in actual_holding_rows if not pd.isna(row[0]))
+            if any(not pd.isna(row[0]) for row in actual_holding_rows)
+            else pd.NaT
+        ),
+        "current_holding_profit": (
+            sum(row[0] for row in current_holding_profit_rows)
+            if current_holding_profit_rows
+            else None
+        ),
+        "current_holding_profit_count": len(current_holding_profit_rows),
+        "current_holding_profit_pct": (
+            sum(row[0] for row in current_holding_profit_rows)
+            / sum(row[1] for row in current_holding_profit_rows)
+            * 100.0
+            if current_holding_profit_rows
+            and sum(row[1] for row in current_holding_profit_rows) > 0
+            else None
         ),
     }
 
@@ -447,6 +499,64 @@ def attach_estimated_daily_amount(
     return enriched
 
 
+def attach_current_position_metrics(item: dict) -> dict:
+    """Attach current position value and cumulative profit fields.
+
+    The word "actual" is intentionally reserved for the latest NAV published
+    by the fund company.  Intraday and 15:00 estimates remain separate in the
+    daily-estimate fields and are never folded into cumulative profit.
+    Cumulative profit requires an explicit total position cost; screenshots
+    may infer that cost, but snapshot amounts themselves are never persisted as
+    live values.
+    """
+    enriched = dict(item)
+    shares = _optional_float(item.get("holding_shares"))
+    cost_amount = _optional_float(item.get("holding_cost_amount"))
+    confirmed_nav = _optional_float(item.get("unit_nav"))
+    confirmed_date = _optional_timestamp(item.get("nav_date"))
+    effective_nav = confirmed_nav if confirmed_nav is not None and confirmed_nav > 0 else None
+    effective_date = confirmed_date if effective_nav is not None else pd.NaT
+    effective_source = "最新确认净值" if effective_nav is not None else ""
+
+    actual_holding_amount = (
+        shares * effective_nav
+        if shares is not None
+        and shares > 0
+        and effective_nav is not None
+        and effective_nav > 0
+        else None
+    )
+    current_holding_profit = (
+        actual_holding_amount - cost_amount
+        if actual_holding_amount is not None
+        and cost_amount is not None
+        and cost_amount > 0
+        else None
+    )
+    current_holding_profit_pct = (
+        current_holding_profit / cost_amount * 100.0
+        if current_holding_profit is not None
+        and cost_amount is not None
+        and cost_amount > 0
+        else None
+    )
+    enriched.update(
+        {
+            "actual_holding_amount": actual_holding_amount,
+            "actual_holding_amount_nav": effective_nav,
+            "actual_holding_amount_date": (
+                effective_date if actual_holding_amount is not None else pd.NaT
+            ),
+            "actual_holding_amount_source": (
+                effective_source if actual_holding_amount is not None else ""
+            ),
+            "current_holding_profit": current_holding_profit,
+            "current_holding_profit_pct": current_holding_profit_pct,
+        }
+    )
+    return enriched
+
+
 def sort_fund_watchlist_items(items: Iterable[dict], sort_label: str) -> list[dict]:
     field = SORT_FIELDS.get(sort_label, "top10_ratio")
 
@@ -476,6 +586,16 @@ def build_fund_watchlist_table(items: Iterable[dict]) -> pd.DataFrame:
                 ),
                 "前一日净值": item.get("unit_nav"),
                 "持有份额": item.get("holding_shares"),
+                "持仓成本金额(元)": item.get("holding_cost_amount"),
+                "实际持仓金额(元)": item.get("actual_holding_amount"),
+                "当前持仓收益(元)": item.get("current_holding_profit"),
+                "当前持仓收益率(%)": item.get("current_holding_profit_pct"),
+                "持仓金额日期": (
+                    item["actual_holding_amount_date"].strftime("%Y-%m-%d")
+                    if not pd.isna(item.get("actual_holding_amount_date"))
+                    else "-"
+                ),
+                "持仓金额口径": item.get("actual_holding_amount_source") or "-",
                 "预计增减金额(元)": item.get("estimated_daily_amount"),
                 "金额估值日期": (
                     item["estimated_daily_amount_date"].strftime("%Y-%m-%d")

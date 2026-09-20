@@ -60,6 +60,7 @@ class UserWatchlistStoreTests(unittest.TestCase):
         self.assertEqual(fund_df.iloc[0]["ts_code"], "005827.OF")
         self.assertEqual(fund_df.iloc[0]["security_type"], "fund")
         self.assertTrue(fund_df.iloc[0]["holding_shares"] is None)
+        self.assertTrue(fund_df.iloc[0]["holding_cost_amount"] is None)
 
     def test_schema_migration_and_upsert_persist_fund_holding_shares(self):
         ensure_user_watchlist_table(self.engine)
@@ -70,11 +71,15 @@ class UserWatchlistStoreTests(unittest.TestCase):
             security_name="易方达蓝筹精选",
             security_type="fund",
             holding_shares=12345.6789,
+            holding_cost_amount=20000.25,
             engine=self.engine,
         )
         fund_df = list_watchlist_items("alice", engine=self.engine, security_type="fund")
 
         self.assertAlmostEqual(float(fund_df.iloc[0]["holding_shares"]), 12345.6789)
+        self.assertAlmostEqual(
+            float(fund_df.iloc[0]["holding_cost_amount"]), 20000.25
+        )
 
         # Adding from another existing entry point must not erase a saved
         # personal position when no new share value was supplied.
@@ -87,6 +92,9 @@ class UserWatchlistStoreTests(unittest.TestCase):
         )
         retained = list_watchlist_items("alice", engine=self.engine, security_type="fund")
         self.assertAlmostEqual(float(retained.iloc[0]["holding_shares"]), 12345.6789)
+        self.assertAlmostEqual(
+            float(retained.iloc[0]["holding_cost_amount"]), 20000.25
+        )
 
     def test_add_watchlist_item_rejects_non_positive_holding_shares(self):
         ensure_user_watchlist_table(self.engine)
@@ -112,6 +120,20 @@ class UserWatchlistStoreTests(unittest.TestCase):
                         engine=self.engine,
                     )
 
+    def test_add_watchlist_item_rejects_invalid_holding_cost_amount(self):
+        ensure_user_watchlist_table(self.engine)
+        for invalid_value in [0, -1, float("inf"), float("nan")]:
+            with self.subTest(invalid_value=invalid_value):
+                with self.assertRaisesRegex(ValueError, "holding_cost_amount"):
+                    add_watchlist_item(
+                        "alice",
+                        "001938.OF",
+                        security_type="fund",
+                        holding_shares=1000,
+                        holding_cost_amount=invalid_value,
+                        engine=self.engine,
+                    )
+
     def test_clear_holding_shares_keeps_fund_in_watchlist(self):
         ensure_user_watchlist_table(self.engine)
         add_watchlist_item(
@@ -119,6 +141,7 @@ class UserWatchlistStoreTests(unittest.TestCase):
             "005827.OF",
             security_type="fund",
             holding_shares=12345.67,
+            holding_cost_amount=20000,
             engine=self.engine,
         )
         add_watchlist_item(
@@ -132,6 +155,29 @@ class UserWatchlistStoreTests(unittest.TestCase):
         fund_df = list_watchlist_items("alice", engine=self.engine, security_type="fund")
         self.assertEqual(len(fund_df), 1)
         self.assertTrue(pd.isna(fund_df.iloc[0]["holding_shares"]))
+        self.assertTrue(pd.isna(fund_df.iloc[0]["holding_cost_amount"]))
+
+    def test_clear_only_holding_cost_preserves_shares(self):
+        ensure_user_watchlist_table(self.engine)
+        add_watchlist_item(
+            "alice",
+            "005827.OF",
+            security_type="fund",
+            holding_shares=12345.67,
+            holding_cost_amount=20000,
+            engine=self.engine,
+        )
+        add_watchlist_item(
+            "alice",
+            "005827.OF",
+            security_type="fund",
+            clear_holding_cost_amount=True,
+            engine=self.engine,
+        )
+
+        fund_df = list_watchlist_items("alice", engine=self.engine, security_type="fund")
+        self.assertAlmostEqual(float(fund_df.iloc[0]["holding_shares"]), 12345.67)
+        self.assertTrue(pd.isna(fund_df.iloc[0]["holding_cost_amount"]))
 
     def test_batch_upsert_is_atomic(self):
         ensure_user_watchlist_table(self.engine)
@@ -157,11 +203,13 @@ class UserWatchlistStoreTests(unittest.TestCase):
                         "ts_code": "001938.OF",
                         "security_type": "fund",
                         "holding_shares": 1000,
+                        "holding_cost_amount": 1800,
                     },
                     {
                         "ts_code": "999999.OF",
                         "security_type": "fund",
                         "holding_shares": 2000,
+                        "holding_cost_amount": 3600,
                     },
                 ],
                 engine=self.engine,

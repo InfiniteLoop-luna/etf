@@ -15,6 +15,7 @@ from src.fund_nav import (
     normalize_fund_code_for_nav,
 )
 from src.fund_watchlist_dashboard import (
+    attach_current_position_metrics,
     attach_estimated_daily_amount,
     build_fund_holding_industry_heatmap_frame,
     build_fund_watchlist_item,
@@ -31,6 +32,7 @@ def _watchlist_row():
             "ts_code": "001938.OF",
             "security_name": "中欧时代先锋",
             "holding_shares": 10000,
+            "holding_cost_amount": 20000,
             "created_at": "2026-06-20",
         }
     )
@@ -122,6 +124,7 @@ def test_build_item_normalizes_existing_fund_and_holding_data():
     assert item["unit_nav"] == 2.1604
     assert item["daily_change_pct"] == -0.53
     assert item["holding_shares"] == 10000
+    assert item["holding_cost_amount"] == 20000
     assert item["holdings"][0]["stock_name"] == "宁德时代"
     assert item["holdings"][0]["industry"] == "电池"
     assert item["holdings"][0]["market"] == "创业板"
@@ -421,23 +424,120 @@ def test_attach_estimated_daily_amount_aligns_estimate_and_nav_dates():
     assert prior_day_snapshot["estimated_daily_amount_source"] == ""
 
 
-def test_summary_and_table_include_personal_position_estimate():
-    item = attach_estimated_daily_amount(
+def test_current_position_metrics_use_confirmed_nav_not_intraday_estimate():
+    item = attach_current_position_metrics(
         {
-            **build_fund_watchlist_item(
-                _watchlist_row(),
-                _meta_df(),
-                _holding_df(),
-                nav_snapshot={
-                    "nav_date": "2026-07-15",
-                    "unit_nav": 2.1604,
-                    "previous_nav_date": "2026-07-14",
-                    "previous_unit_nav": 2.1720,
-                },
-            ),
-            "intraday_estimate_pct": 0.62,
-        },
-        intraday_date="2026-07-16",
+            "holding_shares": 10000,
+            "holding_cost_amount": 20000,
+            "unit_nav": 2.1604,
+            "nav_date": pd.Timestamp("2026-07-15"),
+            "estimated_unit_nav": 2.25,
+            "estimated_daily_amount_date": pd.Timestamp("2026-07-16"),
+            "estimated_daily_amount_source": "盘中估算",
+        }
+    )
+
+    assert item["actual_holding_amount"] == pytest.approx(21604)
+    assert item["actual_holding_amount_nav"] == pytest.approx(2.1604)
+    assert item["actual_holding_amount_date"] == pd.Timestamp("2026-07-15")
+    assert item["actual_holding_amount_source"] == "最新确认净值"
+    assert item["current_holding_profit"] == pytest.approx(1604)
+    assert item["current_holding_profit_pct"] == pytest.approx(8.02)
+
+
+def test_current_position_metrics_keep_value_when_cost_is_missing():
+    item = attach_current_position_metrics(
+        {
+            "holding_shares": 10000,
+            "holding_cost_amount": None,
+            "unit_nav": 2.1604,
+            "nav_date": pd.Timestamp("2026-07-15"),
+        }
+    )
+
+    assert item["actual_holding_amount"] == pytest.approx(21604)
+    assert item["current_holding_profit"] is None
+    assert item["current_holding_profit_pct"] is None
+
+
+def test_current_position_metrics_support_negative_profit():
+    item = attach_current_position_metrics(
+        {
+            "holding_shares": 10000,
+            "holding_cost_amount": 25000,
+            "unit_nav": 2.1604,
+            "nav_date": pd.Timestamp("2026-07-15"),
+        }
+    )
+
+    assert item["actual_holding_amount"] == pytest.approx(21604)
+    assert item["current_holding_profit"] == pytest.approx(-3396)
+    assert item["current_holding_profit_pct"] == pytest.approx(-13.584)
+
+
+def test_summary_uses_cost_weighted_return_and_reports_partial_coverage():
+    first = attach_current_position_metrics(
+        {
+            "holding_shares": 10000,
+            "holding_cost_amount": 20000,
+            "unit_nav": 2.1604,
+            "nav_date": pd.Timestamp("2026-07-15"),
+            "latest_end_date": pd.NaT,
+            "top10_ratio": None,
+        }
+    )
+    second = attach_current_position_metrics(
+        {
+            "holding_shares": 5000,
+            "holding_cost_amount": 12000,
+            "unit_nav": 2.0,
+            "nav_date": pd.Timestamp("2026-07-14"),
+            "latest_end_date": pd.NaT,
+            "top10_ratio": None,
+        }
+    )
+    third = attach_current_position_metrics(
+        {
+            "holding_shares": 1000,
+            "holding_cost_amount": None,
+            "unit_nav": 1.5,
+            "nav_date": pd.Timestamp("2026-07-13"),
+            "latest_end_date": pd.NaT,
+            "top10_ratio": None,
+        }
+    )
+
+    summary = build_fund_watchlist_summary([first, second, third])
+
+    assert summary["position_count"] == 3
+    assert summary["actual_holding_amount"] == pytest.approx(33104)
+    assert summary["actual_holding_amount_count"] == 3
+    assert summary["actual_holding_amount_min_date"] == pd.Timestamp("2026-07-13")
+    assert summary["actual_holding_amount_max_date"] == pd.Timestamp("2026-07-15")
+    assert summary["current_holding_profit"] == pytest.approx(-396)
+    assert summary["current_holding_profit_count"] == 2
+    assert summary["current_holding_profit_pct"] == pytest.approx(-1.2375)
+
+
+def test_summary_and_table_include_personal_position_estimate():
+    item = attach_current_position_metrics(
+        attach_estimated_daily_amount(
+            {
+                **build_fund_watchlist_item(
+                    _watchlist_row(),
+                    _meta_df(),
+                    _holding_df(),
+                    nav_snapshot={
+                        "nav_date": "2026-07-15",
+                        "unit_nav": 2.1604,
+                        "previous_nav_date": "2026-07-14",
+                        "previous_unit_nav": 2.1720,
+                    },
+                ),
+                "intraday_estimate_pct": 0.62,
+            },
+            intraday_date="2026-07-16",
+        )
     )
 
     summary = build_fund_watchlist_summary([item])
@@ -445,7 +545,13 @@ def test_summary_and_table_include_personal_position_estimate():
 
     assert summary["estimated_daily_amount"] == pytest.approx(133.9448)
     assert summary["estimated_daily_amount_count"] == 1
+    assert summary["actual_holding_amount"] == pytest.approx(21604)
+    assert summary["current_holding_profit"] == pytest.approx(1604)
+    assert summary["current_holding_profit_pct"] == pytest.approx(8.02)
     assert table.iloc[0]["持有份额"] == 10000
+    assert table.iloc[0]["持仓成本金额(元)"] == 20000
+    assert table.iloc[0]["实际持仓金额(元)"] == pytest.approx(21604)
+    assert table.iloc[0]["当前持仓收益(元)"] == pytest.approx(1604)
     assert table.iloc[0]["预计增减金额(元)"] == pytest.approx(133.9448)
     assert table.iloc[0]["金额估值日期"] == "2026-07-16"
 

@@ -36,7 +36,7 @@ def test_fund_watchlist_dashboard_exposes_view_sort_focus_and_batch_controls():
     assert "sort_fund_watchlist_items" in APP_SOURCE
     assert "build_fund_watchlist_table" in APP_SOURCE
     assert '["看板", "表格", "对比矩阵"]' in APP_SOURCE
-    assert '["盘中估算", "预计增减金额", "日涨跌幅", "估值偏差", "Top10 集中度", "基金规模", "持仓市值", "披露日期"]' in APP_SOURCE
+    assert '["盘中估算", "预计增减金额", "实际持仓金额", "当前持仓收益", "日涨跌幅", "估值偏差", "Top10 集中度", "基金规模", "持仓市值", "披露日期"]' in APP_SOURCE
     assert "render_fund_watchlist_focus_detail" in APP_SOURCE
     assert "fund_watchlist_batch_mode" in APP_SOURCE
     assert "remove_watchlist_items_batch(current_username, pending_items)" in APP_SOURCE
@@ -44,7 +44,7 @@ def test_fund_watchlist_dashboard_exposes_view_sort_focus_and_batch_controls():
 
 def test_fund_watchlist_page_owns_the_add_and_manage_flow():
     assert "render_fund_watchlist_add_panel" in APP_SOURCE
-    assert "查看持仓不再是添加自选的前置步骤" in APP_SOURCE
+    assert "同步保存份额与当前剩余持仓成本" in APP_SOURCE
     assert "请从上方搜索并添加第一只基金" in APP_SOURCE
     assert "fund_watchlist_add_search_form" in APP_SOURCE
     assert 'security_type="fund"' in APP_SOURCE
@@ -150,7 +150,10 @@ def test_fund_watchlist_accepts_manual_positions_and_reviewed_screenshot_ocr():
         assert text in APP_SOURCE
     assert 'str(parsed.get("confidence") or "低") != "低"' in APP_SOURCE
     assert "add_watchlist_items_batch" in APP_SOURCE
-    assert "清空持有份额" in APP_SOURCE
+    assert "清空持仓信息" in APP_SOURCE
+    assert "holding_cost_amount" in APP_SOURCE
+    assert "截图持有金额(元)" in APP_SOURCE
+    assert "截图持仓收益(元)" in APP_SOURCE
 
 
 def test_fund_watchlist_displays_daily_estimated_position_amount_everywhere():
@@ -159,3 +162,13 @@ def test_fund_watchlist_displays_daily_estimated_position_amount_everywhere():
     assert "预计增减金额(元)" in APP_SOURCE
     assert "持有份额 × 对应估值基准单位净值 × 估值涨跌幅" in APP_SOURCE
     assert "正数为预计增加、负数为预计减少" in APP_SOURCE
+
+
+def test_fund_watchlist_displays_confirmed_position_value_and_profit():
+    assert "attach_current_position_metrics" in APP_SOURCE
+    assert APP_SOURCE.count("实际持仓金额") >= 5
+    assert APP_SOURCE.count("当前持仓收益") >= 5
+    assert "持仓成本金额(元)" in APP_SOURCE
+    assert "实际持仓金额 = 持有份额 × 基金公司最新已公布单位净值" in APP_SOURCE
+    assert "当前持仓收益 = 实际持仓金额 − 当前剩余持仓成本" in APP_SOURCE
+    assert "盘中估值不会冒充实际收益" in APP_SOURCE

@@ -19,6 +19,7 @@ EMPTY_WATCHLIST_COLUMNS = [
     "security_type",
     "security_name",
     "holding_shares",
+    "holding_cost_amount",
     "created_at",
     "updated_at",
 ]
@@ -41,6 +42,7 @@ def ensure_user_watchlist_table(engine: Engine) -> None:
         security_type VARCHAR(20) NOT NULL DEFAULT '{DEFAULT_SECURITY_TYPE}',
         security_name VARCHAR(120),
         holding_shares NUMERIC(24, 6),
+        holding_cost_amount NUMERIC(24, 6),
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (username, ts_code, security_type)
@@ -58,21 +60,28 @@ def ensure_user_watchlist_table(engine: Engine) -> None:
     # deployment step.  A fresh inspector is used after a possible concurrent
     # migration because SQLAlchemy inspectors cache schema metadata.
     column_names = {column["name"] for column in inspect(engine).get_columns(TABLE_NAME)}
-    if "holding_shares" not in column_names:
+    required_columns = {
+        "holding_shares": "NUMERIC(24, 6)",
+        "holding_cost_amount": "NUMERIC(24, 6)",
+    }
+    for column_name, column_type in required_columns.items():
+        if column_name in column_names:
+            continue
         try:
             with engine.begin() as conn:
                 conn.execute(
                     text(
                         f"ALTER TABLE {TABLE_NAME} "
-                        "ADD COLUMN holding_shares NUMERIC(24, 6)"
+                        f"ADD COLUMN {column_name} {column_type}"
                     )
                 )
         except Exception:
             refreshed_names = {
                 column["name"] for column in inspect(engine).get_columns(TABLE_NAME)
             }
-            if "holding_shares" not in refreshed_names:
+            if column_name not in refreshed_names:
                 raise
+        column_names.add(column_name)
 
 
 def list_watchlist_items(
@@ -96,6 +105,11 @@ def list_watchlist_items(
     holding_shares_select = (
         "holding_shares" if "holding_shares" in column_names else "NULL AS holding_shares"
     )
+    holding_cost_amount_select = (
+        "holding_cost_amount"
+        if "holding_cost_amount" in column_names
+        else "NULL AS holding_cost_amount"
+    )
 
     where_clauses = ["username = :username"]
     params = {"username": normalized_username}
@@ -110,6 +124,7 @@ def list_watchlist_items(
         security_type,
         COALESCE(NULLIF(security_name, ''), ts_code) AS security_name,
         {holding_shares_select},
+        {holding_cost_amount_select},
         created_at,
         updated_at
     FROM {TABLE_NAME}
@@ -170,6 +185,22 @@ def _normalize_holding_shares(value) -> float | None:
     return normalized_value
 
 
+def _normalize_holding_cost_amount(value) -> float | None:
+    if value is None:
+        return None
+    numeric_value = pd.to_numeric(value, errors="coerce")
+    if pd.isna(numeric_value):
+        raise ValueError("holding_cost_amount 必须是有效数字")
+    normalized_value = float(numeric_value)
+    if (
+        not math.isfinite(normalized_value)
+        or normalized_value <= 0
+        or normalized_value >= MAX_HOLDING_SHARES
+    ):
+        raise ValueError("holding_cost_amount 必须是大于 0 的有限有效数字")
+    return normalized_value
+
+
 def add_watchlist_items_batch(
     username: str,
     items: list[dict],
@@ -196,10 +227,18 @@ def add_watchlist_items_batch(
         )
         normalized_name = str(item.get("security_name") or "").strip()
         clear_holding_shares = bool(item.get("clear_holding_shares", False))
+        clear_holding_cost_amount = bool(
+            item.get("clear_holding_cost_amount", False)
+        ) or clear_holding_shares
         normalized_holding_shares = (
             None
             if clear_holding_shares
             else _normalize_holding_shares(item.get("holding_shares"))
+        )
+        normalized_holding_cost_amount = (
+            None
+            if clear_holding_cost_amount
+            else _normalize_holding_cost_amount(item.get("holding_cost_amount"))
         )
         if not normalized_code:
             raise ValueError("ts_code 不能为空")
@@ -210,7 +249,9 @@ def add_watchlist_items_batch(
                 "security_type": normalized_type,
                 "security_name": normalized_name,
                 "holding_shares": normalized_holding_shares,
+                "holding_cost_amount": normalized_holding_cost_amount,
                 "clear_holding_shares": clear_holding_shares,
+                "clear_holding_cost_amount": clear_holding_cost_amount,
             }
         )
 
@@ -223,6 +264,7 @@ def add_watchlist_items_batch(
         security_type,
         security_name,
         holding_shares,
+        holding_cost_amount,
         created_at,
         updated_at
     )
@@ -232,6 +274,7 @@ def add_watchlist_items_batch(
         :security_type,
         :security_name,
         :holding_shares,
+        :holding_cost_amount,
         CURRENT_TIMESTAMP,
         CURRENT_TIMESTAMP
     )
@@ -241,6 +284,10 @@ def add_watchlist_items_batch(
         holding_shares = CASE
             WHEN :clear_holding_shares THEN NULL
             ELSE COALESCE(EXCLUDED.holding_shares, {TABLE_NAME}.holding_shares)
+        END,
+        holding_cost_amount = CASE
+            WHEN :clear_holding_cost_amount THEN NULL
+            ELSE COALESCE(EXCLUDED.holding_cost_amount, {TABLE_NAME}.holding_cost_amount)
         END,
         updated_at = CURRENT_TIMESTAMP
     """
@@ -256,7 +303,9 @@ def add_watchlist_item(
     security_type: str = DEFAULT_SECURITY_TYPE,
     engine: Engine | None = None,
     holding_shares: float | None = None,
+    holding_cost_amount: float | None = None,
     clear_holding_shares: bool = False,
+    clear_holding_cost_amount: bool = False,
 ) -> None:
     add_watchlist_items_batch(
         username,
@@ -266,7 +315,9 @@ def add_watchlist_item(
                 "security_type": security_type,
                 "security_name": security_name,
                 "holding_shares": holding_shares,
+                "holding_cost_amount": holding_cost_amount,
                 "clear_holding_shares": clear_holding_shares,
+                "clear_holding_cost_amount": clear_holding_cost_amount,
             }
         ],
         engine=engine,

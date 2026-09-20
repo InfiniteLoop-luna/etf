@@ -12,6 +12,7 @@ from src.fund_position_ocr import (
     choose_unique_fund_match,
     extract_fund_position_text,
     parse_fund_position_text,
+    parse_money_amount,
     parse_share_amount,
 )
 
@@ -35,6 +36,15 @@ def test_parse_share_amount_supports_grouping_and_chinese_units():
 )
 def test_parse_share_amount_rejects_partial_or_non_finite_input(value):
     assert parse_share_amount(value) is None
+
+
+def test_parse_money_amount_supports_signed_currency_and_units():
+    assert parse_money_amount("￥12,345.67元") == pytest.approx(12345.67)
+    assert parse_money_amount("1.2万") == pytest.approx(12000)
+    assert parse_money_amount("-800.50元", allow_negative=True) == pytest.approx(-800.5)
+    assert parse_money_amount("0元", allow_negative=True) == 0
+    assert parse_money_amount("-800.50元") is None
+    assert parse_money_amount("8.2%", allow_negative=True) is None
 
 
 def test_parse_multiple_fund_positions_across_visual_lines():
@@ -64,6 +74,57 @@ def test_parser_prefers_share_label_over_money_and_nav_values():
 
     assert len(rows) == 1
     assert rows[0]["holding_shares"] == pytest.approx(12000.50)
+
+
+def test_parser_scopes_share_and_money_labels_and_infers_cost():
+    rows = parse_fund_position_text(
+        "中欧时代先锋\n001938\n"
+        "持有份额 10000 持有金额 25,888.00元\n"
+        "累计收益 -1,200.50元"
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["holding_shares"] == pytest.approx(10000)
+    assert rows[0]["snapshot_holding_amount"] == pytest.approx(25888)
+    assert rows[0]["snapshot_holding_profit"] == pytest.approx(-1200.5)
+    assert rows[0]["holding_cost_amount"] == pytest.approx(27088.5)
+    assert rows[0]["holding_cost_source"] == "截图持有金额－累计持仓收益"
+
+
+def test_six_digit_money_on_next_line_is_not_parsed_as_fund_code():
+    rows = parse_fund_position_text(
+        "中欧时代先锋\n001938\n持有份额\n10000\n"
+        "持有金额\n123456\n累计收益\n2345"
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["fund_code"] == "001938"
+    assert rows[0]["snapshot_holding_amount"] == pytest.approx(123456)
+    assert rows[0]["snapshot_holding_profit"] == pytest.approx(2345)
+    assert rows[0]["holding_cost_amount"] == pytest.approx(121111)
+
+
+def test_parser_ignores_today_profit_and_cost_nav_as_total_cost():
+    rows = parse_fund_position_text(
+        "中欧时代先锋\n001938\n持有份额 10000份\n"
+        "持有金额 25,888元\n今日收益 88元\n成本价 2.40"
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["snapshot_holding_amount"] == pytest.approx(25888)
+    assert rows[0]["snapshot_holding_profit"] is None
+    assert rows[0]["holding_cost_amount"] is None
+
+
+def test_explicit_cost_conflict_requires_manual_review():
+    rows = parse_fund_position_text(
+        "中欧时代先锋\n001938\n持有份额 10000份\n"
+        "持有金额 25,888元\n累计收益 1,000元\n总成本 20,000元"
+    )
+
+    assert rows[0]["holding_cost_amount"] == pytest.approx(20000)
+    assert "不一致" in rows[0]["holding_cost_warning"]
+    assert "不一致" in rows[0]["warning"]
 
 
 @pytest.mark.parametrize(

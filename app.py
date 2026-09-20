@@ -167,6 +167,7 @@ from src.factor_workbench import (
     load_factor_workbench_frame,
 )
 from src.fund_watchlist_dashboard import (
+    attach_current_position_metrics,
     attach_estimated_daily_amount,
     attach_latest_closing_estimate,
     build_fund_holding_industry_heatmap_frame,
@@ -180,6 +181,7 @@ from src.fund_position_ocr import (
     choose_unique_fund_match,
     extract_fund_position_text,
     parse_fund_position_text,
+    parse_money_amount,
     parse_share_amount,
 )
 from src.fund_watchlist_comparison_ui import render_fund_watchlist_comparison
@@ -1522,7 +1524,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     position:relative;
     z-index:1;
     display:grid;
-    grid-template-columns:repeat(5,minmax(0,1fr));
+    grid-template-columns:repeat(4,minmax(0,1fr));
     gap:.72rem;
 }
 .ws-fund-watchboard__metric {
@@ -1613,7 +1615,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     gap:.72rem;
 }
 .ws-fund-watchboard__card {
-    min-height:620px;
+    min-height:720px;
     padding:.72rem;
     border:1px solid var(--fw-line-soft);
     border-radius:10px;
@@ -2069,12 +2071,12 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 }
 .st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] {
     position:relative;
-    min-height:620px;
+    min-height:720px;
 }
 .st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] [data-testid="stHtml"] {
     position:relative;
     z-index:1;
-    margin-bottom:-620px;
+    margin-bottom:-720px;
     pointer-events:none;
 }
 .st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] [data-testid="stButton"] {
@@ -2084,8 +2086,8 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 }
 .st-key-fund_watchlist_card_grid div[class*="st-key-fund_watchlist_card_wrap_"] [data-testid="stButton"] > button {
     width:100%;
-    height:620px;
-    min-height:620px;
+    height:720px;
+    min-height:720px;
     padding:0;
     border:0 !important;
     background:transparent !important;
@@ -19118,6 +19120,13 @@ def load_fund_watchlist_dashboard_data_session_cached(
             None
             if pd.isna(pd.to_numeric(row.get("holding_shares"), errors="coerce"))
             else float(pd.to_numeric(row.get("holding_shares"), errors="coerce")),
+            None
+            if pd.isna(
+                pd.to_numeric(row.get("holding_cost_amount"), errors="coerce")
+            )
+            else float(
+                pd.to_numeric(row.get("holding_cost_amount"), errors="coerce")
+            ),
             str(row.get("updated_at") or ""),
         )
         for _, row in watchlist_df.iterrows()
@@ -19269,6 +19278,24 @@ def render_fund_watchlist_summary(summary: dict) -> None:
     )
     calculated_count = int(summary.get("estimated_daily_amount_count", 0))
     position_count = int(summary.get("position_count", 0))
+    actual_holding_amount = summary.get("actual_holding_amount")
+    actual_holding_amount_label = _fund_watchlist_money_label(actual_holding_amount)
+    actual_count = int(summary.get("actual_holding_amount_count", 0))
+    actual_min_date = summary.get("actual_holding_amount_min_date")
+    actual_max_date = summary.get("actual_holding_amount_max_date")
+    actual_min_date_label = _fund_watchlist_date_label(actual_min_date)
+    actual_max_date_label = _fund_watchlist_date_label(actual_max_date)
+    actual_date_label = (
+        actual_max_date_label
+        if actual_min_date_label == actual_max_date_label
+        else f"{actual_min_date_label} 至 {actual_max_date_label}"
+    )
+    current_profit = summary.get("current_holding_profit")
+    current_profit_label = _fund_watchlist_money_label(current_profit)
+    current_profit_tone = _fund_watchlist_intraday_tone(current_profit).strip()
+    current_profit_pct = summary.get("current_holding_profit_pct")
+    current_profit_pct_label = _fund_watchlist_signed_pct_label(current_profit_pct)
+    profit_count = int(summary.get("current_holding_profit_count", 0))
     st.html(
         f"""
         <section class="ws-fund-watchboard" aria-label="自选基金组合总览">
@@ -19296,6 +19323,16 @@ def render_fund_watchlist_summary(summary: dict) -> None:
                     <label>持仓变动</label>
                     <strong>+{positive_count} / -{decrease_count}</strong>
                     <span>新进与增持 / 减持</span>
+                </div>
+                <div class="ws-fund-watchboard__metric">
+                    <label>实际持仓总金额</label>
+                    <strong>{actual_holding_amount_label}</strong>
+                    <span>{actual_date_label} · 已计算 {actual_count}/{position_count} 只</span>
+                </div>
+                <div class="ws-fund-watchboard__metric {current_profit_tone}">
+                    <label>当前持仓总收益</label>
+                    <strong>{current_profit_label}</strong>
+                    <span>{current_profit_pct_label} · 已计算 {profit_count}/{position_count} 只</span>
                 </div>
                 <div class="ws-fund-watchboard__metric {estimated_amount_tone}">
                     <label>每日预增金额</label>
@@ -19377,6 +19414,25 @@ def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
     holding_shares_label = _fund_watchlist_number_label(
         item.get("holding_shares"), "份", digits=2
     )
+    holding_cost_label = _fund_watchlist_money_label(item.get("holding_cost_amount"))
+    actual_holding_amount = item.get("actual_holding_amount")
+    actual_holding_amount_label = _fund_watchlist_money_label(actual_holding_amount)
+    actual_holding_amount_date_label = _fund_watchlist_date_label(
+        item.get("actual_holding_amount_date")
+    )
+    actual_holding_amount_source = _fund_watchlist_text(
+        item.get("actual_holding_amount_source"), "等待确认净值"
+    )
+    current_holding_profit = item.get("current_holding_profit")
+    current_holding_profit_label = _fund_watchlist_money_label(
+        current_holding_profit
+    )
+    current_holding_profit_pct_label = _fund_watchlist_signed_pct_label(
+        item.get("current_holding_profit_pct")
+    )
+    current_holding_profit_tone = _fund_watchlist_intraday_tone(
+        current_holding_profit
+    ).strip()
     estimated_amount = item.get("estimated_daily_amount")
     estimated_amount_label = _fund_watchlist_money_label(estimated_amount)
     estimated_amount_tone = _fund_watchlist_intraday_tone(estimated_amount).strip()
@@ -19483,11 +19539,14 @@ def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
             <div><label>基金规模</label><strong>{issue_label}</strong></div>
             <div><label>前十大持仓市值</label><strong>{holding_value_label}</strong></div>
             <div><label>我的持有份额</label><strong>{holding_shares_label}</strong></div>
+            <div><label>当前剩余持仓成本</label><strong>{holding_cost_label}</strong></div>
+            <div><label>实际持仓金额</label><strong>{actual_holding_amount_label}</strong></div>
+            <div class="{current_holding_profit_tone}"><label>当前持仓收益</label><strong>{current_holding_profit_label} · {current_holding_profit_pct_label}</strong></div>
             <div class="{estimated_amount_tone}"><label>每日预增金额</label><strong>{estimated_amount_label}</strong></div>
         </div>
         <div class="ws-fund-watchboard__date">
-            <span>{estimated_amount_source}</span>
-            <span>估值日 {estimated_amount_date_label}</span>
+            <span>实际金额：{actual_holding_amount_source} · {actual_holding_amount_date_label}</span>
+            <span>每日估值：{estimated_amount_source} · {estimated_amount_date_label}</span>
         </div>
         <div class="ws-fund-watchboard__changes">
             <div class="is-positive"><label>新进</label><strong>{int(item.get("new_count", 0))}</strong></div>
@@ -19691,6 +19750,8 @@ def render_fund_watchlist_table(items: list[dict], *, focus_code: str) -> str:
                 "估值偏差(百分点)",
                 "盘中估算(%)",
                 "预计增减金额(元)",
+                "当前持仓收益(元)",
+                "当前持仓收益率(%)",
             ],
         )
         st.dataframe(
@@ -19700,6 +19761,10 @@ def render_fund_watchlist_table(items: list[dict], *, focus_code: str) -> str:
             column_config={
                 "前一日净值": st.column_config.NumberColumn(format="%.4f"),
                 "持有份额": st.column_config.NumberColumn(format="%.2f"),
+                "持仓成本金额(元)": st.column_config.NumberColumn(format="%.2f"),
+                "实际持仓金额(元)": st.column_config.NumberColumn(format="%.2f"),
+                "当前持仓收益(元)": st.column_config.NumberColumn(format="%+.2f"),
+                "当前持仓收益率(%)": st.column_config.NumberColumn(format="%+.2f%%"),
                 "预计增减金额(元)": st.column_config.NumberColumn(format="%+.2f"),
                 "日涨跌幅(%)": st.column_config.NumberColumn(format="%+.2f%%"),
                 "15:00估值(%)": st.column_config.NumberColumn(format="%+.2f%%"),
@@ -19817,6 +19882,31 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
     holding_shares_label = _fund_watchlist_number_label(
         item.get("holding_shares"), "份", digits=2
     )
+    holding_cost_label = _fund_watchlist_money_label(item.get("holding_cost_amount"))
+    actual_holding_amount_label = _fund_watchlist_money_label(
+        item.get("actual_holding_amount")
+    )
+    actual_holding_amount_date_label = _fund_watchlist_date_label(
+        item.get("actual_holding_amount_date")
+    )
+    actual_holding_amount_source_label = _fund_watchlist_text(
+        item.get("actual_holding_amount_source"), "-"
+    )
+    current_holding_profit = item.get("current_holding_profit")
+    current_holding_profit_label = _fund_watchlist_money_label(
+        current_holding_profit
+    )
+    current_holding_profit_pct_label = _fund_watchlist_signed_pct_label(
+        item.get("current_holding_profit_pct")
+    )
+    current_holding_profit_tone = _fund_watchlist_intraday_tone(
+        current_holding_profit
+    ).strip()
+    current_holding_profit_class = (
+        f' class="{current_holding_profit_tone}"'
+        if current_holding_profit_tone
+        else ""
+    )
     estimated_amount = item.get("estimated_daily_amount")
     estimated_amount_label = _fund_watchlist_money_label(estimated_amount)
     estimated_amount_tone = _fund_watchlist_intraday_tone(estimated_amount).strip()
@@ -19931,6 +20021,10 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
                         <div class="ws-fund-watchboard__fact"><span>持仓数量</span><strong>{int(item.get("holding_count", 0))} 只</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>前一日净值</span><strong>{nav_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>我的持有份额</span><strong>{holding_shares_label}</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>当前剩余持仓成本</span><strong>{holding_cost_label}</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>实际持仓金额</span><strong>{actual_holding_amount_label}</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>实际金额口径</span><strong>{actual_holding_amount_source_label} · {actual_holding_amount_date_label}</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>当前持仓收益</span><strong{current_holding_profit_class}>{current_holding_profit_label} · {current_holding_profit_pct_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>每日预增金额</span><strong{estimated_amount_class}>{estimated_amount_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>金额估值口径</span><strong>{estimated_amount_source_label} · {estimated_amount_date_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>金额计算基准净值</span><strong>{estimated_base_nav_label}</strong></div>
@@ -19966,7 +20060,7 @@ def render_fund_watchlist_add_panel(
     from src.fund_hot_stocks import search_funds
 
     existing_codes = set()
-    existing_positions: dict[str, float] = {}
+    existing_positions: dict[str, dict] = {}
     if watchlist_df is not None and not watchlist_df.empty and "ts_code" in watchlist_df.columns:
         existing_codes = set(
             watchlist_df["ts_code"].astype(str).str.strip().str.upper()
@@ -19974,22 +20068,28 @@ def render_fund_watchlist_add_panel(
         for _, saved_row in watchlist_df.iterrows():
             saved_code = str(saved_row.get("ts_code") or "").strip().upper()
             saved_shares = pd.to_numeric(saved_row.get("holding_shares"), errors="coerce")
-            if saved_code and not pd.isna(saved_shares):
-                existing_positions[saved_code] = float(saved_shares)
+            saved_cost = pd.to_numeric(
+                saved_row.get("holding_cost_amount"), errors="coerce"
+            )
+            if saved_code:
+                existing_positions[saved_code] = {
+                    "shares": None if pd.isna(saved_shares) else float(saved_shares),
+                    "cost": None if pd.isna(saved_cost) else float(saved_cost),
+                }
 
     with st.container(key="fund_watchlist_add_panel"):
-        st.markdown("#### ➕ 添加基金与持有份额")
+        st.markdown("#### ➕ 添加基金持仓")
         st.caption(
-            "可手工输入基金代码和份额，也可上传持仓截图识别；截图结果会先让你核对，不会自动写入。"
+            "可手工输入基金代码、份额和当前剩余持仓成本，也可上传持仓截图识别；截图结果会先让你核对，不会自动写入。"
         )
         manual_tab, search_tab, screenshot_tab = st.tabs(
             ["手工录入", "搜索添加", "截图识别"]
         )
 
         with manual_tab:
-            st.caption("适合已知基金代码的快速录入；重复代码会更新持有份额。")
+            st.caption("适合已知基金代码的快速录入；重复代码会更新持有份额与成本。")
             with st.form("fund_watchlist_manual_position_form", border=False):
-                manual_cols = st.columns([1.4, 1.4, 1])
+                manual_cols = st.columns([1.3, 1.2, 1.3, 1])
                 with manual_cols[0]:
                     manual_code = st.text_input(
                         "基金代码",
@@ -20003,6 +20103,13 @@ def render_fund_watchlist_add_panel(
                         key="fund_watchlist_manual_shares",
                     ).strip()
                 with manual_cols[2]:
+                    manual_cost_text = st.text_input(
+                        "当前剩余持仓成本（元，可选）",
+                        placeholder="如 20,000.00",
+                        key="fund_watchlist_manual_cost",
+                        help="用于计算当前持仓收益；申购、赎回或分红后请按平台口径同步更新。",
+                    ).strip()
+                with manual_cols[3]:
                     manual_submitted = st.form_submit_button(
                         "保存持仓",
                         type="primary",
@@ -20011,10 +20118,17 @@ def render_fund_watchlist_add_panel(
 
             if manual_submitted:
                 manual_shares = parse_share_amount(manual_shares_text)
+                manual_cost = (
+                    parse_money_amount(manual_cost_text)
+                    if manual_cost_text
+                    else None
+                )
                 if not manual_code:
                     st.warning("请输入基金代码。")
                 elif manual_shares is None:
                     st.warning("请输入大于 0 的有效持有份额。")
+                elif manual_cost_text and manual_cost is None:
+                    st.warning("请输入大于 0 的有效持仓成本金额。")
                 else:
                     try:
                         matches = search_funds(manual_code, limit=20, engine=fund_engine)
@@ -20030,18 +20144,26 @@ def render_fund_watchlist_add_panel(
                                 security_name=fund_name,
                                 security_type="fund",
                                 holding_shares=manual_shares,
+                                holding_cost_amount=manual_cost,
                             )
                             _clear_fund_watchlist_session_cache()
                             st.session_state["fund_watchlist_flash"] = {
                                 "level": "success",
-                                "message": f"已保存 {fund_name} 的持有份额：{manual_shares:,.2f} 份",
+                                "message": (
+                                    f"已保存 {fund_name}：{manual_shares:,.2f} 份"
+                                    + (
+                                        f"，当前剩余持仓成本 {manual_cost:,.2f} 元"
+                                        if manual_cost is not None
+                                        else ""
+                                    )
+                                ),
                             }
                             st.rerun()
                     except Exception as exc:
                         st.error(f"保存基金持仓失败：{exc}")
 
         with search_tab:
-            st.caption("输入基金代码、名称或管理人，搜索后可加入自选并同步保存份额；查看持仓不再是添加自选的前置步骤。")
+            st.caption("输入基金代码、名称或管理人，搜索后可加入自选并同步保存份额与当前剩余持仓成本。")
             with st.form("fund_watchlist_add_search_form", border=False):
                 search_cols = st.columns([3.4, 1])
                 with search_cols[0]:
@@ -20104,26 +20226,48 @@ def render_fund_watchlist_add_panel(
                 fund_code = str(selected_row.get("fund_code") or "").strip().upper()
                 fund_name = str(selected_row.get("name") or fund_code).strip() or fund_code
                 already_saved = fund_code in existing_codes
-                saved_shares = existing_positions.get(fund_code)
+                saved_position = existing_positions.get(fund_code, {})
+                saved_shares = saved_position.get("shares")
+                saved_cost = saved_position.get("cost")
                 default_shares = (
                     f"{saved_shares:.6f}".rstrip("0").rstrip(".")
                     if saved_shares is not None
                     else ""
                 )
-                searched_shares_text = st.text_input(
-                    "持有份额（可选）",
-                    value=default_shares,
-                    placeholder="可留空，仅加入自选；也可填 12,345.67 或 1.2万",
-                    key=f"fund_watchlist_add_shares_{fund_code}",
-                ).strip()
+                default_cost = (
+                    f"{saved_cost:.6f}".rstrip("0").rstrip(".")
+                    if saved_cost is not None
+                    else ""
+                )
+                position_input_cols = st.columns(2)
+                with position_input_cols[0]:
+                    searched_shares_text = st.text_input(
+                        "持有份额（可选）",
+                        value=default_shares,
+                        placeholder="可留空，仅加入自选；也可填 12,345.67 或 1.2万",
+                        key=f"fund_watchlist_add_shares_{fund_code}",
+                    ).strip()
+                with position_input_cols[1]:
+                    searched_cost_text = st.text_input(
+                        "当前剩余持仓成本（元，可选）",
+                        value=default_cost,
+                        placeholder="如 20,000.00",
+                        key=f"fund_watchlist_add_cost_{fund_code}",
+                        help="用于计算当前持仓收益；份额发生变化时请同步更新。",
+                    ).strip()
 
                 add_cols = st.columns([1.2, 1.3, 2.2])
                 with add_cols[0]:
                     if st.button(
-                        "更新持有份额" if already_saved else "加入自选基金",
+                        "更新持仓" if already_saved else "加入自选基金",
                         key=f"fund_watchlist_add_selected_{fund_code}",
                         type="primary",
-                        disabled=(already_saved and not searched_shares_text) or not fund_code,
+                        disabled=(
+                            already_saved
+                            and not searched_shares_text
+                            and not searched_cost_text
+                        )
+                        or not fund_code,
                         use_container_width=True,
                     ):
                         searched_shares = (
@@ -20131,8 +20275,17 @@ def render_fund_watchlist_add_panel(
                             if searched_shares_text
                             else None
                         )
+                        searched_cost = (
+                            parse_money_amount(searched_cost_text)
+                            if searched_cost_text
+                            else None
+                        )
                         if searched_shares_text and searched_shares is None:
                             st.warning("请输入大于 0 的有效持有份额。")
+                        elif searched_cost_text and searched_cost is None:
+                            st.warning("请输入大于 0 的有效持仓成本金额。")
+                        elif searched_cost is not None and searched_shares is None:
+                            st.warning("填写持仓成本时必须同时填写持有份额。")
                         else:
                             try:
                                 add_watchlist_item(
@@ -20141,14 +20294,15 @@ def render_fund_watchlist_add_panel(
                                     security_name=fund_name,
                                     security_type="fund",
                                     holding_shares=searched_shares,
+                                    holding_cost_amount=searched_cost,
                                 )
                                 _clear_fund_watchlist_session_cache()
                                 st.session_state.pop("fund_watchlist_add_search_result", None)
                                 st.session_state["fund_watchlist_flash"] = {
                                     "level": "success",
                                     "message": (
-                                        f"已保存 {fund_name} 的持有份额：{searched_shares:,.2f} 份"
-                                        if searched_shares is not None
+                                        f"已保存 {fund_name} 的持仓信息"
+                                        if searched_shares is not None or searched_cost is not None
                                         else f"已将 {fund_name} 加入自选基金"
                                     ),
                                 }
@@ -20156,8 +20310,8 @@ def render_fund_watchlist_add_panel(
                             except Exception as exc:
                                 st.error(f"加入自选基金失败：{exc}")
                 with add_cols[1]:
-                    if already_saved and saved_shares is not None and st.button(
-                        "清空持有份额",
+                    if already_saved and (saved_shares is not None or saved_cost is not None) and st.button(
+                        "清空持仓信息",
                         key=f"fund_watchlist_clear_shares_{fund_code}",
                         use_container_width=True,
                     ):
@@ -20168,18 +20322,19 @@ def render_fund_watchlist_add_panel(
                                 security_name=fund_name,
                                 security_type="fund",
                                 clear_holding_shares=True,
+                                clear_holding_cost_amount=True,
                             )
                             _clear_fund_watchlist_session_cache()
                             st.session_state.pop("fund_watchlist_add_search_result", None)
                             st.session_state["fund_watchlist_flash"] = {
                                 "level": "success",
-                                "message": f"已清空 {fund_name} 的持有份额，并保留在自选中",
+                                "message": f"已清空 {fund_name} 的份额与成本，并保留在自选中",
                             }
                             st.rerun()
                         except Exception as exc:
-                            st.error(f"清空基金持有份额失败：{exc}")
+                            st.error(f"清空基金持仓信息失败：{exc}")
                 add_cols[2].caption(
-                    "加入后会立即出现在下方看板中；已有基金可更新或清空份额。"
+                    "已有基金可更新或清空持仓信息；申购、赎回或分红后请同步更新成本。"
                 )
 
         with screenshot_tab:
@@ -20218,7 +20373,7 @@ def render_fund_watchlist_add_panel(
 
             if recognize_clicked and screenshot is not None:
                 try:
-                    with st.spinner("正在识别基金代码与持有份额..."):
+                    with st.spinner("正在识别基金代码、份额与持仓成本..."):
                         ocr_result = extract_fund_position_text(screenshot_bytes)
                         parsed_rows = parse_fund_position_text(
                             ocr_result.get("text", ""),
@@ -20248,12 +20403,22 @@ def render_fund_watchlist_add_panel(
                                 or "待确认"
                             ).strip()
                             shares = pd.to_numeric(parsed.get("holding_shares"), errors="coerce")
+                            holding_cost = pd.to_numeric(
+                                parsed.get("holding_cost_amount"), errors="coerce"
+                            )
+                            snapshot_amount = pd.to_numeric(
+                                parsed.get("snapshot_holding_amount"), errors="coerce"
+                            )
+                            snapshot_profit = pd.to_numeric(
+                                parsed.get("snapshot_holding_profit"), errors="coerce"
+                            )
                             is_ready = bool(
                                 matched
                                 and resolved_code
                                 and not pd.isna(shares)
                                 and float(shares) > 0
                                 and str(parsed.get("confidence") or "低") != "低"
+                                and not str(parsed.get("holding_cost_warning") or "").strip()
                             )
                             warnings = [str(parsed.get("warning") or "").strip()]
                             if not matched:
@@ -20264,6 +20429,18 @@ def render_fund_watchlist_add_panel(
                                     "基金代码": resolved_code,
                                     "基金名称": resolved_name,
                                     "持有份额": None if pd.isna(shares) else float(shares),
+                                    "当前剩余持仓成本(元)": (
+                                        None if pd.isna(holding_cost) else float(holding_cost)
+                                    ),
+                                    "截图持有金额(元)": (
+                                        None if pd.isna(snapshot_amount) else float(snapshot_amount)
+                                    ),
+                                    "截图持仓收益(元)": (
+                                        None if pd.isna(snapshot_profit) else float(snapshot_profit)
+                                    ),
+                                    "成本识别口径": str(
+                                        parsed.get("holding_cost_source") or "未识别"
+                                    ),
                                     "可信度": str(parsed.get("confidence") or "低"),
                                     "提示": "；".join(value for value in warnings if value),
                                 }
@@ -20291,7 +20468,7 @@ def render_fund_watchlist_add_panel(
             ):
                 st.caption(
                     f"识别引擎：{ocr_payload.get('provider', 'OCR')}｜"
-                    "可直接修改基金代码和持有份额，也可新增或删除行。"
+                    "可直接修改基金代码、持有份额与当前剩余持仓成本，也可新增或删除行。"
                 )
                 preview_df = pd.DataFrame(ocr_payload["rows"])
                 edited_preview = st.data_editor(
@@ -20300,7 +20477,14 @@ def render_fund_watchlist_add_panel(
                     use_container_width=True,
                     hide_index=True,
                     num_rows="dynamic",
-                    disabled=["基金名称", "可信度", "提示"],
+                    disabled=[
+                        "基金名称",
+                        "截图持有金额(元)",
+                        "截图持仓收益(元)",
+                        "成本识别口径",
+                        "可信度",
+                        "提示",
+                    ],
                     column_config={
                         "导入": st.column_config.CheckboxColumn(required=True),
                         "基金代码": st.column_config.TextColumn(required=True),
@@ -20310,6 +20494,12 @@ def render_fund_watchlist_add_panel(
                             format="%.6f",
                             required=True,
                         ),
+                        "当前剩余持仓成本(元)": st.column_config.NumberColumn(
+                            min_value=0.000001,
+                            format="%.2f",
+                        ),
+                        "截图持有金额(元)": st.column_config.NumberColumn(format="%.2f"),
+                        "截图持仓收益(元)": st.column_config.NumberColumn(format="%+.2f"),
                     },
                 )
                 if st.button(
@@ -20331,8 +20521,25 @@ def render_fund_watchlist_add_panel(
                         ):
                             query_code = str(preview_row.get("基金代码") or "").strip()
                             shares = pd.to_numeric(preview_row.get("持有份额"), errors="coerce")
-                            if not query_code or pd.isna(shares) or float(shares) <= 0:
+                            holding_cost = pd.to_numeric(
+                                preview_row.get("当前剩余持仓成本(元)"),
+                                errors="coerce",
+                            )
+                            if (
+                                not query_code
+                                or pd.isna(shares)
+                                or not np.isfinite(float(shares))
+                                or float(shares) <= 0
+                            ):
                                 validation_errors.append(f"第 {row_number} 行代码或份额无效")
+                                continue
+                            if not pd.isna(holding_cost) and (
+                                not np.isfinite(float(holding_cost))
+                                or float(holding_cost) <= 0
+                            ):
+                                validation_errors.append(
+                                    f"第 {row_number} 行持仓成本金额无效"
+                                )
                                 continue
                             try:
                                 matches = search_funds(query_code, limit=20, engine=fund_engine)
@@ -20352,6 +20559,11 @@ def render_fund_watchlist_add_panel(
                                         matched.get("name") or matched.get("fund_code") or ""
                                     ).strip(),
                                     "holding_shares": float(shares),
+                                    "holding_cost_amount": (
+                                        None
+                                        if pd.isna(holding_cost)
+                                        else float(holding_cost)
+                                    ),
                                 }
                             )
 
@@ -20359,6 +20571,23 @@ def render_fund_watchlist_add_panel(
                             st.error("；".join(validation_errors))
                         else:
                             try:
+                                duplicate_codes = sorted(
+                                    {
+                                        row["fund_code"]
+                                        for row in resolved_positions
+                                        if sum(
+                                            item["fund_code"] == row["fund_code"]
+                                            for item in resolved_positions
+                                        )
+                                        > 1
+                                    }
+                                )
+                                if duplicate_codes:
+                                    raise ValueError(
+                                        "截图中存在重复基金代码："
+                                        + "、".join(duplicate_codes)
+                                        + "，请删除重复行后重试"
+                                    )
                                 deduplicated = {
                                     row["fund_code"]: row for row in resolved_positions
                                 }
@@ -20370,6 +20599,9 @@ def render_fund_watchlist_add_panel(
                                             "security_name": position["fund_name"],
                                             "security_type": "fund",
                                             "holding_shares": position["holding_shares"],
+                                            "holding_cost_amount": position[
+                                                "holding_cost_amount"
+                                            ],
                                         }
                                         for position in deduplicated.values()
                                     ],
@@ -20378,7 +20610,7 @@ def render_fund_watchlist_add_panel(
                                 st.session_state.pop("fund_watchlist_ocr_preview", None)
                                 st.session_state["fund_watchlist_flash"] = {
                                     "level": "success",
-                                    "message": f"已导入或更新 {len(deduplicated)} 只基金的持有份额",
+                                    "message": f"已导入或更新 {len(deduplicated)} 只基金的持仓信息",
                                 }
                                 st.rerun()
                             except Exception as exc:
@@ -20421,12 +20653,14 @@ def render_fund_watchlist_live_dashboard(items: list[dict], current_username: st
         market_date=market_state["market_date"],
     )
     live_items = [
-        attach_estimated_daily_amount(
-            {
-                **item,
-                "intraday_market_active": bool(market_state["is_active"]),
-            },
-            intraday_date=market_state["market_date"],
+        attach_current_position_metrics(
+            attach_estimated_daily_amount(
+                {
+                    **item,
+                    "intraday_market_active": bool(market_state["is_active"]),
+                },
+                intraday_date=market_state["market_date"],
+            )
         )
         for item in live_items
     ]
@@ -20450,6 +20684,10 @@ def render_fund_watchlist_live_dashboard(items: list[dict], current_username: st
         "每日预增金额 = 持有份额 × 对应估值基准单位净值 × 估值涨跌幅；"
         "正数为预计增加、负数为预计减少，仅计算已录入份额且估值属于上海当日的基金。"
     )
+    st.caption(
+        "实际持仓金额 = 持有份额 × 基金公司最新已公布单位净值；"
+        "当前持仓收益 = 实际持仓金额 − 当前剩余持仓成本。盘中估值不会冒充实际收益。"
+    )
     render_fund_watchlist_summary(
         build_fund_watchlist_summary(
             live_items,
@@ -20464,7 +20702,7 @@ def render_fund_watchlist_live_dashboard(items: list[dict], current_username: st
         with control_cols[1]:
             sort_label = st.selectbox(
                 "排序方式",
-                ["盘中估算", "预计增减金额", "日涨跌幅", "估值偏差", "Top10 集中度", "基金规模", "持仓市值", "披露日期"],
+                ["盘中估算", "预计增减金额", "实际持仓金额", "当前持仓收益", "日涨跌幅", "估值偏差", "Top10 集中度", "基金规模", "持仓市值", "披露日期"],
                 key="fund_watchlist_sort_label",
             )
 
@@ -20499,7 +20737,7 @@ def render_fund_watchlist_tab() -> None:
     st.subheader("⭐ 自选基金")
     st.caption(
         "追踪自选基金的前一日净值、15:00估值、每日估值偏差、盘中估值与持仓结构；"
-        "新增个人持有份额与每日预增金额。"
+        "支持个人持有份额、当前剩余持仓成本、实际持仓金额、当前持仓收益与每日预增金额。"
     )
     st.markdown(FUND_WATCHLIST_DASHBOARD_CSS, unsafe_allow_html=True)
     _show_fund_watchlist_flash()

@@ -23,8 +23,25 @@ _NUMBER_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _SHARE_LABEL_PATTERN = re.compile(r"(?:持有|持仓|可用|基金)?\s*份额|份额\s*\(?份?\)?")
-_MONEY_LABEL_PATTERN = re.compile(
-    r"持有金额|持仓金额|金额|市值|收益|盈亏|净值|成本|资产|本金|昨日收益|累计收益"
+_HOLDING_AMOUNT_LABEL_PATTERN = re.compile(
+    r"持有金额|持仓金额|持有市值|持仓市值|当前市值|基金市值"
+)
+_HOLDING_PROFIT_LABEL_PATTERN = re.compile(
+    r"持有收益|持仓收益|累计收益|累计盈亏|持仓盈亏|浮动盈亏|持有盈亏"
+)
+_HOLDING_COST_LABEL_PATTERN = re.compile(
+    r"持仓成本金额|持有成本金额|成本金额|总成本|累计投入|投入本金|持仓本金"
+)
+_POSITION_VALUE_LABEL_PATTERNS = (
+    _SHARE_LABEL_PATTERN,
+    _HOLDING_AMOUNT_LABEL_PATTERN,
+    _HOLDING_PROFIT_LABEL_PATTERN,
+    _HOLDING_COST_LABEL_PATTERN,
+)
+_MONEY_VALUE_PATTERN = re.compile(
+    r"(?<![\d.])(?:[￥¥]?\s*)?[+\-−]?\s*"
+    r"(?:\d{1,3}(?:[,，]\d{3})+|\d+)(?:\.\d+)?"
+    r"\s*(?:亿|万|千)?\s*(?:元)?(?![\d.])"
 )
 _NON_NAME_PATTERN = re.compile(
     r"持有|持仓|份额|金额|市值|收益|盈亏|净值|成本|资产|代码|基金详情|交易记录|总计|合计"
@@ -72,6 +89,36 @@ def parse_share_amount(value: Any) -> float | None:
         if math.isfinite(result) and 0 < result < MAX_HOLDING_SHARES
         else None
     )
+
+
+def parse_money_amount(value: Any, *, allow_negative: bool = False) -> float | None:
+    """Strictly parse a monetary amount with optional sign and Chinese unit."""
+    text = re.sub(r"\s+", "", str(value or "").strip())
+    text = text.replace("，", ",").replace("−", "-")
+    match = re.fullmatch(
+        r"[￥¥]?([+\-]?)"
+        r"((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
+        r"(亿|万|千)?(?:元)?",
+        text,
+    )
+    if not match:
+        return None
+    try:
+        number = float(match.group(2).replace(",", ""))
+    except ValueError:
+        return None
+    if match.group(1) == "-":
+        number = -number
+    multiplier = {"千": 1_000.0, "万": 10_000.0, "亿": 100_000_000.0}.get(
+        match.group(3),
+        1.0,
+    )
+    result = number * multiplier
+    if not math.isfinite(result) or abs(result) >= MAX_HOLDING_SHARES:
+        return None
+    if allow_negative:
+        return result
+    return result if result > 0 else None
 
 
 def _prepare_image(image_bytes: bytes) -> Image.Image:
@@ -302,6 +349,84 @@ def _candidate_numbers(line: str) -> list[dict]:
     return results
 
 
+def _candidate_money_amounts(line: str, *, allow_negative: bool) -> list[dict]:
+    results = []
+    for match in _MONEY_VALUE_PATTERN.finditer(line):
+        suffix = line[match.end() :].lstrip()
+        if suffix.startswith("%"):
+            continue
+        raw = match.group(0)
+        value = parse_money_amount(raw, allow_negative=allow_negative)
+        if value is None:
+            continue
+        results.append({"raw": raw, "value": value, "start": match.start()})
+    return results
+
+
+def _next_position_label_start(line: str, start: int) -> int:
+    positions = [
+        match.start()
+        for pattern in _POSITION_VALUE_LABEL_PATTERNS
+        for match in pattern.finditer(line, start)
+    ]
+    return min(positions) if positions else len(line)
+
+
+def _line_has_position_value_label(line: str) -> bool:
+    return any(pattern.search(line) for pattern in _POSITION_VALUE_LABEL_PATTERNS)
+
+
+def _best_labeled_money_candidate(
+    lines: list[str],
+    *,
+    label_pattern: re.Pattern,
+    code_index: int,
+    block_start: int,
+    block_end: int,
+    allow_negative: bool,
+) -> tuple[float | None, str]:
+    ranked = []
+    for index in range(block_start, block_end):
+        line = lines[index]
+        for label_match in label_pattern.finditer(line):
+            segment_end = _next_position_label_start(line, label_match.end())
+            segment = line[label_match.end() : segment_end]
+            candidates = _candidate_money_amounts(
+                segment,
+                allow_negative=allow_negative,
+            )
+            if candidates:
+                candidate = candidates[0]
+                score = 120 - abs(index - code_index) * 4
+                ranked.append((score, candidate["value"], line))
+                continue
+
+            next_index = index + 1
+            if next_index >= block_end:
+                continue
+            next_line = lines[next_index]
+            if _line_has_position_value_label(next_line):
+                continue
+            next_candidates = _candidate_money_amounts(
+                next_line,
+                allow_negative=allow_negative,
+            )
+            if len(next_candidates) == 1:
+                score = 90 - abs(next_index - code_index) * 4
+                ranked.append(
+                    (
+                        score,
+                        next_candidates[0]["value"],
+                        f"{line} | {next_line}",
+                    )
+                )
+    if not ranked:
+        return None, ""
+    ranked.sort(key=lambda row: row[0], reverse=True)
+    _, value, evidence = ranked[0]
+    return value, evidence
+
+
 def _name_hint(lines: list[str], code_index: int, code: str = "") -> str:
     if not lines:
         return ""
@@ -333,34 +458,39 @@ def _best_share_candidate(
     ranked = []
     for index in range(block_start, block_end):
         line = lines[index]
-        line_has_share_label = bool(_SHARE_LABEL_PATTERN.search(line))
-        line_has_money_label = bool(_MONEY_LABEL_PATTERN.search(line))
-        previous_has_share_label = index > 0 and bool(
-            _SHARE_LABEL_PATTERN.search(lines[index - 1])
+        share_match = _SHARE_LABEL_PATTERN.search(line)
+        previous_has_share_label = (
+            index > block_start
+            and bool(_SHARE_LABEL_PATTERN.search(lines[index - 1]))
+            and not _line_has_position_value_label(line)
         )
-        for number in _candidate_numbers(line):
+        if share_match:
+            segment_end = _next_position_label_start(line, share_match.end())
+            candidate_numbers = _candidate_numbers(
+                line[share_match.end() : segment_end]
+            )
+            context_score = 100
+        elif previous_has_share_label:
+            candidate_numbers = _candidate_numbers(line)
+            context_score = 80
+        else:
+            candidate_numbers = [
+                number
+                for number in _candidate_numbers(line)
+                if number["has_share_suffix"]
+            ]
+            context_score = 45
+        for number in candidate_numbers:
             normalized_digits = re.sub(r"\D", "", number["raw"])
             if normalized_digits == bare_code:
                 continue
-            if not (
-                line_has_share_label
-                or previous_has_share_label
-                or number["has_share_suffix"]
-            ):
-                continue
-            score = max(0, 24 - abs(index - code_index) * 4)
-            if line_has_share_label:
-                score += 100
-            elif previous_has_share_label:
-                score += 80
+            score = max(0, 24 - abs(index - code_index) * 4) + context_score
             if number["has_share_suffix"]:
                 score += 45
             if number["has_unit"]:
                 score += 20
             if index == code_index:
                 score += 12
-            if line_has_money_label and not line_has_share_label:
-                score -= 160
             if re.search(r"20\d{2}[-/.年]", line):
                 score -= 100
             ranked.append((score, -abs(index - code_index), number["value"], line))
@@ -371,6 +501,72 @@ def _best_share_candidate(
     if score < 12:
         return None, score, evidence
     return value, score, evidence
+
+
+def _extract_position_financials(
+    lines: list[str],
+    *,
+    code_index: int,
+    block_start: int,
+    block_end: int,
+) -> dict:
+    snapshot_amount, amount_evidence = _best_labeled_money_candidate(
+        lines,
+        label_pattern=_HOLDING_AMOUNT_LABEL_PATTERN,
+        code_index=code_index,
+        block_start=block_start,
+        block_end=block_end,
+        allow_negative=False,
+    )
+    snapshot_profit, profit_evidence = _best_labeled_money_candidate(
+        lines,
+        label_pattern=_HOLDING_PROFIT_LABEL_PATTERN,
+        code_index=code_index,
+        block_start=block_start,
+        block_end=block_end,
+        allow_negative=True,
+    )
+    explicit_cost, cost_evidence = _best_labeled_money_candidate(
+        lines,
+        label_pattern=_HOLDING_COST_LABEL_PATTERN,
+        code_index=code_index,
+        block_start=block_start,
+        block_end=block_end,
+        allow_negative=False,
+    )
+
+    derived_cost = None
+    cost_source = ""
+    cost_warning = ""
+    amount_profit_cost = None
+    if snapshot_amount is not None and snapshot_profit is not None:
+        candidate_cost = snapshot_amount - snapshot_profit
+        if math.isfinite(candidate_cost) and 0 < candidate_cost < MAX_HOLDING_SHARES:
+            amount_profit_cost = candidate_cost
+
+    if explicit_cost is not None:
+        derived_cost = explicit_cost
+        cost_source = "截图明确成本金额"
+        if amount_profit_cost is not None:
+            tolerance = max(2.0, abs(explicit_cost) * 0.005)
+            if abs(explicit_cost - amount_profit_cost) > tolerance:
+                cost_warning = "截图成本与持有金额、累计收益不一致，请人工核对"
+    elif amount_profit_cost is not None:
+        derived_cost = amount_profit_cost
+        cost_source = "截图持有金额－累计持仓收益"
+
+    return {
+        "snapshot_holding_amount": snapshot_amount,
+        "snapshot_holding_profit": snapshot_profit,
+        "holding_cost_amount": derived_cost,
+        "holding_cost_source": cost_source,
+        "holding_cost_warning": cost_warning,
+        "financial_evidence": " | ".join(
+            value
+            for value in [amount_evidence, profit_evidence, cost_evidence]
+            if value
+        )[:360],
+    }
 
 
 def _confidence_label(score: int, line_confidence: float | None = None) -> str:
@@ -408,17 +604,29 @@ def parse_fund_position_text(text: str, *, lines: list[dict] | None = None) -> l
     code_entries = []
     for index, line in enumerate(text_lines):
         for match in _CODE_PATTERN.finditer(line):
-            share_label = _SHARE_LABEL_PATTERN.search(line)
             trailing = line[match.end() :].lstrip()
-            numeric_only_after_share_label = (
+            label_before_code = any(
+                label_match.start() < match.start()
+                for pattern in _POSITION_VALUE_LABEL_PATTERNS
+                for label_match in pattern.finditer(line)
+            )
+            explicit_code_label = bool(
+                re.search(r"(?:基金)?代码\s*[:：]?\s*$", line[: match.start()])
+            )
+            numeric_only_after_value_label = (
                 index > 0
-                and _SHARE_LABEL_PATTERN.search(text_lines[index - 1])
-                and bool(re.fullmatch(r"[\d\s,.，万亿千份]+", line))
+                and _line_has_position_value_label(text_lines[index - 1])
+                and bool(
+                    re.fullmatch(
+                        r"[￥¥+\-−\d\s,.，万亿千份元%]+",
+                        line,
+                    )
+                )
             )
             if (
-                (share_label and match.start() > share_label.start())
+                (label_before_code and not explicit_code_label)
                 or trailing.startswith(("份", "万", "亿", "千", "元", "%"))
-                or numeric_only_after_share_label
+                or numeric_only_after_value_label
             ):
                 continue
             raw_code = match.group(1) + (f".{match.group(2)}" if match.group(2) else "")
@@ -448,18 +656,30 @@ def parse_fund_position_text(text: str, *, lines: list[dict] | None = None) -> l
             block_end=block_end,
         )
         confidence = _confidence_label(score, line_confidences[index])
+        financials = _extract_position_financials(
+            text_lines,
+            code_index=index,
+            block_start=block_start,
+            block_end=block_end,
+        )
+        warnings = []
+        if holding_shares is None:
+            warnings.append("未可靠识别持有份额，请手工补充")
+        if financials["holding_cost_warning"]:
+            warnings.append(financials["holding_cost_warning"])
         candidates.append(
             {
                 "fund_code": code,
                 "fund_name_hint": _name_hint(text_lines, index, code),
                 "holding_shares": holding_shares,
+                **financials,
                 "confidence": confidence,
                 "evidence": " | ".join(
                     value
                     for value in [text_lines[index], share_evidence]
                     if value
                 )[:240],
-                "warning": "" if holding_shares is not None else "未可靠识别持有份额，请手工补充",
+                "warning": "；".join(warnings),
             }
         )
 
@@ -481,16 +701,28 @@ def parse_fund_position_text(text: str, *, lines: list[dict] | None = None) -> l
         )
         name_hint = _name_hint(text_lines, index - 1)
         if name_hint or holding_shares is not None:
+            block_start = max(0, index - 1)
+            block_end = min(len(text_lines), index + 5)
+            financials = _extract_position_financials(
+                text_lines,
+                code_index=index,
+                block_start=block_start,
+                block_end=block_end,
+            )
+            warning_values = ["需通过基金名称确认代码"]
+            if financials["holding_cost_warning"]:
+                warning_values.append(financials["holding_cost_warning"])
             candidates.append(
                 {
                     "fund_code": "",
                     "fund_name_hint": name_hint,
                     "holding_shares": holding_shares,
+                    **financials,
                     "confidence": _confidence_label(score, line_confidences[index]),
                     "evidence": " | ".join(
                         value for value in [name_hint, line, share_evidence] if value
                     )[:240],
-                    "warning": "需通过基金名称确认代码",
+                    "warning": "；".join(warning_values),
                 }
             )
     return candidates
@@ -536,6 +768,7 @@ __all__ = [
     "choose_unique_fund_match",
     "extract_fund_position_text",
     "normalize_fund_code_candidate",
+    "parse_money_amount",
     "parse_fund_position_text",
     "parse_share_amount",
 ]

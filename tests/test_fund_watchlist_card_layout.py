@@ -54,9 +54,9 @@ class FundWatchlistCardLayoutTest(unittest.TestCase):
         )
 
     def test_card_overlay_height_matches_expanded_position_card_height(self) -> None:
-        self.assertIn("min-height:620px", self.source)
-        self.assertIn("margin-bottom:-620px", self.source)
-        self.assertIn("height:620px", self.source)
+        self.assertIn("min-height:720px", self.source)
+        self.assertIn("margin-bottom:-720px", self.source)
+        self.assertIn("height:720px", self.source)
         self.assertNotIn("margin-bottom:-390px", self.source)
 
 
