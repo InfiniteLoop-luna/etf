@@ -20263,7 +20263,10 @@ def render_fund_watchlist_add_panel(
         with manual_tab:
             st.caption("适合已知基金代码的快速录入；重复代码会更新持有份额与成本。")
             with st.form("fund_watchlist_manual_position_form", border=False):
-                manual_cols = st.columns([1.3, 1.2, 1.3, 1])
+                manual_cols = st.columns(
+                    [1.3, 1.2, 1.3, 1],
+                    vertical_alignment="bottom",
+                )
                 with manual_cols[0]:
                     manual_code = st.text_input(
                         "基金代码",
@@ -21010,7 +21013,10 @@ def render_fund_watchlist_live_dashboard(items: list[dict], current_username: st
     )
 
     with st.container(key="fund_watchlist_toolbar"):
-        control_cols = st.columns([1.1, 1.4, 1.2])
+        control_cols = st.columns(
+            [1.1, 1.4, 1.2],
+            vertical_alignment="bottom",
+        )
         with control_cols[0]:
             view_mode = st.radio("视图模式", ["看板", "表格", "对比矩阵"], horizontal=True, key="fund_watchlist_view_mode")
         with control_cols[1]:

@@ -168,6 +168,20 @@ def test_fund_watchlist_accepts_manual_positions_and_reviewed_screenshot_ocr():
     assert "截图持仓收益(元)" in APP_SOURCE
 
 
+def test_fund_watchlist_primary_actions_align_with_neighboring_controls():
+    add_panel_source = _function_source("render_fund_watchlist_add_panel")
+    dashboard_source = _function_source("render_fund_watchlist_live_dashboard")
+
+    assert """st.columns(
+                    [1.3, 1.2, 1.3, 1],
+                    vertical_alignment=\"bottom\",
+                )""" in add_panel_source
+    assert """st.columns(
+            [1.1, 1.4, 1.2],
+            vertical_alignment=\"bottom\",
+        )""" in dashboard_source
+
+
 def test_fund_watchlist_accepts_and_reviews_multiple_screenshots_as_one_batch():
     assert "accept_multiple_files=True" in APP_SOURCE
     assert "MAX_BATCH_IMAGE_COUNT" in APP_SOURCE
