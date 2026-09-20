@@ -234,6 +234,7 @@ def test_fund_watchlist_groups_position_returns_into_clear_sections():
         ".ws-fund-watchboard__returns {",
         ".ws-fund-watchboard__returns-head {",
         ".ws-fund-watchboard__returns-grid {",
+        ".ws-fund-watchboard__returns.is-focus .ws-fund-watchboard__returns-grid {",
         ".ws-fund-watchboard__return-item.is-up strong {",
         ".ws-fund-watchboard__return-item.is-down strong {",
     ]:

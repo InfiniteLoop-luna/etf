@@ -1887,6 +1887,16 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
 .ws-fund-watchboard__returns.is-summary .ws-fund-watchboard__returns-grid {
     grid-template-columns:repeat(3,minmax(0,1fr));
 }
+.ws-fund-watchboard__returns.is-focus .ws-fund-watchboard__returns-grid {
+    grid-template-columns:1fr;
+}
+.ws-fund-watchboard__returns.is-focus .ws-fund-watchboard__returns-head {
+    align-items:flex-start;
+    flex-direction:column;
+}
+.ws-fund-watchboard__returns.is-focus .ws-fund-watchboard__returns-head span {
+    text-align:left;
+}
 .ws-fund-watchboard__return-item {
     min-width:0;
     padding:.55rem .62rem;
