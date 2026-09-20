@@ -228,6 +228,35 @@ def test_extract_ocr_falls_back_to_rapidocr_without_persisting_image():
     assert result["warnings"]
 
 
+def test_extract_ocr_selects_more_complete_provider_result():
+    tesseract_lines = [
+        {"text": "宏利复兴混合C", "confidence": 0.95},
+        {"text": "017612", "confidence": 0.95},
+        {"text": "持有份额 4.648", "confidence": 0.95},
+    ]
+    rapidocr_lines = [
+        {"text": "宏利复兴混合C 产品详情", "confidence": 0.82},
+        {"text": "0176121混合型基金1高风险", "confidence": 0.80},
+        {"text": "持有金额(元）", "confidence": 0.64},
+        {"text": "21,314.29", "confidence": 0.81},
+        {"text": "累计收益 -1,685.71 持有份额 4,648.70", "confidence": 0.77},
+    ]
+    with patch(
+        "src.fund_position_ocr._extract_with_tesseract",
+        return_value=tesseract_lines,
+    ), patch(
+        "src.fund_position_ocr._extract_with_rapidocr",
+        return_value=rapidocr_lines,
+    ):
+        result = extract_fund_position_text(_png_bytes())
+
+    rows = parse_fund_position_text(result["text"], lines=result["lines"])
+    assert result["provider"] == "RapidOCR"
+    assert rows[0]["fund_code"] == "017612"
+    assert rows[0]["holding_shares"] == pytest.approx(4648.70)
+    assert rows[0]["holding_cost_amount"] == pytest.approx(23000)
+
+
 def test_extract_ocr_rejects_corrupt_image():
     with pytest.raises(FundPositionOcrError, match="无法读取截图"):
         extract_fund_position_text(b"not-an-image")

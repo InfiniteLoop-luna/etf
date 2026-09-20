@@ -306,10 +306,74 @@ def _extract_with_rapidocr(image: Image.Image) -> list[dict]:
     return _group_visual_tokens(tokens)
 
 
+def _ocr_result_quality(lines: list[dict]) -> tuple:
+    """Rank OCR output by usable position fields, not raw text volume."""
+    normalized_lines = [
+        row for row in lines if _normalize_line(row.get("text"))
+    ]
+    text = "\n".join(_normalize_line(row["text"]) for row in normalized_lines)
+    parsed_rows = parse_fund_position_text(text, lines=normalized_lines)
+
+    def has_identity(row: dict) -> bool:
+        return bool(
+            str(row.get("fund_code") or "").strip()
+            or str(row.get("fund_name_hint") or "").strip()
+        )
+
+    importable_count = sum(
+        1
+        for row in parsed_rows
+        if has_identity(row) and row.get("holding_shares") is not None
+    )
+    identified_count = sum(1 for row in parsed_rows if has_identity(row))
+    cost_count = sum(
+        1 for row in parsed_rows if row.get("holding_cost_amount") is not None
+    )
+    amount_profit_count = sum(
+        int(row.get("snapshot_holding_amount") is not None)
+        + int(row.get("snapshot_holding_profit") is not None)
+        for row in parsed_rows
+    )
+    financial_field_count = sum(
+        int(row.get(field) is not None)
+        for row in parsed_rows
+        for field in (
+            "holding_shares",
+            "snapshot_holding_amount",
+            "snapshot_holding_profit",
+            "holding_cost_amount",
+        )
+    )
+    code_count = sum(
+        bool(str(row.get("fund_code") or "").strip()) for row in parsed_rows
+    )
+    high_confidence_count = sum(
+        str(row.get("confidence") or "") == "高" for row in parsed_rows
+    )
+    confidences = [
+        float(row.get("confidence") or 0.0) for row in normalized_lines
+    ]
+    average_confidence = (
+        sum(confidences) / len(confidences) if confidences else 0.0
+    )
+    return (
+        importable_count,
+        identified_count,
+        cost_count,
+        amount_profit_count,
+        financial_field_count,
+        code_count,
+        high_confidence_count,
+        average_confidence,
+        len(text),
+    )
+
+
 def extract_fund_position_text(image_bytes: bytes) -> dict:
     """OCR an uploaded screenshot in memory and return visual text lines."""
     image = _prepare_image(image_bytes)
     errors = []
+    successful_results = []
     providers: tuple[tuple[str, Callable[[Image.Image], list[dict]]], ...] = (
         ("Tesseract", _extract_with_tesseract),
         ("RapidOCR", _extract_with_rapidocr),
@@ -322,13 +386,29 @@ def extract_fund_position_text(image_bytes: bytes) -> dict:
             continue
         lines = [row for row in lines if _normalize_line(row.get("text"))]
         if lines:
-            return {
-                "provider": provider_name,
-                "lines": lines,
-                "text": "\n".join(_normalize_line(row["text"]) for row in lines),
-                "warnings": errors,
-            }
-        errors.append(f"{provider_name}: 未识别到文字")
+            successful_results.append(
+                {
+                    "provider": provider_name,
+                    "lines": lines,
+                    "text": "\n".join(
+                        _normalize_line(row["text"]) for row in lines
+                    ),
+                    "quality": _ocr_result_quality(lines),
+                }
+            )
+        else:
+            errors.append(f"{provider_name}: 未识别到文字")
+    if successful_results:
+        best_result = max(
+            successful_results,
+            key=lambda result: result["quality"],
+        )
+        return {
+            "provider": best_result["provider"],
+            "lines": best_result["lines"],
+            "text": best_result["text"],
+            "warnings": errors,
+        }
     raise FundPositionOcrError(
         "截图识别暂不可用。请改用手工录入，或联系管理员检查 OCR 运行环境。"
     )
