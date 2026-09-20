@@ -57,7 +57,7 @@ def test_broker_summary_with_values_above_labels_derives_cost():
         {"text": "产品详情》", "confidence": 0.7527},
         {"text": "晒收益", "confidence": 0.6842},
         {"text": "48,245.73", "confidence": 0.7985},
-        {"text": "金额(元）", "confidence": 0.6894},
+        {"text": "金额（元)0", "confidence": 0.8426},
         {"text": "您已持有59天0", "confidence": 0.8002},
         {"text": "0.00 2,121.69 +4.65%", "confidence": 0.7781},
         {"text": "昨日收益 持仓收益 持仓收益率", "confidence": 0.736},

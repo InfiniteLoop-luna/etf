@@ -32,7 +32,7 @@ _NUMBER_PATTERN = re.compile(
 _SHARE_LABEL_PATTERN = re.compile(r"(?:持有|持仓|可用|基金)?\s*份额|份额\s*\(?份?\)?")
 _HOLDING_AMOUNT_LABEL_PATTERN = re.compile(
     r"持有金额|持仓金额|持有市值|持仓市值|当前市值|基金市值|"
-    r"^金额\s*[\(（]\s*元\s*[\)）]\s*$"
+    r"^金额\s*[\(（]\s*元\s*[\)）]\s*[0Oo○◯ⓘ。·]?\s*$"
 )
 _HOLDING_PROFIT_LABEL_PATTERN = re.compile(
     r"持有收益(?!率)|持仓收益(?!率)|累计收益(?!率)|"
