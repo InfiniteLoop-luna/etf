@@ -9,6 +9,7 @@ from PIL import Image
 
 from src.fund_position_ocr import (
     FundPositionOcrError,
+    build_image_batch_fingerprint,
     choose_unique_fund_match,
     extract_fund_position_text,
     parse_fund_position_text,
@@ -21,6 +22,24 @@ def _png_bytes() -> bytes:
     buffer = BytesIO()
     Image.new("RGB", (320, 180), "white").save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def test_batch_fingerprint_tracks_file_name_content_and_order():
+    first = build_image_batch_fingerprint(
+        [("a.png", b"first"), ("b.png", b"second")]
+    )
+
+    assert first
+    assert first == build_image_batch_fingerprint(
+        [("a.png", b"first"), ("b.png", b"second")]
+    )
+    assert first != build_image_batch_fingerprint(
+        [("b.png", b"second"), ("a.png", b"first")]
+    )
+    assert first != build_image_batch_fingerprint(
+        [("a.png", b"changed"), ("b.png", b"second")]
+    )
+    assert build_image_batch_fingerprint([]) == ""
 
 
 def test_parse_share_amount_supports_grouping_and_chinese_units():
@@ -213,10 +232,10 @@ def test_choose_unique_registry_match_requires_exact_name():
     )
 
 
-def test_extract_ocr_falls_back_to_rapidocr_without_persisting_image():
+def test_extract_ocr_uses_rapidocr_as_primary_engine():
     with patch(
         "src.fund_position_ocr._extract_with_tesseract",
-        side_effect=RuntimeError("missing tesseract"),
+        side_effect=AssertionError("Tesseract should not run"),
     ), patch(
         "src.fund_position_ocr._extract_with_rapidocr",
         return_value=[{"text": "001938 持有份额 10000份", "confidence": 0.9}],
@@ -225,7 +244,22 @@ def test_extract_ocr_falls_back_to_rapidocr_without_persisting_image():
 
     assert result["provider"] == "RapidOCR"
     assert "001938" in result["text"]
-    assert result["warnings"]
+    assert result["warnings"] == []
+
+
+def test_extract_ocr_falls_back_to_tesseract_when_rapidocr_is_unusable():
+    with patch(
+        "src.fund_position_ocr._extract_with_rapidocr",
+        side_effect=RuntimeError("missing rapidocr"),
+    ), patch(
+        "src.fund_position_ocr._extract_with_tesseract",
+        return_value=[{"text": "001938 持有份额 10000份", "confidence": 0.9}],
+    ):
+        result = extract_fund_position_text(_png_bytes())
+
+    assert result["provider"] == "Tesseract"
+    assert "001938" in result["text"]
+    assert "missing rapidocr" in result["warnings"][0]
 
 
 def test_extract_ocr_selects_more_complete_provider_result():

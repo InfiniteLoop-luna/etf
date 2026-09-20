@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import math
 import re
@@ -11,6 +12,8 @@ from PIL import Image, ImageEnhance, ImageOps, UnidentifiedImageError
 
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_IMAGE_PIXELS = 30_000_000
+MAX_BATCH_IMAGE_COUNT = 10
+MAX_BATCH_IMAGE_BYTES = 60 * 1024 * 1024
 MAX_HOLDING_SHARES = 1_000_000_000_000_000_000.0
 SUPPORTED_IMAGE_FORMATS = {"PNG", "JPEG", "WEBP"}
 
@@ -54,6 +57,22 @@ _NON_NAME_PATTERN = re.compile(
 
 class FundPositionOcrError(RuntimeError):
     """Raised when an uploaded image cannot be safely OCR'd."""
+
+
+def build_image_batch_fingerprint(images: Iterable[tuple[str, bytes]]) -> str:
+    """Build a stable fingerprint for an ordered in-memory screenshot batch."""
+    digest = hashlib.sha256()
+    image_count = 0
+    for index, (name, image_bytes) in enumerate(images):
+        image_count += 1
+        encoded_name = str(name or "").encode("utf-8", errors="replace")
+        payload = bytes(image_bytes or b"")
+        digest.update(index.to_bytes(4, "big", signed=False))
+        digest.update(len(encoded_name).to_bytes(4, "big", signed=False))
+        digest.update(encoded_name)
+        digest.update(len(payload).to_bytes(8, "big", signed=False))
+        digest.update(payload)
+    return digest.hexdigest() if image_count else ""
 
 
 def _normalize_line(value: Any) -> str:
@@ -370,13 +389,18 @@ def _ocr_result_quality(lines: list[dict]) -> tuple:
 
 
 def extract_fund_position_text(image_bytes: bytes) -> dict:
-    """OCR an uploaded screenshot in memory and return visual text lines."""
+    """OCR an uploaded screenshot in memory and return visual text lines.
+
+    RapidOCR is the primary server-safe engine.  Tesseract is only invoked
+    when RapidOCR cannot produce an identified position with valid shares;
+    this keeps multi-image batches responsive while retaining a fallback.
+    """
     image = _prepare_image(image_bytes)
     errors = []
     successful_results = []
     providers: tuple[tuple[str, Callable[[Image.Image], list[dict]]], ...] = (
-        ("Tesseract", _extract_with_tesseract),
         ("RapidOCR", _extract_with_rapidocr),
+        ("Tesseract", _extract_with_tesseract),
     )
     for provider_name, extractor in providers:
         try:
@@ -386,16 +410,22 @@ def extract_fund_position_text(image_bytes: bytes) -> dict:
             continue
         lines = [row for row in lines if _normalize_line(row.get("text"))]
         if lines:
-            successful_results.append(
-                {
-                    "provider": provider_name,
-                    "lines": lines,
-                    "text": "\n".join(
-                        _normalize_line(row["text"]) for row in lines
-                    ),
-                    "quality": _ocr_result_quality(lines),
+            result = {
+                "provider": provider_name,
+                "lines": lines,
+                "text": "\n".join(
+                    _normalize_line(row["text"]) for row in lines
+                ),
+                "quality": _ocr_result_quality(lines),
+            }
+            if provider_name == "RapidOCR" and result["quality"][0] > 0:
+                return {
+                    "provider": result["provider"],
+                    "lines": result["lines"],
+                    "text": result["text"],
+                    "warnings": errors,
                 }
-            )
+            successful_results.append(result)
         else:
             errors.append(f"{provider_name}: 未识别到文字")
     if successful_results:
@@ -858,8 +888,11 @@ def choose_unique_fund_match(query: str, matches: pd.DataFrame | None) -> dict |
 
 __all__ = [
     "FundPositionOcrError",
+    "MAX_BATCH_IMAGE_BYTES",
+    "MAX_BATCH_IMAGE_COUNT",
     "MAX_HOLDING_SHARES",
     "MAX_IMAGE_BYTES",
+    "build_image_batch_fingerprint",
     "choose_unique_fund_match",
     "extract_fund_position_text",
     "normalize_fund_code_candidate",

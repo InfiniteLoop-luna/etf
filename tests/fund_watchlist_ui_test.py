@@ -156,6 +156,18 @@ def test_fund_watchlist_accepts_manual_positions_and_reviewed_screenshot_ocr():
     assert "截图持仓收益(元)" in APP_SOURCE
 
 
+def test_fund_watchlist_accepts_and_reviews_multiple_screenshots_as_one_batch():
+    assert "accept_multiple_files=True" in APP_SOURCE
+    assert "MAX_BATCH_IMAGE_COUNT" in APP_SOURCE
+    assert "MAX_BATCH_IMAGE_BYTES" in APP_SOURCE
+    assert "build_image_batch_fingerprint" in APP_SOURCE
+    assert "批量上传基金持仓截图" in APP_SOURCE
+    assert "批量识别" in APP_SOURCE
+    assert "来源截图" in APP_SOURCE
+    assert "本批截图存在重复基金" in APP_SOURCE
+    assert "本批截图中存在重复基金代码" in APP_SOURCE
+
+
 def test_fund_watchlist_displays_daily_estimated_position_amount_everywhere():
     assert "attach_estimated_daily_amount" in APP_SOURCE
     assert APP_SOURCE.count("每日预增金额") >= 4

@@ -178,6 +178,9 @@ from src.fund_watchlist_dashboard import (
 )
 from src.fund_position_ocr import (
     FundPositionOcrError,
+    MAX_BATCH_IMAGE_BYTES,
+    MAX_BATCH_IMAGE_COUNT,
+    build_image_batch_fingerprint,
     choose_unique_fund_match,
     extract_fund_position_text,
     parse_fund_position_text,
@@ -20339,20 +20342,40 @@ def render_fund_watchlist_add_panel(
 
         with screenshot_tab:
             st.caption(
-                "支持 PNG、JPG、JPEG、WebP。图片仅在内存中识别；请在预览表中核对代码和份额后再确认。"
+                "支持一次上传最多 10 张 PNG、JPG、JPEG 或 WebP；图片仅在内存中识别，"
+                "所有结果会汇总到同一张预览表中。"
             )
-            screenshot = st.file_uploader(
-                "上传基金持仓截图",
+            screenshots = st.file_uploader(
+                "批量上传基金持仓截图",
                 type=["png", "jpg", "jpeg", "webp"],
                 key="fund_watchlist_position_screenshot",
                 max_upload_size=12,
+                accept_multiple_files=True,
             )
-            screenshot_bytes = screenshot.getvalue() if screenshot is not None else b""
-            screenshot_fingerprint = (
-                hashlib.sha256(screenshot_bytes).hexdigest()
-                if screenshot_bytes
-                else ""
+            uploaded_screenshots = list(screenshots or [])
+            screenshot_payloads = [
+                (
+                    str(getattr(screenshot, "name", "") or f"截图{index + 1}"),
+                    screenshot.getvalue(),
+                )
+                for index, screenshot in enumerate(uploaded_screenshots)
+            ]
+            screenshot_fingerprint = build_image_batch_fingerprint(
+                screenshot_payloads
             )
+            total_screenshot_bytes = sum(
+                len(image_bytes) for _, image_bytes in screenshot_payloads
+            )
+            batch_validation_error = ""
+            if len(screenshot_payloads) > MAX_BATCH_IMAGE_COUNT:
+                batch_validation_error = (
+                    f"一次最多上传 {MAX_BATCH_IMAGE_COUNT} 张截图，"
+                    f"当前已选择 {len(screenshot_payloads)} 张。"
+                )
+            elif total_screenshot_bytes > MAX_BATCH_IMAGE_BYTES:
+                batch_validation_error = "本批截图总大小不能超过 60 MB。"
+            if batch_validation_error:
+                st.warning(batch_validation_error)
             saved_ocr_preview = st.session_state.get("fund_watchlist_ocr_preview")
             if isinstance(saved_ocr_preview, dict) and (
                 saved_ocr_preview.get("username") != current_username
@@ -20363,101 +20386,200 @@ def render_fund_watchlist_add_panel(
             recognize_cols = st.columns([1, 3])
             with recognize_cols[0]:
                 recognize_clicked = st.button(
-                    "识别截图",
+                    "批量识别",
                     key="fund_watchlist_position_ocr_button",
                     type="primary",
-                    disabled=screenshot is None,
+                    disabled=not screenshot_payloads or bool(batch_validation_error),
                     use_container_width=True,
                 )
-            recognize_cols[1].caption("识别结果不会自动导入，低可信度内容默认需要人工修正。")
+            recognize_cols[1].caption(
+                f"已选择 {len(screenshot_payloads)} 张｜"
+                "结果不会自动导入，低可信度或重复基金默认不勾选。"
+            )
 
-            if recognize_clicked and screenshot is not None:
-                try:
-                    with st.spinner("正在识别基金代码、份额与持仓成本..."):
-                        ocr_result = extract_fund_position_text(screenshot_bytes)
-                        parsed_rows = parse_fund_position_text(
-                            ocr_result.get("text", ""),
-                            lines=ocr_result.get("lines"),
-                        )
-                        preview_rows = []
-                        for parsed in parsed_rows:
-                            lookup_value = str(
-                                parsed.get("fund_code")
-                                or parsed.get("fund_name_hint")
-                                or ""
-                            ).strip()
-                            matched = None
-                            if lookup_value:
-                                matched = choose_unique_fund_match(
-                                    lookup_value,
-                                    search_funds(lookup_value, limit=20, engine=fund_engine),
+            if recognize_clicked and screenshot_payloads:
+                preview_rows = []
+                provider_counts: dict[str, int] = {}
+                recognition_errors = []
+                engine_warnings = []
+                with st.spinner(
+                    f"正在识别 {len(screenshot_payloads)} 张截图中的基金持仓..."
+                ):
+                    for image_name, screenshot_bytes in screenshot_payloads:
+                        try:
+                            ocr_result = extract_fund_position_text(screenshot_bytes)
+                            provider_name = str(
+                                ocr_result.get("provider") or "OCR"
+                            )
+                            provider_counts[provider_name] = (
+                                provider_counts.get(provider_name, 0) + 1
+                            )
+                            for warning in ocr_result.get("warnings") or []:
+                                warning_text = str(warning or "").strip()
+                                if warning_text:
+                                    engine_warnings.append(
+                                        f"{image_name}：{warning_text}"
+                                    )
+                            parsed_rows = parse_fund_position_text(
+                                ocr_result.get("text", ""),
+                                lines=ocr_result.get("lines"),
+                            )
+                            if not parsed_rows:
+                                recognition_errors.append(
+                                    f"{image_name}：未识别到基金持仓"
                                 )
-                            resolved_code = str(
-                                (matched or {}).get("fund_code")
-                                or parsed.get("fund_code")
-                                or ""
-                            ).strip().upper()
-                            resolved_name = str(
-                                (matched or {}).get("name")
-                                or parsed.get("fund_name_hint")
-                                or "待确认"
-                            ).strip()
-                            shares = pd.to_numeric(parsed.get("holding_shares"), errors="coerce")
-                            holding_cost = pd.to_numeric(
-                                parsed.get("holding_cost_amount"), errors="coerce"
+                                continue
+                            for parsed in parsed_rows:
+                                lookup_value = str(
+                                    parsed.get("fund_code")
+                                    or parsed.get("fund_name_hint")
+                                    or ""
+                                ).strip()
+                                matched = None
+                                if lookup_value:
+                                    matched = choose_unique_fund_match(
+                                        lookup_value,
+                                        search_funds(
+                                            lookup_value,
+                                            limit=20,
+                                            engine=fund_engine,
+                                        ),
+                                    )
+                                resolved_code = str(
+                                    (matched or {}).get("fund_code")
+                                    or parsed.get("fund_code")
+                                    or ""
+                                ).strip().upper()
+                                resolved_name = str(
+                                    (matched or {}).get("name")
+                                    or parsed.get("fund_name_hint")
+                                    or "待确认"
+                                ).strip()
+                                shares = pd.to_numeric(
+                                    parsed.get("holding_shares"), errors="coerce"
+                                )
+                                holding_cost = pd.to_numeric(
+                                    parsed.get("holding_cost_amount"),
+                                    errors="coerce",
+                                )
+                                snapshot_amount = pd.to_numeric(
+                                    parsed.get("snapshot_holding_amount"),
+                                    errors="coerce",
+                                )
+                                snapshot_profit = pd.to_numeric(
+                                    parsed.get("snapshot_holding_profit"),
+                                    errors="coerce",
+                                )
+                                is_ready = bool(
+                                    matched
+                                    and resolved_code
+                                    and not pd.isna(shares)
+                                    and float(shares) > 0
+                                    and str(parsed.get("confidence") or "低") != "低"
+                                    and not str(
+                                        parsed.get("holding_cost_warning") or ""
+                                    ).strip()
+                                )
+                                warnings = [
+                                    str(parsed.get("warning") or "").strip()
+                                ]
+                                if not matched:
+                                    warnings.append(
+                                        "基金代码或名称未唯一匹配，请手工修正"
+                                    )
+                                preview_rows.append(
+                                    {
+                                        "导入": is_ready,
+                                        "来源截图": image_name,
+                                        "基金代码": resolved_code,
+                                        "基金名称": resolved_name,
+                                        "持有份额": (
+                                            None
+                                            if pd.isna(shares)
+                                            else float(shares)
+                                        ),
+                                        "当前剩余持仓成本(元)": (
+                                            None
+                                            if pd.isna(holding_cost)
+                                            else float(holding_cost)
+                                        ),
+                                        "截图持有金额(元)": (
+                                            None
+                                            if pd.isna(snapshot_amount)
+                                            else float(snapshot_amount)
+                                        ),
+                                        "截图持仓收益(元)": (
+                                            None
+                                            if pd.isna(snapshot_profit)
+                                            else float(snapshot_profit)
+                                        ),
+                                        "成本识别口径": str(
+                                            parsed.get("holding_cost_source")
+                                            or "未识别"
+                                        ),
+                                        "可信度": str(
+                                            parsed.get("confidence") or "低"
+                                        ),
+                                        "提示": "；".join(
+                                            value for value in warnings if value
+                                        ),
+                                    }
+                                )
+                        except FundPositionOcrError as exc:
+                            recognition_errors.append(f"{image_name}：{exc}")
+                        except Exception as exc:
+                            logger.warning(
+                                "fund position screenshot OCR failed for %s: %s",
+                                image_name,
+                                exc,
                             )
-                            snapshot_amount = pd.to_numeric(
-                                parsed.get("snapshot_holding_amount"), errors="coerce"
+                            recognition_errors.append(
+                                f"{image_name}：识别失败"
                             )
-                            snapshot_profit = pd.to_numeric(
-                                parsed.get("snapshot_holding_profit"), errors="coerce"
-                            )
-                            is_ready = bool(
-                                matched
-                                and resolved_code
-                                and not pd.isna(shares)
-                                and float(shares) > 0
-                                and str(parsed.get("confidence") or "低") != "低"
-                                and not str(parsed.get("holding_cost_warning") or "").strip()
-                            )
-                            warnings = [str(parsed.get("warning") or "").strip()]
-                            if not matched:
-                                warnings.append("基金代码或名称未唯一匹配，请手工修正")
-                            preview_rows.append(
-                                {
-                                    "导入": is_ready,
-                                    "基金代码": resolved_code,
-                                    "基金名称": resolved_name,
-                                    "持有份额": None if pd.isna(shares) else float(shares),
-                                    "当前剩余持仓成本(元)": (
-                                        None if pd.isna(holding_cost) else float(holding_cost)
-                                    ),
-                                    "截图持有金额(元)": (
-                                        None if pd.isna(snapshot_amount) else float(snapshot_amount)
-                                    ),
-                                    "截图持仓收益(元)": (
-                                        None if pd.isna(snapshot_profit) else float(snapshot_profit)
-                                    ),
-                                    "成本识别口径": str(
-                                        parsed.get("holding_cost_source") or "未识别"
-                                    ),
-                                    "可信度": str(parsed.get("confidence") or "低"),
-                                    "提示": "；".join(value for value in warnings if value),
-                                }
-                            )
-                    st.session_state["fund_watchlist_ocr_preview"] = {
-                        "username": current_username,
-                        "image_fingerprint": screenshot_fingerprint,
-                        "provider": ocr_result.get("provider", "OCR"),
-                        "rows": preview_rows,
-                    }
-                    if not preview_rows:
-                        st.warning("截图中没有可靠识别到基金代码或份额，请改用手工录入。")
-                except FundPositionOcrError as exc:
-                    st.error(str(exc))
-                except Exception as exc:
-                    logger.warning("fund position screenshot OCR failed: %s", exc)
-                    st.error("截图识别失败，请裁剪到基金持仓区域后重试，或改用手工录入。")
+
+                code_counts: dict[str, int] = {}
+                for preview_row in preview_rows:
+                    preview_code = str(
+                        preview_row.get("基金代码") or ""
+                    ).strip().upper()
+                    if preview_code:
+                        code_counts[preview_code] = code_counts.get(preview_code, 0) + 1
+                duplicate_codes = {
+                    code for code, count in code_counts.items() if count > 1
+                }
+                for preview_row in preview_rows:
+                    preview_code = str(
+                        preview_row.get("基金代码") or ""
+                    ).strip().upper()
+                    if preview_code not in duplicate_codes:
+                        continue
+                    preview_row["导入"] = False
+                    duplicate_warning = "本批截图存在重复基金，请仅保留一行"
+                    existing_warning = str(preview_row.get("提示") or "").strip()
+                    preview_row["提示"] = "；".join(
+                        value
+                        for value in [existing_warning, duplicate_warning]
+                        if value
+                    )
+
+                provider_label = "、".join(
+                    f"{provider}×{count}"
+                    for provider, count in provider_counts.items()
+                ) or "OCR"
+                st.session_state["fund_watchlist_ocr_preview"] = {
+                    "username": current_username,
+                    "image_fingerprint": screenshot_fingerprint,
+                    "provider": provider_label,
+                    "file_count": len(screenshot_payloads),
+                    "errors": recognition_errors,
+                    "engine_warnings": engine_warnings,
+                    "rows": preview_rows,
+                }
+                if not preview_rows:
+                    st.error(
+                        "本批截图均未识别到可核对的基金持仓，"
+                        "请裁剪到持仓区域后重试。"
+                    )
 
             ocr_payload = st.session_state.get("fund_watchlist_ocr_preview")
             if (
@@ -20466,7 +20588,15 @@ def render_fund_watchlist_add_panel(
                 and ocr_payload.get("image_fingerprint") == screenshot_fingerprint
                 and ocr_payload.get("rows")
             ):
+                if ocr_payload.get("errors"):
+                    st.warning("；".join(ocr_payload["errors"]))
+                if ocr_payload.get("engine_warnings"):
+                    st.warning(
+                        "部分 OCR 引擎未能正常运行，已使用可用引擎完成识别；"
+                        "请重点核对被标记的行。"
+                    )
                 st.caption(
+                    f"已处理 {int(ocr_payload.get('file_count', 1))} 张截图｜"
                     f"识别引擎：{ocr_payload.get('provider', 'OCR')}｜"
                     "可直接修改基金代码、持有份额与当前剩余持仓成本，也可新增或删除行。"
                 )
@@ -20478,6 +20608,7 @@ def render_fund_watchlist_add_panel(
                     hide_index=True,
                     num_rows="dynamic",
                     disabled=[
+                        "来源截图",
                         "基金名称",
                         "截图持有金额(元)",
                         "截图持仓收益(元)",
@@ -20487,6 +20618,7 @@ def render_fund_watchlist_add_panel(
                     ],
                     column_config={
                         "导入": st.column_config.CheckboxColumn(required=True),
+                        "来源截图": st.column_config.TextColumn(),
                         "基金代码": st.column_config.TextColumn(required=True),
                         "基金名称": st.column_config.TextColumn(),
                         "持有份额": st.column_config.NumberColumn(
@@ -20519,6 +20651,10 @@ def render_fund_watchlist_add_panel(
                         for row_number, (_, preview_row) in enumerate(
                             selected_preview.iterrows(), start=1
                         ):
+                            source_name = str(
+                                preview_row.get("来源截图")
+                                or f"第 {row_number} 行"
+                            ).strip()
                             query_code = str(preview_row.get("基金代码") or "").strip()
                             shares = pd.to_numeric(preview_row.get("持有份额"), errors="coerce")
                             holding_cost = pd.to_numeric(
@@ -20531,25 +20667,29 @@ def render_fund_watchlist_add_panel(
                                 or not np.isfinite(float(shares))
                                 or float(shares) <= 0
                             ):
-                                validation_errors.append(f"第 {row_number} 行代码或份额无效")
+                                validation_errors.append(
+                                    f"{source_name}：基金代码或份额无效"
+                                )
                                 continue
                             if not pd.isna(holding_cost) and (
                                 not np.isfinite(float(holding_cost))
                                 or float(holding_cost) <= 0
                             ):
                                 validation_errors.append(
-                                    f"第 {row_number} 行持仓成本金额无效"
+                                    f"{source_name}：持仓成本金额无效"
                                 )
                                 continue
                             try:
                                 matches = search_funds(query_code, limit=20, engine=fund_engine)
                                 matched = choose_unique_fund_match(query_code, matches)
                             except Exception as exc:
-                                validation_errors.append(f"第 {row_number} 行校验失败：{exc}")
+                                validation_errors.append(
+                                    f"{source_name}：校验失败：{exc}"
+                                )
                                 continue
                             if not matched:
                                 validation_errors.append(
-                                    f"第 {row_number} 行基金代码无法唯一匹配，请补充后缀"
+                                    f"{source_name}：基金代码无法唯一匹配，请补充后缀"
                                 )
                                 continue
                             resolved_positions.append(
@@ -20584,7 +20724,7 @@ def render_fund_watchlist_add_panel(
                                 )
                                 if duplicate_codes:
                                     raise ValueError(
-                                        "截图中存在重复基金代码："
+                                        "本批截图中存在重复基金代码："
                                         + "、".join(duplicate_codes)
                                         + "，请删除重复行后重试"
                                     )
@@ -20610,7 +20750,10 @@ def render_fund_watchlist_add_panel(
                                 st.session_state.pop("fund_watchlist_ocr_preview", None)
                                 st.session_state["fund_watchlist_flash"] = {
                                     "level": "success",
-                                    "message": f"已导入或更新 {len(deduplicated)} 只基金的持仓信息",
+                                    "message": (
+                                        f"已从 {int(ocr_payload.get('file_count', 1))} 张截图"
+                                        f"导入或更新 {len(deduplicated)} 只基金的持仓信息"
+                                    ),
                                 }
                                 st.rerun()
                             except Exception as exc:
