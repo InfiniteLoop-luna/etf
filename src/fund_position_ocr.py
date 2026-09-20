@@ -18,6 +18,10 @@ _CODE_PATTERN = re.compile(
     r"(?<![\d.])(\d{6})(?:\s*[.·\-]?\s*(OF|SH|SZ))?(?!\d)(?![.,，]\d)",
     re.IGNORECASE,
 )
+_OCR_CODE_SEPARATOR_PATTERN = re.compile(
+    r"(?<!\d)(\d{6})1(?=\s*(?:混合|股票|债券|指数|货币|基金|QDII|FOF|高风险|中风险|低风险))",
+    re.IGNORECASE,
+)
 _NUMBER_PATTERN = re.compile(
     r"(?<![\d.])((?:\d{1,3}(?:[,，]\d{3})+|\d+)(?:\.\d+)?)(?:\s*)(亿|万|千)?(?:\s*)(份)?(?!\d)",
     re.IGNORECASE,
@@ -431,10 +435,17 @@ def _name_hint(lines: list[str], code_index: int, code: str = "") -> str:
     if not lines:
         return ""
     start_index = min(max(code_index, 0), len(lines) - 1)
-    for index in range(start_index, max(-1, start_index - 4), -1):
+    for index in range(start_index, max(-1, start_index - 8), -1):
         value = lines[index]
+        if re.match(r"^\s*\d{6,7}", value) and re.search(
+            r"混合|股票|债券|指数|货币|基金|风险|QDII|FOF",
+            value,
+            re.IGNORECASE,
+        ):
+            continue
         if code:
             value = _CODE_PATTERN.sub("", value)
+        value = re.sub(r"\s*(?:产品详情|基金详情)\s*$", "", value)
         value = re.sub(r"[|｜:：()（）\[\]【】]", " ", value)
         value = _normalize_line(value)
         if (
@@ -603,15 +614,19 @@ def parse_fund_position_text(text: str, *, lines: list[dict] | None = None) -> l
 
     code_entries = []
     for index, line in enumerate(text_lines):
-        for match in _CODE_PATTERN.finditer(line):
-            trailing = line[match.end() :].lstrip()
+        code_scan_line = _OCR_CODE_SEPARATOR_PATTERN.sub(r"\1|", line)
+        for match in _CODE_PATTERN.finditer(code_scan_line):
+            trailing = code_scan_line[match.end() :].lstrip()
             label_before_code = any(
                 label_match.start() < match.start()
                 for pattern in _POSITION_VALUE_LABEL_PATTERNS
-                for label_match in pattern.finditer(line)
+                for label_match in pattern.finditer(code_scan_line)
             )
             explicit_code_label = bool(
-                re.search(r"(?:基金)?代码\s*[:：]?\s*$", line[: match.start()])
+                re.search(
+                    r"(?:基金)?代码\s*[:：]?\s*$",
+                    code_scan_line[: match.start()],
+                )
             )
             numeric_only_after_value_label = (
                 index > 0
@@ -701,7 +716,7 @@ def parse_fund_position_text(text: str, *, lines: list[dict] | None = None) -> l
         )
         name_hint = _name_hint(text_lines, index - 1)
         if name_hint or holding_shares is not None:
-            block_start = max(0, index - 1)
+            block_start = max(0, index - 6)
             block_end = min(len(text_lines), index + 5)
             financials = _extract_position_financials(
                 text_lines,

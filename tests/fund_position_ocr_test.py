@@ -127,6 +127,29 @@ def test_explicit_cost_conflict_requires_manual_review():
     assert "不一致" in rows[0]["warning"]
 
 
+def test_broker_screenshot_recovers_code_separator_and_derives_cost():
+    rows = parse_fund_position_text(
+        "持有详情\n"
+        "宏利复兴混合C 产品详情\n"
+        "0176121混合型基金1高风险\n"
+        "持有金额(元）\n"
+        "21,314.29\n"
+        "09月18日预估收益 持有收益 持有收益率\n"
+        "+516.01 -1,685.71 -7.33%\n"
+        "累计收益 -1,685.71 持有份额 4,648.70\n"
+        "最新净值 4.6960(09月18日）"
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["fund_code"] == "017612"
+    assert rows[0]["fund_name_hint"] == "宏利复兴混合C"
+    assert rows[0]["holding_shares"] == pytest.approx(4648.70)
+    assert rows[0]["snapshot_holding_amount"] == pytest.approx(21314.29)
+    assert rows[0]["snapshot_holding_profit"] == pytest.approx(-1685.71)
+    assert rows[0]["holding_cost_amount"] == pytest.approx(23000)
+    assert rows[0]["holding_cost_source"] == "截图持有金额－累计持仓收益"
+
+
 @pytest.mark.parametrize(
     "text",
     [
