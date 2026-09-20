@@ -73,8 +73,8 @@ def test_broker_summary_with_values_above_labels_derives_cost():
     assert rows[0]["holding_shares"] == pytest.approx(9698.70)
     assert rows[0]["snapshot_holding_amount"] == pytest.approx(48245.73)
     assert rows[0]["snapshot_holding_profit"] == pytest.approx(2121.69)
-    assert rows[0]["holding_cost_amount"] == pytest.approx(46124.04)
-    assert rows[0]["holding_cost_source"] == "截图持有金额－累计持仓收益"
+    assert rows[0]["holding_cost_amount"] == pytest.approx(45623.65467)
+    assert rows[0]["holding_cost_source"] == "截图持仓成本价×持有份额"
 
 
 def test_profit_rate_and_transaction_amount_are_not_position_money():

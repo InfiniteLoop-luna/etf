@@ -41,11 +41,15 @@ _HOLDING_PROFIT_LABEL_PATTERN = re.compile(
 _HOLDING_COST_LABEL_PATTERN = re.compile(
     r"持仓成本金额|持有成本金额|成本金额|总成本|累计投入|投入本金|持仓本金"
 )
+_HOLDING_COST_PRICE_LABEL_PATTERN = re.compile(
+    r"持\s*仓\s*成\s*本\s*价|持\s*有\s*成\s*本\s*价"
+)
 _POSITION_VALUE_LABEL_PATTERNS = (
     _SHARE_LABEL_PATTERN,
     _HOLDING_AMOUNT_LABEL_PATTERN,
     _HOLDING_PROFIT_LABEL_PATTERN,
     _HOLDING_COST_LABEL_PATTERN,
+    _HOLDING_COST_PRICE_LABEL_PATTERN,
 )
 _MONEY_VALUE_PATTERN = re.compile(
     r"(?<![\d.])(?:[￥¥]?\s*)?[+\-−]?\s*"
@@ -761,6 +765,7 @@ def _best_share_candidate(
 def _extract_position_financials(
     lines: list[str],
     *,
+    holding_shares: float | None,
     code_index: int,
     block_start: int,
     block_end: int,
@@ -789,17 +794,38 @@ def _extract_position_financials(
         block_end=block_end,
         allow_negative=False,
     )
+    cost_price, cost_price_evidence = _best_labeled_money_candidate(
+        lines,
+        label_pattern=_HOLDING_COST_PRICE_LABEL_PATTERN,
+        code_index=code_index,
+        block_start=block_start,
+        block_end=block_end,
+        allow_negative=False,
+    )
 
     derived_cost = None
     cost_source = ""
     cost_warning = ""
+    cost_price_cost = None
+    if cost_price is not None and holding_shares is not None:
+        candidate_cost = cost_price * holding_shares
+        if math.isfinite(candidate_cost) and 0 < candidate_cost < MAX_HOLDING_SHARES:
+            cost_price_cost = candidate_cost
+
     amount_profit_cost = None
     if snapshot_amount is not None and snapshot_profit is not None:
         candidate_cost = snapshot_amount - snapshot_profit
         if math.isfinite(candidate_cost) and 0 < candidate_cost < MAX_HOLDING_SHARES:
             amount_profit_cost = candidate_cost
 
-    if explicit_cost is not None:
+    if cost_price_cost is not None:
+        derived_cost = cost_price_cost
+        cost_source = "截图持仓成本价×持有份额"
+        if explicit_cost is not None:
+            tolerance = max(2.0, abs(explicit_cost) * 0.005)
+            if abs(explicit_cost - cost_price_cost) > tolerance:
+                cost_warning = "截图成本价计算结果与明确成本金额不一致，请人工核对"
+    elif explicit_cost is not None:
         derived_cost = explicit_cost
         cost_source = "截图明确成本金额"
         if amount_profit_cost is not None:
@@ -818,7 +844,12 @@ def _extract_position_financials(
         "holding_cost_warning": cost_warning,
         "financial_evidence": " | ".join(
             value
-            for value in [amount_evidence, profit_evidence, cost_evidence]
+            for value in [
+                amount_evidence,
+                profit_evidence,
+                cost_evidence,
+                cost_price_evidence,
+            ]
             if value
         )[:360],
     }
@@ -917,6 +948,7 @@ def parse_fund_position_text(text: str, *, lines: list[dict] | None = None) -> l
         confidence = _confidence_label(score, line_confidences[index])
         financials = _extract_position_financials(
             text_lines,
+            holding_shares=holding_shares,
             code_index=index,
             block_start=block_start,
             block_end=block_end,
@@ -964,6 +996,7 @@ def parse_fund_position_text(text: str, *, lines: list[dict] | None = None) -> l
             block_end = min(len(text_lines), index + 5)
             financials = _extract_position_financials(
                 text_lines,
+                holding_shares=holding_shares,
                 code_index=index,
                 block_start=block_start,
                 block_end=block_end,
