@@ -1828,6 +1828,113 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     color:var(--fw-green) !important;
     -webkit-text-fill-color:var(--fw-green) !important;
 }
+.ws-fund-watchboard__returns {
+    --fw-return-border:rgba(47,123,255,.38);
+    --fw-return-surface:rgba(47,123,255,.07);
+    position:relative;
+    z-index:1;
+    margin-top:.72rem;
+    padding:.72rem;
+    border:1px solid var(--fw-return-border);
+    border-left:4px solid var(--fw-blue);
+    border-radius:10px;
+    background:linear-gradient(145deg,rgba(47,123,255,.1),rgba(47,123,255,.035));
+    box-shadow:inset 0 0 20px rgba(47,123,255,.06);
+}
+.ws-fund-watchboard__card .ws-fund-watchboard__returns {
+    --fw-return-border:rgba(34,215,255,.34);
+    --fw-return-surface:rgba(3,12,30,.56);
+    background:linear-gradient(145deg,rgba(8,39,69,.82),rgba(3,15,35,.88));
+}
+.ws-fund-watchboard__returns-head {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:.65rem;
+    margin-bottom:.55rem;
+    padding-bottom:.48rem;
+    border-bottom:1px solid var(--fw-return-border);
+}
+.ws-fund-watchboard__returns-head strong {
+    display:flex;
+    align-items:center;
+    gap:.42rem;
+    color:var(--fw-text) !important;
+    -webkit-text-fill-color:var(--fw-text) !important;
+    font-size:1.05rem;
+    letter-spacing:.04em;
+}
+.ws-fund-watchboard__returns-head strong::before {
+    content:"";
+    width:.5rem;
+    height:.5rem;
+    flex:none;
+    border-radius:50%;
+    background:var(--fw-blue);
+    box-shadow:0 0 0 4px rgba(47,123,255,.14);
+}
+.ws-fund-watchboard__returns-head span {
+    color:var(--fw-muted) !important;
+    -webkit-text-fill-color:var(--fw-muted) !important;
+    font-size:1rem;
+    text-align:right;
+}
+.ws-fund-watchboard__returns-grid {
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:.42rem;
+}
+.ws-fund-watchboard__returns.is-summary .ws-fund-watchboard__returns-grid {
+    grid-template-columns:repeat(3,minmax(0,1fr));
+}
+.ws-fund-watchboard__return-item {
+    min-width:0;
+    padding:.55rem .62rem;
+    border:1px solid rgba(47,123,255,.18);
+    border-radius:8px;
+    background:var(--fw-return-surface);
+}
+.ws-fund-watchboard__return-item label,
+.ws-fund-watchboard__return-item small {
+    display:block;
+    color:var(--fw-muted) !important;
+    -webkit-text-fill-color:var(--fw-muted) !important;
+    font-size:1rem;
+    line-height:1.35;
+}
+.ws-fund-watchboard__return-item strong {
+    display:block;
+    overflow:hidden;
+    margin:.16rem 0 .12rem;
+    color:var(--fw-text) !important;
+    -webkit-text-fill-color:var(--fw-text) !important;
+    font-size:1.08rem;
+    line-height:1.25;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+.ws-fund-watchboard__return-item.is-up strong {
+    color:var(--fw-red) !important;
+    -webkit-text-fill-color:var(--fw-red) !important;
+}
+.ws-fund-watchboard__return-item.is-down strong {
+    color:var(--fw-green) !important;
+    -webkit-text-fill-color:var(--fw-green) !important;
+}
+.ws-fund-watchboard__returns-meta {
+    display:grid;
+    gap:.22rem;
+    margin-top:.5rem;
+    padding-top:.45rem;
+    border-top:1px solid rgba(47,123,255,.16);
+}
+.ws-fund-watchboard__returns-meta span {
+    overflow-wrap:anywhere;
+    color:var(--fw-muted) !important;
+    -webkit-text-fill-color:var(--fw-muted) !important;
+    font-size:1rem;
+    line-height:1.35;
+}
 .ws-fund-watchboard__changes {
     display:grid;
     grid-template-columns:repeat(3,minmax(0,1fr));
@@ -2249,6 +2356,7 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
         grid-template-columns:repeat(2,minmax(0,1fr)) !important;
     }
     .ws-fund-watchboard__summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .ws-fund-watchboard__returns.is-summary .ws-fund-watchboard__returns-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ws-fund-watchboard__cards { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ws-fund-watchboard__focus { grid-template-columns:1fr; }
 }
@@ -2261,6 +2369,10 @@ FUND_WATCHLIST_DASHBOARD_CSS = """
     .ws-fund-watchboard__focus { padding:.75rem; }
     .ws-fund-watchboard__focus-main { grid-template-columns:1fr; }
     .ws-fund-watchboard__ring { margin:0 auto; }
+    .ws-fund-watchboard__returns-grid,
+    .ws-fund-watchboard__returns.is-summary .ws-fund-watchboard__returns-grid { grid-template-columns:1fr; }
+    .ws-fund-watchboard__returns-head { align-items:flex-start; flex-direction:column; }
+    .ws-fund-watchboard__returns-head span { text-align:left; }
 }
 </style>
 """
@@ -19327,22 +19439,30 @@ def render_fund_watchlist_summary(summary: dict) -> None:
                     <strong>+{positive_count} / -{decrease_count}</strong>
                     <span>新进与增持 / 减持</span>
                 </div>
-                <div class="ws-fund-watchboard__metric">
-                    <label>实际持仓总金额</label>
-                    <strong>{actual_holding_amount_label}</strong>
-                    <span>{actual_date_label} · 已计算 {actual_count}/{position_count} 只</span>
-                </div>
-                <div class="ws-fund-watchboard__metric {current_profit_tone}">
-                    <label>当前持仓总收益</label>
-                    <strong>{current_profit_label}</strong>
-                    <span>{current_profit_pct_label} · 已计算 {profit_count}/{position_count} 只</span>
-                </div>
-                <div class="ws-fund-watchboard__metric {estimated_amount_tone}">
-                    <label>每日预增金额</label>
-                    <strong>{estimated_amount_label}</strong>
-                    <span>{estimated_amount_date_label} · 已计算 {calculated_count}/{position_count} 只持仓基金</span>
-                </div>
             </div>
+            <section class="ws-fund-watchboard__returns is-summary" aria-label="组合持仓与收益">
+                <div class="ws-fund-watchboard__returns-head">
+                    <strong>组合持仓与收益</strong>
+                    <span>按最新已公布净值核算 · 已录入 {position_count} 只持仓基金</span>
+                </div>
+                <div class="ws-fund-watchboard__returns-grid">
+                    <div class="ws-fund-watchboard__return-item">
+                        <label>实际持仓总金额</label>
+                        <strong>{actual_holding_amount_label}</strong>
+                        <small>{actual_date_label} · 已计算 {actual_count}/{position_count} 只</small>
+                    </div>
+                    <div class="ws-fund-watchboard__return-item {current_profit_tone}">
+                        <label>当前持仓总收益</label>
+                        <strong>{current_profit_label} · {current_profit_pct_label}</strong>
+                        <small>已计算 {profit_count}/{position_count} 只</small>
+                    </div>
+                    <div class="ws-fund-watchboard__return-item {estimated_amount_tone}">
+                        <label>每日预增金额</label>
+                        <strong>{estimated_amount_label}</strong>
+                        <small>{estimated_amount_date_label} · 已计算 {calculated_count}/{position_count} 只</small>
+                    </div>
+                </div>
+            </section>
         </section>
         """
     )
@@ -19541,16 +19661,39 @@ def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
         <div class="ws-fund-watchboard__card-metrics">
             <div><label>基金规模</label><strong>{issue_label}</strong></div>
             <div><label>前十大持仓市值</label><strong>{holding_value_label}</strong></div>
-            <div><label>我的持有份额</label><strong>{holding_shares_label}</strong></div>
-            <div><label>当前剩余持仓成本</label><strong>{holding_cost_label}</strong></div>
-            <div><label>实际持仓金额</label><strong>{actual_holding_amount_label}</strong></div>
-            <div class="{current_holding_profit_tone}"><label>当前持仓收益</label><strong>{current_holding_profit_label} · {current_holding_profit_pct_label}</strong></div>
-            <div class="{estimated_amount_tone}"><label>每日预增金额</label><strong>{estimated_amount_label}</strong></div>
         </div>
-        <div class="ws-fund-watchboard__date">
-            <span>实际金额：{actual_holding_amount_source} · {actual_holding_amount_date_label}</span>
-            <span>每日估值：{estimated_amount_source} · {estimated_amount_date_label}</span>
-        </div>
+        <section class="ws-fund-watchboard__returns is-card" aria-label="我的持仓与收益">
+            <div class="ws-fund-watchboard__returns-head">
+                <strong>我的持仓与收益</strong>
+                <span>持有 {holding_shares_label}</span>
+            </div>
+            <div class="ws-fund-watchboard__returns-grid">
+                <div class="ws-fund-watchboard__return-item">
+                    <label>实际持仓金额</label>
+                    <strong>{actual_holding_amount_label}</strong>
+                    <small>{actual_holding_amount_date_label}</small>
+                </div>
+                <div class="ws-fund-watchboard__return-item {current_holding_profit_tone}">
+                    <label>当前持仓收益</label>
+                    <strong>{current_holding_profit_label}</strong>
+                    <small>{current_holding_profit_pct_label}</small>
+                </div>
+                <div class="ws-fund-watchboard__return-item">
+                    <label>当前剩余持仓成本</label>
+                    <strong>{holding_cost_label}</strong>
+                    <small>收益计算基准</small>
+                </div>
+                <div class="ws-fund-watchboard__return-item {estimated_amount_tone}">
+                    <label>每日预增金额</label>
+                    <strong>{estimated_amount_label}</strong>
+                    <small>{estimated_amount_date_label}</small>
+                </div>
+            </div>
+            <div class="ws-fund-watchboard__returns-meta">
+                <span>实际金额：{actual_holding_amount_source} · {actual_holding_amount_date_label}</span>
+                <span>每日估值：{estimated_amount_source} · {estimated_amount_date_label}</span>
+            </div>
+        </section>
         <div class="ws-fund-watchboard__changes">
             <div class="is-positive"><label>新进</label><strong>{int(item.get("new_count", 0))}</strong></div>
             <div class="is-positive"><label>增持</label><strong>{int(item.get("increase_count", 0))}</strong></div>
@@ -19905,15 +20048,9 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
     current_holding_profit_tone = _fund_watchlist_intraday_tone(
         current_holding_profit
     ).strip()
-    current_holding_profit_class = (
-        f' class="{current_holding_profit_tone}"'
-        if current_holding_profit_tone
-        else ""
-    )
     estimated_amount = item.get("estimated_daily_amount")
     estimated_amount_label = _fund_watchlist_money_label(estimated_amount)
     estimated_amount_tone = _fund_watchlist_intraday_tone(estimated_amount).strip()
-    estimated_amount_class = f' class="{estimated_amount_tone}"' if estimated_amount_tone else ""
     estimated_amount_date_label = _fund_watchlist_date_label(
         item.get("estimated_daily_amount_date")
     )
@@ -20023,14 +20160,6 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
                         <div class="ws-fund-watchboard__fact"><span>持仓时效</span><strong>{freshness_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>持仓数量</span><strong>{int(item.get("holding_count", 0))} 只</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>前一日净值</span><strong>{nav_label}</strong></div>
-                        <div class="ws-fund-watchboard__fact"><span>我的持有份额</span><strong>{holding_shares_label}</strong></div>
-                        <div class="ws-fund-watchboard__fact"><span>当前剩余持仓成本</span><strong>{holding_cost_label}</strong></div>
-                        <div class="ws-fund-watchboard__fact"><span>实际持仓金额</span><strong>{actual_holding_amount_label}</strong></div>
-                        <div class="ws-fund-watchboard__fact"><span>实际金额口径</span><strong>{actual_holding_amount_source_label} · {actual_holding_amount_date_label}</strong></div>
-                        <div class="ws-fund-watchboard__fact"><span>当前持仓收益</span><strong{current_holding_profit_class}>{current_holding_profit_label} · {current_holding_profit_pct_label}</strong></div>
-                        <div class="ws-fund-watchboard__fact"><span>每日预增金额</span><strong{estimated_amount_class}>{estimated_amount_label}</strong></div>
-                        <div class="ws-fund-watchboard__fact"><span>金额估值口径</span><strong>{estimated_amount_source_label} · {estimated_amount_date_label}</strong></div>
-                        <div class="ws-fund-watchboard__fact"><span>金额计算基准净值</span><strong>{estimated_base_nav_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>实际涨跌幅</span><strong{daily_change_class}>{daily_change_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>当天15:00估值</span><strong{latest_closing_estimate_class}>{latest_closing_estimate_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>净值日期</span><strong>{nav_date_label}</strong></div>
@@ -20040,6 +20169,38 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
                         <div class="ws-fund-watchboard__fact"><span>加入自选日期</span><strong>{added_label}</strong></div>
                     </div>
                 </div>
+                <section class="ws-fund-watchboard__returns is-focus" aria-label="我的持仓与收益">
+                    <div class="ws-fund-watchboard__returns-head">
+                        <strong>我的持仓与收益</strong>
+                        <span>持有 {holding_shares_label}</span>
+                    </div>
+                    <div class="ws-fund-watchboard__returns-grid">
+                        <div class="ws-fund-watchboard__return-item">
+                            <label>实际持仓金额</label>
+                            <strong>{actual_holding_amount_label}</strong>
+                            <small>{actual_holding_amount_date_label}</small>
+                        </div>
+                        <div class="ws-fund-watchboard__return-item {current_holding_profit_tone}">
+                            <label>当前持仓收益</label>
+                            <strong>{current_holding_profit_label}</strong>
+                            <small>{current_holding_profit_pct_label}</small>
+                        </div>
+                        <div class="ws-fund-watchboard__return-item">
+                            <label>当前剩余持仓成本</label>
+                            <strong>{holding_cost_label}</strong>
+                            <small>收益计算基准</small>
+                        </div>
+                        <div class="ws-fund-watchboard__return-item {estimated_amount_tone}">
+                            <label>每日预增金额</label>
+                            <strong>{estimated_amount_label}</strong>
+                            <small>{estimated_amount_date_label}</small>
+                        </div>
+                    </div>
+                    <div class="ws-fund-watchboard__returns-meta">
+                        <span>实际金额：{actual_holding_amount_source_label} · {actual_holding_amount_date_label}</span>
+                        <span>每日估值：{estimated_amount_source_label} · {estimated_amount_date_label} · 基准净值 {estimated_base_nav_label}</span>
+                    </div>
+                </section>
                 <div class="ws-fund-watchboard__focus-note">{freshness_detail}</div>
                 {error_html}
             </div>

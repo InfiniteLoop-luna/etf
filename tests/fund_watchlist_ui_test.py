@@ -11,6 +11,18 @@ def _fund_hot_stocks_body():
     return APP_SOURCE[start:end]
 
 
+def _function_source(name: str) -> str:
+    start = APP_SOURCE.index(f"def {name}(")
+    end = APP_SOURCE.find("\ndef ", start + 1)
+    return APP_SOURCE[start:] if end < 0 else APP_SOURCE[start:end]
+
+
+def _html_section_source(source: str, marker: str) -> str:
+    start = source.index(marker)
+    end = source.index("</section>", start)
+    return source[start:end]
+
+
 def test_app_imports_and_routes_standalone_fund_watchlist_page():
     assert "ETF_FUND_WATCHLIST_PAGE_LABEL" in APP_SOURCE
     assert "elif mobile_page == ETF_FUND_WATCHLIST_PAGE_LABEL:" in APP_SOURCE
@@ -184,3 +196,46 @@ def test_fund_watchlist_displays_confirmed_position_value_and_profit():
     assert "实际持仓金额 = 持有份额 × 基金公司最新已公布单位净值" in APP_SOURCE
     assert "当前持仓收益 = 实际持仓金额 − 当前剩余持仓成本" in APP_SOURCE
     assert "盘中估值不会冒充实际收益" in APP_SOURCE
+
+
+def test_fund_watchlist_groups_position_returns_into_clear_sections():
+    summary_source = _function_source("render_fund_watchlist_summary")
+    card_source = _function_source("_build_fund_watchlist_card_html")
+    focus_source = _function_source("render_fund_watchlist_focus_detail")
+
+    summary_returns = _html_section_source(
+        summary_source,
+        '<section class="ws-fund-watchboard__returns is-summary"',
+    )
+    for label in ["组合持仓与收益", "实际持仓总金额", "当前持仓总收益", "每日预增金额"]:
+        assert label in summary_returns
+
+    card_returns = _html_section_source(
+        card_source,
+        '<section class="ws-fund-watchboard__returns is-card"',
+    )
+    focus_returns = _html_section_source(
+        focus_source,
+        '<section class="ws-fund-watchboard__returns is-focus"',
+    )
+    for section_source in [card_returns, focus_returns]:
+        assert 'aria-label="我的持仓与收益"' in section_source
+        for label in ["实际持仓金额", "当前持仓收益", "当前剩余持仓成本", "每日预增金额"]:
+            assert label in section_source
+        assert "holding_shares_label" in section_source
+
+    assert "基金规模" not in card_returns
+    assert "前十大持仓市值" not in card_returns
+    assert card_source.index("ws-fund-watchboard__card-metrics") < card_source.index(
+        "ws-fund-watchboard__returns is-card"
+    ) < card_source.index("ws-fund-watchboard__changes")
+
+    for selector in [
+        ".ws-fund-watchboard__returns {",
+        ".ws-fund-watchboard__returns-head {",
+        ".ws-fund-watchboard__returns-grid {",
+        ".ws-fund-watchboard__return-item.is-up strong {",
+        ".ws-fund-watchboard__return-item.is-down strong {",
+    ]:
+        assert selector in APP_SOURCE
+    assert ".ws-fund-watchboard__returns-grid,\n    .ws-fund-watchboard__returns.is-summary .ws-fund-watchboard__returns-grid { grid-template-columns:1fr; }" in APP_SOURCE
