@@ -36,7 +36,7 @@ def test_fund_watchlist_dashboard_exposes_view_sort_focus_and_batch_controls():
     assert "sort_fund_watchlist_items" in APP_SOURCE
     assert "build_fund_watchlist_table" in APP_SOURCE
     assert '["看板", "表格", "对比矩阵"]' in APP_SOURCE
-    assert '["盘中估算", "日涨跌幅", "估值偏差", "Top10 集中度", "基金规模", "持仓市值", "披露日期"]' in APP_SOURCE
+    assert '["盘中估算", "预计增减金额", "日涨跌幅", "估值偏差", "Top10 集中度", "基金规模", "持仓市值", "披露日期"]' in APP_SOURCE
     assert "render_fund_watchlist_focus_detail" in APP_SOURCE
     assert "fund_watchlist_batch_mode" in APP_SOURCE
     assert "remove_watchlist_items_batch(current_username, pending_items)" in APP_SOURCE
@@ -94,7 +94,8 @@ def test_fund_watchlist_intraday_colors_follow_cn_market_convention():
     assert ".ws-fund-watchboard__holdings td.is-up" in APP_SOURCE
     assert ".ws-fund-watchboard__holdings td.is-down" in APP_SOURCE
     assert "_fund_watchlist_cn_market_cell_style" in APP_SOURCE
-    assert 'subset=["日涨跌幅(%)", "15:00估值(%)", "估值偏差(百分点)", "盘中估算(%)"]' in APP_SOURCE
+    for column in ["日涨跌幅(%)", "15:00估值(%)", "估值偏差(百分点)", "盘中估算(%)", "预计增减金额(元)"]:
+        assert column in APP_SOURCE
 
 
 def test_fund_watchlist_shows_previous_day_nav_and_daily_change():
@@ -133,3 +134,28 @@ def test_fund_watchlist_copy_and_fields_are_chinese_fund_semantics():
         "持仓变化",
     ]:
         assert text in APP_SOURCE
+
+
+def test_fund_watchlist_accepts_manual_positions_and_reviewed_screenshot_ocr():
+    for text in [
+        "fund_watchlist_manual_position_form",
+        "持有份额",
+        "保存持仓",
+        "上传基金持仓截图",
+        "extract_fund_position_text",
+        "fund_watchlist_ocr_preview_editor",
+        "确认导入勾选持仓",
+        "截图结果会先让你核对，不会自动写入",
+    ]:
+        assert text in APP_SOURCE
+    assert 'str(parsed.get("confidence") or "低") != "低"' in APP_SOURCE
+    assert "add_watchlist_items_batch" in APP_SOURCE
+    assert "清空持有份额" in APP_SOURCE
+
+
+def test_fund_watchlist_displays_daily_estimated_position_amount_everywhere():
+    assert "attach_estimated_daily_amount" in APP_SOURCE
+    assert APP_SOURCE.count("每日预增金额") >= 4
+    assert "预计增减金额(元)" in APP_SOURCE
+    assert "持有份额 × 对应估值基准单位净值 × 估值涨跌幅" in APP_SOURCE
+    assert "正数为预计增加、负数为预计减少" in APP_SOURCE

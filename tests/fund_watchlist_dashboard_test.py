@@ -15,10 +15,12 @@ from src.fund_nav import (
     normalize_fund_code_for_nav,
 )
 from src.fund_watchlist_dashboard import (
+    attach_estimated_daily_amount,
     build_fund_holding_industry_heatmap_frame,
     build_fund_watchlist_item,
     build_fund_watchlist_summary,
     build_fund_watchlist_table,
+    calculate_estimated_daily_amount,
     sort_fund_watchlist_items,
 )
 
@@ -28,6 +30,7 @@ def _watchlist_row():
         {
             "ts_code": "001938.OF",
             "security_name": "中欧时代先锋",
+            "holding_shares": 10000,
             "created_at": "2026-06-20",
         }
     )
@@ -118,6 +121,7 @@ def test_build_item_normalizes_existing_fund_and_holding_data():
     assert item["nav_date"] == pd.Timestamp("2026-07-15")
     assert item["unit_nav"] == 2.1604
     assert item["daily_change_pct"] == -0.53
+    assert item["holding_shares"] == 10000
     assert item["holdings"][0]["stock_name"] == "宁德时代"
     assert item["holdings"][0]["industry"] == "电池"
     assert item["holdings"][0]["market"] == "创业板"
@@ -360,6 +364,144 @@ def test_closing_estimate_deviation_only_uses_the_same_nav_date():
     table = build_fund_watchlist_table([matched])
     assert table.iloc[0]["15:00估值(%)"] == -0.40
     assert table.iloc[0]["估值偏差(百分点)"] == pytest.approx(0.13)
+
+
+def test_estimated_daily_amount_uses_position_nav_and_percentage():
+    assert calculate_estimated_daily_amount(10000, 2.1604, 0.62) == pytest.approx(133.9448)
+    assert calculate_estimated_daily_amount(10000, 2.1604, -0.62) == pytest.approx(-133.9448)
+    assert calculate_estimated_daily_amount(10000, 2.1604, 0.0) == 0.0
+    assert calculate_estimated_daily_amount(None, 2.1604, 0.62) is None
+    assert calculate_estimated_daily_amount(10000, None, 0.62) is None
+
+
+def test_attach_estimated_daily_amount_aligns_estimate_and_nav_dates():
+    base = {
+        "holding_shares": 10000,
+        "nav_date": pd.Timestamp("2026-07-15"),
+        "unit_nav": 2.1604,
+        "previous_nav_date": pd.Timestamp("2026-07-14"),
+        "previous_unit_nav": 2.1720,
+        "intraday_estimate_pct": 0.62,
+        "latest_closing_estimate_pct": 9.99,
+        "latest_closing_estimate_date": pd.Timestamp("2026-07-15"),
+    }
+
+    intraday = attach_estimated_daily_amount(base, intraday_date="2026-07-16")
+    assert intraday["estimated_daily_amount"] == pytest.approx(133.9448)
+    assert intraday["estimated_daily_base_nav"] == 2.1604
+    assert intraday["estimated_daily_amount_source"] == "盘中估算"
+
+    same_nav_day = attach_estimated_daily_amount(
+        {**base, "intraday_estimate_pct": None, "latest_closing_estimate_pct": -0.40},
+        intraday_date="2026-07-15",
+    )
+    assert same_nav_day["estimated_daily_amount"] == pytest.approx(-86.88)
+    assert same_nav_day["estimated_daily_base_nav"] == 2.1720
+    assert same_nav_day["estimated_daily_amount_source"] == "15:00估值"
+
+    stale = attach_estimated_daily_amount(
+        {
+            **base,
+            "intraday_estimate_pct": None,
+            "latest_closing_estimate_date": pd.Timestamp("2026-07-13"),
+        }
+    )
+    assert stale["estimated_daily_amount"] is None
+
+    prior_day_snapshot = attach_estimated_daily_amount(
+        {
+            **base,
+            "intraday_estimate_pct": None,
+            "latest_closing_estimate_pct": -0.40,
+        },
+        intraday_date="2026-07-16",
+    )
+    assert prior_day_snapshot["estimated_daily_amount"] is None
+    assert pd.isna(prior_day_snapshot["estimated_daily_amount_date"])
+    assert prior_day_snapshot["estimated_daily_amount_source"] == ""
+
+
+def test_summary_and_table_include_personal_position_estimate():
+    item = attach_estimated_daily_amount(
+        {
+            **build_fund_watchlist_item(
+                _watchlist_row(),
+                _meta_df(),
+                _holding_df(),
+                nav_snapshot={
+                    "nav_date": "2026-07-15",
+                    "unit_nav": 2.1604,
+                    "previous_nav_date": "2026-07-14",
+                    "previous_unit_nav": 2.1720,
+                },
+            ),
+            "intraday_estimate_pct": 0.62,
+        },
+        intraday_date="2026-07-16",
+    )
+
+    summary = build_fund_watchlist_summary([item])
+    table = build_fund_watchlist_table([item])
+
+    assert summary["estimated_daily_amount"] == pytest.approx(133.9448)
+    assert summary["estimated_daily_amount_count"] == 1
+    assert table.iloc[0]["持有份额"] == 10000
+    assert table.iloc[0]["预计增减金额(元)"] == pytest.approx(133.9448)
+    assert table.iloc[0]["金额估值日期"] == "2026-07-16"
+
+
+def test_summary_does_not_mix_estimated_amounts_from_different_dates():
+    summary = build_fund_watchlist_summary(
+        [
+            {
+                "latest_end_date": pd.NaT,
+                "top10_ratio": None,
+                "new_count": 0,
+                "increase_count": 0,
+                "decrease_count": 0,
+                "holding_shares": 1000,
+                "estimated_daily_amount": 12.0,
+                "estimated_daily_amount_date": pd.Timestamp("2026-07-16"),
+            },
+            {
+                "latest_end_date": pd.NaT,
+                "top10_ratio": None,
+                "new_count": 0,
+                "increase_count": 0,
+                "decrease_count": 0,
+                "holding_shares": 2000,
+                "estimated_daily_amount": 99.0,
+                "estimated_daily_amount_date": pd.Timestamp("2026-07-15"),
+            },
+        ]
+    )
+
+    assert summary["estimated_daily_amount"] == 12.0
+    assert summary["estimated_daily_amount_date"] == pd.Timestamp("2026-07-16")
+    assert summary["estimated_daily_amount_count"] == 1
+    assert summary["position_count"] == 2
+
+
+def test_summary_ignores_estimated_amounts_outside_target_date():
+    summary = build_fund_watchlist_summary(
+        [
+            {
+                "latest_end_date": pd.NaT,
+                "top10_ratio": None,
+                "new_count": 0,
+                "increase_count": 0,
+                "decrease_count": 0,
+                "holding_shares": 1000,
+                "estimated_daily_amount": 12.0,
+                "estimated_daily_amount_date": pd.Timestamp("2026-07-15"),
+            }
+        ],
+        target_date="2026-07-16",
+    )
+
+    assert summary["estimated_daily_amount"] is None
+    assert pd.isna(summary["estimated_daily_amount_date"])
+    assert summary["estimated_daily_amount_count"] == 0
 
 
 def test_estimate_snapshot_store_round_trips_one_fund_date():

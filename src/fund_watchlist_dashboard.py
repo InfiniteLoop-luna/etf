@@ -16,6 +16,7 @@ CHANGE_LABELS = {
 
 SORT_FIELDS = {
     "盘中估算": "intraday_estimate_pct",
+    "预计增减金额": "estimated_daily_amount",
     "日涨跌幅": "daily_change_pct",
     "估值偏差": "estimate_deviation_pct",
     "Top10 集中度": "top10_ratio",
@@ -110,7 +111,10 @@ def build_fund_watchlist_item(
         and nav_date.date() == estimate_date.date()
     )
     unit_nav = _optional_float(nav_snapshot.get("unit_nav"))
+    previous_nav_date = _optional_timestamp(nav_snapshot.get("previous_nav_date"))
+    previous_unit_nav = _optional_float(nav_snapshot.get("previous_unit_nav"))
     daily_change_pct = _optional_float(nav_snapshot.get("daily_change_pct"))
+    holding_shares = _optional_float(watchlist_row.get("holding_shares"))
     latest_closing_estimate_pct = _optional_float(
         estimate_snapshot.get("estimate_pct")
     )
@@ -179,7 +183,10 @@ def build_fund_watchlist_item(
         "added_at": added_at,
         "nav_date": nav_date,
         "unit_nav": unit_nav,
+        "previous_nav_date": previous_nav_date,
+        "previous_unit_nav": previous_unit_nav,
         "daily_change_pct": daily_change_pct,
+        "holding_shares": holding_shares,
         "nav_source": str(nav_snapshot.get("source") or ""),
         "closing_estimate_date": estimate_date if dates_match else pd.NaT,
         "closing_estimate_pct": closing_estimate_pct,
@@ -260,8 +267,16 @@ def build_fund_holding_industry_heatmap_frame(holdings: Iterable[dict]) -> pd.Da
     )
 
 
-def build_fund_watchlist_summary(items: Iterable[dict]) -> dict:
+def build_fund_watchlist_summary(
+    items: Iterable[dict],
+    *,
+    target_date=None,
+) -> dict:
     items = list(items)
+    target_timestamp = _optional_timestamp(target_date)
+    target_day = (
+        target_timestamp.normalize() if not pd.isna(target_timestamp) else pd.NaT
+    )
     dates = [
         item["latest_end_date"]
         for item in items
@@ -271,6 +286,23 @@ def build_fund_watchlist_summary(items: Iterable[dict]) -> dict:
         float(item["top10_ratio"])
         for item in items
         if item.get("top10_ratio") is not None
+    ]
+    estimated_rows = []
+    for item in items:
+        amount = _optional_float(item.get("estimated_daily_amount"))
+        estimate_date = _optional_timestamp(item.get("estimated_daily_amount_date"))
+        estimate_day = estimate_date.normalize() if not pd.isna(estimate_date) else pd.NaT
+        if (
+            amount is not None
+            and not pd.isna(estimate_day)
+            and (pd.isna(target_day) or estimate_day == target_day)
+        ):
+            estimated_rows.append((estimate_day, amount))
+    latest_amount_date = (
+        max(row[0] for row in estimated_rows) if estimated_rows else pd.NaT
+    )
+    latest_estimated_amounts = [
+        amount for estimate_date, amount in estimated_rows if estimate_date == latest_amount_date
     ]
     return {
         "fund_count": len(items),
@@ -283,6 +315,16 @@ def build_fund_watchlist_summary(items: Iterable[dict]) -> dict:
             for item in items
         ),
         "decrease_count": sum(int(item.get("decrease_count", 0)) for item in items),
+        "estimated_daily_amount": (
+            sum(latest_estimated_amounts) if latest_estimated_amounts else None
+        ),
+        "estimated_daily_amount_date": latest_amount_date,
+        "estimated_daily_amount_count": len(latest_estimated_amounts),
+        "position_count": sum(
+            1
+            for item in items
+            if (_optional_float(item.get("holding_shares")) or 0.0) > 0
+        ),
     }
 
 
@@ -303,6 +345,103 @@ def attach_latest_closing_estimate(item: dict, snapshot: dict | None) -> dict:
             "latest_closing_estimate_covered_weight_pct": _optional_float(
                 snapshot.get("covered_weight_pct")
             ),
+        }
+    )
+    return enriched
+
+
+def calculate_estimated_daily_amount(
+    holding_shares,
+    base_unit_nav,
+    estimate_pct,
+) -> float | None:
+    """Return an estimated one-day position change in yuan.
+
+    ``estimate_pct`` is expressed as a percentage (for example ``0.62`` for
+    +0.62%).  Missing or non-positive position inputs deliberately return
+    ``None`` so the UI can distinguish "not configured" from a real zero
+    estimate.
+    """
+    shares = _optional_float(holding_shares)
+    nav = _optional_float(base_unit_nav)
+    pct = _optional_float(estimate_pct)
+    if shares is None or shares <= 0 or nav is None or nav <= 0 or pct is None:
+        return None
+    return shares * nav * pct / 100.0
+
+
+def attach_estimated_daily_amount(
+    item: dict,
+    *,
+    intraday_date=None,
+) -> dict:
+    """Attach date-aligned personal-position estimate fields to a fund item.
+
+    Intraday estimates take priority.  When a target date is supplied, a saved
+    15:00 estimate is accepted only for that same date so an older snapshot is
+    never presented as today's value.  If the estimate date equals the latest
+    confirmed NAV date, the previous NAV is the correct percentage base.
+    """
+    enriched = dict(item)
+    intraday_pct = _optional_float(item.get("intraday_estimate_pct"))
+    closing_pct = _optional_float(item.get("latest_closing_estimate_pct"))
+    target_date = _optional_timestamp(intraday_date)
+
+    estimate_pct = None
+    estimate_date = pd.NaT
+    estimate_source = ""
+    if intraday_pct is not None:
+        estimate_pct = intraday_pct
+        estimate_date = target_date
+        if pd.isna(estimate_date):
+            estimate_date = _optional_timestamp(item.get("intraday_updated_at"))
+        estimate_source = "盘中估算"
+    elif closing_pct is not None:
+        closing_date = _optional_timestamp(item.get("latest_closing_estimate_date"))
+        if (
+            pd.isna(target_date)
+            or (
+                not pd.isna(closing_date)
+                and closing_date.date() == target_date.date()
+            )
+        ):
+            estimate_pct = closing_pct
+            estimate_date = closing_date
+            estimate_source = "15:00估值"
+
+    nav_date = _optional_timestamp(item.get("nav_date"))
+    previous_nav_date = _optional_timestamp(item.get("previous_nav_date"))
+    base_nav = None
+    base_nav_date = pd.NaT
+    if not pd.isna(estimate_date) and not pd.isna(nav_date):
+        estimate_day = estimate_date.date()
+        nav_day = nav_date.date()
+        if estimate_day > nav_day:
+            base_nav = _optional_float(item.get("unit_nav"))
+            base_nav_date = nav_date
+        elif estimate_day == nav_day:
+            base_nav = _optional_float(item.get("previous_unit_nav"))
+            base_nav_date = previous_nav_date
+
+    amount = calculate_estimated_daily_amount(
+        item.get("holding_shares"),
+        base_nav,
+        estimate_pct,
+    )
+    estimated_unit_nav = (
+        base_nav * (1.0 + estimate_pct / 100.0)
+        if amount is not None and estimate_pct is not None and base_nav is not None
+        else None
+    )
+    enriched.update(
+        {
+            "estimated_daily_amount": amount,
+            "estimated_daily_amount_pct": estimate_pct if amount is not None else None,
+            "estimated_daily_amount_date": estimate_date if amount is not None else pd.NaT,
+            "estimated_daily_amount_source": estimate_source if amount is not None else "",
+            "estimated_daily_base_nav": base_nav if amount is not None else None,
+            "estimated_daily_base_nav_date": base_nav_date if amount is not None else pd.NaT,
+            "estimated_unit_nav": estimated_unit_nav,
         }
     )
     return enriched
@@ -336,6 +475,14 @@ def build_fund_watchlist_table(items: Iterable[dict]) -> pd.DataFrame:
                     else "-"
                 ),
                 "前一日净值": item.get("unit_nav"),
+                "持有份额": item.get("holding_shares"),
+                "预计增减金额(元)": item.get("estimated_daily_amount"),
+                "金额估值日期": (
+                    item["estimated_daily_amount_date"].strftime("%Y-%m-%d")
+                    if not pd.isna(item.get("estimated_daily_amount_date"))
+                    else "-"
+                ),
+                "金额估值口径": item.get("estimated_daily_amount_source") or "-",
                 "日涨跌幅(%)": item.get("daily_change_pct"),
                 "15:00估值(%)": item.get("closing_estimate_pct"),
                 "估值偏差(百分点)": item.get("estimate_deviation_pct"),
