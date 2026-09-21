@@ -20619,6 +20619,24 @@ def render_fund_watchlist_add_panel(
                                             engine=fund_engine,
                                         ),
                                     )
+                                if not matched and parsed.get("fund_name_hint"):
+                                    existing_fund_matches = pd.DataFrame()
+                                    if (
+                                        watchlist_df is not None
+                                        and {"ts_code", "security_name"}.issubset(
+                                            watchlist_df.columns
+                                        )
+                                    ):
+                                        existing_fund_matches = watchlist_df.rename(
+                                            columns={
+                                                "ts_code": "fund_code",
+                                                "security_name": "name",
+                                            }
+                                        )[["fund_code", "name"]]
+                                    matched = choose_unique_fund_match(
+                                        str(parsed.get("fund_name_hint") or ""),
+                                        existing_fund_matches,
+                                    )
                                 resolved_code = str(
                                     (matched or {}).get("fund_code")
                                     or parsed.get("fund_code")
@@ -20660,6 +20678,20 @@ def render_fund_watchlist_add_panel(
                                 if not matched:
                                     warnings.append(
                                         "基金代码或名称未唯一匹配，请手工修正"
+                                    )
+                                ocr_text = str(ocr_result.get("text") or "")
+                                if any(
+                                    marker in ocr_text
+                                    for marker in (
+                                        "购买处理中",
+                                        "申购处理中",
+                                        "交易处理中",
+                                        "在途资金",
+                                    )
+                                ):
+                                    warnings.append(
+                                        "截图存在购买处理中或在途资金，"
+                                        "到账前看板金额可能与截图不同"
                                     )
                                 preview_rows.append(
                                     {
@@ -20747,6 +20779,10 @@ def render_fund_watchlist_add_panel(
                     "file_count": len(screenshot_payloads),
                     "errors": recognition_errors,
                     "engine_warnings": engine_warnings,
+                    "editor_key": (
+                        "fund_watchlist_ocr_preview_editor_"
+                        f"{time.time_ns()}"
+                    ),
                     "rows": preview_rows,
                 }
                 if not preview_rows:
@@ -20777,7 +20813,10 @@ def render_fund_watchlist_add_panel(
                 preview_df = pd.DataFrame(ocr_payload["rows"])
                 edited_preview = st.data_editor(
                     preview_df,
-                    key="fund_watchlist_ocr_preview_editor",
+                    key=str(
+                        ocr_payload.get("editor_key")
+                        or "fund_watchlist_ocr_preview_editor"
+                    ),
                     use_container_width=True,
                     hide_index=True,
                     num_rows="dynamic",

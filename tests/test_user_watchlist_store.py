@@ -96,6 +96,41 @@ class UserWatchlistStoreTests(unittest.TestCase):
             float(retained.iloc[0]["holding_cost_amount"]), 20000.25
         )
 
+    def test_batch_upsert_replaces_existing_fund_position_values(self):
+        ensure_user_watchlist_table(self.engine)
+        add_watchlist_item(
+            "alice",
+            "006373.OF",
+            security_name="国富全球科技互联混合(QDII)人民币A",
+            security_type="fund",
+            holding_shares=700,
+            holding_cost_amount=5000,
+            engine=self.engine,
+        )
+
+        add_watchlist_items_batch(
+            "alice",
+            [
+                {
+                    "ts_code": "006373.OF",
+                    "security_name": "国富全球科技互联混合(QDII)人民币A",
+                    "security_type": "fund",
+                    "holding_shares": 818.62,
+                    "holding_cost_amount": 5810,
+                }
+            ],
+            engine=self.engine,
+        )
+
+        fund_df = list_watchlist_items(
+            "alice",
+            engine=self.engine,
+            security_type="fund",
+        )
+        updated = fund_df[fund_df["ts_code"] == "006373.OF"].iloc[0]
+        self.assertAlmostEqual(float(updated["holding_shares"]), 818.62)
+        self.assertAlmostEqual(float(updated["holding_cost_amount"]), 5810)
+
     def test_add_watchlist_item_rejects_non_positive_holding_shares(self):
         ensure_user_watchlist_table(self.engine)
         with self.assertRaisesRegex(ValueError, "holding_shares"):

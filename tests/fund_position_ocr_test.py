@@ -12,6 +12,7 @@ from src.fund_position_ocr import (
     build_image_batch_fingerprint,
     choose_unique_fund_match,
     extract_fund_position_text,
+    normalize_fund_name_candidate,
     parse_fund_position_text,
     parse_money_amount,
     parse_share_amount,
@@ -296,6 +297,43 @@ def test_broker_screenshot_recovers_code_separator_and_derives_cost():
     assert rows[0]["snapshot_holding_profit"] == pytest.approx(-1685.71)
     assert rows[0]["holding_cost_amount"] == pytest.approx(23000)
     assert rows[0]["holding_cost_source"] == "截图持有金额－持有收益"
+
+
+def test_qdii_screenshot_recovers_code_when_ocr_confuses_i_with_lowercase_l():
+    rows = parse_fund_position_text(
+        "持有详情\n"
+        "国富全球科技互联混合（QDII）人民币A 产品详情\n"
+        "0063731QDIl基金|较高风险\n"
+        "持有金额(元）\n"
+        "5,715.12\n"
+        "09月18日收益 持有收益 持有收益率\n"
+        "+120.46 -94.88 -1.69%\n"
+        "累计收益 -94.88 持有份额 818.62"
+    )
+
+    assert rows[0]["fund_code"] == "006373"
+    assert rows[0]["holding_shares"] == pytest.approx(818.62)
+    assert rows[0]["holding_cost_amount"] == pytest.approx(5810)
+
+
+def test_fund_name_normalization_ignores_spaces_and_parentheses():
+    assert normalize_fund_name_candidate(
+        "国富全球科技互联混合 QDII 人民币A"
+    ) == normalize_fund_name_candidate(
+        "国富全球科技互联混合(QDII)人民币A"
+    )
+    matches = pd.DataFrame(
+        [
+            {
+                "fund_code": "006373.OF",
+                "name": "国富全球科技互联混合(QDII)人民币A",
+            }
+        ]
+    )
+    assert choose_unique_fund_match(
+        "国富全球科技互联混合 QDII 人民币A",
+        matches,
+    )["fund_code"] == "006373.OF"
 
 
 @pytest.mark.parametrize(

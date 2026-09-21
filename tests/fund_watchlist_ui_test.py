@@ -166,6 +166,9 @@ def test_fund_watchlist_accepts_manual_positions_and_reviewed_screenshot_ocr():
     assert "holding_cost_amount" in APP_SOURCE
     assert "截图持有金额(元)" in APP_SOURCE
     assert "截图持仓收益(元)" in APP_SOURCE
+    assert "existing_fund_matches" in APP_SOURCE
+    assert "time.time_ns()" in APP_SOURCE
+    assert "截图存在购买处理中或在途资金" in APP_SOURCE
 
 
 def test_fund_watchlist_primary_actions_align_with_neighboring_controls():

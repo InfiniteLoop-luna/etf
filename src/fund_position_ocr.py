@@ -22,7 +22,7 @@ _CODE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _OCR_CODE_SEPARATOR_PATTERN = re.compile(
-    r"(?<!\d)(\d{6})1(?=\s*(?:混合|股票|债券|指数|货币|基金|QDII|FOF|高风险|中风险|低风险))",
+    r"(?<!\d)(\d{6})1(?=\s*(?:混合|股票|债券|指数|货币|基金|QD[I1L]{2}|FOF|高风险|中风险|低风险))",
     re.IGNORECASE,
 )
 _NUMBER_PATTERN = re.compile(
@@ -112,6 +112,15 @@ def normalize_fund_code_candidate(value: Any) -> str:
         return ""
     code, suffix = match.groups()
     return f"{code}.{suffix}" if suffix else code
+
+
+def normalize_fund_name_candidate(value: Any) -> str:
+    """Build a punctuation-insensitive key for OCR and registry fund names."""
+    return "".join(
+        character.casefold()
+        for character in str(value or "")
+        if character.isalnum()
+    )
 
 
 def parse_share_amount(value: Any) -> float | None:
@@ -1050,12 +1059,11 @@ def choose_unique_fund_match(query: str, matches: pd.DataFrame | None) -> dict |
             return exact.iloc[0].to_dict()
         return None
 
-    normalized_name = re.sub(r"\s+", "", str(query or "")).casefold()
+    normalized_name = normalize_fund_name_candidate(query)
     if not normalized_name or "name" not in frame.columns:
         return None
     exact_name = frame[
-        frame["name"].astype(str).str.replace(r"\s+", "", regex=True).str.casefold()
-        == normalized_name
+        frame["name"].map(normalize_fund_name_candidate) == normalized_name
     ]
     if len(exact_name) == 1:
         return exact_name.iloc[0].to_dict()
@@ -1072,6 +1080,7 @@ __all__ = [
     "choose_unique_fund_match",
     "extract_fund_position_text",
     "normalize_fund_code_candidate",
+    "normalize_fund_name_candidate",
     "parse_money_amount",
     "parse_fund_position_text",
     "parse_share_amount",
