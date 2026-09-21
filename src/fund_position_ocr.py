@@ -68,6 +68,7 @@ _SUMMARY_VALUE_PATTERN = re.compile(
     r"\s*(?:亿|万|千)?\s*(?:元|%)?(?![\d.])"
 )
 _SUMMARY_LABEL_PATTERN = re.compile(
+    r"\d{1,2}\s*(?:月|[-/.])\s*\d{1,2}\s*日?\s*(?:预估|估算)?\s*收益|"
     r"昨日收益|今日收益|当日收益|预估收益|估算收益|"
     r"持有收益率|持仓收益率|累计收益率|"
     r"累计盈亏率|持仓盈亏率|浮动盈亏率|持有盈亏率|"
@@ -587,6 +588,7 @@ def _best_labeled_money_candidate(
     ranked = []
     for index in range(block_start, block_end):
         line = lines[index]
+        summary_label_count = len(list(_SUMMARY_LABEL_PATTERN.finditer(line)))
         for label_match in label_pattern.finditer(line):
             segment_end = _next_position_label_start(line, label_match.end())
             segment = line[label_match.end() : segment_end]
@@ -610,6 +612,7 @@ def _best_labeled_money_candidate(
                     )
                     if (
                         len(next_candidates) == 1
+                        and summary_label_count <= 1
                         and not next_candidates[0]["is_percentage"]
                         and next_candidates[0]["value"] is not None
                     ):
@@ -648,7 +651,7 @@ def _best_labeled_money_candidate(
                 previous_line,
                 allow_negative=allow_negative,
             )
-            if len(previous_values) == 1:
+            if len(previous_values) == 1 and summary_label_count <= 1:
                 previous_candidate = previous_values[0]
                 if (
                     not previous_candidate["is_percentage"]

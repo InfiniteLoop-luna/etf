@@ -191,6 +191,43 @@ def test_parser_keeps_cumulative_profit_as_a_layout_slot_only(summary_lines):
     assert rows[0]["holding_cost_amount"] == pytest.approx(11000)
 
 
+@pytest.mark.parametrize(
+    "summary_lines",
+    [
+        "09月18日收益 持有收益 持有收益率\n+150.55 -253.05 -2.04%",
+        "+150.55 -253.05 -2.04%\n09月18日收益 持有收益 持有收益率",
+    ],
+)
+def test_parser_aligns_dated_daily_profit_before_current_holding_profit(
+    summary_lines,
+):
+    rows = parse_fund_position_text(
+        "中欧时代先锋\n001938\n"
+        "持有金额(元)\n12,123.99\n"
+        f"{summary_lines}\n"
+        "累计收益 -800.00 持有份额 5,000.00"
+    )
+
+    assert rows[0]["snapshot_holding_amount"] == pytest.approx(12123.99)
+    assert rows[0]["snapshot_holding_profit"] == pytest.approx(-253.05)
+    assert rows[0]["holding_cost_amount"] == pytest.approx(12377.04)
+    assert rows[0]["holding_cost_source"] == "截图持有金额－持有收益"
+
+
+def test_parser_does_not_use_adjacent_amount_when_summary_columns_do_not_align():
+    rows = parse_fund_position_text(
+        "中欧时代先锋\n001938\n"
+        "持有金额(元)\n10,000.00\n"
+        "昨日收益 持有收益 持有收益率\n"
+        "-50.00 -2.04%\n"
+        "累计收益 -800.00 持有份额 5,000.00"
+    )
+
+    assert rows[0]["snapshot_holding_amount"] == pytest.approx(10000)
+    assert rows[0]["snapshot_holding_profit"] is None
+    assert rows[0]["holding_cost_amount"] is None
+
+
 def test_parser_never_uses_cumulative_profit_as_a_cost_fallback():
     rows = parse_fund_position_text(
         "中欧时代先锋\n001938\n持有份额 10000\n"
