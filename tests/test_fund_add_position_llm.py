@@ -104,6 +104,57 @@ def test_normalizer_downgrades_aggressive_result_when_history_is_insufficient():
     assert "不足3个交易日" in normalized["guardrail_note"]
 
 
+def test_normalizer_hides_batches_when_decision_is_waiting():
+    fact_pack = build_fund_add_position_fact_pack(_item(), _history())
+
+    normalized = normalize_fund_add_position_result(
+        {
+            "decision": "等待确认",
+            "risk_level": "中",
+            "confidence": 60,
+            "execution_plan": {
+                "batches": [
+                    {"condition": "下一交易日继续下跌", "budget_pct": 30, "purpose": "试探"}
+                ]
+            },
+        },
+        fact_pack,
+    )
+
+    assert normalized["decision"] == "等待确认"
+    assert normalized["execution_plan"]["batches"] == []
+    assert "隐藏" in normalized["guardrail_note"]
+
+
+def test_normalizer_caps_small_trial_to_one_twenty_percent_batch():
+    fact_pack = build_fund_add_position_fact_pack(_item(), _history())
+
+    normalized = normalize_fund_add_position_result(
+        {
+            "decision": "可小额试探",
+            "risk_level": "中",
+            "confidence": 65,
+            "execution_plan": {
+                "batches": [
+                    {"condition": "估值回落", "budget_pct": 35, "purpose": "首批"},
+                    {"condition": "净值确认", "budget_pct": 30, "purpose": "第二批"},
+                ]
+            },
+        },
+        fact_pack,
+    )
+
+    assert normalized["decision"] == "可小额试探"
+    assert normalized["execution_plan"]["batches"] == [
+        {
+            "batch": 1,
+            "condition": "估值回落",
+            "budget_pct": 20.0,
+            "purpose": "首批",
+        }
+    ]
+
+
 @patch("src.fund_add_position_llm.requests.post")
 def test_analyzer_requests_json_and_normalizes_execution_plan(mock_post):
     config = SimpleNamespace(

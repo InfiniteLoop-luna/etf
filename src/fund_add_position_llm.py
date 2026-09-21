@@ -277,6 +277,17 @@ def normalize_fund_add_position_result(
     if decision in {"可小额试探", "可分批加仓"} and not normalized_batches:
         decision = "等待确认"
         guardrail_note = "模型未提供可验证的分批触发条件，系统已将结论降级为等待确认。"
+    if decision == "可小额试探" and normalized_batches:
+        normalized_batches = [
+            {
+                **normalized_batches[0],
+                "budget_pct": min(normalized_batches[0]["budget_pct"], 20.0),
+            }
+        ]
+    if decision in {"暂不加仓", "等待确认"} and normalized_batches:
+        normalized_batches = []
+        if not guardrail_note:
+            guardrail_note = "当前结论不支持立即加仓，系统已隐藏模型附带的买入批次。"
 
     return {
         "schema_version": FUND_ADD_POSITION_SCHEMA_VERSION,
@@ -315,6 +326,8 @@ def analyze_fund_add_position_payload(
         "不得承诺收益，不得使用梭哈、满仓、稳赚、抄底等表述。"
         "执行计划只能按用户预设追加预算的比例分批，总和不得超过100%；"
         "每批必须给出可核验的触发条件，首批不得超过50%。"
+        "decision为可小额试探时只能给一批且不超过追加预算的20%；"
+        "decision为暂不加仓或等待确认时，batches必须为空。"
         "数据不足3个交易日时，只能输出暂不加仓或等待确认。"
         "输出必须是一个JSON对象，字段固定为decision, risk_level, confidence, summary, "
         "rationale, risks, preconditions, execution_plan。"
