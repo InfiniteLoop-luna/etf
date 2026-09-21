@@ -176,6 +176,13 @@ from src.fund_watchlist_dashboard import (
     build_fund_watchlist_table,
     sort_fund_watchlist_items,
 )
+from src.fund_add_position_llm import (
+    analyze_fund_add_position_payload,
+    build_fund_add_position_fact_pack,
+)
+from src.fund_estimate_snapshot_store import (
+    list_fund_estimate_snapshot_history,
+)
 from src.fund_position_ocr import (
     FundPositionOcrError,
     MAX_BATCH_IMAGE_BYTES,
@@ -187,6 +194,7 @@ from src.fund_position_ocr import (
     parse_money_amount,
     parse_share_amount,
 )
+from src.stock_research_llm_analysis import load_stock_research_llm_config
 from src.fund_watchlist_comparison_ui import render_fund_watchlist_comparison
 from scripts.funding_freshness_summary import build_summary as build_funding_freshness_summary
 from scripts.update_activity_summary import build_update_activity_summary
@@ -20159,6 +20167,221 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
     )
 
 
+def render_fund_add_position_analysis(
+    item: dict,
+    current_username: str,
+) -> None:
+    fund_code = str(item.get("fund_code") or "").strip().upper()
+    if not fund_code:
+        return
+    safe_code = "".join(character if character.isalnum() else "_" for character in fund_code)
+    state_key = (
+        "fund_add_position_analysis_"
+        + hashlib.sha1(
+            f"{current_username}|{fund_code}".encode("utf-8")
+        ).hexdigest()[:16]
+    )
+    config = load_stock_research_llm_config()
+
+    with st.container(border=True, key=f"fund_add_position_ai_{safe_code}"):
+        st.markdown("### 🧠 AI 加仓分析")
+        st.caption(
+            "基于近期每日估值、当前持仓收益与用户风险约束生成；仅按需调用大模型，"
+            "不会因看板自动刷新而重复计费。"
+        )
+        input_cols = st.columns([1.1, 1, 1, 1], vertical_alignment="bottom")
+        with input_cols[0]:
+            risk_profile = st.selectbox(
+                "风险偏好",
+                ["保守", "均衡", "进取"],
+                index=1,
+                key=f"fund_add_position_risk_{safe_code}",
+            )
+        with input_cols[1]:
+            planned_budget = st.number_input(
+                "计划追加预算（元，可选）",
+                min_value=0.0,
+                value=0.0,
+                step=100.0,
+                key=f"fund_add_position_budget_{safe_code}",
+                help="不填写时仍会给出各批次占计划追加预算的比例。",
+            )
+        with input_cols[2]:
+            max_batches = st.selectbox(
+                "最多分批",
+                [2, 3, 4],
+                index=1,
+                key=f"fund_add_position_batches_{safe_code}",
+            )
+        with input_cols[3]:
+            history_window = st.selectbox(
+                "估值观察期",
+                [5, 10, 20],
+                index=1,
+                format_func=lambda value: f"近 {value} 个估值日",
+                key=f"fund_add_position_window_{safe_code}",
+            )
+
+        analyze_clicked = st.button(
+            "生成加仓分析",
+            type="primary",
+            use_container_width=True,
+            disabled=not config.configured,
+            key=f"fund_add_position_analyze_{safe_code}",
+        )
+        if not config.configured:
+            st.info("大模型尚未配置，配置现有 DeepSeek 分析服务后即可使用。")
+
+        if analyze_clicked:
+            try:
+                fund_engine = get_fund_hot_engine_cached()
+                history = list_fund_estimate_snapshot_history(
+                    fund_engine,
+                    fund_code,
+                    limit=int(history_window),
+                )
+                fact_pack = build_fund_add_position_fact_pack(
+                    item,
+                    history,
+                    risk_profile=risk_profile,
+                    planned_budget=float(planned_budget),
+                    max_batches=int(max_batches),
+                    history_window=int(history_window),
+                )
+                with st.spinner("大模型正在分析近期估值与分批条件..."):
+                    result = analyze_fund_add_position_payload(
+                        fact_pack,
+                        config=config,
+                    )
+                if result:
+                    st.session_state[state_key] = {
+                        "username": current_username,
+                        "fund_code": fund_code,
+                        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "fact_pack": fact_pack,
+                        "result": result,
+                    }
+                else:
+                    st.error("大模型未返回有效分析，请稍后重试。")
+            except Exception as exc:
+                logger.warning("fund add-position analysis failed for %s: %s", fund_code, exc)
+                st.error("加仓分析生成失败，请稍后重试。")
+
+        saved = st.session_state.get(state_key)
+        if not isinstance(saved, dict) or not isinstance(saved.get("result"), dict):
+            st.caption(
+                "说明：每日估值仅为持仓穿透估算。系统会把估值历史不足、覆盖率偏低或"
+                "触发条件不明确的积极结论自动降级为“等待确认”。"
+            )
+            return
+
+        result = saved["result"]
+        fact_pack = saved.get("fact_pack") or {}
+        saved_constraints = fact_pack.get("user_constraints") or {}
+        current_settings = {
+            "risk_profile": str(risk_profile),
+            "planned_budget": round(float(planned_budget), 2),
+            "max_batches": int(max_batches),
+            "history_window": int(history_window),
+        }
+        saved_settings = {
+            "risk_profile": str(saved_constraints.get("risk_profile") or ""),
+            "planned_budget": round(float(saved_constraints.get("planned_budget") or 0.0), 2),
+            "max_batches": int(saved_constraints.get("max_batches") or 0),
+            "history_window": int(saved_constraints.get("history_window") or 0),
+        }
+        if current_settings != saved_settings:
+            st.info("分析参数已调整；下面仍是上次结果，请点击“生成加仓分析”更新。")
+        metric_cols = st.columns(3)
+        metric_cols[0].metric("是否加仓", result.get("decision") or "等待确认")
+        metric_cols[1].metric("风险等级", result.get("risk_level") or "中")
+        metric_cols[2].metric("模型置信度", f"{int(result.get('confidence') or 0)}/100")
+        estimate_summary = fact_pack.get("estimate_summary") or {}
+        budget_label = (
+            f"¥{float(saved_constraints.get('planned_budget') or 0):,.2f}"
+            if float(saved_constraints.get("planned_budget") or 0) > 0
+            else "未填写（仅给比例）"
+        )
+        estimate_range = "—"
+        if estimate_summary.get("start_date") and estimate_summary.get("end_date"):
+            estimate_range = (
+                f"{estimate_summary['start_date']} 至 {estimate_summary['end_date']}"
+            )
+        st.caption(
+            f"生成时间：{saved.get('generated_at', '-')}｜模型：{result.get('model', '-')}｜"
+            f"风险偏好：{saved_constraints.get('risk_profile', '-')}｜追加预算：{budget_label}｜"
+            f"估值样本：{int(estimate_summary.get('day_count') or 0)} 日（{estimate_range}）"
+        )
+        if result.get("guardrail_note"):
+            st.warning(result["guardrail_note"])
+        if result.get("summary"):
+            st.write(result["summary"])
+
+        detail_cols = st.columns(2)
+        with detail_cols[0]:
+            st.markdown("#### 判断依据")
+            for value in result.get("rationale") or []:
+                st.write(f"• {value}")
+            st.markdown("#### 加仓前提")
+            for value in result.get("preconditions") or []:
+                st.write(f"• {value}")
+        with detail_cols[1]:
+            st.markdown("#### 主要风险")
+            for value in result.get("risks") or []:
+                st.write(f"• {value}")
+            st.markdown("#### 停止加仓条件")
+            plan = result.get("execution_plan") or {}
+            for value in plan.get("do_not_add_conditions") or []:
+                st.write(f"• {value}")
+
+        plan = result.get("execution_plan") or {}
+        plan_rows = []
+        saved_budget = float(
+            ((fact_pack.get("user_constraints") or {}).get("planned_budget") or 0.0)
+        )
+        for batch in plan.get("batches") or []:
+            pct = float(batch.get("budget_pct") or 0.0)
+            plan_rows.append(
+                {
+                    "批次": f"第 {int(batch.get('batch') or len(plan_rows) + 1)} 批",
+                    "触发条件": str(batch.get("condition") or ""),
+                    "预算比例": f"{pct:.0f}%",
+                    "参考金额": (
+                        f"¥{saved_budget * pct / 100:,.2f}"
+                        if saved_budget > 0
+                        else "按预算比例执行"
+                    ),
+                    "目的": str(batch.get("purpose") or ""),
+                }
+            )
+        if plan_rows:
+            st.markdown("#### 分批执行方案")
+            st.dataframe(pd.DataFrame(plan_rows), hide_index=True, use_container_width=True)
+        if plan.get("review_trigger"):
+            st.info(f"复核条件：{plan['review_trigger']}")
+
+        with st.expander("查看模型使用的估值证据", expanded=False):
+            evidence = (fact_pack.get("daily_estimates") or [])
+            if evidence:
+                evidence_df = pd.DataFrame(evidence).rename(
+                    columns={
+                        "date": "日期",
+                        "estimate_pct": "估值涨跌幅(%)",
+                        "covered_weight_pct": "覆盖权重(%)",
+                        "quote_count": "有效行情数",
+                        "holding_count": "持仓数",
+                        "source": "来源",
+                    }
+                )
+                st.dataframe(evidence_df, hide_index=True, use_container_width=True)
+            else:
+                st.caption("暂无有效的每日估值历史。")
+        st.caption(
+            "风险提示：该结果是基于有限估值数据的研究辅助，不构成基金销售、投资顾问或"
+            "收益承诺；请结合自身投资期限、风险承受能力和基金产品资料独立决策。"
+        )
+
+
 def render_fund_watchlist_add_panel(
     current_username: str,
     fund_engine,
@@ -21023,6 +21246,7 @@ def render_fund_watchlist_live_dashboard(items: list[dict], current_username: st
 
     focus_item = next(item for item in sorted_items if item["fund_code"] == focus_code)
     render_fund_watchlist_focus_detail(focus_item)
+    render_fund_add_position_analysis(focus_item, current_username)
 
 
 def render_fund_watchlist_tab() -> None:

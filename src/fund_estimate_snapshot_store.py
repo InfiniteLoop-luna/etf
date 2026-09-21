@@ -257,6 +257,35 @@ def list_latest_fund_estimate_snapshots(
     }
 
 
+def list_fund_estimate_snapshot_history(
+    engine: Engine,
+    fund_code: str,
+    *,
+    limit: int = 20,
+    ensure_table: bool = True,
+) -> list[dict]:
+    """Return recent daily estimate snapshots for one fund, newest first."""
+    if ensure_table:
+        ensure_fund_estimate_snapshot_table(engine)
+    normalized_code = str(fund_code or "").strip().upper()
+    if not normalized_code:
+        return []
+    normalized_limit = max(1, min(int(limit or 20), 60))
+    sql = f"""
+    SELECT {SNAPSHOT_COLUMNS}
+    FROM {TABLE_NAME}
+    WHERE fund_code = :fund_code
+    ORDER BY estimate_date DESC
+    LIMIT :limit
+    """
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(sql),
+            {"fund_code": normalized_code, "limit": normalized_limit},
+        ).mappings().all()
+    return [_normalize_snapshot_row(row) for row in rows]
+
+
 def list_fund_estimate_snapshots_for_date(
     engine: Engine,
     fund_codes,

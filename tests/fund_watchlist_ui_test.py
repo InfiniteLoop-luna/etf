@@ -171,6 +171,21 @@ def test_fund_watchlist_accepts_manual_positions_and_reviewed_screenshot_ocr():
     assert "截图存在购买处理中或在途资金" in APP_SOURCE
 
 
+def test_fund_watchlist_includes_on_demand_ai_add_position_analysis():
+    for text in [
+        "AI 加仓分析",
+        "生成加仓分析",
+        "计划追加预算（元，可选）",
+        "估值观察期",
+        "分批执行方案",
+        "停止加仓条件",
+        "list_fund_estimate_snapshot_history",
+        "analyze_fund_add_position_payload",
+    ]:
+        assert text in APP_SOURCE
+    assert "disabled=not config.configured" in APP_SOURCE
+
+
 def test_fund_watchlist_primary_actions_align_with_neighboring_controls():
     add_panel_source = _function_source("render_fund_watchlist_add_panel")
     dashboard_source = _function_source("render_fund_watchlist_live_dashboard")

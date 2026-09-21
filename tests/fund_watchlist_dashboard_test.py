@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from src.fund_estimate_snapshot_store import (
     get_fund_estimate_snapshot,
     get_latest_fund_estimate_snapshot,
+    list_fund_estimate_snapshot_history,
     upsert_fund_estimate_snapshot,
 )
 from src.fund_nav import (
@@ -657,3 +658,33 @@ def test_estimate_snapshot_store_round_trips_one_fund_date():
 
     latest_snapshot = get_latest_fund_estimate_snapshot(engine, "001938.OF")
     assert latest_snapshot["estimate_date"] == pd.Timestamp("2026-07-15")
+
+
+def test_estimate_snapshot_history_returns_recent_days_newest_first():
+    engine = create_engine("sqlite:///:memory:")
+    for day, estimate_pct in [
+        ("2026-07-15", -0.4),
+        ("2026-07-16", 0.2),
+        ("2026-07-17", -0.7),
+    ]:
+        upsert_fund_estimate_snapshot(
+            engine,
+            {
+                "fund_code": "001938.OF",
+                "estimate_date": day,
+                "estimate_pct": estimate_pct,
+                "quote_time": f"{day}T15:00:00+08:00",
+            },
+        )
+
+    history = list_fund_estimate_snapshot_history(
+        engine,
+        "001938.OF",
+        limit=2,
+    )
+
+    assert [row["estimate_date"] for row in history] == [
+        pd.Timestamp("2026-07-17"),
+        pd.Timestamp("2026-07-16"),
+    ]
+    assert [row["estimate_pct"] for row in history] == [-0.7, 0.2]
