@@ -171,19 +171,24 @@ def test_fund_watchlist_accepts_manual_positions_and_reviewed_screenshot_ocr():
     assert "截图存在购买处理中或在途资金" in APP_SOURCE
 
 
-def test_fund_watchlist_includes_on_demand_ai_add_position_analysis():
+def test_fund_watchlist_includes_on_demand_ai_position_decision_analysis():
     for text in [
-        "AI 加仓分析",
-        "生成加仓分析",
-        "计划追加预算（元，可选）",
-        "估值观察期",
-        "分批执行方案",
-        "停止加仓条件",
-        "list_fund_estimate_snapshot_history",
-        "analyze_fund_add_position_payload",
+        "AI 持仓决策分析",
+        "生成加减仓分析",
+        "计划追加预算（元，0=未指定）",
+        "持有目标",
+        "本次最大调整",
+        "多因素研判",
+        "条件化操作方案",
+        "查看发送给大模型的问题与完整数据",
+        "本次实际发送的用户消息",
+        "build_fund_market_context",
+        "analyze_fund_position_payload",
     ]:
         assert text in APP_SOURCE
     assert "disabled=not config.configured" in APP_SOURCE
+    assert "估值观察期" not in _function_source("render_fund_add_position_analysis")
+    assert "模型置信度" not in _function_source("render_fund_add_position_analysis")
 
 
 def test_fund_watchlist_primary_actions_align_with_neighboring_controls():

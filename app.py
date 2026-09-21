@@ -177,11 +177,12 @@ from src.fund_watchlist_dashboard import (
     sort_fund_watchlist_items,
 )
 from src.fund_add_position_llm import (
-    analyze_fund_add_position_payload,
-    build_fund_add_position_fact_pack,
-)
-from src.fund_estimate_snapshot_store import (
-    list_fund_estimate_snapshot_history,
+    MAJOR_INDEX_SYMBOLS,
+    analyze_fund_position_payload,
+    build_fund_market_context,
+    build_fund_position_fact_pack,
+    build_fund_position_prompts,
+    build_fund_position_retry_prompt,
 )
 from src.fund_position_ocr import (
     FundPositionOcrError,
@@ -18975,6 +18976,36 @@ def load_fund_watchlist_nav_snapshot_cached(fund_code: str) -> dict:
     return fetch_latest_fund_nav_snapshot(fund_code)
 
 
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def load_fund_position_nav_history_cached(fund_code: str) -> pd.DataFrame:
+    from src.fund_nav import (
+        fetch_fund_nav_history_akshare,
+        fetch_fund_nav_history_eastmoney,
+    )
+
+    end_date = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    start_date = end_date - timedelta(days=150)
+    try:
+        history = fetch_fund_nav_history_eastmoney(
+            fund_code,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if history is not None and not history.empty:
+            return history
+    except Exception as exc:
+        logger.warning("fund position NAV history primary load failed for %s: %s", fund_code, exc)
+    try:
+        return fetch_fund_nav_history_akshare(
+            fund_code,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except Exception as exc:
+        logger.warning("fund position NAV history fallback failed for %s: %s", fund_code, exc)
+        return pd.DataFrame()
+
+
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
 def load_fund_watchlist_meta_cached(fund_codes: tuple[str, ...]) -> pd.DataFrame:
     from src.fund_hot_stocks import query_fund_meta_by_codes
@@ -20170,6 +20201,7 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
 def render_fund_add_position_analysis(
     item: dict,
     current_username: str,
+    portfolio_items: list[dict] | None = None,
 ) -> None:
     fund_code = str(item.get("fund_code") or "").strip().upper()
     if not fund_code:
@@ -20184,10 +20216,10 @@ def render_fund_add_position_analysis(
     config = load_stock_research_llm_config()
 
     with st.container(border=True, key=f"fund_add_position_ai_{safe_code}"):
-        st.markdown("### 🧠 AI 加仓分析")
+        st.markdown("### 🧠 AI 持仓决策分析")
         st.caption(
-            "基于近期每日估值、当前持仓收益与用户风险约束生成；仅按需调用大模型，"
-            "不会因看板自动刷新而重复计费。"
+            "综合当前持仓、当日估值、重仓股与板块表现、主要指数、市场广度和已确认净值趋势，"
+            "研判加仓、持有或减仓；仅点击按钮时调用模型。"
         )
         input_cols = st.columns([1.1, 1, 1, 1], vertical_alignment="bottom")
         with input_cols[0]:
@@ -20198,32 +20230,33 @@ def render_fund_add_position_analysis(
                 key=f"fund_add_position_risk_{safe_code}",
             )
         with input_cols[1]:
+            holding_horizon = st.selectbox(
+                "持有目标",
+                ["短线波段", "中期配置", "长期持有"],
+                index=1,
+                key=f"fund_position_horizon_{safe_code}",
+            )
+        with input_cols[2]:
+            max_adjustment_pct = st.selectbox(
+                "本次最大调整",
+                [10, 20, 30, 50],
+                index=1,
+                format_func=lambda value: f"当前持仓的 {value}%",
+                key=f"fund_position_adjustment_{safe_code}",
+                help="加仓或减仓建议的最大幅度；模型不能超过这个上限。",
+            )
+        with input_cols[3]:
             planned_budget = st.number_input(
-                "计划追加预算（元，可选）",
+                "计划追加预算（元，0=未指定）",
                 min_value=0.0,
                 value=0.0,
                 step=100.0,
                 key=f"fund_add_position_budget_{safe_code}",
-                help="不填写时仍会给出各批次占计划追加预算的比例。",
-            )
-        with input_cols[2]:
-            max_batches = st.selectbox(
-                "最多分批",
-                [2, 3, 4],
-                index=1,
-                key=f"fund_add_position_batches_{safe_code}",
-            )
-        with input_cols[3]:
-            history_window = st.selectbox(
-                "估值观察期",
-                [5, 10, 20],
-                index=1,
-                format_func=lambda value: f"近 {value} 个估值日",
-                key=f"fund_add_position_window_{safe_code}",
+                help="输入 0 代表未指定金额，不会被解释为没有资金，也不影响方向判断。",
             )
 
         analyze_clicked = st.button(
-            "生成加仓分析",
+            "生成加减仓分析",
             type="primary",
             use_container_width=True,
             disabled=not config.configured,
@@ -20235,43 +20268,88 @@ def render_fund_add_position_analysis(
         if analyze_clicked:
             try:
                 fund_engine = get_fund_hot_engine_cached()
-                history = list_fund_estimate_snapshot_history(
-                    fund_engine,
-                    fund_code,
-                    limit=int(history_window),
+                market_state = get_fund_intraday_market_state()
+                quote_symbols = tuple(
+                    sorted(
+                        set(collect_fund_holding_symbols([item]))
+                        | set(MAJOR_INDEX_SYMBOLS)
+                    )
                 )
-                fact_pack = build_fund_add_position_fact_pack(
-                    item,
-                    history,
+                latest_quotes = load_fund_watchlist_realtime_quotes_cached(
+                    quote_symbols
+                )
+                analysis_item = enrich_fund_items_with_intraday_estimates(
+                    [item],
+                    latest_quotes,
+                    market_date=None,
+                )[0]
+                analysis_quote_time = pd.to_datetime(
+                    analysis_item.get("intraday_updated_at"), errors="coerce"
+                )
+                if not pd.isna(analysis_quote_time):
+                    analysis_item = attach_estimated_daily_amount(
+                        analysis_item,
+                        intraday_date=analysis_quote_time.date(),
+                    )
+                analysis_item = attach_current_position_metrics(analysis_item)
+                try:
+                    from src.etf_morning_report import load_saved_report
+
+                    saved_morning_report = load_saved_report() or {}
+                except Exception as exc:
+                    logger.warning("fund position morning context load failed: %s", exc)
+                    saved_morning_report = {}
+                market_context = build_fund_market_context(
+                    index_quotes=latest_quotes,
+                    market_state=market_state,
+                    saved_morning_report=saved_morning_report,
+                    engine=fund_engine,
+                )
+                nav_history = load_fund_position_nav_history_cached(fund_code)
+                fact_pack = build_fund_position_fact_pack(
+                    analysis_item,
+                    market_context=market_context,
+                    nav_history=nav_history,
+                    portfolio_items=portfolio_items or [analysis_item],
                     risk_profile=risk_profile,
+                    holding_horizon=holding_horizon,
                     planned_budget=float(planned_budget),
-                    max_batches=int(max_batches),
-                    history_window=int(history_window),
+                    max_adjustment_pct=float(max_adjustment_pct),
                 )
-                with st.spinner("大模型正在分析近期估值与分批条件..."):
-                    result = analyze_fund_add_position_payload(
+                system_prompt, user_prompt = build_fund_position_prompts(fact_pack)
+                with st.spinner("大模型正在综合持仓、当日估值、市场与板块信号..."):
+                    result = analyze_fund_position_payload(
                         fact_pack,
                         config=config,
                     )
                 if result:
+                    request_attempt = int(result.get("request_attempt") or 1)
+                    actual_user_prompt = (
+                        build_fund_position_retry_prompt(user_prompt)
+                        if request_attempt > 1
+                        else user_prompt
+                    )
                     st.session_state[state_key] = {
                         "username": current_username,
                         "fund_code": fund_code,
                         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "fact_pack": fact_pack,
+                        "system_prompt": system_prompt,
+                        "user_prompt": actual_user_prompt,
+                        "request_attempt": request_attempt,
                         "result": result,
                     }
                 else:
                     st.error("大模型未返回有效分析，请稍后重试。")
             except Exception as exc:
-                logger.warning("fund add-position analysis failed for %s: %s", fund_code, exc)
-                st.error("加仓分析生成失败，请稍后重试。")
+                logger.warning("fund position decision analysis failed for %s: %s", fund_code, exc)
+                st.error("加减仓分析生成失败，请稍后重试。")
 
         saved = st.session_state.get(state_key)
         if not isinstance(saved, dict) or not isinstance(saved.get("result"), dict):
             st.caption(
-                "说明：每日估值仅为持仓穿透估算。系统会把估值历史不足、覆盖率偏低或"
-                "触发条件不明确的积极结论自动降级为“等待确认”。"
+                "说明：当日估值只作为一个实时截面；趋势判断使用基金已确认净值。"
+                "单项数据缺失不会机械阻止模型研判，但会在数据局限中明确展示。"
             )
             return
 
@@ -20280,105 +20358,182 @@ def render_fund_add_position_analysis(
         saved_constraints = fact_pack.get("user_constraints") or {}
         current_settings = {
             "risk_profile": str(risk_profile),
-            "planned_budget": round(float(planned_budget), 2),
-            "max_batches": int(max_batches),
-            "history_window": int(history_window),
+            "holding_horizon": str(holding_horizon),
+            "planned_budget": (
+                round(float(planned_budget), 2) if float(planned_budget) > 0 else None
+            ),
+            "max_adjustment_pct": int(max_adjustment_pct),
         }
         saved_settings = {
             "risk_profile": str(saved_constraints.get("risk_profile") or ""),
-            "planned_budget": round(float(saved_constraints.get("planned_budget") or 0.0), 2),
-            "max_batches": int(saved_constraints.get("max_batches") or 0),
-            "history_window": int(saved_constraints.get("history_window") or 0),
+            "holding_horizon": str(saved_constraints.get("holding_horizon") or ""),
+            "planned_budget": (
+                round(float(saved_constraints.get("planned_additional_budget")), 2)
+                if saved_constraints.get("planned_additional_budget") is not None
+                else None
+            ),
+            "max_adjustment_pct": int(
+                saved_constraints.get(
+                    "max_single_analysis_adjustment_pct_of_current_position"
+                )
+                or 0
+            ),
         }
         if current_settings != saved_settings:
-            st.info("分析参数已调整；下面仍是上次结果，请点击“生成加仓分析”更新。")
-        metric_cols = st.columns(3)
-        metric_cols[0].metric("是否加仓", result.get("decision") or "等待确认")
+            st.info("分析参数已调整；下面仍是上次结果，请点击“生成加减仓分析”更新。")
+        metric_cols = st.columns(4)
+        action = str(result.get("action") or "持有")
+        strength = str(result.get("action_strength") or "不操作")
+        action_label = action if strength == "不操作" else f"{strength}{action}"
+        metric_cols[0].metric("建议动作", action_label)
         metric_cols[1].metric("风险等级", result.get("risk_level") or "中")
-        metric_cols[2].metric("模型置信度", f"{int(result.get('confidence') or 0)}/100")
-        estimate_summary = fact_pack.get("estimate_summary") or {}
-        budget_label = (
-            f"¥{float(saved_constraints.get('planned_budget') or 0):,.2f}"
-            if float(saved_constraints.get("planned_budget") or 0) > 0
-            else "未填写（仅给比例）"
+        metric_cols[2].metric(
+            "数据完整度", f"{int(result.get('data_completeness') or 0)}/100"
         )
-        estimate_range = "—"
-        if estimate_summary.get("start_date") and estimate_summary.get("end_date"):
-            estimate_range = (
-                f"{estimate_summary['start_date']} 至 {estimate_summary['end_date']}"
-            )
+        metric_cols[3].metric(
+            "多因素一致性",
+            str((result.get("signal_alignment") or {}).get("level") or "中"),
+        )
+        budget_label = (
+            f"¥{float(saved_constraints.get('planned_additional_budget')):,.2f}"
+            if saved_constraints.get("planned_additional_budget") is not None
+            else "未指定"
+        )
+        today_estimate = fact_pack.get("today_estimate") or {}
         st.caption(
             f"生成时间：{saved.get('generated_at', '-')}｜模型：{result.get('model', '-')}｜"
-            f"风险偏好：{saved_constraints.get('risk_profile', '-')}｜追加预算：{budget_label}｜"
-            f"估值样本：{int(estimate_summary.get('day_count') or 0)} 日（{estimate_range}）"
+            f"风险偏好：{saved_constraints.get('risk_profile', '-')}｜"
+            f"持有目标：{saved_constraints.get('holding_horizon', '-')}｜追加预算：{budget_label}｜"
+            f"估值时点：{today_estimate.get('quote_time') or today_estimate.get('estimate_date') or '-'}"
         )
-        if result.get("guardrail_note"):
-            st.warning(result["guardrail_note"])
+        if result.get("headline"):
+            st.markdown(f"#### {result['headline']}")
         if result.get("summary"):
             st.write(result["summary"])
 
         detail_cols = st.columns(2)
         with detail_cols[0]:
-            st.markdown("#### 判断依据")
-            for value in result.get("rationale") or []:
+            st.markdown("#### 支持当前判断")
+            alignment = result.get("signal_alignment") or {}
+            for value in alignment.get("supporting") or []:
                 st.write(f"• {value}")
-            st.markdown("#### 加仓前提")
-            for value in result.get("preconditions") or []:
-                st.write(f"• {value}")
+            st.markdown("#### 持仓诊断")
+            diagnosis = result.get("position_diagnosis") or {}
+            for value in [
+                diagnosis.get("profit_loss_state"),
+                diagnosis.get("concentration_risk"),
+                diagnosis.get("cost_position_comment"),
+            ]:
+                if value:
+                    st.write(f"• {value}")
         with detail_cols[1]:
-            st.markdown("#### 主要风险")
-            for value in result.get("risks") or []:
+            st.markdown("#### 冲突与反方证据")
+            for value in alignment.get("conflicting") or []:
                 st.write(f"• {value}")
-            st.markdown("#### 停止加仓条件")
-            plan = result.get("execution_plan") or {}
-            for value in plan.get("do_not_add_conditions") or []:
+            st.markdown("#### 主要风险")
+            for value in result.get("key_risks") or []:
                 st.write(f"• {value}")
 
-        plan = result.get("execution_plan") or {}
+        factors = result.get("factor_assessment") or []
+        if factors:
+            st.markdown("#### 多因素研判")
+            factor_df = pd.DataFrame(factors).rename(
+                columns={
+                    "factor": "分析维度",
+                    "signal": "信号",
+                    "importance": "重要性",
+                    "analysis": "分析",
+                }
+            )
+            st.dataframe(factor_df, hide_index=True, use_container_width=True)
+
+        plan = result.get("action_plan") or {}
+        range_payload = plan.get("change_pct_range") or {}
+        amount_payload = plan.get("amount_range") or {}
+        if action != "持有":
+            pct_range_label = (
+                f"{float(range_payload.get('min') or 0):.0f}%–"
+                f"{float(range_payload.get('max') or 0):.0f}%"
+            )
+            if amount_payload.get("max") is not None:
+                amount_range_label = (
+                    f"¥{float(amount_payload.get('min') or 0):,.2f}–"
+                    f"¥{float(amount_payload.get('max') or 0):,.2f}"
+                )
+            else:
+                amount_range_label = "持仓金额不足，无法换算"
+            st.info(
+                f"建议调整区间：当前基金持仓的 {pct_range_label}｜"
+                f"参考金额：{amount_range_label}｜观察周期：{result.get('time_horizon', '-')}"
+            )
+
         plan_rows = []
-        saved_budget = float(
-            ((fact_pack.get("user_constraints") or {}).get("planned_budget") or 0.0)
-        )
         for batch in plan.get("batches") or []:
-            pct = float(batch.get("budget_pct") or 0.0)
+            amount = batch.get("reference_amount")
             plan_rows.append(
                 {
-                    "批次": f"第 {int(batch.get('batch') or len(plan_rows) + 1)} 批",
-                    "触发条件": str(batch.get("condition") or ""),
-                    "预算比例": f"{pct:.0f}%",
-                    "参考金额": (
-                        f"¥{saved_budget * pct / 100:,.2f}"
-                        if saved_budget > 0
-                        else "按预算比例执行"
-                    ),
+                    "批次": f"第 {int(batch.get('sequence') or len(plan_rows) + 1)} 批",
+                    "动作": str(batch.get("action") or action),
+                    "占当前持仓": f"{float(batch.get('pct_of_current_position') or 0):.1f}%",
+                    "参考金额": f"¥{float(amount):,.2f}" if amount is not None else "待确认",
+                    "触发条件": str(batch.get("trigger") or ""),
+                    "失效条件": str(batch.get("invalidation") or ""),
                     "目的": str(batch.get("purpose") or ""),
                 }
             )
         if plan_rows:
-            st.markdown("#### 分批执行方案")
+            st.markdown("#### 条件化操作方案")
             st.dataframe(pd.DataFrame(plan_rows), hide_index=True, use_container_width=True)
-        if plan.get("review_trigger"):
-            st.info(f"复核条件：{plan['review_trigger']}")
 
-        with st.expander("查看模型使用的估值证据", expanded=False):
-            evidence = (fact_pack.get("daily_estimates") or [])
-            if evidence:
-                evidence_df = pd.DataFrame(evidence).rename(
-                    columns={
-                        "date": "日期",
-                        "estimate_pct": "估值涨跌幅(%)",
-                        "covered_weight_pct": "覆盖权重(%)",
-                        "quote_count": "有效行情数",
-                        "holding_count": "持仓数",
-                        "source": "来源",
-                    }
-                )
-                st.dataframe(evidence_df, hide_index=True, use_container_width=True)
-            else:
-                st.caption("暂无有效的每日估值历史。")
+        scenarios = result.get("scenario_plan") or []
+        if scenarios:
+            st.markdown("#### 情景应对")
+            scenario_df = pd.DataFrame(scenarios).rename(
+                columns={
+                    "scenario": "情景",
+                    "observable_trigger": "可观察条件",
+                    "response": "对应动作",
+                }
+            )
+            st.dataframe(scenario_df, hide_index=True, use_container_width=True)
+        if result.get("next_review_trigger"):
+            st.info(f"下一次复核：{result['next_review_trigger']}")
+
+        limitations = result.get("data_limitations") or []
+        if limitations:
+            with st.expander("数据局限", expanded=False):
+                for value in limitations:
+                    st.write(f"• {value}")
+
+        with st.expander("查看发送给大模型的问题与完整数据", expanded=False):
+            st.markdown("##### 系统提示词")
+            st.code(saved.get("system_prompt") or "", language="text")
+            st.markdown(
+                f"##### 本次实际发送的用户消息（第 {int(saved.get('request_attempt') or 1)} 次）"
+            )
+            user_prompt = str(saved.get("user_prompt") or "")
+            fact_marker = "\n\nFactPack:\n"
+            st.code(user_prompt.split(fact_marker, 1)[0], language="text")
+            st.markdown("##### FactPack 数据")
+            st.json(fact_pack, expanded=False)
+
+        with st.expander("查看持仓、板块与市场证据", expanded=False):
+            exposure = fact_pack.get("fund_exposure") or {}
+            sector_rows = exposure.get("sector_aggregates") or []
+            holding_rows = exposure.get("top_holdings") or []
+            market_rows = (fact_pack.get("market_context") or {}).get("major_indices") or []
+            if sector_rows:
+                st.markdown("##### 持仓板块表现")
+                st.dataframe(pd.DataFrame(sector_rows), hide_index=True, use_container_width=True)
+            if holding_rows:
+                st.markdown("##### 前十大持仓实时贡献")
+                st.dataframe(pd.DataFrame(holding_rows), hide_index=True, use_container_width=True)
+            if market_rows:
+                st.markdown("##### 主要指数")
+                st.dataframe(pd.DataFrame(market_rows), hide_index=True, use_container_width=True)
         st.caption(
-            "风险提示：该结果是基于有限估值数据的研究辅助，不构成基金销售、投资顾问或"
-            "收益承诺；请结合自身投资期限、风险承受能力和基金产品资料独立决策。"
+            "说明：实时估值来自最新披露持仓的穿透估算，实际持仓可能已经变化；"
+            "研判用于辅助仓位管理，不是收益保证。"
         )
 
 
@@ -21246,7 +21401,11 @@ def render_fund_watchlist_live_dashboard(items: list[dict], current_username: st
 
     focus_item = next(item for item in sorted_items if item["fund_code"] == focus_code)
     render_fund_watchlist_focus_detail(focus_item)
-    render_fund_add_position_analysis(focus_item, current_username)
+    render_fund_add_position_analysis(
+        focus_item,
+        current_username,
+        portfolio_items=sorted_items,
+    )
 
 
 def render_fund_watchlist_tab() -> None:
