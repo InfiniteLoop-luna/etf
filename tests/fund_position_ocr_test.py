@@ -64,6 +64,7 @@ def test_broker_summary_with_values_above_labels_derives_cost():
         {"text": "在途资金 500.00元 可用份额 9,698.70份", "confidence": 0.7977},
         {"text": "日涨幅 4.26% 最新净值 4.9229(09-18)", "confidence": 0.785},
         {"text": "持仓成本价 4.7041 银行卡尾号 4906", "confidence": 0.7961},
+        {"text": "累计收益 9,999.99", "confidence": 0.79},
     ]
 
     rows = parse_fund_position_text("", lines=lines)
@@ -139,7 +140,7 @@ def test_parser_scopes_share_and_money_labels_and_infers_cost():
     rows = parse_fund_position_text(
         "中欧时代先锋\n001938\n"
         "持有份额 10000 持有金额 25,888.00元\n"
-        "累计收益 -1,200.50元"
+        "持有收益 -1,200.50元"
     )
 
     assert len(rows) == 1
@@ -147,13 +148,64 @@ def test_parser_scopes_share_and_money_labels_and_infers_cost():
     assert rows[0]["snapshot_holding_amount"] == pytest.approx(25888)
     assert rows[0]["snapshot_holding_profit"] == pytest.approx(-1200.5)
     assert rows[0]["holding_cost_amount"] == pytest.approx(27088.5)
-    assert rows[0]["holding_cost_source"] == "截图持有金额－累计持仓收益"
+    assert rows[0]["holding_cost_source"] == "截图持有金额－持有收益"
+
+
+@pytest.mark.parametrize(
+    ("profit_lines", "expected_profit", "expected_cost"),
+    [
+        ("累计收益 3,000元\n持有收益 1,000元", 1000, 9000),
+        ("持有收益 -1,000元\n累计收益 3,000元", -1000, 11000),
+        ("累计收益 3,000元 持有收益 1,000元", 1000, 9000),
+    ],
+)
+def test_parser_always_prefers_current_holding_profit_over_cumulative_profit(
+    profit_lines,
+    expected_profit,
+    expected_cost,
+):
+    rows = parse_fund_position_text(
+        "中欧时代先锋\n001938\n持有份额 10000\n"
+        f"持有金额 10,000元\n{profit_lines}"
+    )
+
+    assert rows[0]["snapshot_holding_profit"] == pytest.approx(expected_profit)
+    assert rows[0]["holding_cost_amount"] == pytest.approx(expected_cost)
+    assert rows[0]["holding_cost_source"] == "截图持有金额－持有收益"
+
+
+@pytest.mark.parametrize(
+    "summary_lines",
+    [
+        "累计收益 持有收益 持有收益率\n3,000 -1,000 -9.09%",
+        "3,000 -1,000 -9.09%\n累计收益 持有收益 持有收益率",
+    ],
+)
+def test_parser_keeps_cumulative_profit_as_a_layout_slot_only(summary_lines):
+    rows = parse_fund_position_text(
+        "中欧时代先锋\n001938\n持有份额 10000\n"
+        f"持有金额 10,000元\n{summary_lines}"
+    )
+
+    assert rows[0]["snapshot_holding_profit"] == pytest.approx(-1000)
+    assert rows[0]["holding_cost_amount"] == pytest.approx(11000)
+
+
+def test_parser_never_uses_cumulative_profit_as_a_cost_fallback():
+    rows = parse_fund_position_text(
+        "中欧时代先锋\n001938\n持有份额 10000\n"
+        "持有金额 10,000元\n累计收益 3,000元"
+    )
+
+    assert rows[0]["snapshot_holding_profit"] is None
+    assert rows[0]["holding_cost_amount"] is None
+    assert rows[0]["holding_cost_source"] == ""
 
 
 def test_six_digit_money_on_next_line_is_not_parsed_as_fund_code():
     rows = parse_fund_position_text(
         "中欧时代先锋\n001938\n持有份额\n10000\n"
-        "持有金额\n123456\n累计收益\n2345"
+        "持有金额\n123456\n持有收益\n2345"
     )
 
     assert len(rows) == 1
@@ -178,7 +230,7 @@ def test_parser_ignores_today_profit_and_cost_nav_as_total_cost():
 def test_explicit_cost_conflict_requires_manual_review():
     rows = parse_fund_position_text(
         "中欧时代先锋\n001938\n持有份额 10000份\n"
-        "持有金额 25,888元\n累计收益 1,000元\n总成本 20,000元"
+        "持有金额 25,888元\n持有收益 1,000元\n总成本 20,000元"
     )
 
     assert rows[0]["holding_cost_amount"] == pytest.approx(20000)
@@ -195,7 +247,7 @@ def test_broker_screenshot_recovers_code_separator_and_derives_cost():
         "21,314.29\n"
         "09月18日预估收益 持有收益 持有收益率\n"
         "+516.01 -1,685.71 -7.33%\n"
-        "累计收益 -1,685.71 持有份额 4,648.70\n"
+        "累计收益 -3,200.00 持有份额 4,648.70\n"
         "最新净值 4.6960(09月18日）"
     )
 
@@ -206,7 +258,7 @@ def test_broker_screenshot_recovers_code_separator_and_derives_cost():
     assert rows[0]["snapshot_holding_amount"] == pytest.approx(21314.29)
     assert rows[0]["snapshot_holding_profit"] == pytest.approx(-1685.71)
     assert rows[0]["holding_cost_amount"] == pytest.approx(23000)
-    assert rows[0]["holding_cost_source"] == "截图持有金额－累计持仓收益"
+    assert rows[0]["holding_cost_source"] == "截图持有金额－持有收益"
 
 
 @pytest.mark.parametrize(
@@ -313,7 +365,7 @@ def test_extract_ocr_selects_more_complete_provider_result():
         {"text": "0176121混合型基金1高风险", "confidence": 0.80},
         {"text": "持有金额(元）", "confidence": 0.64},
         {"text": "21,314.29", "confidence": 0.81},
-        {"text": "累计收益 -1,685.71 持有份额 4,648.70", "confidence": 0.77},
+        {"text": "持有收益 -1,685.71 累计收益 -3,200.00 持有份额 4,648.70", "confidence": 0.77},
     ]
     with patch(
         "src.fund_position_ocr._extract_with_tesseract",

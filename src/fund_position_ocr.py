@@ -34,9 +34,14 @@ _HOLDING_AMOUNT_LABEL_PATTERN = re.compile(
     r"持有金额|持仓金额|持有市值|持仓市值|当前市值|基金市值|"
     r"^金额\s*[\(（]\s*元\s*[\)）]\s*[0Oo○◯ⓘ。·]?\s*$"
 )
-_HOLDING_PROFIT_LABEL_PATTERN = re.compile(
-    r"持有收益(?!率)|持仓收益(?!率)|累计收益(?!率)|"
-    r"累计盈亏(?!率)|持仓盈亏(?!率)|浮动盈亏(?!率)|持有盈亏(?!率)"
+_CURRENT_HOLDING_PROFIT_LABEL_PATTERN = re.compile(
+    r"持有收益(?!率)|持仓收益(?!率)|"
+    r"持仓盈亏(?!率)|浮动盈亏(?!率)|持有盈亏(?!率)"
+)
+# 累计收益可能包含已经卖出的历史盈亏，只作为版面分隔和槽位识别，
+# 绝不能用于反推当前剩余持仓成本。
+_CUMULATIVE_PROFIT_LABEL_PATTERN = re.compile(
+    r"累计收益(?!率)|累计盈亏(?!率)"
 )
 _HOLDING_COST_LABEL_PATTERN = re.compile(
     r"持仓成本金额|持有成本金额|成本金额|总成本|累计投入|投入本金|持仓本金"
@@ -47,7 +52,8 @@ _HOLDING_COST_PRICE_LABEL_PATTERN = re.compile(
 _POSITION_VALUE_LABEL_PATTERNS = (
     _SHARE_LABEL_PATTERN,
     _HOLDING_AMOUNT_LABEL_PATTERN,
-    _HOLDING_PROFIT_LABEL_PATTERN,
+    _CURRENT_HOLDING_PROFIT_LABEL_PATTERN,
+    _CUMULATIVE_PROFIT_LABEL_PATTERN,
     _HOLDING_COST_LABEL_PATTERN,
     _HOLDING_COST_PRICE_LABEL_PATTERN,
 )
@@ -780,7 +786,7 @@ def _extract_position_financials(
     )
     snapshot_profit, profit_evidence = _best_labeled_money_candidate(
         lines,
-        label_pattern=_HOLDING_PROFIT_LABEL_PATTERN,
+        label_pattern=_CURRENT_HOLDING_PROFIT_LABEL_PATTERN,
         code_index=code_index,
         block_start=block_start,
         block_end=block_end,
@@ -831,10 +837,10 @@ def _extract_position_financials(
         if amount_profit_cost is not None:
             tolerance = max(2.0, abs(explicit_cost) * 0.005)
             if abs(explicit_cost - amount_profit_cost) > tolerance:
-                cost_warning = "截图成本与持有金额、累计收益不一致，请人工核对"
+                cost_warning = "截图成本与持有金额、持有收益不一致，请人工核对"
     elif amount_profit_cost is not None:
         derived_cost = amount_profit_cost
-        cost_source = "截图持有金额－累计持仓收益"
+        cost_source = "截图持有金额－持有收益"
 
     return {
         "snapshot_holding_amount": snapshot_amount,
