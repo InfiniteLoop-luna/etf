@@ -231,15 +231,16 @@ def test_fund_watchlist_groups_position_returns_into_clear_sections():
         card_source,
         '<section class="ws-fund-watchboard__returns is-card"',
     )
-    focus_returns = _html_section_source(
-        focus_source,
-        '<section class="ws-fund-watchboard__returns is-focus"',
-    )
-    for section_source in [card_returns, focus_returns]:
+    for section_source in [card_returns]:
         assert 'aria-label="我的持仓与收益"' in section_source
         for label in ["实际持仓金额", "当前持仓收益", "当前剩余持仓成本", "每日预增金额"]:
             assert label in section_source
         assert "holding_shares_label" in section_source
+
+    assert '<section class="ws-fund-watchboard__returns is-focus"' not in focus_source
+    assert 'aria-label="我的持仓与收益"' not in focus_source
+    for label in ["实际持仓金额", "当前持仓收益", "当前剩余持仓成本", "每日预增金额"]:
+        assert label not in focus_source
 
     assert "基金规模" not in card_returns
     assert "前十大持仓市值" not in card_returns

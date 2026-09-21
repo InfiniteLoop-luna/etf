@@ -20035,41 +20035,6 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
     coverage_label = f"{covered_weight:.2f}% · {quote_count}/{holding_count} 只"
     nav_date_label = _fund_watchlist_date_label(item.get("nav_date"))
     nav_label = _fund_watchlist_number_label(item.get("unit_nav"), "", digits=4)
-    holding_shares_label = _fund_watchlist_number_label(
-        item.get("holding_shares"), "份", digits=2
-    )
-    holding_cost_label = _fund_watchlist_money_label(item.get("holding_cost_amount"))
-    actual_holding_amount_label = _fund_watchlist_money_label(
-        item.get("actual_holding_amount")
-    )
-    actual_holding_amount_date_label = _fund_watchlist_date_label(
-        item.get("actual_holding_amount_date")
-    )
-    actual_holding_amount_source_label = _fund_watchlist_text(
-        item.get("actual_holding_amount_source"), "-"
-    )
-    current_holding_profit = item.get("current_holding_profit")
-    current_holding_profit_label = _fund_watchlist_money_label(
-        current_holding_profit
-    )
-    current_holding_profit_pct_label = _fund_watchlist_signed_pct_label(
-        item.get("current_holding_profit_pct")
-    )
-    current_holding_profit_tone = _fund_watchlist_intraday_tone(
-        current_holding_profit
-    ).strip()
-    estimated_amount = item.get("estimated_daily_amount")
-    estimated_amount_label = _fund_watchlist_money_label(estimated_amount)
-    estimated_amount_tone = _fund_watchlist_intraday_tone(estimated_amount).strip()
-    estimated_amount_date_label = _fund_watchlist_date_label(
-        item.get("estimated_daily_amount_date")
-    )
-    estimated_amount_source_label = _fund_watchlist_text(
-        item.get("estimated_daily_amount_source"), "-"
-    )
-    estimated_base_nav_label = _fund_watchlist_number_label(
-        item.get("estimated_daily_base_nav"), "", digits=4
-    )
     daily_change = item.get("daily_change_pct")
     daily_change_label = _fund_watchlist_signed_pct_label(daily_change)
     daily_change_tone = _fund_watchlist_intraday_tone(daily_change).strip()
@@ -20179,38 +20144,6 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
                         <div class="ws-fund-watchboard__fact"><span>加入自选日期</span><strong>{added_label}</strong></div>
                     </div>
                 </div>
-                <section class="ws-fund-watchboard__returns is-focus" aria-label="我的持仓与收益">
-                    <div class="ws-fund-watchboard__returns-head">
-                        <strong>我的持仓与收益</strong>
-                        <span>持有 {holding_shares_label}</span>
-                    </div>
-                    <div class="ws-fund-watchboard__returns-grid">
-                        <div class="ws-fund-watchboard__return-item">
-                            <label>实际持仓金额</label>
-                            <strong>{actual_holding_amount_label}</strong>
-                            <small>{actual_holding_amount_date_label}</small>
-                        </div>
-                        <div class="ws-fund-watchboard__return-item {current_holding_profit_tone}">
-                            <label>当前持仓收益</label>
-                            <strong>{current_holding_profit_label}</strong>
-                            <small>{current_holding_profit_pct_label}</small>
-                        </div>
-                        <div class="ws-fund-watchboard__return-item">
-                            <label>当前剩余持仓成本</label>
-                            <strong>{holding_cost_label}</strong>
-                            <small>收益计算基准</small>
-                        </div>
-                        <div class="ws-fund-watchboard__return-item {estimated_amount_tone}">
-                            <label>每日预增金额</label>
-                            <strong>{estimated_amount_label}</strong>
-                            <small>{estimated_amount_date_label}</small>
-                        </div>
-                    </div>
-                    <div class="ws-fund-watchboard__returns-meta">
-                        <span>实际金额：{actual_holding_amount_source_label} · {actual_holding_amount_date_label}</span>
-                        <span>每日估值：{estimated_amount_source_label} · {estimated_amount_date_label} · 基准净值 {estimated_base_nav_label}</span>
-                    </div>
-                </section>
                 <div class="ws-fund-watchboard__focus-note">{freshness_detail}</div>
                 {error_html}
             </div>
