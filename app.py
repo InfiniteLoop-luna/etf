@@ -5091,7 +5091,7 @@ def render_single_stock_hotmoney_tracker(latest_dt):
     )
     st.markdown("#### 单股游资操作追踪")
 
-    ctl1, ctl2, ctl3, ctl4 = st.columns([1.15, 0.95, 0.95, 0.65])
+    ctl1, ctl2, ctl3, ctl4 = st.columns([1.15, 0.95, 0.95, 0.65], vertical_alignment="bottom")
     with ctl1:
         stock_query = st.text_input("股票代码/名称", value="", placeholder="000001.SZ / 000001 / 股票简称", key="hm_single_stock_query")
     with ctl2:
@@ -5109,7 +5109,6 @@ def render_single_stock_hotmoney_tracker(latest_dt):
             key="hm_single_stock_end",
         )
     with ctl4:
-        st.caption("操作")
         analyze_clicked = st.button("分析/刷新", type="primary", key="hm_single_stock_analyze", use_container_width=True)
 
     if analyze_clicked:
