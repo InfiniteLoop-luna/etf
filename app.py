@@ -167,6 +167,7 @@ from src.factor_workbench import (
     load_factor_workbench_frame,
 )
 from src.fund_watchlist_dashboard import (
+    attach_confirmed_nav_snapshot,
     attach_current_position_metrics,
     attach_estimated_daily_amount,
     attach_latest_closing_estimate,
@@ -18960,6 +18961,7 @@ def render_fund_monitor_tab():
 
 FUND_WATCHLIST_SESSION_CACHE_TTL_SECONDS = 900
 FUND_WATCHLIST_INTRADAY_CACHE_TTL_SECONDS = 55
+FUND_WATCHLIST_NAV_CACHE_TTL_SECONDS = 600
 
 
 @st.cache_resource(show_spinner=False)
@@ -18969,11 +18971,15 @@ def get_fund_hot_engine_cached():
     return get_fund_hot_engine()
 
 
-@st.cache_data(ttl=6 * 3600, show_spinner=False)
-def load_fund_watchlist_nav_snapshot_cached(fund_code: str) -> dict:
+@st.cache_data(ttl=FUND_WATCHLIST_NAV_CACHE_TTL_SECONDS, show_spinner=False)
+def load_fund_watchlist_nav_snapshot_cached(
+    fund_code: str,
+    as_of_date_key: str,
+) -> dict:
     from src.fund_nav import fetch_latest_fund_nav_snapshot
 
-    return fetch_latest_fund_nav_snapshot(fund_code)
+    as_of_date = pd.to_datetime(as_of_date_key, errors="raise").date()
+    return fetch_latest_fund_nav_snapshot(fund_code, as_of_date=as_of_date)
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
@@ -19094,6 +19100,80 @@ def _clear_fund_watchlist_session_cache() -> None:
     st.session_state.pop("fund_watchlist_dashboard_cache", None)
 
 
+def refresh_fund_watchlist_confirmed_nav(
+    items: list[dict],
+    current_username: str,
+) -> list[dict]:
+    """Refresh confirmed NAVs inside the live fragment while preserving last good values."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    if not items:
+        return []
+    as_of_date_key = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    fund_codes = tuple(
+        sorted(
+            {
+                str(item.get("fund_code") or "").strip().upper()
+                for item in items
+                if str(item.get("fund_code") or "").strip()
+            }
+        )
+    )
+    snapshots: dict[str, dict] = {}
+    errors: dict[str, str] = {}
+    latest_good_key = (
+        "fund_watchlist_latest_good_nav_"
+        + hashlib.sha1(str(current_username or "").encode("utf-8")).hexdigest()[:16]
+    )
+    latest_good = st.session_state.get(latest_good_key)
+    latest_good = dict(latest_good) if isinstance(latest_good, dict) else {}
+    if fund_codes:
+        with ThreadPoolExecutor(max_workers=min(8, len(fund_codes))) as executor:
+            futures = {
+                executor.submit(
+                    load_fund_watchlist_nav_snapshot_cached,
+                    fund_code,
+                    as_of_date_key,
+                ): fund_code
+                for fund_code in fund_codes
+            }
+            for future in as_completed(futures):
+                fund_code = futures[future]
+                try:
+                    snapshots[fund_code] = future.result() or {}
+                except Exception as exc:
+                    logger.warning("fund watchlist live NAV refresh failed for %s: %s", fund_code, exc)
+                    errors[fund_code] = str(exc)
+
+    refreshed_items = []
+    for item in items:
+        fund_code = str(item.get("fund_code") or "").strip().upper()
+        snapshot = snapshots.get(fund_code)
+        saved_snapshot = latest_good.get(fund_code)
+        if snapshot:
+            snapshot_date = pd.to_datetime(snapshot.get("nav_date"), errors="coerce")
+            saved_date = pd.to_datetime(
+                (saved_snapshot or {}).get("nav_date"), errors="coerce"
+            )
+            if pd.isna(saved_date) or (
+                not pd.isna(snapshot_date) and snapshot_date >= saved_date
+            ):
+                latest_good[fund_code] = snapshot
+            else:
+                snapshot = saved_snapshot
+        elif saved_snapshot:
+            snapshot = saved_snapshot
+        if snapshot:
+            refreshed_items.append(attach_confirmed_nav_snapshot(item, snapshot))
+            continue
+        preserved = attach_current_position_metrics(item)
+        if errors.get(fund_code):
+            preserved["nav_error"] = "最新确认净值刷新失败，继续展示上次已确认数据。"
+        refreshed_items.append(preserved)
+    st.session_state[latest_good_key] = latest_good
+    return refreshed_items
+
+
 def _show_fund_watchlist_flash() -> None:
     flash = st.session_state.pop("fund_watchlist_flash", None)
     if not isinstance(flash, dict):
@@ -19147,11 +19227,16 @@ def load_fund_watchlist_dashboard_data(
     market_state = get_fund_intraday_market_state()
 
     nav_snapshots: dict[str, dict] = {}
+    nav_as_of_date_key = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
     if fund_codes:
         max_workers = min(8, len(fund_codes))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(load_fund_watchlist_nav_snapshot_cached, fund_code): fund_code
+                executor.submit(
+                    load_fund_watchlist_nav_snapshot_cached,
+                    fund_code,
+                    nav_as_of_date_key,
+                ): fund_code
                 for fund_code in fund_codes
             }
             for future in as_completed(futures):
@@ -19181,10 +19266,13 @@ def load_fund_watchlist_dashboard_data(
         for code, snapshot in (snapshots or {}).items():
             estimate_snapshot_map[(code, date_key)] = snapshot
 
+        shanghai_now = pd.Timestamp(
+            market_state.get("now") or datetime.now(ZoneInfo("Asia/Shanghai"))
+        )
         can_backfill_same_day = (
-            date_key == pd.Timestamp(datetime.now().date()).strftime("%Y-%m-%d")
+            date_key == shanghai_now.strftime("%Y-%m-%d")
             and not market_state.get("is_active")
-            and pd.Timestamp(datetime.now()).time() >= datetime.strptime("15:00", "%H:%M").time()
+            and shanghai_now.time() >= datetime.strptime("15:00", "%H:%M").time()
         )
         if can_backfill_same_day:
             missing_codes = [code for code in unique_codes if (code, date_key) not in estimate_snapshot_map]
@@ -19223,7 +19311,7 @@ def load_fund_watchlist_dashboard_data(
         nav_snapshot = nav_snapshots.get(fund_code, {})
         nav_error = ""
         if nav_snapshot.get("error"):
-            nav_error = "前一日净值暂不可用，已优先展示基金估值与持仓数据。"
+            nav_error = "最新确认净值暂不可用，已优先展示基金估值与持仓数据。"
 
         nav_date = pd.to_datetime(nav_snapshot.get("nav_date"), errors="coerce")
         if estimate_store_error:
@@ -19295,12 +19383,14 @@ def load_fund_watchlist_dashboard_data_session_cached(
         )
         for _, row in watchlist_df.iterrows()
     )
+    nav_as_of_date_key = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
     now = time.time()
     cache = st.session_state.get("fund_watchlist_dashboard_cache")
     if (
         isinstance(cache, dict)
         and cache.get("username") == username
         and cache.get("fingerprint") == cache_fingerprint
+        and cache.get("nav_as_of_date_key") == nav_as_of_date_key
         and now - float(cache.get("saved_at", 0.0))
         < FUND_WATCHLIST_SESSION_CACHE_TTL_SECONDS
     ):
@@ -19311,6 +19401,7 @@ def load_fund_watchlist_dashboard_data_session_cached(
         "username": username,
         "codes": codes,
         "fingerprint": cache_fingerprint,
+        "nav_as_of_date_key": nav_as_of_date_key,
         "saved_at": now,
         "items": items,
     }
@@ -19565,12 +19656,15 @@ def render_fund_watchlist_intraday_status(
                 """
             )
         with status_cols[1]:
-            if market_state.get("is_active") and st.button(
-                "刷新盘中估值",
+            if st.button(
+                "刷新净值与估值",
                 key="fund_watchlist_intraday_refresh",
                 use_container_width=True,
             ):
+                load_fund_watchlist_nav_snapshot_cached.clear()
                 load_fund_watchlist_realtime_quotes_cached.clear()
+                load_fund_watchlist_latest_closing_estimates_cached.clear()
+                _clear_fund_watchlist_session_cache()
                 st.rerun()
 
 
@@ -19697,7 +19791,7 @@ def _build_fund_watchlist_card_html(item: dict, focus_code: str) -> str:
             <span>{freshness_detail}</span>
         </div>
         <div class="ws-fund-watchboard__confirmed-nav">
-            <div><small>前一日净值</small><strong>{nav_label}</strong></div>
+            <div><small>最新确认净值</small><strong>{nav_label}</strong></div>
             <div class="{daily_change_tone.strip()}"><small>实际涨跌幅</small><strong>{daily_change_label}</strong></div>
             <div class="{closing_estimate_tone.strip()}"><small>同日对比15:00估值</small><strong>{closing_estimate_label}</strong></div>
             <div class="{estimate_deviation_tone.strip()}"><small>同日估值偏差</small><strong>{estimate_deviation_label}</strong></div>
@@ -19954,7 +20048,7 @@ def render_fund_watchlist_table(items: list[dict], *, focus_code: str) -> str:
             use_container_width=True,
             hide_index=True,
             column_config={
-                "前一日净值": st.column_config.NumberColumn(format="%.4f"),
+                "最新确认净值": st.column_config.NumberColumn(format="%.4f"),
                 "持有份额": st.column_config.NumberColumn(format="%.2f"),
                 "持仓成本金额(元)": st.column_config.NumberColumn(format="%.2f"),
                 "实际持仓金额(元)": st.column_config.NumberColumn(format="%.2f"),
@@ -20173,7 +20267,7 @@ def render_fund_watchlist_focus_detail(item: dict) -> None:
                         <div class="ws-fund-watchboard__fact"><span>最新披露日期</span><strong>{latest_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>持仓时效</span><strong>{freshness_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>持仓数量</span><strong>{int(item.get("holding_count", 0))} 只</strong></div>
-                        <div class="ws-fund-watchboard__fact"><span>前一日净值</span><strong>{nav_label}</strong></div>
+                        <div class="ws-fund-watchboard__fact"><span>最新确认净值</span><strong>{nav_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>实际涨跌幅</span><strong{daily_change_class}>{daily_change_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>当天15:00估值</span><strong{latest_closing_estimate_class}>{latest_closing_estimate_label}</strong></div>
                         <div class="ws-fund-watchboard__fact"><span>净值日期</span><strong>{nav_date_label}</strong></div>
@@ -21287,7 +21381,7 @@ def render_fund_watchlist_add_panel(
 @st.fragment(run_every="60s")
 def render_fund_watchlist_live_dashboard(items: list[dict], current_username: str) -> None:
     market_state = get_fund_intraday_market_state()
-    dashboard_items = items
+    dashboard_items = refresh_fund_watchlist_confirmed_nav(items, current_username)
     try:
         fund_codes = tuple(item["fund_code"] for item in items)
         latest_estimate_map = load_fund_watchlist_latest_closing_estimates_cached(
@@ -21355,6 +21449,10 @@ def render_fund_watchlist_live_dashboard(items: list[dict], current_username: st
         "实际持仓金额 = 持有份额 × 基金公司最新已公布单位净值；"
         "当前持仓收益 = 实际持仓金额 − 当前剩余持仓成本。盘中估值不会冒充实际收益。"
     )
+    st.caption(
+        "确认净值每 60 秒检查一次、最多缓存 10 分钟；基金公司公布新净值后会自动重算持仓金额与收益。"
+        "QDII 等延迟披露基金仍以页面显示的实际净值日期为准。"
+    )
     render_fund_watchlist_summary(
         build_fund_watchlist_summary(
             live_items,
@@ -21411,7 +21509,7 @@ def render_fund_watchlist_live_dashboard(items: list[dict], current_username: st
 def render_fund_watchlist_tab() -> None:
     st.subheader("⭐ 自选基金")
     st.caption(
-        "追踪自选基金的前一日净值、15:00估值、每日估值偏差、盘中估值与持仓结构；"
+        "追踪自选基金的最新确认净值、15:00估值、每日估值偏差、盘中估值与持仓结构；"
         "支持个人持有份额、当前剩余持仓成本、实际持仓金额、当前持仓收益与每日预增金额。"
     )
     st.markdown(FUND_WATCHLIST_DASHBOARD_CSS, unsafe_allow_html=True)

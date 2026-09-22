@@ -16,6 +16,7 @@ from src.fund_nav import (
     normalize_fund_code_for_nav,
 )
 from src.fund_watchlist_dashboard import (
+    attach_confirmed_nav_snapshot,
     attach_current_position_metrics,
     attach_estimated_daily_amount,
     build_fund_holding_industry_heatmap_frame,
@@ -183,7 +184,7 @@ def test_build_latest_snapshot_calculates_change_when_source_value_is_missing():
     assert snapshot["daily_change_pct"] == pytest.approx(2.5)
 
 
-def test_fetch_latest_snapshot_strips_market_suffix_and_stops_before_today():
+def test_fetch_latest_snapshot_strips_market_suffix_and_includes_published_today(monkeypatch):
     class FakeAkClient:
         def __init__(self):
             self.kwargs = None
@@ -191,9 +192,13 @@ def test_fetch_latest_snapshot_strips_market_suffix_and_stops_before_today():
         def fund_etf_fund_info_em(self, **kwargs):
             self.kwargs = kwargs
             return pd.DataFrame(
-                [{"净值日期": "2026-07-15", "单位净值": 1.2345, "日增长率": 0.42}]
+                [{"净值日期": "2026-07-16", "单位净值": 1.2345, "日增长率": 0.42}]
             )
 
+    monkeypatch.setattr(
+        "src.fund_nav.fetch_fund_nav_history_eastmoney",
+        lambda *args, **kwargs: pd.DataFrame(),
+    )
     client = FakeAkClient()
     snapshot = fetch_latest_fund_nav_snapshot(
         "001938.OF",
@@ -204,8 +209,8 @@ def test_fetch_latest_snapshot_strips_market_suffix_and_stops_before_today():
 
     assert client.kwargs == {
         "fund": "001938",
-        "start_date": "20260615",
-        "end_date": "20260715",
+        "start_date": "20260616",
+        "end_date": "20260716",
     }
     assert snapshot["unit_nav"] == 1.2345
 
@@ -322,7 +327,7 @@ def test_table_and_sort_expose_confirmed_nav_fields():
 
     assert [item["fund_code"] for item in sorted_items] == ["005827.OF", "001938.OF"]
     assert table.iloc[0]["净值日期"] == "2026-07-15"
-    assert table.iloc[0]["前一日净值"] == 1.5378
+    assert table.iloc[0]["最新确认净值"] == 1.5378
     assert table.iloc[0]["日涨跌幅(%)"] == 0.75
 
 
@@ -444,6 +449,66 @@ def test_current_position_metrics_use_confirmed_nav_not_intraday_estimate():
     assert item["actual_holding_amount_source"] == "最新确认净值"
     assert item["current_holding_profit"] == pytest.approx(1604)
     assert item["current_holding_profit_pct"] == pytest.approx(8.02)
+
+
+def test_confirmed_nav_refresh_recalculates_position_profit_and_realigns_estimate():
+    initial = attach_current_position_metrics(
+        {
+            "holding_shares": 1000,
+            "holding_cost_amount": 1000,
+            "unit_nav": 1.0,
+            "nav_date": pd.Timestamp("2026-09-21"),
+            "daily_change_pct": 0.0,
+            "latest_closing_estimate_date": pd.Timestamp("2026-09-22"),
+            "latest_closing_estimate_pct": 9.5,
+            "latest_closing_estimate_covered_weight_pct": 68.0,
+            "latest_closing_estimate_quote_time": pd.Timestamp(
+                "2026-09-22 15:00:00+08:00"
+            ),
+        }
+    )
+
+    refreshed = attach_confirmed_nav_snapshot(
+        initial,
+        {
+            "nav_date": "2026-09-22",
+            "unit_nav": 1.1,
+            "previous_nav_date": "2026-09-21",
+            "previous_unit_nav": 1.0,
+            "daily_change_pct": 10.0,
+            "source": "东方财富 / AkShare",
+        },
+    )
+
+    assert refreshed["actual_holding_amount"] == pytest.approx(1100)
+    assert refreshed["current_holding_profit"] == pytest.approx(100)
+    assert refreshed["current_holding_profit_pct"] == pytest.approx(10)
+    assert refreshed["actual_holding_amount_date"] == pd.Timestamp("2026-09-22")
+    assert refreshed["closing_estimate_pct"] == pytest.approx(9.5)
+    assert refreshed["estimate_deviation_pct"] == pytest.approx(-0.5)
+
+
+def test_confirmed_nav_refresh_never_regresses_or_clears_last_good_value():
+    current = attach_current_position_metrics(
+        {
+            "holding_shares": 1000,
+            "holding_cost_amount": 1000,
+            "unit_nav": 1.1,
+            "nav_date": pd.Timestamp("2026-09-22"),
+        }
+    )
+
+    older = attach_confirmed_nav_snapshot(
+        current,
+        {"nav_date": "2026-09-21", "unit_nav": 1.0},
+    )
+    missing = attach_confirmed_nav_snapshot(current, {})
+
+    for result in (older, missing):
+        assert result["nav_date"] == pd.Timestamp("2026-09-22")
+        assert result["unit_nav"] == pytest.approx(1.1)
+        assert result["actual_holding_amount"] == pytest.approx(1100)
+        assert result["current_holding_profit"] == pytest.approx(100)
 
 
 def test_current_position_metrics_keep_value_when_cost_is_missing():

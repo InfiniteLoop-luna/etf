@@ -95,7 +95,7 @@ def test_fund_watchlist_intraday_estimate_is_visible_and_auto_refreshes():
     assert "盘中估算" in APP_SOURCE
     assert "实时覆盖权重(%)" in APP_SOURCE
     assert "实时涨跌 × 披露权重 = 估值贡献（百分点）" in APP_SOURCE
-    assert "刷新盘中估值" in APP_SOURCE
+    assert "刷新净值与估值" in APP_SOURCE
     assert "结果仅为盘中估算，不等同于基金公司公布的净值" in APP_SOURCE
 
 
@@ -110,9 +110,9 @@ def test_fund_watchlist_intraday_colors_follow_cn_market_convention():
         assert column in APP_SOURCE
 
 
-def test_fund_watchlist_shows_previous_day_nav_and_daily_change():
+def test_fund_watchlist_shows_latest_confirmed_nav_and_daily_change():
     assert "fetch_latest_fund_nav_snapshot" in APP_SOURCE
-    assert "前一日净值" in APP_SOURCE
+    assert "最新确认净值" in APP_SOURCE
     assert "日涨跌幅(%)" in APP_SOURCE
     assert "净值日期" in APP_SOURCE
     assert "确认净值显示最近已公布的单位净值与日涨跌幅" in APP_SOURCE
@@ -132,7 +132,7 @@ def test_fund_watchlist_copy_and_fields_are_chinese_fund_semantics():
     for text in [
         "请先登录用户名，再查看和管理你的自选基金。",
         "你的自选基金还是空的",
-        "追踪自选基金的前一日净值、15:00估值、每日估值偏差、盘中估值与持仓结构",
+        "追踪自选基金的最新确认净值、15:00估值、每日估值偏差、盘中估值与持仓结构",
         "平均 Top10 集中度",
         "持仓变动",
         "基金管理人",
@@ -233,6 +233,22 @@ def test_fund_watchlist_displays_confirmed_position_value_and_profit():
     assert "实际持仓金额 = 持有份额 × 基金公司最新已公布单位净值" in APP_SOURCE
     assert "当前持仓收益 = 实际持仓金额 − 当前剩余持仓成本" in APP_SOURCE
     assert "盘中估值不会冒充实际收益" in APP_SOURCE
+    assert "基金公司公布新净值后会自动重算持仓金额与收益" in APP_SOURCE
+
+
+def test_fund_watchlist_refreshes_confirmed_nav_inside_live_fragment():
+    live_source = _function_source("render_fund_watchlist_live_dashboard")
+    loader_source = _function_source("load_fund_watchlist_nav_snapshot_cached")
+    session_source = _function_source("load_fund_watchlist_dashboard_data_session_cached")
+    status_source = _function_source("render_fund_watchlist_intraday_status")
+
+    assert "refresh_fund_watchlist_confirmed_nav(items, current_username)" in live_source
+    assert "fund_watchlist_latest_good_nav_" in APP_SOURCE
+    assert "as_of_date_key" in loader_source
+    assert "FUND_WATCHLIST_NAV_CACHE_TTL_SECONDS = 600" in APP_SOURCE
+    assert 'cache.get("nav_as_of_date_key") == nav_as_of_date_key' in session_source
+    assert "load_fund_watchlist_nav_snapshot_cached.clear()" in status_source
+    assert "_clear_fund_watchlist_session_cache()" in status_source
 
 
 def test_fund_watchlist_groups_position_returns_into_clear_sections():

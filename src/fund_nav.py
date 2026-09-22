@@ -224,13 +224,16 @@ def fetch_latest_fund_nav_snapshot(
     ak_client=None,
     session: requests.sessions.Session | None = None,
 ) -> dict:
-    """Fetch the latest confirmed NAV before the current Shanghai calendar day.
+    """Fetch the latest confirmed NAV available by the Shanghai reference date.
 
-    Comparison uses the previous available disclosed NAV from the upstream
-    series, so any non-trading / non-disclosure day is skipped automatically.
+    The current date is included because fund companies commonly publish that
+    day's confirmed NAV after market close. During the trading session, the
+    upstream series naturally falls back to the latest already-published row.
+    Comparison uses the previous available disclosed NAV, so non-trading and
+    non-disclosure days are skipped automatically.
     """
     reference_date = as_of_date or datetime.now(ZoneInfo("Asia/Shanghai")).date()
-    end_date = reference_date - timedelta(days=1)
+    end_date = reference_date
     start_date = end_date - timedelta(days=max(7, int(lookback_days)))
 
     last_error: Exception | None = None

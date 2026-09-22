@@ -399,7 +399,73 @@ def attach_latest_closing_estimate(item: dict, snapshot: dict | None) -> dict:
             ),
         }
     )
+    return _reconcile_confirmed_nav_and_closing_estimate(enriched)
+
+
+def _reconcile_confirmed_nav_and_closing_estimate(item: dict) -> dict:
+    enriched = dict(item)
+    nav_date = _optional_timestamp(enriched.get("nav_date"))
+    estimate_date = _optional_timestamp(enriched.get("latest_closing_estimate_date"))
+    dates_match = (
+        not pd.isna(nav_date)
+        and not pd.isna(estimate_date)
+        and nav_date.date() == estimate_date.date()
+    )
+    estimate_pct = (
+        _optional_float(enriched.get("latest_closing_estimate_pct"))
+        if dates_match
+        else None
+    )
+    daily_change_pct = _optional_float(enriched.get("daily_change_pct"))
+    enriched.update(
+        {
+            "closing_estimate_date": estimate_date if dates_match else pd.NaT,
+            "closing_estimate_pct": estimate_pct,
+            "closing_estimate_covered_weight_pct": (
+                _optional_float(enriched.get("latest_closing_estimate_covered_weight_pct"))
+                if dates_match
+                else None
+            ),
+            "closing_estimate_quote_time": (
+                _optional_timestamp(enriched.get("latest_closing_estimate_quote_time"))
+                if dates_match
+                else pd.NaT
+            ),
+            "estimate_deviation_pct": (
+                estimate_pct - daily_change_pct
+                if estimate_pct is not None and daily_change_pct is not None
+                else None
+            ),
+        }
+    )
     return enriched
+
+
+def attach_confirmed_nav_snapshot(item: dict, snapshot: dict | None) -> dict:
+    """Merge a newer confirmed NAV and immediately recalculate personal returns."""
+    enriched = dict(item)
+    snapshot = snapshot or {}
+    incoming_date = _optional_timestamp(snapshot.get("nav_date"))
+    incoming_nav = _optional_float(snapshot.get("unit_nav"))
+    current_date = _optional_timestamp(enriched.get("nav_date"))
+    if incoming_nav is None or incoming_nav <= 0 or pd.isna(incoming_date):
+        return attach_current_position_metrics(enriched)
+    if not pd.isna(current_date) and incoming_date < current_date:
+        return attach_current_position_metrics(enriched)
+
+    enriched.update(
+        {
+            "nav_date": incoming_date,
+            "unit_nav": incoming_nav,
+            "previous_nav_date": _optional_timestamp(snapshot.get("previous_nav_date")),
+            "previous_unit_nav": _optional_float(snapshot.get("previous_unit_nav")),
+            "daily_change_pct": _optional_float(snapshot.get("daily_change_pct")),
+            "nav_source": str(snapshot.get("source") or ""),
+            "nav_error": "",
+        }
+    )
+    enriched = _reconcile_confirmed_nav_and_closing_estimate(enriched)
+    return attach_current_position_metrics(enriched)
 
 
 def calculate_estimated_daily_amount(
@@ -584,7 +650,7 @@ def build_fund_watchlist_table(items: Iterable[dict]) -> pd.DataFrame:
                     if not pd.isna(item.get("nav_date"))
                     else "-"
                 ),
-                "前一日净值": item.get("unit_nav"),
+                "最新确认净值": item.get("unit_nav"),
                 "持有份额": item.get("holding_shares"),
                 "持仓成本金额(元)": item.get("holding_cost_amount"),
                 "实际持仓金额(元)": item.get("actual_holding_amount"),

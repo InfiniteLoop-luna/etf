@@ -584,7 +584,7 @@ def collect_fact_pack(trade_date: str | None = None, engine=None) -> dict:
             target_date = pd.Timestamp(target).date()
             nav = fetch_latest_fund_nav_snapshot(
                 code,
-                as_of_date=target_date + timedelta(days=1),
+                as_of_date=target_date,
             ) or {}
             nav_date = _safe_date(nav.get("nav_date"))
             if nav_date != target:
