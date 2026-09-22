@@ -40,6 +40,13 @@ def test_page_visit_store_round_trips_and_filters():
         page_id="etf_main",
         visited_at=now - timedelta(hours=1),
     )
+    _record(
+        engine,
+        username=" LIJING ",
+        ip_address="192.0.2.44",
+        page_id="visit_analytics",
+        visited_at=now - timedelta(minutes=30),
+    )
 
     visits = list_page_visits(
         engine,
@@ -48,6 +55,7 @@ def test_page_visit_store_round_trips_and_filters():
     )
     assert list(visits["visit_id"]) == [second_id, first_id]
     assert set(visits["username"]) == {"alice", "bob"}
+    assert "LIJING" not in visits["username"].astype(str).str.upper().tolist()
 
     filtered = list_page_visits(engine, username="alice", ip_address="203.0.113.8")
     assert len(filtered) == 1

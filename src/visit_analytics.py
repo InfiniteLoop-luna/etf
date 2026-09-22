@@ -14,6 +14,7 @@ from sqlalchemy.engine import Engine
 
 TABLE_NAME = "app_page_visits"
 VISIT_ANALYTICS_ADMIN_USERNAME = "lijing"
+HIDDEN_ANALYTICS_USERNAMES = frozenset({VISIT_ANALYTICS_ADMIN_USERNAME})
 EMPTY_VISIT_COLUMNS = [
     "visit_id",
     "visited_at",
@@ -227,8 +228,8 @@ def list_page_visits(
     limit: int = 50_000,
 ) -> pd.DataFrame:
     ensure_page_visits_table(engine)
-    where_clauses: list[str] = []
-    params: dict[str, object] = {}
+    where_clauses: list[str] = ["LOWER(TRIM(username)) <> :hidden_username"]
+    params: dict[str, object] = {"hidden_username": VISIT_ANALYTICS_ADMIN_USERNAME}
     if start_at is not None:
         where_clauses.append("visited_at >= :start_at")
         params["start_at"] = start_at
