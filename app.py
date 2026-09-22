@@ -9806,7 +9806,7 @@ def render_etf_morning_report_page():
 
     dates = list_saved_report_dates()
     latest = load_saved_report()
-    control_date, control_action = st.columns([3, 1])
+    control_date, control_action = st.columns([3, 1], vertical_alignment="bottom")
     with control_date:
         selected = st.selectbox(
             "查看报告日期",
@@ -9817,7 +9817,6 @@ def render_etf_morning_report_page():
             placeholder="暂无历史报告",
         ) if dates else None
     with control_action:
-        st.write("")
         regenerate = st.button(
             "重新生成 T-1 晨报",
             type="primary",
