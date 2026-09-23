@@ -9912,23 +9912,22 @@ def render_funding_freshness_page():
             stale_keys = [str(item.get("key") or "").strip() for item in stale_items if str(item.get("key") or "").strip() in refresh_registry]
             options = {key: refresh_registry[key].get("label") or key for key in stale_keys}
             default_selected = stale_keys
-            selected_keys = st.multiselect(
-                "选择要刷新的异常链路",
-                options=list(options.keys()),
-                default=default_selected,
-                format_func=lambda key: f"{options.get(key, key)}（{key}）",
-                key="funding_freshness_manual_refresh_keys",
-            )
-
-            if "etf_category_agg" in selected_keys and "etf_share_size" in stale_keys and "etf_share_size" not in selected_keys:
-                st.info("ETF 分类聚合依赖 ETF 份额原始数据；如果 ETF 份额数据也滞后，建议一并勾选。")
-
-            action_cols = st.columns([1.2, 1.2, 1.2, 2.4])
+            action_cols = st.columns([2.4, 1.2, 1.2, 1.2], vertical_alignment="bottom")
             with action_cols[0]:
-                trigger_clicked = st.button("刷新所选异常项", type="primary", key="btn_manual_refresh_stale_items", use_container_width=True)
+                selected_keys = st.multiselect(
+                    "选择要刷新的异常链路",
+                    options=list(options.keys()),
+                    default=default_selected,
+                    format_func=lambda key: f"{options.get(key, key)}（{key}）",
+                    key="funding_freshness_manual_refresh_keys",
+                )
+                if "etf_category_agg" in selected_keys and "etf_share_size" in stale_keys and "etf_share_size" not in selected_keys:
+                    st.info("ETF 分类聚合依赖 ETF 份额原始数据；如果 ETF 份额数据也滞后，建议一并勾选。")
             with action_cols[1]:
-                summary_clicked = st.button("仅重算健康摘要", key="btn_refresh_funding_summary_only", use_container_width=True)
+                trigger_clicked = st.button("刷新所选异常项", type="primary", key="btn_manual_refresh_stale_items", use_container_width=True)
             with action_cols[2]:
+                summary_clicked = st.button("仅重算健康摘要", key="btn_refresh_funding_summary_only", use_container_width=True)
+            with action_cols[3]:
                 status_clicked = st.button("刷新状态面板", key="btn_refresh_manual_status_panel", use_container_width=True)
 
             if trigger_clicked:
