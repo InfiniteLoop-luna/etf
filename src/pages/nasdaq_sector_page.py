@@ -217,7 +217,7 @@ def render_nasdaq_sector_page() -> None:
     st.caption("以纳斯达克核心成长股为观察池，按交易主题聚合板块表现；板块收益采用核心代表股加权，不等同于官方行业指数。")
 
     with st.container(key="nasdaq-sector-toolbar"):
-        toolbar = st.columns([1.2, 1, 4])
+        toolbar = st.columns([1.2, 1, 4], vertical_alignment="bottom")
         with toolbar[0]:
             period = st.selectbox("观察周期", list(PERIOD_TO_DAYS), index=0, key="nasdaq_sector_period")
         with toolbar[1]:
